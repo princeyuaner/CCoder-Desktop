@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>CCoder · 并行会话 + git worktree 效果图</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body {
+        width: 1400px;
+        margin: 0;
+        overflow-x: hidden;
+        background: #0f0f0f;
+        color: #e8e8e8;
+        font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      body { padding: 30px 34px 44px; }
+      h1 { margin: 0 0 8px; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+      .lead { margin: 0; max-width: 940px; font-size: 13px; line-height: 1.75; color: #8a8a8a; }
+      .lead b { color: #c8c8c8; font-weight: 500; }
+      .lead code { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; color: #a9c6e2; }
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 20px;
+        margin-top: 24px;
+        overflow: hidden;
+      }
+      figure {
+        min-width: 0;
+        margin: 0;
+        overflow: hidden;
+        background: #141414;
+        border: 1px solid #262626;
+        border-radius: 12px;
+      }
+      figcaption {
+        display: flex;
+        align-items: baseline;
+        gap: 9px;
+        padding: 11px 14px;
+        border-bottom: 1px solid #262626;
+      }
+      .k {
+        font-family: 'Cascadia Mono', Consolas, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        color: #a9c6e2;
+        letter-spacing: 0.08em;
+      }
+      .t { font-size: 13px; color: #e0e0e0; font-weight: 600; }
+      .d { margin-left: auto; font-size: 11px; color: #6b6b6b; }
+      img { display: block; width: 100%; height: auto; }
+      .note {
+        display: flex;
+        gap: 10px;
+        margin-top: 22px;
+        padding: 12px 15px;
+        font-size: 12px;
+        line-height: 1.75;
+        color: #8f8f98;
+        background: #161a1d;
+        border: 1px solid #24303a;
+        border-radius: 9px;
+      }
+      .note b { color: #a9c6e2; font-weight: 600; }
+      .note span { flex: 1; }
+    </style>
+  </head>
+  <body>
+    <h1>并行会话 + git worktree</h1>
+    <p class="lead">
+      三种界面形态，共用同一套设计 token。核心结构是<b>会话标签</b> + <b>工作树信息条</b>；
+      每条会话绑定一个独立 worktree（独立目录 + 独立分支），结束后可以合并或丢弃。
+      运行中的会话用珊瑚色，分支相关元素统一用冷蓝色，两者不抢。
+    </p>
+
+    <div class="grid">
+      <figure>
+        <figcaption>
+          <span class="k">A</span>
+          <span class="t">标签页 + 工作树条</span>
+          <span class="d">改动最小，现有布局直接长出并行能力</span>
+        </figcaption>
+        <a href="shot-worktree-tabs.png" target="_blank"><img src="shot-worktree-tabs.png" alt="方案 A：标签页 + 工作树信息条" /></a>
+      </figure>
+
+      <figure>
+        <figcaption>
+          <span class="k">B</span>
+          <span class="t">左右分屏</span>
+          <span class="d">两条会话并排，各自审批、各自跑</span>
+        </figcaption>
+        <a href="shot-worktree-split.png" target="_blank"><img src="shot-worktree-split.png" alt="方案 B：左右分屏并行会话" /></a>
+      </figure>
+
+      <figure style="grid-column: 1 / -1">
+        <figcaption>
+          <span class="k">C</span>
+          <span class="t">新建工作树会话</span>
+          <span class="d">入口在侧栏「新会话」右侧的分支按钮；分支、目录、合并策略一次说清</span>
+        </figcaption>
+        <a href="shot-worktree-new.png" target="_blank"><img src="shot-worktree-new.png" alt="方案 C：新建工作树会话弹窗" /></a>
+      </figure>
+    </div>
+
+    <div class="note">
+      <b>取舍：</b>
+      <span>
+        A 成本最低，侧栏和标签就能表达「三条会话在并行」，但同一时刻只能看一条；
+        B 最适合盯着两个代理互相配合，代价是每条会话只剩半宽，长工具输出会频繁换行；
+        C 是 A/B 共用的入口。
+        我的建议：先做 A + C，把 worktree 生命周期跑通（创建 / 合并 / 丢弃），
+        分屏 B 作为下一档，等真的有人同时盯两条会话再加。
+      </span>
+    </div>
+  </body>
+</html>

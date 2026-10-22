@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>AskUserQuestion · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1040px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#desc .rec {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; vertical-align: 1px;
+  font-size: 10.5px; color: #a5f3fc; background: rgba(34,211,238,.12);
+  border: 1px solid rgba(34,211,238,.28); border-radius: 999px;
+}
+#stage { padding: 18px 24px 0; }
+
+/* ══ 应用外壳（只做背景，用来判断"遮不遮得住上下文"） ═══ */
+.app {
+  position: relative; display: flex;
+  width: 1080px; height: 720px;
+  background: #191919; border: 1px solid #26262e; border-radius: 12px;
+  overflow: hidden;
+}
+.side {
+  flex: none; width: 210px; padding: 16px 12px;
+  background: #141414; border-right: 1px solid #242424;
+}
+.side__brand { padding: 0 8px 16px; font-size: 13px; font-weight: 600; color: #e8e8e8; }
+.side__new {
+  display: block; width: 100%; margin-bottom: 16px; padding: 8px;
+  text-align: center; font-size: 12.5px; color: #d8d8e2;
+  background: #1e1e1e; border: 1px solid #2c2c2c; border-radius: 8px;
+}
+.side__grp { padding: 8px; font-size: 10.5px; letter-spacing: .4px; color: #4a4a55; }
+.side__it { padding: 6px 8px; font-size: 12.5px; color: #8a8a9a; border-radius: 6px; }
+
+.main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 26px 12px; border-bottom: 1px solid #202024;
+}
+.head__t { font-size: 13.5px; font-weight: 500; }
+.head__badge {
+  padding: 2px 9px; font-size: 11.5px; border-radius: 999px;
+  color: #8a8a9a; background: #232323; border: 1px solid #2c2c2c;
+}
+.body { flex: 1; min-height: 0; overflow: hidden; padding: 16px 26px 0; }
+.body__inner { max-width: 660px; margin: 0 auto; }
+.tl { position: relative; }
+.tl::before { content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px; width: 1px; background: #2c2c2c; }
+.row { position: relative; padding-left: 24px; margin-bottom: 11px; }
+.dot { position: absolute; left: 0; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: #3a3a46; box-shadow: 0 0 0 3px #191919; }
+.dot.me { background: #22d3ee; box-shadow: 0 0 0 3px #191919, 0 0 10px rgba(34,211,238,.55); }
+.dot.ok { background: #4b9e5f; }
+.dot.ask { background: #22d3ee; box-shadow: 0 0 0 3px #191919; }
+.row--me { display: flex; justify-content: flex-end; }
+.me {
+  display: inline-block; max-width: 80%; padding: 6px 11px;
+  font-size: 13px; line-height: 1.6; color: #d8f8ff;
+  background: rgba(34,211,238,.09); border: 1px solid rgba(34,211,238,.22); border-radius: 8px;
+}
+.say { font-size: 13px; line-height: 1.7; color: #dcdce6; }
+.say .ic { padding: 2px 5px; font-size: .86em; border-radius: 5px; background: #26262f; color: #ddd6fe; }
+.tool {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 11px; border-radius: 8px; font-size: 12.5px;
+  background: #1e1e24; border: 1px solid #28282f; color: #b8b8c8;
+}
+.tool .g { color: #4b9e5f; }
+.tool code { font-size: 11.5px; color: #8a8a9a; }
+
+.composer { flex: none; padding: 10px 26px 14px; }
+.cbox {
+  max-width: 660px; margin: 0 auto; padding: 11px 11px 9px;
+  background: #232323; border: 1px solid #2c2c2c; border-radius: 14px;
+}
+.cin { padding: 2px 4px 9px; font-size: 13px; color: #6b6b6b; }
+.cbar { display: flex; align-items: center; gap: 7px; }
+.sp { flex: 1; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px;
+  font-size: 12px; color: #a8a8a8; background: #232323; border: 1px solid #2c2c2c; border-radius: 999px;
+}
+.chip .d { width: 6px; height: 6px; border-radius: 50%; background: #4b9e5f; }
+.send { display: grid; place-items: center; width: 30px; height: 30px; font-size: 14px; color: #191919; background: #e8e8e8; border-radius: 50%; }
+.send.stop { background: #fcd34d; }
+.send.stop::after { content: ''; width: 9px; height: 9px; border-radius: 2px; background: #191919; }
+.cbox.is-locked { opacity: .5; }
+.cbox.is-locked .send { background: #3a3a44; }
+
+/* ══ 问答案板 ═══════════════════════════════════════════ */
+.dlg {
+  display: flex; flex-direction: column;
+  background: #202024; border: 1px solid #35353f; border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6);
+  overflow: hidden;
+}
+.qh {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px 11px; border-bottom: 1px solid #2c2c34;
+}
+.qh__badge {
+  flex: none; padding: 2px 9px; font-size: 11.5px; border-radius: 999px;
+  color: #a5f3fc; background: rgba(34,211,238,.14); border: 1px solid rgba(34,211,238,.24);
+}
+.qh__t { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: #e2e2ec; }
+.qh__q { flex: none; font-size: 11.5px; color: #6b6b78; }
+
+.q__b { padding: 14px 16px 2px; }
+.q__meta { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.q__chip {
+  padding: 2px 8px; font-size: 10.5px; letter-spacing: .3px;
+  color: #a5f3fc; background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.22);
+  border-radius: 999px;
+}
+.q__n { font-size: 11px; color: #5f5f6c; }
+.q__t { font-size: 14.5px; line-height: 1.6; color: #ececf4; }
+.q__t code {
+  padding: 1px 5px; font-size: .88em; border-radius: 5px;
+  background: #2a2a33; color: #ddd6fe;
+}
+
+.opts { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.opt {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 11px; border: 1px solid #2c2c34; border-radius: 10px;
+  background: #1d1d22;
+}
+.opt.is-on {
+  border-color: rgba(34,211,238,.55);
+  background: rgba(34,211,238,.07);
+  box-shadow: inset 0 0 0 1px rgba(34,211,238,.1);
+}
+.opt__m {
+  flex: none; width: 16px; height: 16px; margin-top: 1px;
+  border: 1.5px solid #4a4a55; border-radius: 50%;
+  display: grid; place-items: center;
+}
+.opt.is-on .opt__m { border-color: #22d3ee; }
+.opt.is-on .opt__m::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #22d3ee; }
+.opt.is-multi .opt__m { border-radius: 5px; }
+.opt.is-multi.is-on .opt__m { background: #22d3ee; }
+.opt.is-multi.is-on .opt__m::after { content: '✓'; width: auto; height: auto; background: none; color: #0d0d0f; font-size: 11px; }
+.opt__b { flex: 1; min-width: 0; display: block; }
+.opt__t { display: block; font-size: 12.8px; line-height: 1.5; color: #d8d8e2; }
+.opt__d { display: block; margin-top: 3px; font-size: 11.5px; line-height: 1.55; color: #7f7f8e; }
+.opt__kbd {
+  flex: none; width: 18px; height: 18px; margin-top: 1px;
+  display: grid; place-items: center; font-size: 10.5px;
+  color: #6f6f7e; border: 1px solid #34343e; border-radius: 5px;
+}
+.opt.is-on .opt__kbd { color: #a5f3fc; border-color: rgba(34,211,238,.32); }
+
+.other {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 11px; font-size: 12px; color: #6f6f7e;
+  border: 1px dashed #3a3a46; border-radius: 10px;
+}
+.other .opt__m { border-style: dashed; }
+
+.qf {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px 13px; border-top: 1px solid #2c2c34;
+}
+.qf__hint { flex: 1; font-size: 11px; color: #5c5c6a; }
+.btn {
+  padding: 7px 14px; font-size: 12.5px; border-radius: 8px;
+  color: #c0c0d0; border: 1px solid rgba(255,255,255,.16);
+}
+.btn .kbd { margin-left: 6px; font-size: 10.5px; color: #6b6b78; }
+.btn--primary { color: #0d0d0f; background: rgba(255,255,255,.92); border-color: transparent; font-weight: 600; }
+.btn--primary .kbd { color: #6b6b70; }
+.btn--ask { color: #a5f3fc; border-color: rgba(34,211,238,.35); }
+
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+
+/* ══ A · 居中模态 + 遮罩 ═══════════════════════════════ */
+[data-v="a"] .dlg {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  width: 600px; max-height: 540px;
+}
+
+/* ══ B · 底部抽屉（输入框上方） ════════════════════════ */
+[data-v="b"] .dlg {
+  position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%);
+  width: 760px; max-height: 440px;
+}
+[data-v="b"] .dlg .q__b { overflow: auto; }
+[data-v="b"] .composer { position: relative; z-index: 2; }
+
+/* ══ C · 右侧抽屉 ═════════════════════════════════════ */
+[data-v="c"] .dlg {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 420px;
+  border-radius: 0; border: none; border-left: 1px solid #35353f;
+  box-shadow: -24px 0 60px rgba(0,0,0,.55);
+}
+[data-v="c"] .dlg .q__b { flex: 1; min-height: 0; overflow: auto; }
+[data-v="c"] .body { padding-right: 446px; }
+[data-v="c"] .composer { padding-right: 446px; }
+[data-v="c"] .body__inner { margin: 0; }
+[data-v="c"] .cbox { margin: 0; }
+
+/* ══ D · 输入框就地接管（无遮罩、无独立面板） ═════════ */
+[data-v="d"] .takeover {
+  width: calc(100% - 52px); max-width: 660px; margin: 0 auto;
+  background: #1e1e24; border: 1px solid rgba(34,211,238,.32);
+  border-radius: 14px; overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,.38), 0 0 0 3px rgba(34,211,238,.05);
+}
+[data-v="d"] .takeover .qh { padding: 10px 14px 9px; }
+[data-v="d"] .takeover .q__b { padding: 12px 14px 0; }
+[data-v="d"] .takeover .opt { padding: 7px 10px; }
+[data-v="d"] .takeover .opt__d { margin-top: 2px; }
+[data-v="d"] .takeover .qf { padding: 10px 14px 11px; }
+.ta__input {
+  display: flex; align-items: center; gap: 8px; margin-top: 8px;
+  padding: 8px 10px; background: #232329; border: 1px solid #2f2f38; border-radius: 10px;
+}
+.ta__input .ph { flex: 1; font-size: 12.5px; color: #63636f; }
+.ta__send { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: #e8e8f0; color: #141419; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>AskUserQuestion · 提问弹窗</h1>
+  <button class="tabbtn" data-k="a">A 居中模态</button>
+  <button class="tabbtn" data-k="b">B 底部抽屉</button>
+  <button class="tabbtn" data-k="c">C 右侧抽屉</button>
+  <button class="tabbtn" data-k="d">D 输入框接管</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ══ 样例：一道真实的单选问题（CLI 的 input.questions[0]） ══ */
+const OPTIONS = [
+  { k: '1', t: '抛错，让调用方决定', d: '保持现在的行为：启动立即失败，坏掉的配置不会被静默吞掉。', on: true },
+  { k: '2', t: '回退到默认值并记一条日志', d: '应用总能启动，但坏掉的配置会被悄悄忽略。', on: false },
+  { k: '3', t: '回退到默认值，并在界面上提示', d: '最稳，但需要新增一条从主进程到界面的提示通路。', on: false }
+]
+
+function opts(selected = 0) {
+  return OPTIONS.map((o, i) => `
+    <div class="opt ${i === selected ? 'is-on' : ''}">
+      <span class="opt__m"></span>
+      <span class="opt__b">
+        <span class="opt__t">${o.t}</span>
+        <span class="opt__d">${o.d}</span>
+      </span>
+      <span class="opt__kbd">${o.k}</span>
+    </div>`).join('')
+}
+
+const OTHER = `<div class="other"><span class="opt__m"></span><span>其他…（输入你的答案）</span></div>`
+
+function questionBlock() {
+  return `
+  <div class="q__meta">
+    <span class="q__chip">错误处理</span>
+    <span class="q__n">第 1 题，共 3 题</span>
+  </div>
+  <div class="q__t"><code>loadSettings()</code> 读文件失败时，应该怎么处理？</div>
+  <div class="opts">${opts(0)}${OTHER}</div>`
+}
+
+/* ── 对话背景：让"遮不遮上下文"这件事看得见 ───────────── */
+const TRANSCRIPT = `
+<div class="row row--me"><span class="dot me"></span>
+  <span class="me">设置文件坏掉的时候，app 现在会怎样？</span></div>
+<div class="row"><span class="dot"></span>
+  <div class="say">现在 <code class="ic">main()</code> 里直接 <code class="ic">readFileSync</code>，配置一坏整个进程就退出了。
+  三种改法各有取舍，我先确认你要哪一种再动手：</div></div>
+<div class="row"><span class="dot ok"></span>
+  <span class="tool"><span class="g">✓</span> Read <code>src/main/settings-store.ts</code></span></div>
+<div class="row"><span class="dot ask"></span>
+  <span class="tool" style="border-color:rgba(34,211,238,.25);color:#a5f3fc">
+    <span>?</span> 模型正在等你回答一个问题</span></div>`
+
+const SHELL = (v, layer, composer) => `
+<div class="app" data-v="${v}">
+  <div class="side">
+    <div class="side__brand">◍ CCoder</div>
+    <div class="side__new">+ 新会话</div>
+    <div class="side__grp">工作区</div>
+    <div class="side__it">CCoder-Desktop</div>
+    <div class="side__it">Temp</div>
+  </div>
+  <div class="main">
+    <div class="head">
+      <span class="head__t">设置读取失败时的兜底策略</span>
+      <span class="head__badge">标准模式</span>
+    </div>
+    <div class="body"><div class="body__inner"><div class="tl">${TRANSCRIPT}</div></div></div>
+    ${composer}
+  </div>
+  ${layer}
+</div>`
+
+const COMPOSER = (locked) => `
+<div class="composer"><div class="cbox ${locked ? 'is-locked' : ''}">
+  <div class="cin">${locked ? '先回答上面的问题，再继续发消息…' : '发消息或创建任务，/ 调用指令，@ 文件或对话'}</div>
+  <div class="cbar">
+    <span class="chip">deepseek-reasoner</span><span class="sp"></span>
+    <span class="chip">◈ ▬▬▬ 高</span>
+    <span class="chip"><span class="d"></span>标准</span>
+    <span class="send ${locked ? '' : 'stop'}">${locked ? '↑' : ''}</span>
+  </div>
+</div></div>`
+
+const DIALOG = `
+<div class="dlg">
+  <div class="qh">
+    <span class="qh__badge">模型在问你</span>
+    <span class="qh__t">回答后我会继续</span>
+    <span class="qh__q">1/3</span>
+  </div>
+  <div class="q__b">${questionBlock()}</div>
+  <div class="qf">
+    <span class="qf__hint">↑↓ 选择 · ⏎ 选定 · Esc 跳过</span>
+    <button class="btn">跳过</button>
+    <button class="btn btn--primary">下一题<span class="kbd">⏎</span></button>
+  </div>
+</div>`
+
+/* D 的输入框接管版：没有「其他」行，底部那条输入框本身就是「其他」 */
+const TAKEOVER = `
+<div class="takeover">
+  <div class="qh">
+    <span class="qh__badge">模型在问你</span>
+    <span class="qh__t">回答后我会继续</span>
+    <span class="qh__q">1/3</span>
+  </div>
+  <div class="q__b">
+    <div class="q__meta">
+      <span class="q__chip">错误处理</span>
+      <span class="q__n">第 1 题，共 3 题</span>
+    </div>
+    <div class="q__t"><code>loadSettings()</code> 读文件失败时，应该怎么处理？</div>
+    <div class="opts">${opts(0)}</div>
+    <div class="ta__input"><span class="ph">或者直接输入你的答案…</span><span class="ta__send">↑</span></div>
+  </div>
+  <div class="qf">
+    <span class="qf__hint">↑↓ 选择 · ⏎ 提交 · Esc 跳过</span>
+    <button class="btn btn--ask">跳过</button>
+    <button class="btn btn--primary">提交<span class="kbd">⏎</span></button>
+  </div>
+</div>`
+
+const VARIANTS = {
+  a: {
+    html: SHELL('a', `<div class="scrim"></div>${DIALOG}`, COMPOSER(true)),
+    desc: '<b>A 居中模态 + 遮罩</b> —— 沿用现有审批弹窗的外壳，一题一屏。最强打断，几乎不可能漏答；'
+      + '和权限弹窗是同一套视觉，用户不用学第二套交互。'
+      + '<span class="fact">代价：遮罩把前面的讨论全压暗了 —— 而回答「抛错还是兜底」恰恰需要看上面那段上下文。'
+      + '题目里如果引用前文（"按你刚才说的方案 B"），用户只能靠记忆。</span>'
+  },
+  b: {
+    html: SHELL('b', DIALOG, COMPOSER(true)),
+    desc: '<b>B 底部抽屉</b><span class="rec">推荐</span> —— 从输入框上方滑出，横跨内容列，不遮对话。'
+      + '上下文就在上面，输入框也还在（只是暂时锁住），手的位置不用动。'
+      + '<span class="fact">代价：抽屉会占掉半屏高度，题多或选项描述长时要内部滚动；'
+      + '它挨着输入框，需要一条明显的青色描边来区分"这是提问，不是输入区"。</span>'
+  },
+  c: {
+    html: SHELL('c', DIALOG, COMPOSER(true)),
+    desc: '<b>C 右侧抽屉</b> —— 主区右边切出 420px，左边对话、右边问题，可以对着读。'
+      + '适合选项之间需要来回参照的长问题，回答完抽屉滑走，不留层级。'
+      + '<span class="fact">代价：主区被压窄，本来就不宽的内容列再少 420px，长代码行开始折行；'
+      + '而且右侧栏有"常驻"的体感，比前两个方案更重。</span>'
+  },
+  d: {
+    html: SHELL('d', '', `<div class="composer">${TAKEOVER}</div>`),
+    desc: '<b>D 输入框就地接管</b> —— 不新增任何层级：输入框原地变成问题卡，底部的输入行本身就是「其他」。'
+      + '最轻、最像对话，回答完直接变回输入框，不需要"关闭"这个动作。'
+      + '<span class="fact">代价：卡会顶掉正在打的草稿（实现时必须暂存草稿）；'
+      + '选项多时会把对话挤得很高；而且它没有遮罩，滚动时问题可能被滚出视野 —— 需要额外的"钉住"处理。</span>'
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  document.body.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

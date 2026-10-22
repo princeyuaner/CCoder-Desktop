@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>输出区 · 微信式左右分栏 · 四选一</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f0f0f; color: #e8e8e8; padding: 28px 32px 60px;
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+  .lead { font-size: 13px; color: #8a8a8a; line-height: 1.75; margin-bottom: 6px; }
+  .lead code { font-family: Consolas, monospace; color: #c9a227; }
+  .lead b { color: #c8c8c8; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(540px, 1fr)); gap: 22px; margin-top: 24px; }
+  figure { background: #141414; border: 1px solid #232323; border-radius: 12px; overflow: hidden; }
+  figcaption { padding: 12px 16px; border-bottom: 1px solid #232323; }
+  .row1 { display: flex; align-items: baseline; gap: 10px; }
+  .k { font-size: 12px; font-weight: 700; letter-spacing: 1.5px; }
+  .t { font-size: 13px; color: #c8c8c8; }
+  .d { font-size: 12px; color: #6b6b6b; margin-top: 4px; }
+  img { display: block; width: 100%; height: auto; }
+  .note { margin-top: 26px; font-size: 12.5px; color: #6b6b6b; line-height: 1.9; }
+  .note b { color: #8a8a8a; font-weight: 500; }
+</style>
+</head>
+<body>
+  <p style="margin-bottom:18px;padding:12px 16px;background:#1c2a1c;border:1px solid #2f4a2f;border-radius:10px;font-size:13px;color:#a8d8a8">
+    ← 这是<b>上一轮</b>（微信式左右分栏）的稿子，已经被否掉了。<br />
+    最新一版在 <a href="output-v2.html" style="color:#6ee7a8">output-v2.html</a> —— 五个结构方案，可切换对比。
+  </p>
+
+  <h1>输出区 · 微信式左右分栏</h1>
+  <p class="lead">
+    四个方案<b>结构完全一样</b>：我的消息在右、助手在左，各带头像和气泡尾巴，工具调用在助手那一列往下流。<br />
+    差别只在<b>视觉语言</b> —— 配色、质感、发光。尺寸按真实主区渲染（1080px 宽）。
+  </p>
+  <p class="lead">每张图下半段是<b>正在跑</b>的状态：思考中… / 工具运行中 / 正文带光标。也可以开 <code>transcript.html?v=all</code> 看实时版本。</p>
+
+  <div class="grid">
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k">A</span><span class="t">微信经典</span></div>
+        <div class="d">绿白配色，素气泡 + 尾巴。最像微信，最克制</div>
+      </figcaption>
+      <img src="option-a.png" alt="方案 A 微信经典" />
+    </figure>
+
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k">B</span><span class="t">渐变霓虹</span></div>
+        <div class="d">我的气泡青紫渐变 + 外发光，助手深色描边。最亮眼</div>
+      </figcaption>
+      <img src="option-b.png" alt="方案 B 渐变霓虹" />
+    </figure>
+
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k">C</span><span class="t">玻璃拟态</span></div>
+        <div class="d">半透明磨砂 + 背景彩色光晕。最轻盈高级</div>
+      </figcaption>
+      <img src="option-c.png" alt="方案 C 玻璃拟态" />
+    </figure>
+
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k">D</span><span class="t">赛博终端</span></div>
+        <div class="d">等宽字 + 荧光青绿 + 发光边。最硬核</div>
+      </figcaption>
+      <img src="option-d.png" alt="方案 D 赛博终端" />
+    </figure>
+  </div>
+
+  <p class="note">
+    <b>取舍：</b>A 最稳，谁都看得懂，但也最"平"；B 最抓眼，代价是彩色气泡看久了会累、和工具卡抢注意力；
+    C 质感最好，代价是半透明 + 背景光晕在长会话里容易糊成一片；D 最有性格，代价是中文在等宽字体下略丑、正文可读性降。<br />
+    混搭也行 —— 比如「A 的结构 + B 的我的气泡」「C 的助手气泡 + D 的等宽工具行」。
+  </p>
+</body>
+</html>

@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>本轮修改 · 输出区上方的文件条</title>
+<link rel="stylesheet" href="../../src/renderer/src/styles/tokens.css" />
+<link rel="stylesheet" href="../../src/renderer/src/styles/global.css" />
+<link rel="stylesheet" href="../../src/renderer/src/styles/chat.css" />
+<style>
+  /* 页面外壳：把真实渲染层放进一个固定尺寸的取景框里 */
+  html, body { height: auto; overflow: visible; }
+  body {
+    background: #0d0d0f;
+    color: #e8e8e8;
+    padding: 0 0 44px;
+    font-family: var(--font-ui);
+  }
+  button { cursor: default; }
+
+  .doc { padding: 28px 32px 6px; max-width: 1000px; }
+  .doc h1 { margin: 0 0 8px; font-size: 17px; font-weight: 650; letter-spacing: .2px; }
+  .doc p { margin: 0; font-size: 12.5px; line-height: 1.85; color: #8a8a9c; }
+  .doc b { color: #c2c2d0; font-weight: 500; }
+  .doc code {
+    padding: 1px 5px; font-family: var(--font-mono); font-size: 11px;
+    color: #c9b8f0; background: rgba(196, 167, 247, .08); border-radius: 4px;
+  }
+  .doc__facts {
+    display: inline-flex; gap: 10px; margin-top: 10px;
+    font-family: var(--font-mono); font-size: 10.5px; color: #62626f;
+  }
+
+  .opt { padding: 22px 32px 0; }
+  .opt__head { max-width: 940px; margin-bottom: 11px; }
+  .opt__line { display: flex; align-items: baseline; gap: 10px; }
+  .opt__tag {
+    display: inline-grid; place-items: center; width: 20px; height: 20px;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: #0d0d0f; background: #cfcfda; border-radius: 6px;
+    transform: translateY(2px);
+  }
+  .opt__head h2 { margin: 0; font-size: 14px; font-weight: 600; color: #dcdce6; }
+  .opt__head p { margin: 5px 0 0 30px; font-size: 12px; line-height: 1.7; color: #747484; }
+  .opt__head p b { color: #a8a8ba; font-weight: 500; }
+
+  /* 取景框 = 主区正文列，宽高都按真实窗口来 */
+  .mockchat {
+    width: 940px;
+    height: 520px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-app);
+    border: 1px solid #26262e;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .mockchat .transcript { scrollbar-width: none; }
+  .mockchat .transcript::-webkit-scrollbar { display: none; }
+
+  /* ── 文件条共用外壳 ─────────────────────────────────── */
+  .fbar {
+    position: relative;
+    flex: none;
+    background: var(--bg-app);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .fbar__in {
+    position: relative;
+    max-width: var(--content-w);
+    margin: 0 auto;
+    padding: 0 3px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .fbar__tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    letter-spacing: .2px;
+  }
+  .fbar__tag b {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .fbar__glyph { color: #e0af68; font-size: 11px; }
+  .fbar__sum {
+    flex: none;
+    display: inline-flex;
+    gap: 6px;
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fbar__sum b { font-weight: 500; }
+  .add { color: #7fbf7f; }
+  .del { color: #d98a8a; }
+
+  /* ── A · 摘要条 ─────────────────────────────────────── */
+  .fbar--a .fbar__in { height: 33px; }
+  .fbar__names {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: #9a9aac;
+  }
+  .fbar__names i {
+    margin: 0 7px;
+    font-style: normal;
+    color: #4a4a56;
+  }
+
+  /* ── B · 改动卡 ─────────────────────────────────────── */
+  .fbar--b .fbar__in {
+    padding-top: 9px;
+    padding-bottom: 9px;
+    display: block;
+  }
+  .fcard {
+    background: #1e1e22;
+    border: 1px solid #2b2b31;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .fcard__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 7px;
+  }
+  .fcard__title { font-size: 12px; color: var(--text-dim); }
+  .fcard__title b {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text);
+  }
+  .fcard__meter {
+    display: flex;
+    width: 64px;
+    height: 4px;
+    margin-left: 2px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: #2a2a30;
+  }
+  .fcard__meter i { display: block; height: 100%; }
+  .fcard__meter .add { background: #4b9e5f; }
+  .fcard__meter .del { background: #b3554e; }
+  .fcard__sum {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fcard__rows { border-top: 1px solid #26262c; }
+  .frow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    font-size: 11.5px;
+  }
+  .frow + .frow { border-top: 1px solid rgba(255, 255, 255, .028); }
+  .frow__ico {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, .055);
+    font-size: 9px;
+    line-height: 1;
+  }
+  .frow__ico.is-edit { color: #e0af68; }
+  .frow__ico.is-write { color: #c4a7f7; }
+  .frow__name {
+    flex: none;
+    width: 158px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #d2d2dc;
+  }
+  .frow__dir {
+    flex: none;
+    font-size: 10.5px;
+    color: #4f4f5c;
+  }
+  .frow__new {
+    flex: none;
+    padding: 0 5px;
+    font-size: 8.5px;
+    line-height: 1.45;
+    color: #a48ad4;
+    background: rgba(196, 167, 247, .08);
+    border: 1px solid rgba(196, 167, 247, .16);
+    border-radius: var(--radius-pill);
+  }
+  .frow__diff {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .frow__diff b { font-weight: 500; }
+
+  /* ── C · 折叠条 + 浮层 ─────────────────────────────── */
+  .fbar--c .fbar__in { height: 33px; }
+  .fbar__toggle {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  .chev {
+    width: 5px;
+    height: 5px;
+    margin-top: -3px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+  }
+  .chev.is-up { margin-top: 2px; transform: rotate(225deg); }
+  .fpop {
+    position: absolute;
+    z-index: 20;
+    left: 3px;
+    top: calc(100% + 7px);
+    width: 468px;
+    background: #222227;
+    border: 1px solid #33333b;
+    border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .55);
+    overflow: hidden;
+  }
+  .fpop__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px 6px;
+    font-size: 10px;
+    letter-spacing: .5px;
+    color: #6f6f80;
+  }
+  .fpop__head span {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fpop__foot {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 12px 7px;
+    border-top: 1px solid #2b2b32;
+    font-size: 10px;
+    color: #5f5f6e;
+  }
+  .fpop__foot span:last-child {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── D · 文件胶囊 ──────────────────────────────────── */
+  .fbar--d .fbar__in {
+    flex-wrap: wrap;
+    gap: 7px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+  .fpill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 9px 0 8px;
+    background: #212126;
+    border: 1px solid #2e2e36;
+    border-radius: var(--radius-pill);
+  }
+  .fpill i { font-style: normal; font-size: 9.5px; }
+  .fpill i.is-edit { color: #e0af68; }
+  .fpill i.is-write { color: #c4a7f7; }
+  .fpill b {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: #d2d2dc;
+  }
+  .fpill__new { font-size: 8.5px; color: #8d7ab8; }
+  .fpill__diff {
+    display: inline-flex;
+    gap: 3px;
+    margin-left: 1px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fbar--d .fbar__sum {
+    margin-left: 3px;
+    padding-left: 10px;
+    border-left: 1px solid #2c2c33;
+    color: var(--text-faint);
+    font-size: 10px;
+    gap: 5px;
+  }
+  .fbar--d .fbar__tag { margin-right: 2px; }
+
+  /* ── 四联总览 ─────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 470px);
+    gap: 18px 20px;
+    padding: 4px 32px 40px;
+  }
+  .cell__h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 0 7px;
+    font-size: 12.5px;
+    color: #c2c2d0;
+  }
+  .cell__h .opt__tag { width: 18px; height: 18px; font-size: 10px; transform: none; }
+  .cell__frame { width: 470px; height: 260px; overflow: hidden; }
+  .cell__scale { width: 940px; transform: scale(.5); transform-origin: top left; }
+  .cell__scale .mockchat { width: 940px; height: 520px; }
+
+  /* 取景框底部：输出还在继续的暗示 */
+  .fade {
+    flex: none;
+    height: 26px;
+    margin-top: -26px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(25, 25, 25, 0), var(--bg-app));
+  }
+</style>
+</head>
+<body>
+
+<div class="doc" id="doc">
+  <h1>本轮修改 · 输出区上方的文件条</h1>
+  <p>
+    位置在<b>标签栏与转写区之间</b>，也就是输出区上方。四种方案的主要差别是<b>占多少高度</b>、<b>文件名什么时候出现</b>。
+    共同行为：只统计<b>本轮</b>（上次用户发言之后）增删过的文件，按路径去重并累加行数；<b>没有修改时整条不渲染</b>，输出区直接紧贴标签栏。
+    行数值用 <code>Edit</code> / <code>Write</code> 的统计，新建文件标「新」。
+  </p>
+  <div class="doc__facts">
+    <span>示例：4 个文件 · +108 −15 · 2 个新建 · src/auth</span>
+  </div>
+</div>
+
+<main id="stage"></main>
+
+<script>
+const ROWS = `
+  <div class="tl__row tl__row--me">
+    <span class="tl__dot tl__dot--me"></span>
+    <div class="tl__meblock">
+      <span class="tl__me selectable">把会话校验收进一个中间件，token 过期时自动刷新；顺手把失败分支的测试补上。</span>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot"></span>
+    <div class="tl__thinkwrap">
+      <button class="tl__think">
+        <span style="color:#5a5a68;font-size:10px">›</span>
+        <b>思考</b>
+        <span class="tl__peek"> · 先看 middleware/auth.ts 和 session/store.ts，确认刷新逻辑现在挂在哪。</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot tl__dot--ok"></span>
+    <div class="tool is-ok tool--full">
+      <button class="tool__row">
+        <span class="tool__ico tool__ico--edit">✎</span>
+        <span class="tool__subject">store.ts</span>
+        <span class="tool__stat"><span class="is-add">+38</span><span class="is-del">−12</span></span>
+        <span class="tool__dir">src/auth</span>
+        <span class="tool__name">EDIT</span>
+        <span class="tool__time">1.2s</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot tl__dot--ok"></span>
+    <div class="tool is-ok tool--full">
+      <button class="tool__row">
+        <span class="tool__ico tool__ico--write">＋</span>
+        <span class="tool__subject">store.test.ts</span>
+        <span class="tool__stat"><span class="is-add">+41</span></span>
+        <span class="tool__dir">src/auth</span>
+        <span class="tool__name">WRITE</span>
+        <span class="tool__time">0.8s</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot"></span>
+    <div class="tl__say">已经校验收进 <span class="md"><span class="ic">requireSession</span></span> 中间件，并在 401 分支里接了 single-flight 刷新。测试补了过期、并发、失效 token 三条路径。</div>
+  </div>
+`
+
+const BARS = {
+  a: `
+    <div class="fbar fbar--a">
+      <div class="fbar__in">
+        <span class="fbar__tag"><span class="fbar__glyph">✎</span> 本轮修改 <b>4</b> 个文件</span>
+        <span class="fbar__names">store.ts<i>·</i>middleware.ts<i>·</i>types.ts<i>·</i>store.test.ts</span>
+        <span class="fbar__sum"><b class="add">+108</b><b class="del">−15</b></span>
+      </div>
+    </div>`,
+
+  b: `
+    <div class="fbar fbar--b">
+      <div class="fbar__in">
+        <div class="fcard">
+          <div class="fcard__head">
+            <span class="fbar__glyph">✎</span>
+            <span class="fcard__title">本轮修改 <b>4</b> 个文件</span>
+            <span class="fcard__meter" title="+108 −15">
+              <i class="add" style="width:87.8%"></i>
+              <i class="del" style="width:12.2%"></i>
+            </span>
+            <span class="fcard__sum"><b class="add">+108</b><b class="del">−15</b></span>
+          </div>
+          <div class="fcard__rows">
+            <div class="frow">
+              <span class="frow__ico is-edit">✎</span>
+              <span class="frow__name">store.ts</span>
+              <span class="frow__dir">src/auth</span>
+              <span class="frow__diff"><b class="add">+38</b><b class="del">−12</b></span>
+            </div>
+            <div class="frow">
+              <span class="frow__ico is-write">＋</span>
+              <span class="frow__name">middleware.ts</span>
+              <span class="frow__dir">src/auth</span>
+              <span class="frow__new">新</span>
+              <span class="frow__diff"><b class="add">+22</b></span>
+            </div>
+            <div class="frow">
+              <span class="frow__ico is-edit">✎</span>
+              <span class="frow__name">types.ts</span>
+              <span class="frow__dir">src/shared</span>
+              <span class="frow__diff"><b class="add">+7</b><b class="del">−3</b></span>
+            </div>
+            <div class="frow">
+              <span class="frow__ico is-write">＋</span>
+              <span class="frow__name">store.test.ts</span>
+              <span class="frow__dir">src/auth</span>
+              <span class="frow__new">新</span>
+              <span class="frow__diff"><b class="add">+41</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`,
+
+  c: `
+    <div class="fbar fbar--c">
+      <div class="fbar__in">
+        <span class="fbar__tag"><span class="fbar__glyph">✎</span> 本轮修改 <b>4</b> 个文件</span>
+        <span class="fbar__toggle">
+          <span class="fbar__sum" style="margin-left:0"><b class="add">+108</b><b class="del">−15</b></span>
+          收起 <span class="chev is-up"></span>
+        </span>
+
+        <div class="fpop">
+          <div class="fpop__head">
+            <span>改动文件</span>
+            <span><b class="add">+108</b> <b class="del">−15</b></span>
+          </div>
+          <div class="frow">
+            <span class="frow__ico is-edit">✎</span>
+            <span class="frow__name">store.ts</span>
+            <span class="frow__dir">src/auth</span>
+            <span class="frow__diff"><b class="add">+38</b><b class="del">−12</b></span>
+          </div>
+          <div class="frow">
+            <span class="frow__ico is-write">＋</span>
+            <span class="frow__name">middleware.ts</span>
+            <span class="frow__dir">src/auth</span>
+            <span class="frow__new">新</span>
+            <span class="frow__diff"><b class="add">+22</b></span>
+          </div>
+          <div class="frow">
+            <span class="frow__ico is-edit">✎</span>
+            <span class="frow__name">types.ts</span>
+            <span class="frow__dir">src/shared</span>
+            <span class="frow__diff"><b class="add">+7</b><b class="del">−3</b></span>
+          </div>
+          <div class="frow">
+            <span class="frow__ico is-write">＋</span>
+            <span class="frow__name">store.test.ts</span>
+            <span class="frow__dir">src/auth</span>
+            <span class="frow__new">新</span>
+            <span class="frow__diff"><b class="add">+41</b></span>
+          </div>
+          <div class="fpop__foot">
+            <span>4 个文件 · 2 个新建</span>
+            <span><b class="add">+108</b> <b class="del">−15</b></span>
+          </div>
+        </div>
+      </div>
+    </div>`,
+
+  d: `
+    <div class="fbar fbar--d">
+      <div class="fbar__in">
+        <span class="fbar__tag"><span class="fbar__glyph">✎</span> 本轮修改</span>
+        <span class="fpill"><i class="is-edit">✎</i><b>store.ts</b><span class="fpill__diff"><em class="add">+38</em><em class="del">−12</em></span></span>
+        <span class="fpill"><i class="is-write">＋</i><b>middleware.ts</b><span class="fpill__new">新</span><span class="fpill__diff"><em class="add">+22</em></span></span>
+        <span class="fpill"><i class="is-edit">✎</i><b>types.ts</b><span class="fpill__diff"><em class="add">+7</em><em class="del">−3</em></span></span>
+        <span class="fpill"><i class="is-write">＋</i><b>store.test.ts</b><span class="fpill__new">新</span><span class="fpill__diff"><em class="add">+41</em></span></span>
+        <span class="fbar__sum">共 4 个 <b class="add">+108</b><b class="del">−15</b></span>
+      </div>
+    </div>`
+}
+
+const OPTS = [
+  ['a', '摘要条', '一行放下：文件名直接读得到，右侧是本轮合计。不占高度，滚动时始终贴在标签栏下面。<b>最省空间，但文件名多了会被省略号截断。</b>'],
+  ['b', '改动卡', '每个文件一行，带目录、新建标记和增删行数，顶部还有一条增删比例条。<b>信息最全，但固定占用约 140px 的输出高度。</b>'],
+  ['c', '折叠条 + 浮层', '默认只有一行汇总；点开是浮层清单，不挤压输出区。浮层里能放目录和「新建」标记。<b>收起时看不到文件名，需要一次点击。</b>'],
+  ['d', '文件胶囊', '一个文件一颗胶囊，带增删行数，扫一眼就知道动了哪些文件；文件多时自动换行。<b>比摘要条高一档，但每个文件都可单独辨认。</b>']
+]
+
+function shell(bar) {
+  return `
+  <div class="mockchat">
+    <header class="chathead">
+      <div class="chathead__left">
+        <h1 class="chathead__title">把会话校验收进中间件</h1>
+        <span class="badge">标准模式</span>
+      </div>
+    </header>
+    <div class="tabbar">
+      <button class="tab is-active">对话</button>
+      <button class="tab">轨迹</button>
+    </div>
+    ${bar}
+    <div class="transcript-wrap">
+      <div class="transcript">
+        <div class="transcript__inner">
+          <div class="tl">${ROWS}</div>
+        </div>
+      </div>
+    </div>
+  </div>`
+}
+
+const v = new URLSearchParams(location.search).get('v')
+const stage = document.getElementById('stage')
+
+if (v === 'grid') {
+  const grid = document.createElement('div')
+  grid.className = 'grid'
+  OPTS.forEach(([k, name]) => {
+    const cell = document.createElement('div')
+    cell.className = 'cell'
+    cell.innerHTML = `
+      <div class="cell__h"><span class="opt__tag">${k.toUpperCase()}</span>${name}</div>
+      <div class="cell__frame"><div class="cell__scale">${shell(BARS[k])}</div></div>`
+    grid.appendChild(cell)
+  })
+  stage.appendChild(grid)
+} else {
+  OPTS.forEach(([k, name, desc]) => {
+    if (v && v !== k) return
+    const sec = document.createElement('section')
+    sec.className = 'opt'
+    sec.innerHTML = `
+      <div class="opt__head">
+        <div class="opt__line">
+          <span class="opt__tag">${k.toUpperCase()}</span>
+          <h2>${name}</h2>
+        </div>
+        <p>${desc}</p>
+      </div>
+      ${shell(BARS[k])}`
+    stage.appendChild(sec)
+  })
+  if (v) document.getElementById('doc').style.display = 'none'
+}
+</script>
+</body>
+</html>

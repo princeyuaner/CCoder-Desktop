@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>输出区 · 五个结构方案</title>
+<style>
+/* ══ 公共 ═══════════════════════════════════════════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8ee;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+i { font-style: normal; }
+
+/* ── 顶部切换栏（截图时不显示） ───────────────────────── */
+#bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+#bar .sp { flex: 1 }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 900px; line-height: 1.7; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+
+#stage { padding: 18px 24px 0; }
+
+/* ── 面板外壳（五个方案共用） ─────────────────────────── */
+.pane {
+  position: relative;
+  /* 高度取五个方案里最占地方的那个（A/C 比较疏），
+     这样每张图都完整露出第二轮的"正在跑"状态，好横向比 */
+  width: 1080px; height: 900px;
+  display: flex; flex-direction: column;
+  background: #191919;
+  border: 1px solid #26262e; border-radius: 12px;
+  overflow: hidden;
+}
+.pane__head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 44px 10px;
+  flex: none;
+}
+.pane__title {
+  font-size: 15px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tag {
+  flex: none; padding: 2px 9px; font-size: 12px; color: #8a8a98;
+  background: #232329; border: 1px solid #2e2e37; border-radius: 999px;
+}
+.pane__sp { flex: 1 }
+.pane__tabs { display: flex; gap: 18px; font-size: 13.5px; color: #6e6e7c; }
+.pane__tabs .is-on { color: #e8e8ee; position: relative; }
+.pane__tabs .is-on::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -9px;
+  height: 2px; background: #e8e8ee; border-radius: 2px;
+}
+.pane__rule { height: 1px; background: #232329; margin: 0 44px; flex: none; }
+
+.pane__body { flex: 1; min-height: 0; overflow: hidden; padding: 20px 44px 8px; }
+
+.pane__composer { flex: none; padding: 10px 44px 16px; }
+.cbox {
+  max-width: 820px; margin: 0 auto;
+  padding: 12px 12px 10px;
+  background: #202027; border: 1px solid #2c2c35; border-radius: 14px;
+}
+.cph { font-size: 14px; color: #5c5c6a; padding: 2px 4px 10px; }
+.crow { display: flex; align-items: center; gap: 8px; }
+.cpill {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  font-size: 12.5px; color: #9a9aa8; background: #26262e;
+  border: 1px solid #32323c; border-radius: 999px;
+}
+.cdot { width: 7px; height: 7px; border-radius: 50%; background: #4b9e5f; }
+.csp { flex: 1 }
+.csend {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  background: #e8e8ee; color: #191919; border-radius: 50%; font-size: 11px;
+}
+.scroll { max-width: 820px; margin: 0 auto; }
+
+/* ══ A · 时间轴轨道 ═════════════════════════════════════ */
+[data-v="a"] .pane__body { padding-top: 16px; }
+[data-v="a"] .tl { position: relative; }
+[data-v="a"] .tl::before {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px;
+  width: 1px; background: #26262e;
+}
+[data-v="a"] .tl__row { position: relative; padding-left: 26px; margin-bottom: 12px; }
+[data-v="a"] .tl__dot {
+  position: absolute; left: 0; top: 5px; width: 9px; height: 9px; border-radius: 50%;
+  background: #3a3a46; box-shadow: 0 0 0 3px #191919;
+}
+[data-v="a"] .tl__dot--me { background: #22d3ee; box-shadow: 0 0 0 3px #191919, 0 0 10px rgba(34,211,238,.55); }
+[data-v="a"] .tl__dot--ok { background: #4b9e5f; }
+[data-v="a"] .tl__dot--run { background: #fcd34d; animation: pulse 1.3s ease-in-out infinite; }
+[data-v="a"] .tl__dot--perm { background: #fcd34d; box-shadow: 0 0 0 3px #191919, 0 0 0 5px rgba(252,211,77,.16); }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+
+[data-v="a"] .tl__me {
+  display: inline-block; padding: 7px 12px; font-size: 14px; line-height: 1.65;
+  color: #d8f8ff; background: rgba(34,211,238,.09);
+  border: 1px solid rgba(34,211,238,.22); border-radius: 8px;
+}
+[data-v="a"] .tl__think {
+  display: block; width: 100%; text-align: left;
+  padding: 5px 0; font-size: 12.5px; color: #7a7a8c;
+}
+[data-v="a"] .tl__think b { color: #9a9aac; font-weight: 500; }
+[data-v="a"] .tl__think span { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #6a6a7c; }
+[data-v="a"] .tl__tool {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 10px; font-size: 12.5px;
+  background: #1e1e24; border: 1px solid #28282f; border-radius: 7px;
+  max-width: 100%;
+}
+[data-v="a"] .tl__tool b { color: #c8c8d4; flex: none; }
+[data-v="a"] .tl__tool code { flex: 1; min-width: 0; font-size: 11.5px; color: #6e6e80; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v="a"] .tl__tool i { flex: none; font-size: 11px; color: #5c5c6c; }
+[data-v="a"] .tl__tool .g { flex: none; width: 12px; text-align: center; font-size: 11px; color: #4b9e5f; }
+[data-v="a"] .tl__tool.is-run { border-color: rgba(252,211,77,.3); }
+[data-v="a"] .tl__tool.is-run .g { color: #fcd34d; animation: spin 1.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg) } }
+[data-v="a"] .tl__say { font-size: 14px; line-height: 1.75; color: #dcdce6; }
+[data-v="a"] .tl__say .ic {
+  padding: 1.5px 6px; font-size: .88em; background: rgba(255,255,255,.08);
+  border-radius: 5px; color: #eaeaf4;
+}
+[data-v="a"] .tl__perm {
+  border: 1px solid rgba(252,211,77,.3); border-radius: 10px;
+  background: rgba(252,211,77,.04); overflow: hidden;
+}
+[data-v="a"] .tl__perm-h { display: flex; align-items: center; gap: 10px; padding: 9px 13px; }
+[data-v="a"] .tl__perm-h .bd {
+  padding: 2px 8px; font-size: 11.5px; border-radius: 999px;
+  background: rgba(252,211,77,.16); color: #fcd34d;
+}
+[data-v="a"] .tl__perm-h .tt { flex: 1; font-size: 13px; }
+[data-v="a"] .tl__perm-h .nt { font-size: 12px; color: #7a7a8c; }
+[data-v="a"] .tl__diff {
+  margin: 0 13px; padding: 9px 11px; border-radius: 6px; background: rgba(0,0,0,.35);
+  font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; line-height: 1.6;
+}
+[data-v="a"] .d-add { color: #8fd39a; background: rgba(75,158,95,.12); }
+[data-v="a"] .d-del { color: #e08b84; background: rgba(229,83,75,.10); }
+[data-v="a"] .d-ctx { color: #63636f; }
+[data-v="a"] .tl__acts { display: flex; gap: 8px; padding: 11px 13px; }
+[data-v="a"] .tl__acts .b {
+  padding: 5px 12px; font-size: 12.5px; border-radius: 7px;
+  border: 1px solid #32323c; color: #b8b8c8;
+}
+[data-v="a"] .tl__acts .b--pri { background: #e8e8ee; border-color: #e8e8ee; color: #191919; font-weight: 600; }
+[data-v="a"] .tl__acts .b--dgr { color: #fda4af; border-color: rgba(244,63,94,.3); }
+[data-v="a"] .tl__sep { padding-left: 26px; margin: 16px 0 14px; font-size: 11px; color: #565664; }
+[data-v="a"] .cursor {
+  display: inline-block; width: 7px; height: 15px; margin-left: 2px;
+  vertical-align: text-bottom; background: #22d3ee; border-radius: 1px;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0 } }
+
+/* ══ B · 终端流 ═════════════════════════════════════════ */
+[data-v="b"] { font-family: 'Cascadia Mono', Consolas, monospace; }
+[data-v="b"] .pane__title, [data-v="b"] .tag, [data-v="b"] .pane__tabs { font-family: system-ui, sans-serif; }
+[data-v="b"] .pane__body { padding-top: 14px; }
+[data-v="b"] .t { font-size: 13px; line-height: 1.75; }
+[data-v="b"] .t__l { display: flex; gap: 9px; margin-bottom: 2px; }
+[data-v="b"] .t__g { flex: none; width: 12px; text-align: center; }
+[data-v="b"] .t__l--me { margin: 10px 0 12px; color: #6ee7a8; }
+[data-v="b"] .t__l--me .t__g { color: #4ade80; }
+[data-v="b"] .t__l--me .t__x { color: #d6ffe6; }
+[data-v="b"] .t__l--think { color: #4a4a58; }
+[data-v="b"] .t__l--think .t__x { font-style: italic; }
+[data-v="b"] .t__l--tool { color: #7c7c8e; }
+[data-v="b"] .t__l--tool .ok { color: #4ade80; }
+[data-v="b"] .t__l--tool .run { color: #facc15; animation: spin 1.6s linear infinite; }
+[data-v="b"] .t__l--tool b { color: #b8b8c8; font-weight: 500; }
+[data-v="b"] .t__l--tool .arg { color: #63636f; }
+[data-v="b"] .t__l--tool i { margin-left: auto; font-size: 11.5px; color: #4e4e5a; }
+[data-v="b"] .t__l--say { color: #c4c4d0; margin-bottom: 8px; }
+[data-v="b"] .t__l--say .ic { color: #7dd3fc; }
+[data-v="b"] .t__perm {
+  margin: 8px 0 12px 21px; padding: 10px 12px;
+  border-left: 2px solid #a16207; background: #14120c; border-radius: 0 8px 8px 0;
+}
+[data-v="b"] .t__perm-h { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; font-size: 12px; }
+[data-v="b"] .t__perm-h .bd { color: #facc15; }
+[data-v="b"] .t__perm-h .tt { color: #d8d8e0; }
+[data-v="b"] .t__perm-h .nt { color: #6a6a78; margin-left: auto; }
+[data-v="b"] .t__diff { font-size: 12px; line-height: 1.6; }
+[data-v="b"] .d-add { color: #6ee7a8; }
+[data-v="b"] .d-del { color: #f87171; }
+[data-v="b"] .d-ctx { color: #4a4a56; }
+[data-v="b"] .t__acts { display: flex; gap: 8px; margin-top: 10px; }
+[data-v="b"] .t__acts .b { padding: 4px 11px; font-size: 12px; border: 1px solid #334155; color: #94a3b8; border-radius: 6px; }
+[data-v="b"] .t__acts .b--pri { background: #4ade80; border-color: #4ade80; color: #04140a; font-weight: 600; }
+[data-v="b"] .t__acts .b--dgr { color: #f87171; border-color: #4c1d24; }
+[data-v="b"] .t__sep {
+  display: flex; align-items: center; gap: 10px;
+  margin: 18px 0 14px; font-size: 11.5px; color: #3a3a46;
+}
+[data-v="b"] .t__sep::before, [data-v="b"] .t__sep::after { content: ''; flex: 1; height: 1px; background: #22222a; }
+[data-v="b"] .cursor {
+  display: inline-block; width: 8px; height: 14px; margin-left: 2px;
+  vertical-align: text-bottom; background: #4ade80;
+  animation: blink 1s step-end infinite;
+}
+
+/* ══ C · 文档式 ═════════════════════════════════════════ */
+[data-v="c"] .pane__body { padding-top: 18px; }
+[data-v="c"] .doc { max-width: 660px; }
+[data-v="c"] .doc__me {
+  display: block; margin: 0 0 22px auto; width: fit-content; max-width: 78%;
+  padding: 8px 13px; font-size: 13.5px; line-height: 1.6;
+  color: #cfc6ee; background: rgba(167,139,250,.10);
+  border: 1px solid rgba(167,139,250,.20); border-radius: 10px 10px 2px 10px;
+}
+[data-v="c"] .doc__think {
+  margin: 0 0 16px; padding-left: 13px;
+  border-left: 2px solid #2e2e3a;
+  font-size: 12.5px; line-height: 1.7; color: #6c6c80;
+}
+[data-v="c"] .doc__think.is-live { border-left-color: #a78bfa; color: #8b8ba0; }
+[data-v="c"] .doc__think.is-live::after {
+  content: '▍'; margin-left: 2px; color: #a78bfa; animation: blink 1s step-end infinite;
+}
+[data-v="c"] .doc__p {
+  margin: 0 0 16px; font-size: 15px; line-height: 1.85; color: #e4e4ee;
+}
+[data-v="c"] .doc__p .ic {
+  padding: 2px 6px; font-size: .86em; background: #26262f;
+  border-radius: 5px; color: #ddd6fe;
+}
+[data-v="c"] .doc__chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; }
+[data-v="c"] .doc__chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 10px; font-size: 12px;
+  color: #8c8c9c; background: #1e1e25;
+  border: 1px solid #2a2a33; border-radius: 999px;
+}
+[data-v="c"] .doc__chip .g { color: #4b9e5f; font-size: 11px; }
+[data-v="c"] .doc__chip .g.run { color: #fcd34d; animation: spin 1.6s linear infinite; }
+[data-v="c"] .doc__chip code { font-size: 11.5px; color: #6c6c80; }
+[data-v="c"] .doc__chip i { font-size: 11px; color: #55555f; }
+[data-v="c"] .doc__perm {
+  margin: 0 0 18px; border: 1px solid #2e2e3a; border-left: 3px solid #fcd34d;
+  border-radius: 0 10px 10px 0; background: #1c1c22; overflow: hidden;
+}
+[data-v="c"] .doc__perm-h { display: flex; align-items: center; gap: 10px; padding: 11px 14px; }
+[data-v="c"] .doc__perm-h .bd { padding: 2px 8px; font-size: 11.5px; border-radius: 999px; background: rgba(252,211,77,.14); color: #fcd34d; }
+[data-v="c"] .doc__perm-h .tt { flex: 1; font-size: 13.5px; }
+[data-v="c"] .doc__perm-h .nt { font-size: 12px; color: #75758a; }
+[data-v="c"] .doc__path { padding: 0 14px 8px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; color: #63636f; }
+[data-v="c"] .doc__diff {
+  margin: 0 14px; padding: 10px 12px; border-radius: 6px; background: #141419;
+  font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; line-height: 1.65;
+}
+[data-v="c"] .d-add { color: #8fd39a; }
+[data-v="c"] .d-del { color: #e08b84; }
+[data-v="c"] .d-ctx { color: #5c5c68; }
+[data-v="c"] .doc__acts { display: flex; gap: 8px; padding: 12px 14px; }
+[data-v="c"] .doc__acts .b { padding: 6px 13px; font-size: 12.5px; border: 1px solid #33333d; color: #b8b8c8; border-radius: 8px; }
+[data-v="c"] .doc__acts .b--pri { background: #ddd6fe; border-color: #ddd6fe; color: #1a1626; font-weight: 600; }
+[data-v="c"] .doc__acts .b--dgr { color: #fda4af; border-color: rgba(244,63,94,.3); }
+[data-v="c"] .doc__sep {
+  display: flex; align-items: center; gap: 12px;
+  margin: 26px 0 20px; font-size: 11px; color: #4e4e5c;
+}
+[data-v="c"] .doc__sep::before, [data-v="c"] .doc__sep::after { content: ''; flex: 1; height: 1px; background: #24242c; }
+[data-v="c"] .cursor {
+  display: inline-block; width: 2px; height: 17px; margin-left: 2px;
+  vertical-align: text-bottom; background: #a78bfa; animation: blink 1s step-end infinite;
+}
+
+/* ══ D · 步骤卡 ═════════════════════════════════════════ */
+[data-v="d"] .pane__body { padding-top: 14px; }
+[data-v="d"] .cards { display: flex; flex-direction: column; gap: 8px; }
+[data-v="d"] .card {
+  border: 1px solid #26262f; border-radius: 10px; background: #1c1c22;
+  overflow: hidden;
+}
+[data-v="d"] .card__h {
+  display: flex; align-items: center; gap: 10px; padding: 9px 13px;
+  font-size: 12.5px; color: #a8a8b8;
+}
+[data-v="d"] .card__n {
+  flex: none; display: grid; place-items: center; width: 20px; height: 20px;
+  border-radius: 6px; font-size: 11px; font-weight: 600;
+  background: #26262f; color: #8a8a9c;
+}
+[data-v="d"] .card__t { flex: none; font-weight: 500; color: #d0d0dc; }
+[data-v="d"] .card__arg { flex: 1; min-width: 0; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; color: #6a6a7c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-v="d"] .card__st { flex: none; font-size: 11px; color: #6a6a7c; }
+[data-v="d"] .card__g { flex: none; width: 14px; text-align: center; font-size: 11px; color: #4b9e5f; }
+[data-v="d"] .card__g.run { color: #fcd34d; animation: spin 1.6s linear infinite; }
+[data-v="d"] .card--run { border-color: rgba(252,211,77,.28); }
+[data-v="d"] .card--me {
+  align-self: flex-end; max-width: 78%;
+  background: rgba(96,165,250,.10); border-color: rgba(96,165,250,.22);
+}
+[data-v="d"] .card--me .card__h { color: #cfe3ff; font-size: 13.5px; line-height: 1.6; padding: 10px 14px; }
+[data-v="d"] .card--say { background: #1a1a20; border-color: #24242c; }
+[data-v="d"] .card--say .card__body { padding: 0 13px 12px; font-size: 14px; line-height: 1.75; color: #dcdce6; }
+[data-v="d"] .card--say .ic { padding: 1.5px 6px; font-size: .88em; background: rgba(255,255,255,.08); border-radius: 5px; }
+[data-v="d"] .card--think { background: transparent; border-style: dashed; border-color: #2a2a33; }
+[data-v="d"] .card--think .card__h { color: #7a7a8c; font-size: 12px; }
+[data-v="d"] .card--perm { border-color: rgba(252,211,77,.32); background: rgba(252,211,77,.03); }
+[data-v="d"] .card--perm .card__n { background: rgba(252,211,77,.16); color: #fcd34d; }
+[data-v="d"] .card__diff {
+  margin: 0 13px 12px; padding: 9px 11px; border-radius: 6px; background: rgba(0,0,0,.34);
+  font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; line-height: 1.6;
+}
+[data-v="d"] .d-add { color: #8fd39a; background: rgba(75,158,95,.12); }
+[data-v="d"] .d-del { color: #e08b84; background: rgba(229,83,75,.10); }
+[data-v="d"] .d-ctx { color: #63636f; }
+[data-v="d"] .card__acts { display: flex; gap: 8px; padding: 0 13px 12px; }
+[data-v="d"] .card__acts .b { padding: 5px 12px; font-size: 12.5px; border: 1px solid #33333d; color: #b8b8c8; border-radius: 7px; }
+[data-v="d"] .card__acts .b--pri { background: #e8e8ee; border-color: #e8e8ee; color: #191919; font-weight: 600; }
+[data-v="d"] .card__acts .b--dgr { color: #fda4af; border-color: rgba(244,63,94,.3); }
+[data-v="d"] .dsep {
+  align-self: center; margin: 4px 0; padding: 3px 12px;
+  font-size: 11px; color: #5a5a68;
+  background: #202027; border: 1px solid #2a2a33; border-radius: 999px;
+}
+[data-v="d"] .cursor {
+  display: inline-block; width: 7px; height: 15px; margin-left: 2px;
+  vertical-align: text-bottom; background: #60a5fa; border-radius: 1px;
+  animation: blink 1s step-end infinite;
+}
+
+/* ══ E · 双栏活动 ═══════════════════════════════════════ */
+[data-v="e"] .pane__body { padding: 18px 44px 8px; }
+[data-v="e"] .sp2 { display: grid; grid-template-columns: 1fr 250px; gap: 26px; height: 100%; }
+[data-v="e"] .sp2__main { min-width: 0; }
+[data-v="e"] .sp2__rail {
+  border-left: 1px solid #24242c; padding-left: 16px;
+  overflow: hidden;
+}
+[data-v="e"] .m__me {
+  margin: 0 0 20px auto; width: fit-content; max-width: 84%;
+  padding: 8px 13px; font-size: 14px; line-height: 1.65;
+  color: #efe9ff; background: rgba(139,92,246,.16);
+  border: 1px solid rgba(139,92,246,.28); border-radius: 12px 12px 3px 12px;
+}
+[data-v="e"] .m__p { margin: 0 0 16px; font-size: 15px; line-height: 1.8; color: #e6e6f0; }
+[data-v="e"] .m__p .ic { padding: 2px 6px; font-size: .86em; background: #26262f; border-radius: 5px; color: #ddd6fe; }
+[data-v="e"] .m__perm {
+  margin: 0 0 18px; border: 1px solid rgba(252,211,77,.3); border-radius: 10px;
+  background: rgba(252,211,77,.04); overflow: hidden;
+}
+[data-v="e"] .m__perm-h { display: flex; align-items: center; gap: 10px; padding: 10px 13px; }
+[data-v="e"] .m__perm-h .bd { padding: 2px 8px; font-size: 11.5px; border-radius: 999px; background: rgba(252,211,77,.16); color: #fcd34d; }
+[data-v="e"] .m__perm-h .tt { flex: 1; font-size: 13.5px; }
+[data-v="e"] .m__perm-h .nt { font-size: 12px; color: #7a7a8c; }
+[data-v="e"] .m__diff {
+  margin: 0 13px; padding: 9px 11px; border-radius: 6px; background: rgba(0,0,0,.34);
+  font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; line-height: 1.6;
+}
+[data-v="e"] .d-add { color: #8fd39a; background: rgba(75,158,95,.12); }
+[data-v="e"] .d-del { color: #e08b84; background: rgba(229,83,75,.10); }
+[data-v="e"] .d-ctx { color: #63636f; }
+[data-v="e"] .m__acts { display: flex; gap: 8px; padding: 11px 13px; }
+[data-v="e"] .m__acts .b { padding: 5px 12px; font-size: 12.5px; border: 1px solid #33333d; color: #b8b8c8; border-radius: 7px; }
+[data-v="e"] .m__acts .b--pri { background: #ddd6fe; border-color: #ddd6fe; color: #1a1626; font-weight: 600; }
+[data-v="e"] .m__acts .b--dgr { color: #fda4af; border-color: rgba(244,63,94,.3); }
+[data-v="e"] .m__sep { display: flex; align-items: center; gap: 12px; margin: 22px 0 18px; font-size: 11px; color: #4e4e5c; }
+[data-v="e"] .m__sep::before, [data-v="e"] .m__sep::after { content: ''; flex: 1; height: 1px; background: #24242c; }
+[data-v="e"] .cursor { display: inline-block; width: 2px; height: 17px; margin-left: 2px; vertical-align: text-bottom; background: #c4b5fd; animation: blink 1s step-end infinite; }
+
+[data-v="e"] .rail__h {
+  font-size: 11px; letter-spacing: .6px; color: #55555f; margin-bottom: 12px;
+}
+[data-v="e"] .rail__i { position: relative; padding-left: 18px; margin-bottom: 11px; }
+[data-v="e"] .rail__i::before {
+  content: ''; position: absolute; left: 3px; top: 4px; width: 7px; height: 7px;
+  border-radius: 50%; background: #3a3a46;
+}
+[data-v="e"] .rail__i.ok::before { background: #4b9e5f; }
+[data-v="e"] .rail__i.run::before { background: #fcd34d; animation: pulse 1.3s ease-in-out infinite; }
+[data-v="e"] .rail__i.perm::before { background: #fcd34d; box-shadow: 0 0 0 3px rgba(252,211,77,.16); }
+[data-v="e"] .rail__t { font-size: 12px; color: #b0b0c0; font-weight: 500; }
+[data-v="e"] .rail__s {
+  display: block; font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px; color: #5e5e6e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+[data-v="e"] .rail__i.think .rail__t { color: #6e6e82; font-weight: 400; font-style: italic; }
+[data-v="e"] .rail__note {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid #24242c;
+  font-size: 11px; color: #4e4e5c; line-height: 1.7;
+}
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>输出区 · 五个结构</h1>
+  <button class="tabbtn" data-k="a">A 时间轴</button>
+  <button class="tabbtn" data-k="b">B 终端流</button>
+  <button class="tabbtn" data-k="c">C 文档式</button>
+  <button class="tabbtn" data-k="d">D 步骤卡</button>
+  <button class="tabbtn" data-k="e">E 双栏活动</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ── 共用内容 ─────────────────────────────────────────── */
+const code = (s) => s.replace(/`([^`]+)`/g, '<code class="ic">$1</code>')
+
+const DIFF = [
+  ['ctx', "@app.route('/')"],
+  ['ctx', 'def index():'],
+  ['del', '    return "hello"'],
+  ['add', '    name = os.environ.get("SERVICE_NAME", "hello")'],
+  ['add', '    return name']
+]
+const diffHTML = (cls) =>
+  DIFF.map(([k, t]) => `<div class="${cls} d-${k}">${k === 'add' ? '+' : k === 'del' ? '−' : ' '}${t.replace(/</g, '&lt;')}</div>`).join('')
+
+const PERM_ACTS = `<button class="b b--pri">允许</button><button class="b">本会话总是允许 Edit</button><button class="b b--dgr">拒绝</button>`
+
+const HEAD = `
+  <div class="pane__head">
+    <div class="pane__title">把 app.py 里的返回值改成读环境变量…</div>
+    <span class="tag">标准模式</span>
+    <div class="pane__sp"></div>
+    <div class="pane__tabs"><span class="is-on">对话</span><span>轨迹</span></div>
+  </div>
+  <div class="pane__rule"></div>`
+
+const COMPOSER = `
+  <div class="pane__composer">
+    <div class="cbox">
+      <div class="cph">发消息或创建任务，/ 调用指令，@ 文件或对话</div>
+      <div class="crow">
+        <span class="cpill">＋</span>
+        <span class="cpill"><span class="cdot"></span>标准模式</span>
+        <div class="csp"></div>
+        <span class="cpill">deepseek-chat</span>
+        <span class="csend">■</span>
+      </div>
+    </div>
+  </div>`
+
+const pane = (v, body) => `<div class="pane" data-v="${v}">${HEAD}<div class="pane__body">${body}</div>${COMPOSER}</div>`
+
+/* ── A · 时间轴轨道 ───────────────────────────────────── */
+const A = `<div class="scroll"><div class="tl">
+  <div class="tl__row"><span class="tl__dot tl__dot--me"></span><div><span class="tl__me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span></div></div>
+
+  <div class="tl__row"><span class="tl__dot"></span><div>
+    <button class="tl__think">▸ <b>思考</b> · <span>先看看 app.py 现在长什么样，再决定改哪里。</span></button>
+  </div></div>
+
+  <div class="tl__row"><span class="tl__dot tl__dot--ok"></span><div>
+    <div class="tl__tool"><span class="g">✓</span><b>Read</b><code>app.py</code><i>12ms</i></div>
+  </div></div>
+
+  <div class="tl__row"><span class="tl__dot"></span><div>
+    <div class="tl__say">${code('`app.py` 里返回的是写死的字符串。我把它改成读环境变量，缺省值不变，这样不设 `SERVICE_NAME` 时行为跟现在一样。')}</div>
+  </div></div>
+
+  <div class="tl__row"><span class="tl__dot tl__dot--perm"></span><div>
+    <div class="tl__perm">
+      <div class="tl__perm-h"><span class="bd">等待你的许可</span><span class="tt">编辑 app.py</span><span class="nt">+2 −1</span></div>
+      <div class="tl__diff">${diffHTML('dline')}</div>
+      <div class="tl__acts">${PERM_ACTS}</div>
+    </div>
+  </div></div>
+
+  <div class="tl__row"><span class="tl__dot tl__dot--ok"></span><div>
+    <div class="tl__tool"><span class="g">✓</span><b>Edit</b><code>app.py</code><i>34ms</i></div>
+  </div></div>
+  <div class="tl__row"><span class="tl__dot tl__dot--ok"></span><div>
+    <div class="tl__tool"><span class="g">✓</span><b>Bash</b><code>pytest -q</code><i>1.4s</i></div>
+  </div></div>
+
+  <div class="tl__row"><span class="tl__dot"></span><div>
+    <div class="tl__say">${code('改好了。`index()` 现在从 `SERVICE_NAME` 读名字，测试 3 个全过。')}</div>
+  </div></div>
+
+  <div class="tl__sep">已完成 · 用时 12 秒 · 3 步 · 1.2k tok</div>
+
+  <div class="tl__row"><span class="tl__dot tl__dot--me"></span><div><span class="tl__me">再补一个测试</span></div></div>
+
+  <div class="tl__row"><span class="tl__dot"></span><div>
+    <button class="tl__think">▸ <b>思考中…</b> · <span>现有测试都在 tests/test_app.py 里，照着它的写法补一条就行。</span></button>
+  </div></div>
+  <div class="tl__row"><span class="tl__dot tl__dot--run"></span><div>
+    <div class="tl__tool is-run"><span class="g">◌</span><b>Bash</b><code>pytest --collect-only</code><i>运行中</i></div>
+  </div></div>
+  <div class="tl__row"><span class="tl__dot"></span><div>
+    <div class="tl__say">${code('现有测试都在 `tests/test_app.py` 里，我照着它的写法补一条：')}<span class="cursor"></span></div>
+  </div></div>
+</div></div>`
+
+/* ── B · 终端流 ───────────────────────────────────────── */
+const B = `<div class="scroll"><div class="t">
+  <div class="t__l t__l--me"><span class="t__g">❯</span><span class="t__x">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span></div>
+
+  <div class="t__l t__l--think"><span class="t__g">·</span><span class="t__x">先看看 app.py 现在长什么样，再决定改哪里。</span></div>
+  <div class="t__l t__l--tool"><span class="t__g ok">✓</span><b>Read</b><span class="arg">app.py</span><i>12ms</i></div>
+
+  <div class="t__l t__l--say"><span class="t__g"></span><span class="t__x">app.py 里返回的是写死的字符串。我把它改成读环境变量，缺省值不变，这样不设 SERVICE_NAME 时行为跟现在一样。改动前请先过目：</span></div>
+
+  <div class="t__perm">
+    <div class="t__perm-h"><span class="bd">⚠ 等待你的许可</span><span class="tt">Edit  C:\\proj\\app.py</span><span class="nt">+2 −1</span></div>
+    <div class="t__diff">${diffHTML('dline')}</div>
+    <div class="t__acts">${PERM_ACTS}</div>
+  </div>
+
+  <div class="t__l t__l--tool"><span class="t__g ok">✓</span><b>Edit</b><span class="arg">app.py</span><i>34ms</i></div>
+  <div class="t__l t__l--tool"><span class="t__g ok">✓</span><b>Bash</b><span class="arg">pytest -q</span><i>1.4s</i></div>
+
+  <div class="t__l t__l--say"><span class="t__g"></span><span class="t__x">改好了。index() 现在从 SERVICE_NAME 读名字，测试 3 个全过。</span></div>
+
+  <div class="t__sep">已完成 · 12 秒 · 3 步 · 1.2k tok</div>
+
+  <div class="t__l t__l--me"><span class="t__g">❯</span><span class="t__x">再补一个测试</span></div>
+  <div class="t__l t__l--think"><span class="t__g">·</span><span class="t__x">现有测试都在 tests/test_app.py 里，照着它的写法补一条就行。</span></div>
+  <div class="t__l t__l--tool"><span class="t__g run">◌</span><b>Bash</b><span class="arg">pytest --collect-only</span><i>运行中</i></div>
+  <div class="t__l t__l--say"><span class="t__g"></span><span class="t__x">现有测试都在 tests/test_app.py 里，我照着它的写法补一条：<span class="cursor"></span></span></div>
+</div></div>`
+
+/* ── C · 文档式 ───────────────────────────────────────── */
+const C = `<div class="scroll"><div class="doc">
+  <span class="doc__me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span>
+
+  <div class="doc__think">思考 · 先看看 app.py 现在长什么样，再决定改哪里。</div>
+
+  <div class="doc__chips">
+    <span class="doc__chip"><span class="g">✓</span><b>Read</b><code>app.py</code><i>12ms</i></span>
+  </div>
+
+  <p class="doc__p">${code('`app.py` 里返回的是写死的字符串。我把它改成读环境变量，缺省值不变，这样不设 `SERVICE_NAME` 时行为跟现在一样。')}</p>
+
+  <div class="doc__perm">
+    <div class="doc__perm-h"><span class="bd">等待你的许可</span><span class="tt">编辑 app.py</span><span class="nt">+2 −1</span></div>
+    <div class="doc__path">C:\\proj\\app.py</div>
+    <div class="doc__diff">${diffHTML('dline')}</div>
+    <div class="doc__acts">${PERM_ACTS}</div>
+  </div>
+
+  <div class="doc__chips">
+    <span class="doc__chip"><span class="g">✓</span><b>Edit</b><code>app.py</code><i>34ms</i></span>
+    <span class="doc__chip"><span class="g">✓</span><b>Bash</b><code>pytest -q</code><i>1.4s</i></span>
+  </div>
+
+  <p class="doc__p">${code('改好了。`index()` 现在从 `SERVICE_NAME` 读名字，测试 3 个全过。')}</p>
+
+  <div class="doc__sep">已完成 · 用时 12 秒 · 3 步 · 1.2k tok</div>
+
+  <span class="doc__me">再补一个测试</span>
+
+  <div class="doc__think is-live">思考中 · 现有测试都在 tests/test_app.py 里，照着它的写法补一条就行。</div>
+
+  <div class="doc__chips">
+    <span class="doc__chip"><span class="g run">◌</span><b>Bash</b><code>pytest --collect-only</code><i>运行中</i></span>
+  </div>
+
+  <p class="doc__p">${code('现有测试都在 `tests/test_app.py` 里，我照着它的写法补一条：')}<span class="cursor"></span></p>
+</div></div>`
+
+/* ── D · 步骤卡 ───────────────────────────────────────── */
+const D = `<div class="scroll"><div class="cards">
+  <div class="card card--me"><div class="card__h">把 app.py 里的返回值改成读环境变量，然后跑一下测试</div></div>
+
+  <div class="card card--think">
+    <div class="card__h"><span class="card__n">·</span><span class="card__t">思考</span><span class="card__arg">先看看 app.py 现在长什么样，再决定改哪里。</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card__h"><span class="card__n">1</span><span class="card__t">Read</span><span class="card__arg">app.py</span><span class="card__st">12ms</span><span class="card__g">✓</span></div>
+  </div>
+
+  <div class="card card--say"><div class="card__body">${code('`app.py` 里返回的是写死的字符串。我把它改成读环境变量，缺省值不变，这样不设 `SERVICE_NAME` 时行为跟现在一样。')}</div></div>
+
+  <div class="card card--perm">
+    <div class="card__h"><span class="card__n">2</span><span class="card__t">Edit · app.py</span><span class="card__arg">等待你的许可</span><span class="card__st">+2 −1</span></div>
+    <div class="card__diff">${diffHTML('dline')}</div>
+    <div class="card__acts">${PERM_ACTS}</div>
+  </div>
+
+  <div class="card">
+    <div class="card__h"><span class="card__n">3</span><span class="card__t">Bash</span><span class="card__arg">pytest -q</span><span class="card__st">1.4s</span><span class="card__g">✓</span></div>
+  </div>
+
+  <div class="card card--say"><div class="card__body">${code('改好了。`index()` 现在从 `SERVICE_NAME` 读名字，测试 3 个全过。')}</div></div>
+
+  <div class="dsep">已完成 · 用时 12 秒 · 3 步 · 1.2k tok</div>
+
+  <div class="card card--me"><div class="card__h">再补一个测试</div></div>
+
+  <div class="card card--think">
+    <div class="card__h"><span class="card__n">·</span><span class="card__t">思考中…</span><span class="card__arg">现有测试都在 tests/test_app.py 里，照着它的写法补一条就行。</span></div>
+  </div>
+
+  <div class="card card--run">
+    <div class="card__h"><span class="card__n">4</span><span class="card__t">Bash</span><span class="card__arg">pytest --collect-only</span><span class="card__st">运行中</span><span class="card__g run">◌</span></div>
+  </div>
+
+  <div class="card card--say"><div class="card__body">${code('现有测试都在 `tests/test_app.py` 里，我照着它的写法补一条：')}<span class="cursor"></span></div></div>
+</div></div>`
+
+/* ── E · 双栏活动 ─────────────────────────────────────── */
+const E = `<div class="sp2">
+  <div class="sp2__main">
+    <div class="m__me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</div>
+
+    <p class="m__p">${code('`app.py` 里返回的是写死的字符串。我把它改成读环境变量，缺省值不变，这样不设 `SERVICE_NAME` 时行为跟现在一样。')}</p>
+
+    <div class="m__perm">
+      <div class="m__perm-h"><span class="bd">等待你的许可</span><span class="tt">编辑 app.py</span><span class="nt">+2 −1</span></div>
+      <div class="m__diff">${diffHTML('dline')}</div>
+      <div class="m__acts">${PERM_ACTS}</div>
+    </div>
+
+    <p class="m__p">${code('改好了。`index()` 现在从 `SERVICE_NAME` 读名字，测试 3 个全过。')}</p>
+
+    <div class="m__sep">已完成 · 用时 12 秒 · 3 步</div>
+
+    <div class="m__me">再补一个测试</div>
+
+    <p class="m__p">${code('现有测试都在 `tests/test_app.py` 里，我照着它的写法补一条：')}<span class="cursor"></span></p>
+  </div>
+
+  <aside class="sp2__rail">
+    <div class="rail__h">本次活动</div>
+    <div class="rail__i think"><span class="rail__t">思考</span><span class="rail__s">先看看 app.py 现在长什么样</span></div>
+    <div class="rail__i ok"><span class="rail__t">Read</span><span class="rail__s">app.py · 12ms</span></div>
+    <div class="rail__i perm"><span class="rail__t">Edit · 待批准</span><span class="rail__s">app.py · +2 −1</span></div>
+    <div class="rail__i ok"><span class="rail__t">Edit</span><span class="rail__s">app.py · 34ms</span></div>
+    <div class="rail__i ok"><span class="rail__t">Bash</span><span class="rail__s">pytest -q · 1.4s</span></div>
+    <div class="rail__i run"><span class="rail__t">Bash</span><span class="rail__s">pytest --collect-only</span></div>
+    <div class="rail__note">工具与思考收在右栏，正文留在左边 —— 想读回答的时候不被命令刷屏。</div>
+  </aside>
+</div>`
+
+const VARIANTS = {
+  a: { html: A, desc: '<b>A 时间轴轨道</b> —— 一条竖线贯穿，每个动作是线上的一个节点，靠状态色区分（用户青、工具绿、运行黄）。没有气泡，像一份执行记录。适合"我想一眼看出它按什么顺序干了什么"。' },
+  b: { html: B, desc: '<b>B 终端流</b> —— 全等宽字，用户输入是 <b>❯</b> 提示行，工具是一行 <b>✓ Read app.py 12ms</b>。最密、最像终端，老手一眼就懂；代价是中文在等宽下略丑，长段落读着累。' },
+  c: { html: C, desc: '<b>C 文档式</b> —— 助手的正文当文章排（15px / 1.85 行高），工具调用压成一行小胶囊可以忽略，思考是左边一条细线。用户消息像页边批注靠右。最耐读，适合长回答；代价是工具调用存在感弱。' },
+  d: { html: D, desc: '<b>D 步骤卡</b> —— 每一步一张卡，带序号、状态、耗时，像流水线。结构最清楚、最好扫；代价是卡片多的时候比较吵，正文也被关进卡里了。' },
+  e: { html: E, desc: '<b>E 双栏活动</b> —— 左边只留对话正文（干净），右栏是实时的工具/思考时间轴。读回答时不被命令刷屏，同时又能看见机器在干什么。代价是右栏窄，长命令要截断。' }
+}
+
+/* ── 渲染 ─────────────────────────────────────────────── */
+const params = new URLSearchParams(location.search)
+// ?v=a..e 只渲染那一张（截图用）；?v=bar 或没有参数 → 带顶部切换栏
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = pane(k, VARIANTS[k].html)
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  // 截图模式：只要那一张，不要顶部栏
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = pane(only, VARIANTS[only].html)
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

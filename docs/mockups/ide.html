@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>CCoder 内置 IDE · 方案稿</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: #e8e8e8;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: none; }
+svg.ic { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.mono { font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace; }
+
+:root {
+  --bg-app: #191919;
+  --bg-sidebar: #141414;
+  --bg-raised: #232323;
+  --bg-hover: #1f1f1f;
+  --bg-active: #2a2a2a;
+  --border: #2c2c2c;
+  --border-soft: #242424;
+  --text: #e8e8e8;
+  --text-dim: #a8a8a8;
+  --text-muted: #8a8a8a;
+  --text-faint: #6b6b6b;
+  --ok: #4b9e5f;
+  --warn: #e0af68;
+  --danger: #e5534b;
+  --running: #d97757;
+  --ide: #8ab4f8;
+  --purple: #c4b5fd;
+  --add: #7fbf7f;
+  --del: #d98a8a;
+}
+
+.app {
+  position: relative;
+  width: 1360px; height: 800px;
+  display: flex; flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
+}
+.app.hide { display: none; }
+body.gallery { padding: 40px 24px 24px; display: flex; flex-direction: column; gap: 40px; align-items: center; }
+/* 直接在浏览器里打开时，给每个方案头顶标一行说明；截图模式（?v=N）不显示 */
+body.gallery .app::before {
+  content: attr(data-label);
+  position: absolute; left: 0; top: -28px;
+  font-size: 13px; font-weight: 600; color: #c8c8d4;
+}
+
+/* ── 标题栏 ───────────────────────────────────────────── */
+.titlebar {
+  flex: none; display: flex; align-items: center;
+  height: 38px; padding-left: 16px;
+  background: #161616; border-bottom: 1px solid #232323;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.logo { width: 17px; height: 17px; border-radius: 50%; background: #e8e8e8; color: #191919; display: grid; place-items: center; font-size: 10px; font-weight: 800; }
+.win { margin-left: auto; display: flex; align-items: center; height: 100%; }
+.wbtn { display: grid; place-items: center; width: 46px; height: 100%; color: #8a8a8a; }
+.wbtn--close { color: #b0b0b0; }
+
+.body { flex: 1; display: flex; min-height: 0; }
+
+/* ── 应用侧栏 ─────────────────────────────────────────── */
+.side {
+  flex: none; width: 280px; display: flex; flex-direction: column;
+  padding: 10px 10px 6px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-soft);
+}
+.new {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  height: 34px; margin-bottom: 12px;
+  font-size: 12.5px; color: #d8d8e2;
+  background: #1d1d1d; border: 1px solid #2c2c2c; border-radius: 8px;
+}
+.nav { display: flex; flex-direction: column; gap: 1px; margin-bottom: 16px; }
+.navitem { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; font-size: 12.5px; color: var(--text-muted); border-radius: 6px; }
+.navitem svg { width: 15px; height: 15px; }
+.sechead { display: flex; align-items: center; height: 26px; padding: 0 6px 0 10px; margin-bottom: 2px; }
+.sechead > span { font-size: 11.5px; color: var(--text-faint); letter-spacing: .3px; }
+.secacts { margin-left: auto; display: flex; gap: 2px; color: var(--text-faint); }
+.secacts .ib { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; }
+.secacts .ib svg { width: 13px; height: 13px; }
+.scroll { flex: 1; min-height: 0; overflow: hidden; }
+.ws { margin-bottom: 6px; padding-bottom: 8px; }
+.ws + .ws { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+.wshead { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px 0 8px; color: var(--text-dim); }
+.wsfolder {
+  position: relative; display: grid; place-items: center;
+  width: 22px; height: 22px; flex: none;
+  color: var(--text-muted); border-radius: 5px;
+}
+.wsfolder svg { width: 15px; height: 15px; }
+.wsfolder.is-ide { color: var(--ide); background: rgba(138,180,248,.12); box-shadow: inset 0 0 0 1px rgba(138,180,248,.3); }
+.wsfolder.is-ide::after {
+  content: ''; position: absolute; right: 1px; bottom: 1px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--ide);
+  box-shadow: 0 0 0 2px var(--bg-sidebar);
+}
+.wsname { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.idebadge { flex: none; padding: 1px 5px; font-size: 9px; font-weight: 700; letter-spacing: .6px; color: var(--ide); background: rgba(138,180,248,.1); border: 1px solid rgba(138,180,248,.25); border-radius: 4px; }
+.wscount { flex: none; min-width: 17px; height: 17px; padding: 0 5px; display: grid; place-items: center; font-size: 10.5px; color: var(--text-faint); background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 999px; }
+.wsacts { margin-left: auto; display: flex; gap: 1px; color: var(--text-faint); }
+.wsacts .wa { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; }
+.wsacts .wa svg { width: 12px; height: 12px; }
+.sess { display: flex; align-items: center; gap: 9px; height: 26px; margin-left: 16px; padding: 0 4px 0 12px; border-radius: 6px; }
+.sess.active { background: var(--bg-active); }
+.sess .cli { flex: none; width: 16px; height: 16px; display: grid; place-items: center; font-size: 13px; line-height: 1; color: var(--running); }
+.sess .t { flex: 1; min-width: 0; font-size: 13px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess.active .t { color: var(--text); }
+.sess .time { flex: none; font-size: 12px; color: var(--text-faint); }
+.sess .time.run { color: var(--running); }
+.expand { width: calc(100% - 16px); margin-left: 16px; padding: 6px 10px 6px 37px; font-size: 13px; color: var(--text-faint); text-align: left; border-radius: 6px; }
+.sidefoot { flex: none; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; font-size: 13px; color: var(--text-dim); }
+
+/* ── IDE 共用 ─────────────────────────────────────────── */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-app); }
+.idehead {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 12px;
+  background: #181818; border-bottom: 1px solid var(--border-soft);
+}
+.back { display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px 0 6px; font-size: 12px; color: var(--text-dim); background: #1f1f1f; border: 1px solid #2c2c2c; border-radius: 6px; }
+.back svg { width: 13px; height: 13px; }
+.vdiv { width: 1px; height: 18px; background: #2b2b2b; }
+.wscur { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text); }
+.wscur svg { width: 15px; height: 15px; color: var(--text-muted); }
+.quick {
+  margin-left: 16px; display: flex; align-items: center; gap: 8px;
+  width: 340px; height: 28px; padding: 0 9px;
+  font-size: 11.5px; color: var(--text-faint);
+  background: #202020; border: 1px solid #2c2c2c; border-radius: 6px;
+}
+.quick svg { width: 13px; height: 13px; }
+.quick kbd { margin-left: auto; padding: 1px 5px; font-family: inherit; font-size: 10px; color: #8a8a8a; background: #2a2a2a; border: 1px solid #363636; border-radius: 4px; }
+.headright { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.branch { display: flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; font-size: 11.5px; color: var(--text-dim); background: #1f1f1f; border: 1px solid #2c2c2c; border-radius: 6px; }
+.branch svg { width: 12px; height: 12px; color: var(--text-muted); }
+.hbtn { display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-muted); border-radius: 5px; }
+.hbtn svg { width: 15px; height: 15px; }
+
+.idebody { flex: 1; display: flex; min-height: 0; }
+.activity {
+  flex: none; width: 48px; display: flex; flex-direction: column; align-items: center;
+  padding-top: 6px; gap: 2px;
+  background: var(--bg-sidebar); border-right: 1px solid var(--border-soft);
+}
+.act { position: relative; display: grid; place-items: center; width: 48px; height: 38px; color: #6f6f78; }
+.act svg { width: 18px; height: 18px; }
+.act.on { color: var(--text); background: #1e1e1e; }
+.act.on::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--ide); border-radius: 0 2px 2px 0; }
+.act .badge { position: absolute; right: 8px; top: 5px; min-width: 14px; height: 14px; padding: 0 3px; display: grid; place-items: center; font-size: 9px; font-weight: 600; color: #191919; background: var(--warn); border-radius: 7px; }
+.actfoot { margin-top: auto; margin-bottom: 4px; display: flex; flex-direction: column; gap: 2px; }
+
+.explorer { flex: none; width: 238px; display: flex; flex-direction: column; background: #151515; border-right: 1px solid var(--border-soft); }
+.exphead { flex: none; display: flex; align-items: center; height: 34px; padding: 0 10px 0 12px; }
+.exphead span { font-size: 11px; font-weight: 600; letter-spacing: .5px; color: var(--text-muted); }
+.expacts { margin-left: auto; display: flex; gap: 1px; color: var(--text-faint); }
+.expacts svg { width: 13px; height: 13px; margin-left: 5px; }
+.tree { flex: 1; min-height: 0; overflow: hidden; padding-top: 1px; }
+.frow { display: flex; align-items: center; gap: 6px; height: 23px; padding-right: 8px; font-size: 12px; color: #b4b4b8; white-space: nowrap; }
+.frow .chev { width: 12px; height: 12px; color: #6f6f78; }
+.frow svg.type { width: 14px; height: 14px; }
+.frow .name { overflow: hidden; text-overflow: ellipsis; }
+.frow .st { margin-left: auto; font-family: var(--mono); font-size: 10px; font-style: normal; font-weight: 600; }
+.frow.d1 { padding-left: 10px; }
+.frow.d2 { padding-left: 22px; }
+.frow.d3 { padding-left: 34px; }
+.frow.d4 { padding-left: 46px; }
+.frow.d5 { padding-left: 58px; }
+.frow.folder { color: #c2c2c6; }
+.frow.folder svg.type { color: #8a8a8a; }
+.st.m { color: #e0af68; }
+.st.a { color: #7fbf7f; }
+.st.d { color: #d98a8a; }
+.st.u { color: #8ab4f8; }
+.ic-ts { width: 14px; height: 14px; border-radius: 3px; display: grid; place-items: center; font-family: var(--mono); font-size: 7.5px; font-weight: 700; color: #8ab4f8; background: rgba(138,180,248,.1); }
+.ic-json { color: #e0af68; }
+.ic-img { color: #c4b5fd; }
+
+.editor { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #1c1c1c; }
+.tabs { flex: none; display: flex; align-items: stretch; height: 36px; background: #181818; border-bottom: 1px solid var(--border-soft); }
+.tab { display: flex; align-items: center; gap: 7px; padding: 0 10px; font-size: 11.5px; color: #8c8c94; border-right: 1px solid #242424; position: relative; }
+.tab.on { color: var(--text); background: #1c1c1c; }
+.tab.on::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--ide); }
+.tab .x { margin-left: 4px; color: #6b6b73; font-size: 12px; }
+.tab .st { font-family: var(--mono); font-size: 9.5px; font-style: normal; }
+.tab .diffstat { font-family: var(--mono); font-size: 9.5px; color: var(--add); }
+.tabsright { margin-left: auto; display: flex; align-items: center; gap: 3px; padding-right: 8px; color: var(--text-faint); }
+.tabsright svg { width: 14px; height: 14px; }
+.crumb { flex: none; display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 14px; font-size: 11px; color: var(--text-faint); border-bottom: 1px solid #242424; }
+.crumb b { font-weight: 400; color: #9a9a9a; }
+.crumb .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.crumb .add { color: var(--add); }
+.crumb .del { color: var(--del); }
+.statusbar { flex: none; display: flex; align-items: center; height: 22px; padding: 0 10px; font-size: 10.5px; color: #8a8a90; background: #161616; border-top: 1px solid var(--border-soft); }
+.statusbar .sb { display: flex; align-items: center; gap: 5px; }
+.statusbar .sb svg { width: 11px; height: 11px; }
+.statusbar .sp { width: 14px; }
+.statusbar .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.statusbar .ok { color: #7fbf7f; }
+.statusbar .warn { color: #e0af68; }
+
+/* ── V1 全屏 · diff ───────────────────────────────────── */
+.diffwrap { flex: 1; display: flex; min-height: 0; background: #1c1c1c; }
+.diffmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dhunk { flex: none; display: flex; align-items: center; height: 24px; padding: 0 12px; font-family: var(--mono); font-size: 10px; color: #8ab4f8; background: rgba(138,180,248,.07); border-bottom: 1px solid #262626; }
+.dgrid { flex: 1; min-height: 0; display: flex; }
+.dcol { width: 50%; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #262626; }
+.dcol:last-child { border-right: none; }
+.dline { display: flex; height: 17px; line-height: 17px; font-family: var(--mono); font-size: 10.5px; white-space: pre; overflow: hidden; }
+.dline .ln { flex: none; width: 32px; padding-right: 8px; text-align: right; color: #55555d; background: rgba(255,255,255,.012); }
+.dline .code { flex: 1; padding-left: 8px; overflow: hidden; }
+.dline.add { background: rgba(127,191,127,.09); }
+.dline.add .ln { background: rgba(127,191,127,.07); color: #7fbf7f; }
+.dline.del { background: rgba(217,138,138,.09); }
+.dline.del .ln { background: rgba(217,138,138,.07); color: #d98a8a; }
+.dline.empty { background: rgba(255,255,255,.014); }
+.dline.empty .ln { color: transparent; }
+.tok-k { color: #c792ea; }
+.tok-fn { color: #ffcb6b; }
+.tok-ty { color: #82aaff; }
+.tok-str { color: #a5d6a7; }
+.tok-num { color: #f78c6c; }
+.tok-cm { color: #6b6b73; font-style: italic; }
+.tok-punc { color: #9a9aa2; }
+.minimap { flex: none; width: 58px; padding: 6px; background: #181818; border-left: 1px solid #242424; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.mm { height: 2px; border-radius: 1px; background: #3a3a42; }
+.mm.g { background: #3f5d3f; }
+.mm.r { background: #5d3f3f; }
+.mm.b { background: #3f4f6d; }
+.mmview { margin-top: 4px; height: 112px; border: 1px solid rgba(138,180,248,.22); border-radius: 2px; background: rgba(138,180,248,.04); }
+
+.panel { flex: none; height: 178px; display: flex; flex-direction: column; background: #181818; border-top: 1px solid #2a2a2a; }
+.ptabs { display: flex; align-items: center; height: 30px; padding: 0 12px; gap: 16px; border-bottom: 1px solid #242424; }
+.ptab { position: relative; display: flex; align-items: center; gap: 5px; height: 100%; font-size: 11px; color: #8a8a92; }
+.ptab.on { color: var(--text); }
+.ptab.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--ide); }
+.ptab .n { min-width: 14px; height: 14px; padding: 0 4px; display: grid; place-items: center; font-size: 9px; color: #b0b0b8; background: #2a2a2a; border-radius: 7px; }
+.psearch { display: flex; align-items: center; gap: 6px; padding: 6px 12px; }
+.sinput { flex: 1; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; font-family: var(--mono); font-size: 11px; color: #d8d8dc; background: #202020; border: 1px solid #303030; border-radius: 4px; }
+.sinput svg { width: 12px; height: 12px; color: #6b6b73; }
+.tgl { display: flex; gap: 1px; }
+.tgl span { display: grid; place-items: center; width: 20px; height: 20px; font-family: var(--mono); font-size: 9.5px; color: #6b6b73; border-radius: 3px; }
+.tgl span.on { color: #191919; background: #8ab4f8; }
+.pcount { font-size: 10.5px; color: #6b6b73; white-space: nowrap; }
+.results { flex: 1; min-height: 0; padding: 2px 12px 8px; overflow: hidden; }
+.res { display: flex; align-items: baseline; gap: 6px; height: 24px; font-size: 11px; color: #a8a8ae; }
+.res svg { width: 12px; height: 12px; color: #8ab4f8; align-self: center; }
+.res .line { font-family: var(--mono); font-size: 9.5px; color: #5f5f67; }
+.res .snip { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 10.5px; color: #c8c8cc; }
+.res .snip em { font-style: normal; color: #e0af68; background: rgba(224,175,104,.12); border-radius: 2px; }
+
+/* ── V2 全屏 · 图片 / 快速打开 ────────────────────────── */
+.imgwrap { flex: 1; display: flex; min-height: 0; background: #1b1b1b; }
+.imgmain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.imgtools { flex: none; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; font-size: 11px; color: #8a8a92; border-bottom: 1px solid #262626; }
+.imgtools .zoom { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10.5px; }
+.imgtools .zbtn { display: grid; place-items: center; width: 20px; height: 20px; color: #9a9aa2; border-radius: 3px; }
+.imgtools .sp { flex: 1; }
+.canvas {
+  flex: 1; min-height: 0; display: grid; place-items: center;
+  background-color: #1a1a1a;
+  background-image: linear-gradient(45deg,#202020 25%,transparent 25%,transparent 75%,#202020 75%), linear-gradient(45deg,#202020 25%,transparent 25%,transparent 75%,#202020 75%);
+  background-size: 18px 18px; background-position: 0 0, 9px 9px;
+}
+.preview { width: 600px; padding: 10px; background: #1c1c1c; border: 1px solid #3a3a3a; border-radius: 4px; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.preview img { display: block; width: 100%; border-radius: 2px; }
+.imgmeta { flex: none; width: 224px; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: #181818; border-left: 1px solid #262626; }
+.imgmeta h4 { font-size: 11px; font-weight: 600; color: #c8c8cc; }
+.mrow { display: flex; justify-content: space-between; gap: 10px; font-size: 10.5px; color: #7f7f87; }
+.mrow b { font-weight: 400; color: #b8b8bc; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mbtns { display: flex; gap: 6px; }
+.mbtn { flex: 1; height: 24px; display: grid; place-items: center; font-size: 10.5px; color: #c8c8cc; background: #212121; border: 1px solid #303030; border-radius: 4px; }
+.thumbs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.thumb { height: 54px; overflow: hidden; background: #202020; border: 1px solid #2e2e2e; border-radius: 3px; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; opacity: .8; }
+.thumb.on { border-color: #8ab4f8; box-shadow: 0 0 0 1px rgba(138,180,248,.25); }
+
+/* 快速打开：只放一个浮层，别铺满主区 —— 满屏透明层会把下面的图片合成层吃掉 */
+.overlay { position: absolute; z-index: 10; left: 558px; top: 96px; }
+.qo { width: 540px; overflow: hidden; background: #232323; border: 1px solid #3a3a3a; border-radius: 10px; box-shadow: 0 24px 60px rgba(0,0,0,.55); }
+.qo__in { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border-bottom: 1px solid #333; }
+.qo__in svg { width: 14px; height: 14px; color: #8a8a92; }
+.qo__in span { flex: 1; font-family: var(--mono); font-size: 12.5px; color: #e8e8e8; }
+.qo__in kbd { padding: 1px 5px; font-size: 9.5px; color: #8a8a92; background: #2c2c2c; border: 1px solid #3a3a3a; border-radius: 3px; }
+.qo__list { padding: 5px; }
+.qo__row { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border-radius: 5px; }
+.qo__row.on { background: #2f3a4c; }
+.qo__row svg { width: 13px; height: 13px; color: #8ab4f8; }
+.qo__row .qp { flex: 1; min-width: 0; }
+.qo__row .qp b { display: block; font-size: 12px; font-weight: 400; color: #e0e0e4; }
+.qo__row .qp span { display: block; font-size: 9.5px; color: #7f7f87; font-family: var(--mono); }
+.qo__row .qk { font-size: 9.5px; color: #6f6f77; }
+
+/* ── V3 分屏 · 边聊边看 ───────────────────────────────── */
+.splitmain { flex: 1; display: flex; min-height: 0; }
+.chatpane { flex: none; width: 472px; display: flex; flex-direction: column; background: var(--bg-app); border-right: 1px solid #2a2a2a; }
+.chathead { flex: none; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-bottom: 1px solid var(--border-soft); }
+.chathead h1 { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge2 { flex: none; padding: 1px 6px; font-size: 9.5px; color: #9a9aa2; background: #232323; border: 1px solid #303030; border-radius: 4px; }
+.chathead .r { margin-left: auto; color: #7f7f87; }
+.resumebar { flex: none; display: flex; align-items: center; height: 24px; padding: 0 14px; font-size: 10px; color: #6b6b73; border-bottom: 1px solid #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctabs { flex: none; display: flex; gap: 18px; height: 32px; padding: 0 16px; border-bottom: 1px solid #242424; }
+.ctab { position: relative; display: flex; align-items: center; font-size: 11.5px; color: #8a8a92; }
+.ctab.on { color: #e8e8e8; }
+.ctab.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: #e8e8e8; }
+.ctrans { flex: 1; min-height: 0; padding: 12px 16px; display: flex; flex-direction: column; gap: 9px; overflow: hidden; }
+.msg-user { align-self: flex-end; max-width: 84%; padding: 8px 11px; font-size: 12px; line-height: 1.55; color: #e8e8e8; background: #20302e; border: 1px solid #2f4a45; border-radius: 9px 9px 3px 9px; }
+.think { display: flex; gap: 7px; font-size: 11px; color: #7f7f87; }
+.think .ch { font-family: var(--mono); color: #6b6b73; }
+.tool { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 9px; font-size: 11.5px; color: #c0c0c6; background: #202020; border: 1px solid #2b2b2b; border-radius: 6px; }
+.tool .ti { color: #e0af68; font-size: 10px; }
+.tool .tn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool .td { font-family: var(--mono); font-size: 9.5px; }
+.tool .td .add { color: #7fbf7f; }
+.tool .td .del { color: #d98a8a; }
+.atext { font-size: 12px; line-height: 1.65; color: #d0d0d4; }
+.runline { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #a8a8ae; }
+.spin { width: 10px; height: 10px; border: 1.5px solid #3a3a42; border-top-color: #8ab4f8; border-radius: 50%; }
+.cstatus { flex: none; display: flex; align-items: center; height: 22px; padding: 0 12px; font-size: 10px; color: #7f7f87; border-top: 1px solid #242424; }
+.ccomposer { flex: none; padding: 8px 14px 10px; }
+.cbox { padding: 8px 9px 7px; background: #232323; border: 1px solid #2f2f2f; border-radius: 10px; }
+.cinput { padding: 2px 2px 12px; font-size: 11.5px; color: #6b6b73; }
+.cbar { display: flex; align-items: center; gap: 6px; }
+.cchip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; font-size: 9.5px; color: #9a9aa2; background: #202020; border: 1px solid #2d2d2d; border-radius: 999px; }
+.cchip .dot { width: 5px; height: 5px; border-radius: 50%; background: #4b9e5f; }
+.csend { margin-left: auto; display: grid; place-items: center; width: 24px; height: 24px; font-size: 9px; color: #fff; background: #c94f45; border-radius: 50%; }
+.divider { flex: none; width: 5px; display: grid; place-items: center; background: #111; border-right: 1px solid #262626; }
+.divider i { width: 2px; height: 28px; border-radius: 2px; background: #3a3a42; }
+.idepane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #1c1c1c; }
+.compacthead { flex: none; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; font-size: 11.5px; background: #181818; border-bottom: 1px solid #262626; }
+.compacthead .wsn { color: #e8e8e8; }
+.compacthead .r { margin-left: auto; display: flex; gap: 8px; color: #7f7f87; }
+.compacthead svg { width: 14px; height: 14px; }
+.compactbody { flex: 1; display: flex; min-height: 0; }
+.cactivity { flex: none; width: 40px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 4px; background: #151515; border-right: 1px solid #262626; }
+.cactivity .act { width: 40px; height: 34px; }
+.cactivity .act svg { width: 16px; height: 16px; }
+.ceditor { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ctabs2 { flex: none; display: flex; height: 32px; background: #181818; border-bottom: 1px solid #262626; }
+.ctab2 { display: flex; align-items: center; gap: 6px; padding: 0 9px; font-size: 10.5px; color: #8a8a92; border-right: 1px solid #242424; }
+.ctab2.on { color: #e8e8e8; background: #1c1c1c; }
+.ucrumb { flex: none; display: flex; align-items: center; height: 24px; padding: 0 10px; font-size: 10px; color: #6b6b73; border-bottom: 1px solid #262626; }
+.udiff { flex: 1; min-height: 0; overflow: hidden; }
+.uhunk { display: flex; align-items: center; height: 22px; padding: 0 10px; font-family: var(--mono); font-size: 10px; color: #8ab4f8; background: rgba(138,180,248,.07); border-bottom: 1px solid #262626; }
+.uline { display: flex; height: 18px; line-height: 18px; font-family: var(--mono); font-size: 10.5px; white-space: pre; }
+.uline .g { flex: none; width: 16px; text-align: center; color: #55555d; }
+.uline .ln { flex: none; width: 30px; padding-right: 6px; text-align: right; color: #55555d; }
+.uline .code { flex: 1; padding-left: 6px; overflow: hidden; }
+.uline.add { background: rgba(127,191,127,.09); }
+.uline.add .g, .uline.add .ln { color: #7fbf7f; }
+.uline.del { background: rgba(217,138,138,.09); }
+.uline.del .g, .uline.del .ln { color: #d98a8a; }
+</style>
+</head>
+<body class="gallery">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M1.6 3.4h4l1.3 1.5h7.5v8.7H1.6z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 1.8h5l3 3v9.4H4z"/><path d="M9 1.8v3h3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 16 16"><path d="M5.8 5.2L2.4 8l3.4 2.8M10.2 5.2L13.6 8l-3.4 2.8"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.5 1.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="M3.5 6L8 10.5 12.5 6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 16 16"><path d="M10 3.5L5.5 8 10 12.5"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 16 16"><circle cx="4" cy="3.4" r="1.5"/><circle cx="4" cy="12.6" r="1.5"/><circle cx="12" cy="5" r="1.5"/><path d="M4 4.9v6.2M12 6.5c0 2.8-2.6 3.1-4.5 3.6"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 16 16"><rect x="2" y="3.2" width="12" height="9.6" rx="1.2"/><path d="M5 6.8l2 1.4-2 1.4M9 9.8h2.5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.4"/><circle cx="6" cy="6.8" r="1.1"/><path d="M3.2 12l3.2-3.1 2.2 2.2 2.1-2.1 2.1 2.1"/></symbol>
+  <symbol id="i-files" viewBox="0 0 16 16"><path d="M3 2.4h5l3 3v6.2H3z"/><path d="M6 12.4h6.4V5.6"/></symbol>
+  <symbol id="i-list" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12.5" cy="8" r="1"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 16 16"><path d="M4 2.5v11M4 13.5l-2-2M4 13.5l2-2M9 4h4M9 8h3M9 12h2"/></symbol>
+  <symbol id="i-split" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.2"/><path d="M8 3v10"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 16 16"><path d="M4 3v10M4 13l-2-2M4 13l2-2M9 4h4M9 8h4M9 12h2"/></symbol>
+</svg>
+
+<template id="tpl-side">
+  <aside class="side">
+    <button class="new"><svg class="ic"><use href="#i-plus"/></svg>新会话</button>
+    <nav class="nav">
+      <div class="navitem"><svg class="ic"><use href="#i-folder"/></svg>插件</div>
+      <div class="navitem"><svg class="ic"><use href="#i-clock"/></svg>自动化任务</div>
+    </nav>
+    <div class="sechead">
+      <span>工作区</span>
+      <div class="secacts">
+        <span class="ib"><svg class="ic"><use href="#i-search"/></svg></span>
+        <span class="ib"><svg class="ic"><use href="#i-sort"/></svg></span>
+        <span class="ib"><svg class="ic"><use href="#i-folder"/></svg></span>
+      </div>
+    </div>
+    <div class="scroll">
+      <div class="ws">
+        <div class="wshead">
+          <span class="wsfolder is-ide"><svg class="ic"><use href="#i-folder"/></svg></span>
+          <span class="wsname">CCoder-Desktop</span>
+          <span class="idebadge">IDE</span>
+          <span class="wscount">5</span>
+          <span class="wsacts"><span class="wa"><svg class="ic"><use href="#i-plus"/></svg></span><span class="wa"><svg class="ic"><use href="#i-close"/></svg></span></span>
+        </div>
+        <div class="sess active"><span class="cli">✳</span><span class="t">给侧栏加运行中指示器</span><span class="time run">运行中</span></div>
+        <div class="sess"><span class="cli">✳</span><span class="t">修 permission-preview 的 diff</span><span class="time">12 分钟</span></div>
+        <div class="sess"><span class="cli">✳</span><span class="t">把渠道测试改成走真实端点</span><span class="time">2 小时</span></div>
+        <div class="sess"><span class="cli">✳</span><span class="t">重构 run-state 的任务合并逻辑</span><span class="time">昨天</span></div>
+        <div class="sess"><span class="cli">✳</span><span class="t">支持多个会话同时运行</span><span class="time">昨天</span></div>
+        <button class="expand">展开其余 4 个会话</button>
+      </div>
+      <div class="ws">
+        <div class="wshead">
+          <span class="wsfolder"><svg class="ic"><use href="#i-folder"/></svg></span>
+          <span class="wsname">agent-kit</span>
+          <span class="wscount">1</span>
+        </div>
+        <div class="sess"><span class="cli">✳</span><span class="t">接入 token 统计</span><span class="time">1 天</span></div>
+      </div>
+    </div>
+    <div class="sidefoot"><svg class="ic"><use href="#i-gear"/></svg>设置</div>
+  </aside>
+</template>
+
+<!-- ═══════════════ V1 · 全屏 IDE · diff ═══════════════ -->
+<div class="app" id="v1" data-label="A · 全屏 IDE · diff 审查（推荐）">
+  <div class="titlebar">
+    <div class="brand"><span class="logo">C</span>CCoder</div>
+    <div class="win"><span class="wbtn">—</span><span class="wbtn">□</span><span class="wbtn wbtn--close">×</span></div>
+  </div>
+  <div class="body">
+    <div class="side-slot"></div>
+    <main class="main">
+      <div class="idehead">
+        <div class="back"><svg class="ic"><use href="#i-chevron-left"/></svg>对话</div>
+        <div class="vdiv"></div>
+        <div class="wscur"><svg class="ic"><use href="#i-folder"/></svg>CCoder-Desktop<span class="idebadge">IDE</span></div>
+        <div class="quick"><svg class="ic"><use href="#i-search"/></svg>搜索文件、符号或命令…<kbd>Ctrl P</kbd></div>
+        <div class="headright">
+          <div class="branch"><svg class="ic"><use href="#i-branch"/></svg>main</div>
+          <span class="hbtn"><svg class="ic"><use href="#i-terminal"/></svg></span>
+          <span class="hbtn"><svg class="ic"><use href="#i-more"/></svg></span>
+        </div>
+      </div>
+      <div class="idebody">
+        <div class="activity">
+          <span class="act on"><svg class="ic"><use href="#i-files"/></svg></span>
+          <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+          <span class="act"><svg class="ic"><use href="#i-branch"/></svg><span class="badge">4</span></span>
+          <span class="act"><svg class="ic"><use href="#i-image"/></svg></span>
+          <span class="act"><svg class="ic"><use href="#i-list"/></svg></span>
+          <span class="actfoot">
+            <span class="act"><svg class="ic"><use href="#i-terminal"/></svg></span>
+            <span class="act"><svg class="ic"><use href="#i-gear"/></svg></span>
+          </span>
+        </div>
+        <div class="explorer">
+          <div class="exphead"><span>资源管理器</span><div class="expacts"><svg class="ic"><use href="#i-plus"/></svg><svg class="ic"><use href="#i-folder"/></svg><svg class="ic"><use href="#i-refresh"/></svg></div></div>
+          <div class="tree">
+            <div class="frow folder d1"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">src</span></div>
+            <div class="frow folder d2"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">main</span></div>
+            <div class="frow folder d3"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">providers</span></div>
+            <div class="frow folder d4"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">claude</span></div>
+            <div class="frow d5"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">history.ts</span><em class="st m">M</em></div>
+            <div class="frow d5"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">stream-json.ts</span><em class="st m">M</em></div>
+            <div class="frow d5"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">task-events.ts</span></div>
+            <div class="frow d4"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">workspace-snapshot.ts</span><em class="st a">A</em></div>
+            <div class="frow d3"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">session-manager.ts</span><em class="st m">M</em></div>
+            <div class="frow d3"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">index.ts</span></div>
+            <div class="frow folder d2"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">renderer</span></div>
+            <div class="frow folder d3"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">src</span></div>
+            <div class="frow folder d4"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">components</span></div>
+            <div class="frow d5"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">Composer.tsx</span><em class="st m">M</em></div>
+            <div class="frow d5"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">MainPane.tsx</span></div>
+            <div class="frow d5"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">ChangedFiles.tsx</span></div>
+            <div class="frow d4"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">changedFiles.ts</span><em class="st m">M</em></div>
+            <div class="frow d4"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">useChat.ts</span><em class="st m">M</em></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type ic-json"><use href="#i-file"/></svg><span class="name">package.json</span></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type"><use href="#i-file"/></svg><span class="name">electron-builder.yml</span></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type"><use href="#i-file"/></svg><span class="name">README.md</span></div>
+          </div>
+        </div>
+        <div class="editor">
+          <div class="tabs">
+            <div class="tab"><span class="ic-ts">TS</span>history.ts<em class="st m">M</em><span class="x">×</span></div>
+            <div class="tab on"><svg class="ic" style="width:12px;height:12px;color:#8ab4f8"><use href="#i-diff"/></svg>changedFiles.ts<em class="st m">M</em><span class="diffstat">+12 −3</span><span class="x">×</span></div>
+            <div class="tab"><span class="ic-ts">TS</span>workspace-snapshot.ts<em class="st a">A</em><span class="x">×</span></div>
+            <div class="tab"><svg class="ic" style="width:12px;height:12px;color:#c4b5fd"><use href="#i-image"/></svg>shot-running.png<span class="x">×</span></div>
+            <div class="tabsright"><svg class="ic"><use href="#i-split"/></svg><svg class="ic"><use href="#i-more"/></svg></div>
+          </div>
+          <div class="crumb"><b>src</b><span>›</span><b>renderer</b><span>›</span><b>src</b><span>›</span><b>changedFiles.ts</b><span class="right"><span>与 HEAD 比较</span><span class="add">+24</span><span class="del">−3</span></span></div>
+          <div class="diffwrap">
+            <div class="diffmain">
+              <div class="dhunk">@@ -62,12 +62,24 @@ export function applyFileChange(</div>
+              <div class="dgrid">
+                <div class="dcol">
+<div class="dline"><span class="ln">62</span><span class="code"><span class="tok-k">export</span> <span class="tok-k">function</span> <span class="tok-fn">applyFileChange</span>(</span></div>
+<div class="dline"><span class="ln">63</span><span class="code">&nbsp;&nbsp;files: <span class="tok-ty">ChangedFile</span>[],</span></div>
+<div class="dline"><span class="ln">64</span><span class="code">&nbsp;&nbsp;ch: <span class="tok-ty">FileChange</span></span></div>
+<div class="dline"><span class="ln">65</span><span class="code">): <span class="tok-ty">ChangedFile</span>[] {</span></div>
+<div class="dline"><span class="ln">66</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (!ch.path.<span class="tok-fn">trim</span>()) <span class="tok-k">return</span> files</span></div>
+<div class="dline"><span class="ln">67</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> key = <span class="tok-fn">fileKey</span>(ch.path)</span></div>
+<div class="dline"><span class="ln">68</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> i = files.<span class="tok-fn">findIndex</span>((f) =&gt; f.key === key)</span></div>
+<div class="dline"><span class="ln">69</span><span class="code"></span></div>
+<div class="dline"><span class="ln">70</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (i &lt; <span class="tok-num">0</span>) <span class="tok-k">return</span> [...files, <span class="tok-fn">makeFile</span>(ch)]</span></div>
+<div class="dline"><span class="ln">71</span><span class="code"></span></div>
+<div class="dline"><span class="ln">72</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> cur = files[i]</span></div>
+<div class="dline"><span class="ln">73</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> next: <span class="tok-ty">ChangedFile</span> = { ...cur }</span></div>
+<div class="dline del"><span class="ln">74</span><span class="code">&nbsp;&nbsp;<span class="tok-cm">// disk 来源覆盖同一路径的统计</span></span></div>
+<div class="dline"><span class="ln">75</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (ch.source === <span class="tok-str">'disk'</span>) {</span></div>
+<div class="dline del"><span class="ln">76</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;next.added = ch.added ?? <span class="tok-num">0</span></span></div>
+<div class="dline del"><span class="ln">77</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;next.removed = ch.removed ?? <span class="tok-num">0</span></span></div>
+<div class="dline del"><span class="ln">78</span><span class="code">&nbsp;&nbsp;}</span></div>
+<div class="dline empty"><span class="ln">79</span><span class="code"></span></div>
+<div class="dline empty"><span class="ln">80</span><span class="code"></span></div>
+<div class="dline empty"><span class="ln">81</span><span class="code"></span></div>
+<div class="dline empty"><span class="ln">82</span><span class="code"></span></div>
+<div class="dline empty"><span class="ln">83</span><span class="code"></span></div>
+<div class="dline empty"><span class="ln">84</span><span class="code"></span></div>
+<div class="dline"><span class="ln">85</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> copy = files.<span class="tok-fn">slice</span>()</span></div>
+<div class="dline"><span class="ln">86</span><span class="code">&nbsp;&nbsp;copy[i] = next</span></div>
+                </div>
+                <div class="dcol">
+<div class="dline"><span class="ln">62</span><span class="code"><span class="tok-k">export</span> <span class="tok-k">function</span> <span class="tok-fn">applyFileChange</span>(</span></div>
+<div class="dline"><span class="ln">63</span><span class="code">&nbsp;&nbsp;files: <span class="tok-ty">ChangedFile</span>[],</span></div>
+<div class="dline add"><span class="ln">64</span><span class="code">&nbsp;&nbsp;ch: <span class="tok-ty">Extract</span>&lt;<span class="tok-ty">AgentEvent</span>, { t: <span class="tok-str">'file_change'</span> }&gt;</span></div>
+<div class="dline"><span class="ln">65</span><span class="code">): <span class="tok-ty">ChangedFile</span>[] {</span></div>
+<div class="dline"><span class="ln">66</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (!ch.path.<span class="tok-fn">trim</span>()) <span class="tok-k">return</span> files</span></div>
+<div class="dline"><span class="ln">67</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> key = <span class="tok-fn">fileKey</span>(ch.path)</span></div>
+<div class="dline"><span class="ln">68</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> i = files.<span class="tok-fn">findIndex</span>((f) =&gt; f.key === key)</span></div>
+<div class="dline"><span class="ln">69</span><span class="code"></span></div>
+<div class="dline"><span class="ln">70</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (i &lt; <span class="tok-num">0</span>) <span class="tok-k">return</span> [...files, <span class="tok-fn">makeFile</span>(ch)]</span></div>
+<div class="dline"><span class="ln">71</span><span class="code"></span></div>
+<div class="dline"><span class="ln">72</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> cur = files[i]</span></div>
+<div class="dline"><span class="ln">73</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> next: <span class="tok-ty">ChangedFile</span> = { ...cur }</span></div>
+<div class="dline add"><span class="ln">74</span><span class="code">&nbsp;&nbsp;<span class="tok-cm">// 工具来源累加；磁盘来源只补空缺</span></span></div>
+<div class="dline"><span class="ln">75</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (ch.source === <span class="tok-str">'disk'</span>) {</span></div>
+<div class="dline add"><span class="ln">76</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.deleted) {</span></div>
+<div class="dline add"><span class="ln">77</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;next.deleted = <span class="tok-k">true</span></span></div>
+<div class="dline add"><span class="ln">78</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.added != <span class="tok-k">null</span>) next.added = ch.added</span></div>
+<div class="dline add"><span class="ln">79</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.removed != <span class="tok-k">null</span>) next.removed = ch.removed</span></div>
+<div class="dline add"><span class="ln">80</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;} <span class="tok-k">else if</span> (!cur.byTool) {</span></div>
+<div class="dline add"><span class="ln">81</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.added != <span class="tok-k">null</span>) next.added = ch.added</span></div>
+<div class="dline add"><span class="ln">82</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.removed != <span class="tok-k">null</span>) next.removed = ch.removed</span></div>
+<div class="dline add"><span class="ln">83</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div>
+<div class="dline add"><span class="ln">84</span><span class="code">&nbsp;&nbsp;}</span></div>
+<div class="dline"><span class="ln">85</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> copy = files.<span class="tok-fn">slice</span>()</span></div>
+<div class="dline"><span class="ln">86</span><span class="code">&nbsp;&nbsp;copy[i] = next</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="minimap">
+              <i class="mm"></i><i class="mm b"></i><i class="mm"></i><i class="mm"></i><i class="mm g"></i><i class="mm"></i><i class="mm"></i><i class="mm b"></i><i class="mm"></i><i class="mm"></i><i class="mm g"></i><i class="mm g"></i><i class="mm"></i><i class="mm r"></i><i class="mm"></i><i class="mm b"></i><i class="mm"></i><i class="mm"></i><i class="mm g"></i><i class="mm"></i><i class="mm"></i><i class="mm b"></i><i class="mm"></i><i class="mm g"></i><i class="mm"></i><i class="mm"></i><i class="mm r"></i><i class="mm"></i><i class="mm b"></i><i class="mm"></i><i class="mm g"></i><i class="mm"></i><i class="mm"></i><i class="mm b"></i><i class="mm"></i><i class="mm g"></i><i class="mm"></i><i class="mm"></i><i class="mm b"></i><i class="mm"></i>
+              <div class="mmview"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="ptabs"><span class="ptab on">搜索结果<span class="n">12</span></span><span class="ptab">问题<span class="n">2</span></span><span class="ptab">输出</span><span class="ptab">终端<span class="n">1</span></span></div>
+            <div class="psearch">
+              <div class="sinput"><svg class="ic"><use href="#i-search"/></svg>contextWindow</div>
+              <div class="tgl"><span class="on">Aa</span><span>ab</span><span>.*</span></div>
+              <span class="pcount">12 个结果 · 4 个文件</span>
+            </div>
+            <div class="results">
+              <div class="res"><svg class="ic"><use href="#i-file"/></svg><span>Composer.tsx</span><span class="line">:163</span><span class="snip">const ctxLimit = <em>contextWindowOf</em>(model)</span></div>
+              <div class="res"><svg class="ic"><use href="#i-file"/></svg><span>format.ts</span><span class="line">:38</span><span class="snip">export function <em>contextWindowOf</em>(model: string): number | null {</span></div>
+              <div class="res"><svg class="ic"><use href="#i-file"/></svg><span>MainPane.tsx</span><span class="line">:130</span><span class="snip">const matchedModel = chat.model.trim()</span></div>
+              <div class="res"><svg class="ic"><use href="#i-file"/></svg><span>history.ts</span><span class="line">:121</span><span class="snip">let contextTokens: number | null = null</span></div>
+            </div>
+          </div>
+          <div class="statusbar">
+            <span class="sb"><svg class="ic"><use href="#i-branch"/></svg>main*</span><span class="sp"></span>
+            <span class="sb"><svg class="ic"><use href="#i-refresh"/></svg>0↓ 2↑</span><span class="sp"></span>
+            <span class="sb ok">✓ 0</span><span class="sb warn">△ 2</span>
+            <span class="right"><span>Ln 76, Col 12</span><span>TypeScript</span><span>UTF-8</span><span>LF</span><span style="color:#8ab4f8">Diff</span></span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<!-- ═══════════════ V2 · 全屏 IDE · 图片 / 快速打开 ═══════════════ -->
+<div class="app" id="v2" data-label="B · 全屏 IDE · 图片预览 + 文件快速打开">
+  <div class="titlebar">
+    <div class="brand"><span class="logo">C</span>CCoder</div>
+    <div class="win"><span class="wbtn">—</span><span class="wbtn">□</span><span class="wbtn wbtn--close">×</span></div>
+  </div>
+  <div class="body">
+    <div class="side-slot"></div>
+    <main class="main">
+      <div class="idehead">
+        <div class="back"><svg class="ic"><use href="#i-chevron-left"/></svg>对话</div>
+        <div class="vdiv"></div>
+        <div class="wscur"><svg class="ic"><use href="#i-folder"/></svg>CCoder-Desktop<span class="idebadge">IDE</span></div>
+        <div class="quick"><svg class="ic"><use href="#i-search"/></svg>搜索文件、符号或命令…<kbd>Ctrl P</kbd></div>
+        <div class="headright">
+          <div class="branch"><svg class="ic"><use href="#i-branch"/></svg>main</div>
+          <span class="hbtn"><svg class="ic"><use href="#i-terminal"/></svg></span>
+          <span class="hbtn"><svg class="ic"><use href="#i-more"/></svg></span>
+        </div>
+      </div>
+      <div class="idebody">
+        <div class="activity">
+          <span class="act on"><svg class="ic"><use href="#i-files"/></svg></span>
+          <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+          <span class="act"><svg class="ic"><use href="#i-branch"/></svg><span class="badge">4</span></span>
+          <span class="act"><svg class="ic"><use href="#i-image"/></svg></span>
+          <span class="act"><svg class="ic"><use href="#i-list"/></svg></span>
+          <span class="actfoot">
+            <span class="act"><svg class="ic"><use href="#i-terminal"/></svg></span>
+            <span class="act"><svg class="ic"><use href="#i-gear"/></svg></span>
+          </span>
+        </div>
+        <div class="explorer">
+          <div class="exphead"><span>资源管理器</span><div class="expacts"><svg class="ic"><use href="#i-plus"/></svg><svg class="ic"><use href="#i-folder"/></svg><svg class="ic"><use href="#i-refresh"/></svg></div></div>
+          <div class="tree">
+            <div class="frow folder d1"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">src</span></div>
+            <div class="frow folder d2"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">main</span></div>
+            <div class="frow d3"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">session-manager.ts</span><em class="st m">M</em></div>
+            <div class="frow d3"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">index.ts</span></div>
+            <div class="frow folder d2"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">renderer</span></div>
+            <div class="frow folder d3"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">src</span></div>
+            <div class="frow d4"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">changedFiles.ts</span><em class="st m">M</em></div>
+            <div class="frow d4"><svg class="ic chev"></svg><span class="ic-ts">TS</span><span class="name">useChat.ts</span><em class="st m">M</em></div>
+            <div class="frow folder d1"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">docs</span></div>
+            <div class="frow folder d2"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic type"><use href="#i-folder"/></svg><span class="name">mockups</span></div>
+            <div class="frow d3"><svg class="ic chev"></svg><svg class="ic type"><use href="#i-file"/></svg><span class="name">ide.html</span><em class="st a">A</em></div>
+            <div class="frow d3"><svg class="ic chev"></svg><svg class="ic type ic-img"><use href="#i-image"/></svg><span class="name">ide-v1.png</span></div>
+            <div class="frow d1" style="background:#1e2733"><svg class="ic chev"></svg><svg class="ic type ic-img"><use href="#i-image"/></svg><span class="name">shot-running.png</span></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type ic-img"><use href="#i-image"/></svg><span class="name">shot-chat.png</span></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type ic-img"><use href="#i-image"/></svg><span class="name">shot-runpanel-many.png</span></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type ic-img"><use href="#i-image"/></svg><span class="name">_edge.png</span></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type ic-json"><use href="#i-file"/></svg><span class="name">package.json</span></div>
+            <div class="frow d1"><svg class="ic chev"></svg><svg class="ic type"><use href="#i-file"/></svg><span class="name">README.md</span></div>
+          </div>
+        </div>
+        <div class="editor">
+          <div class="tabs">
+            <div class="tab on"><svg class="ic" style="width:12px;height:12px;color:#c4b5fd"><use href="#i-image"/></svg>shot-running.png<span class="x">×</span></div>
+            <div class="tab"><svg class="ic" style="width:12px;height:12px;color:#c4b5fd"><use href="#i-image"/></svg>shot-chat.png<span class="x">×</span></div>
+            <div class="tab"><svg class="ic" style="width:12px;height:12px;color:#c4b5fd"><use href="#i-image"/></svg>_edge.png<span class="x">×</span></div>
+            <div class="tab"><span class="ic-ts">TS</span>changedFiles.ts<em class="st m">M</em><span class="x">×</span></div>
+            <div class="tabsright"><svg class="ic"><use href="#i-split"/></svg><svg class="ic"><use href="#i-more"/></svg></div>
+          </div>
+          <div class="imgwrap">
+            <div class="imgmain">
+              <div class="imgtools">
+                <span class="zoom"><span class="zbtn">−</span>100%<span class="zbtn">＋</span></span>
+                <span class="vdiv" style="height:14px"></span>
+                <span>适应窗口</span>
+                <span>1:1</span>
+                <span class="sp"></span>
+                <span>1360 × 860 · 146 KB</span>
+              </div>
+              <div class="canvas">
+                <div class="preview"><img src="ide-shot-running.png" alt="shot-running" /></div>
+              </div>
+            </div>
+            <div class="imgmeta">
+              <h4>图片信息</h4>
+              <div class="mrow"><span>尺寸</span><b>1360 × 860</b></div>
+              <div class="mrow"><span>大小</span><b>146 KB</b></div>
+              <div class="mrow"><span>类型</span><b>PNG</b></div>
+              <div class="mrow"><span>路径</span><b>shot-running.png</b></div>
+              <div class="mbtns"><span class="mbtn">在系统中打开</span><span class="mbtn">复制路径</span></div>
+              <h4 style="margin-top:2px">同目录图片</h4>
+              <div class="thumbs">
+                <div class="thumb on"><img src="ide-shot-running.png" alt="" /></div>
+                <div class="thumb"><img src="ide-shot-chat.png" alt="" /></div>
+                <div class="thumb"><img src="ide-shot-runpanel-many.png" alt="" /></div>
+                <div class="thumb"><img src="ide-edge.png" alt="" /></div>
+              </div>
+            </div>
+          </div>
+          <div class="statusbar">
+            <span class="sb"><svg class="ic"><use href="#i-branch"/></svg>main*</span><span class="sp"></span>
+            <span class="sb ok">✓ 0</span><span class="sb warn">△ 2</span>
+            <span class="right"><span>PNG</span><span>1360 × 860</span><span>UTF-8</span><span style="color:#c4b5fd">图片预览</span></span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div class="overlay">
+    <div class="qo">
+      <div class="qo__in"><svg class="ic"><use href="#i-search"/></svg><span>mainPane</span><kbd>Esc</kbd></div>
+      <div class="qo__list">
+        <div class="qo__row on"><svg class="ic"><use href="#i-file"/></svg><div class="qp"><b>MainPane.tsx</b><span>src/renderer/src/components</span></div><span class="qk">Enter</span></div>
+        <div class="qo__row"><svg class="ic"><use href="#i-file"/></svg><div class="qp"><b>main.tsx</b><span>src/renderer/src</span></div></div>
+        <div class="qo__row"><svg class="ic"><use href="#i-folder"/></svg><div class="qp"><b>main</b><span>src/main</span></div></div>
+        <div class="qo__row"><svg class="ic"><use href="#i-file"/></svg><div class="qp"><b>MainPane.d.ts</b><span>out/renderer</span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ═══════════════ V3 · 分屏 · 边聊边看 ═══════════════ -->
+<div class="app" id="v3" data-label="C · 左右分屏 · 边聊边看">
+  <div class="titlebar">
+    <div class="brand"><span class="logo">C</span>CCoder</div>
+    <div class="win"><span class="wbtn">—</span><span class="wbtn">□</span><span class="wbtn wbtn--close">×</span></div>
+  </div>
+  <div class="body">
+    <div class="side-slot"></div>
+    <main class="main">
+      <div class="splitmain">
+        <section class="chatpane">
+          <div class="chathead">
+            <h1>给侧栏加运行中指示器</h1>
+            <span class="badge2">标准模式</span>
+            <span class="r"><svg class="ic"><use href="#i-list"/></svg></span>
+          </div>
+          <div class="resumebar">接着这条会话继续 · C:\Users\CY\Desktop\CCoder-Desktop</div>
+          <div class="ctabs"><span class="ctab on">对话</span><span class="ctab">轨迹</span></div>
+          <div class="ctrans">
+            <div class="msg-user">把侧栏里正在跑的会话标出来，顺带把执行台的宽度收一下。</div>
+            <div class="think"><span class="ch">›</span>思考 · 先看 Sidebar.tsx 和 useSessions.ts，确认 running 集合从哪来。</div>
+            <div class="tool"><span class="ti">▤</span><span class="tn">useSessions.ts</span><span class="td">READ</span></div>
+            <div class="tool"><span class="ti">✎</span><span class="tn">Sidebar.tsx</span><span class="td"><span class="add">+18</span> <span class="del">−4</span></span></div>
+            <div class="atext">运行中的行现在会闪图标，并且右下角写「运行中」。接着把执行台的默认宽度收窄，让正文多留一点。</div>
+            <div class="tool"><span class="ti">✎</span><span class="tn">RunPanel.tsx</span><span class="td"><span class="add">+6</span> <span class="del">−2</span></span></div>
+            <div class="runline"><span class="spin"></span>正在修改 chat.css…</div>
+          </div>
+          <div class="cstatus">3 轮 9 步 · 1.5k tok</div>
+          <div class="ccomposer">
+            <div class="cbox">
+              <div class="cinput">发消息或创建任务，/ 调用指令，@ 文件或对话</div>
+              <div class="cbar">
+                <span class="cchip">deepseek-v4.1-flash[1m]</span>
+                <span class="cchip">◔ 中</span>
+                <span class="cchip"><span class="dot"></span>标准模式</span>
+                <span class="csend">■</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div class="divider"><i></i></div>
+        <section class="idepane">
+          <div class="compacthead">
+            <span><svg class="ic"><use href="#i-chevron-left"/></svg></span>
+            <svg class="ic" style="color:#8ab4f8"><use href="#i-folder"/></svg>
+            <span class="wsn">CCoder-Desktop</span>
+            <span class="idebadge">IDE</span>
+            <span class="r"><span class="branch"><svg class="ic"><use href="#i-branch"/></svg>main</span><svg class="ic"><use href="#i-more"/></svg></span>
+          </div>
+          <div class="compactbody">
+            <div class="cactivity">
+              <span class="act on"><svg class="ic"><use href="#i-files"/></svg></span>
+              <span class="act"><svg class="ic"><use href="#i-search"/></svg></span>
+              <span class="act"><svg class="ic"><use href="#i-branch"/></svg><span class="badge">4</span></span>
+              <span class="act"><svg class="ic"><use href="#i-image"/></svg></span>
+              <span class="act"><svg class="ic"><use href="#i-terminal"/></svg></span>
+            </div>
+            <div class="ceditor">
+              <div class="ctabs2">
+                <div class="ctab2 on"><svg class="ic" style="width:11px;height:11px;color:#8ab4f8"><use href="#i-diff"/></svg>changedFiles.ts<em class="st m" style="margin-left:2px">M</em></div>
+                <div class="ctab2"><svg class="ic" style="width:11px;height:11px;color:#c4b5fd"><use href="#i-image"/></svg>shot-running.png</div>
+              </div>
+              <div class="ucrumb"><span>src › renderer › src › changedFiles.ts</span><span style="margin-left:auto;color:#7fbf7f">+24</span><span style="color:#d98a8a;margin-left:6px">−3</span></div>
+              <div class="udiff">
+                <div class="uhunk">@@ -62,12 +62,24 @@ export function applyFileChange(</div>
+                <div class="uline"><span class="g"></span><span class="ln">62</span><span class="code"><span class="tok-k">export</span> <span class="tok-k">function</span> <span class="tok-fn">applyFileChange</span>(</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">63</span><span class="code">&nbsp;&nbsp;files: <span class="tok-ty">ChangedFile</span>[],</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">64</span><span class="code">&nbsp;&nbsp;ch: <span class="tok-ty">Extract</span>&lt;<span class="tok-ty">AgentEvent</span>, { t: <span class="tok-str">'file_change'</span> }&gt;</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">65</span><span class="code">): <span class="tok-ty">ChangedFile</span>[] {</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">66</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (!ch.path.<span class="tok-fn">trim</span>()) <span class="tok-k">return</span> files</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">67</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> key = <span class="tok-fn">fileKey</span>(ch.path)</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">68</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> i = files.<span class="tok-fn">findIndex</span>((f) =&gt; f.key === key)</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">69</span><span class="code"></span></div>
+                <div class="uline"><span class="g"></span><span class="ln">70</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (i &lt; <span class="tok-num">0</span>) <span class="tok-k">return</span> [...files, <span class="tok-fn">makeFile</span>(ch)]</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">71</span><span class="code"></span></div>
+                <div class="uline"><span class="g"></span><span class="ln">72</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> cur = files[i]</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">73</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> next: <span class="tok-ty">ChangedFile</span> = { ...cur }</span></div>
+                <div class="uline del"><span class="g">−</span><span class="ln">74</span><span class="code">&nbsp;&nbsp;<span class="tok-cm">// disk 来源覆盖同一路径的统计</span></span></div>
+<div class="uline add"><span class="g">+</span><span class="ln">74</span><span class="code">&nbsp;&nbsp;<span class="tok-cm">// 工具来源累加；磁盘来源只补空缺</span></span></div>
+                <div class="uline"><span class="g"></span><span class="ln">75</span><span class="code">&nbsp;&nbsp;<span class="tok-k">if</span> (ch.source === <span class="tok-str">'disk'</span>) {</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">76</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.deleted) {</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">77</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;next.deleted = <span class="tok-k">true</span></span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">78</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.added != <span class="tok-k">null</span>) next.added = ch.added</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">79</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.removed != <span class="tok-k">null</span>) next.removed = ch.removed</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">80</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;} <span class="tok-k">else if</span> (!cur.byTool) {</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">81</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.added != <span class="tok-k">null</span>) next.added = ch.added</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">82</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tok-k">if</span> (ch.removed != <span class="tok-k">null</span>) next.removed = ch.removed</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">83</span><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;}</span></div>
+                <div class="uline add"><span class="g">+</span><span class="ln">84</span><span class="code">&nbsp;&nbsp;}</span></div>
+                <div class="uline"><span class="g"></span><span class="ln">85</span><span class="code">&nbsp;&nbsp;<span class="tok-k">const</span> copy = files.<span class="tok-fn">slice</span>()</span></div>
+              </div>
+              <div class="statusbar">
+                <span class="sb"><svg class="ic"><use href="#i-branch"/></svg>main*</span><span class="sp"></span>
+                <span class="sb ok">✓ 0</span><span class="sb warn">△ 2</span>
+                <span class="right"><span>Ln 77, Col 18</span><span>TypeScript</span><span style="color:#8ab4f8">Diff</span></span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+  const tpl = document.getElementById('tpl-side')
+  document.querySelectorAll('.side-slot').forEach((el) => {
+    el.replaceWith(tpl.content.cloneNode(true))
+  })
+  const params = new URLSearchParams(location.search)
+  const v = params.get('v')
+  if (v) {
+    document.body.classList.remove('gallery')
+    document.querySelectorAll('.app').forEach((a) => {
+      a.classList.toggle('hide', a.id !== 'v' + v)
+    })
+  }
+</script>
+</body>
+</html>

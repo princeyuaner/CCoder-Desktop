@@ -1,0 +1,14 @@
+{"type":"system","subtype":"init","cwd":"C:/proj","session_id":"sess-1","tools":["Read","Bash","Edit","Grep"],"mcp_servers":[],"model":"deepseek-chat","permissionMode":"manual","uuid":"u1"}
+{"type":"system","subtype":"status","status":"requesting","session_id":"sess-1","uuid":"u2"}
+{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":574,"error_status":401,"error":"authentication_failed","session_id":"sess-1","uuid":"u3"}
+[claude-code:unrecognized_model] {"model":"deepseek-chat","query_source":"sdk"}
+{"type":"system","subtype":"commands_changed","commands":[{"name":"caveman","description":"x","argumentHint":""}],"session_id":"sess-1"}
+{"type":"stream_event","session_id":"sess-1","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"先看看项目结构。"}}}
+{"type":"stream_event","session_id":"sess-1","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"这个项目是一个 "}}}
+{"type":"stream_event","session_id":"sess-1","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Flask 服务。"}}}
+{"type":"assistant","session_id":"sess-1","message":{"role":"assistant","model":"deepseek-chat","content":[{"type":"text","text":"这个项目是一个 Flask 服务。"}]}}
+{"type":"assistant","session_id":"sess-1","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Read","input":{"file_path":"app.py"}}]}}
+{"type":"user","session_id":"sess-1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"from flask import Flask"}]}}
+{"type":"assistant","session_id":"sess-1","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"Bash","input":{"command":"git status --short"}}]}}
+{"type":"user","session_id":"sess-1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu2","is_error":true,"content":[{"type":"text","text":"fatal: not a git repository"}]}]}}
+{"type":"result","subtype":"success","session_id":"sess-1","duration_ms":7000,"duration_api_ms":6500,"num_turns":1,"total_cost_usd":0.012,"usage":{"input_tokens":21000,"output_tokens":5900,"cache_read_input_tokens":22058,"cache_creation_input_tokens":1200},"permission_denials":[]}

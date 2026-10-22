@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>模型选择器 · CLI › 渠道 › 模型</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8ee;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+/* ── 顶部切换栏（截图时不显示） ───────────────────────── */
+#bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 960px; line-height: 1.75; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#stage { padding: 18px 24px 0; }
+
+/* ── 场景：输入区 + 弹层 ──────────────────────────────── */
+.ctx {
+  position: relative;
+  width: 1080px; height: 470px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  background: #191919;
+  border: 1px solid #26262e; border-radius: 12px;
+  padding: 0 44px 18px;
+  overflow: hidden;
+}
+.composer { max-width: 820px; width: 100%; margin: 0 auto; }
+.cbox {
+  padding: 12px 12px 10px;
+  background: #202027; border: 1px solid #2c2c35; border-radius: 14px;
+}
+.cph { font-size: 14px; color: #5c5c6a; padding: 2px 4px 10px; }
+.crow { display: flex; align-items: center; gap: 8px; }
+.cpill {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  font-size: 12.5px; color: #9a9aa8; background: #26262e;
+  border: 1px solid #32323c; border-radius: 999px;
+}
+.cdot { width: 7px; height: 7px; border-radius: 50%; background: #4b9e5f; }
+.csp { flex: 1 }
+.csend {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  background: #e8e8ee; color: #191919; border-radius: 50%; font-size: 11px;
+}
+
+/* 锚点：弹层挂在模型胶囊上 */
+.anchor { position: relative; display: inline-flex; }
+.anchor .cpill.is-on { color: #dcdce6; border-color: #3d3d47; }
+.pop {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40;
+  background: #232329; border: 1px solid #34343f;
+  border-radius: 12px;
+  box-shadow: 0 16px 44px rgba(0,0,0,.6);
+  overflow: hidden;
+}
+
+/* 通用列表行 */
+.it {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 7px 10px; border-radius: 7px;
+  font-size: 13px; color: #b8b8c8; text-align: left;
+}
+.it:hover { background: #2e2e37; }
+.it.is-on { background: #33333d; color: #e8e8ee; }
+.it.is-off { opacity: .42; }
+.it__tick { flex: none; width: 12px; color: #6ee7a8; font-size: 11px; }
+.it__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it__sub { flex: none; font-size: 11.5px; color: #6a6a78; }
+.it__sub.warn { color: #c9a227; }
+.it__mono { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
+
+.pop__head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px 8px;
+}
+.pop__title { flex: 1; font-size: 12px; font-weight: 600; letter-spacing: .4px; color: #8a8a9c; }
+.pop__back {
+  flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 6px;
+  color: #9a9aa8; background: #2b2b33;
+}
+.pop__back:hover { background: #36363f; color: #d8d8e2; }
+.pop__list { padding: 0 6px 6px; }
+.pop__sep { height: 1px; background: #2e2e37; margin: 5px 10px; }
+.pop__foot {
+  padding: 8px 12px 10px; border-top: 1px solid #2e2e37;
+  font-size: 11.5px; color: #6a6a78; line-height: 1.6;
+}
+
+/* 面包屑 */
+.crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.crumb { font-size: 12.5px; color: #7c7c8c; }
+.crumb.is-now { color: #d8d8e2; font-weight: 600; }
+.crumb__sep { color: #6a6a78; font-size: 12px; }
+
+/* ══ A · 钻取式 ═════════════════════════════════════════ */
+[data-v="a"] .pop { width: 330px; }
+[data-v="a"] .pop__head { border-bottom: 1px solid #2e2e37; padding-bottom: 9px; }
+
+/* ══ B · 三列并排 ═══════════════════════════════════════ */
+[data-v="b"] .pop { width: 680px; }
+[data-v="b"] .cols { display: grid; grid-template-columns: 1fr 1fr 1.3fr; }
+[data-v="b"] .col { min-width: 0; padding: 0 6px 8px; max-height: 280px; overflow: hidden; }
+[data-v="b"] .col + .col { border-left: 1px solid #2e2e37; }
+[data-v="b"] .col__h {
+  padding: 4px 10px 7px; font-size: 11px; font-weight: 600;
+  letter-spacing: .4px; color: #6a6a78;
+}
+
+/* ══ C · 左树右表 ═══════════════════════════════════════ */
+[data-v="c"] .pop { width: 540px; }
+[data-v="c"] .cols { display: grid; grid-template-columns: 200px 1fr; }
+[data-v="c"] .col { min-width: 0; padding: 0 6px 8px; max-height: 300px; overflow: hidden; }
+[data-v="c"] .col + .col { border-left: 1px solid #2e2e37; padding-left: 8px; }
+[data-v="c"] .grp {
+  padding: 7px 10px 4px; font-size: 11px; font-weight: 600;
+  letter-spacing: .4px; color: #6a6a78;
+}
+[data-v="c"] .sub { padding-left: 16px; }
+
+/* ══ D · 搜索平铺 ═══════════════════════════════════════ */
+[data-v="d"] .pop { width: 440px; }
+[data-v="d"] .search {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 12px 8px; padding: 7px 10px;
+  background: #1b1b21; border: 1px solid #33333d; border-radius: 8px;
+  font-size: 13px; color: #6a6a78;
+}
+[data-v="d"] .search .k { margin-left: auto; font-size: 11px; color: #4a4a56; }
+[data-v="d"] .grp {
+  padding: 8px 10px 3px; font-size: 11px; font-weight: 600;
+  letter-spacing: .4px; color: #6a6a78;
+}
+[data-v="d"] .grp span { color: #4a4a56; font-weight: 400; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>模型选择器 · CLI › 渠道 › 模型</h1>
+  <button class="tabbtn" data-k="a">A 钻取式</button>
+  <button class="tabbtn" data-k="b">B 三列并排</button>
+  <button class="tabbtn" data-k="c">C 左树右表</button>
+  <button class="tabbtn" data-k="d">D 搜索平铺</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ── 数据（跟 Settings 的结构对齐） ────────────────────── */
+const CLIS = [
+  {
+    id: 'claude', name: 'Claude Code', ready: true,
+    channels: [
+      { id: 'opencode', name: 'opencode', model: 'deepseek-v4.1-flash[1m]',
+        models: ['deepseek-v4.1-flash[1m]', 'deepseek-chat', 'deepseek-reasoner'] },
+      { id: 'ds', name: 'DeepSeek 中转', model: 'deepseek-chat',
+        models: ['deepseek-chat', 'deepseek-reasoner'] },
+      { id: 'gw', name: '公司网关', model: 'claude-sonnet-4-5',
+        models: ['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-haiku-4-5'] }
+    ]
+  },
+  { id: 'codex', name: 'Codex CLI', ready: false, channels: [] }
+]
+const CUR = { cli: 'claude', ch: 'opencode', model: 'deepseek-v4.1-flash[1m]' }
+
+const cli = (id) => CLIS.find((c) => c.id === id)
+const chans = (id) => cli(id).channels
+const chan = (cid, hid) => chans(cid).find((c) => c.id === hid)
+
+const ESC = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+
+/* 一行选项 */
+const item = (o) => `
+  <button class="it ${o.on ? 'is-on' : ''} ${o.off ? 'is-off' : ''}">
+    <span class="it__tick">${o.on ? '✓' : ''}</span>
+    <span class="it__name ${o.mono ? 'it__mono' : ''}">${ESC(o.name)}</span>
+    ${o.sub ? `<span class="it__sub ${o.warn ? 'warn' : ''}">${ESC(o.sub)}</span>` : ''}
+  </button>`
+
+/* ── 场景外壳 ─────────────────────────────────────────── */
+const CTX = (v, pop) => `
+  <div class="ctx" data-v="${v}">
+    <div class="composer">
+      <div class="cbox">
+        <div class="cph">发消息或创建任务，/ 调用指令，@ 文件或对话</div>
+        <div class="crow">
+          <span class="cpill">＋</span>
+          <span class="cpill"><span class="cdot"></span>标准模式</span>
+          <div class="csp"></div>
+          <span class="anchor">
+            <span class="cpill is-on">${ESC(CUR.model)} ▾</span>
+            ${pop}
+          </span>
+          <span class="csend">↑</span>
+        </div>
+      </div>
+    </div>
+  </div>`
+
+/* ══ A · 钻取式 ═════════════════════════════════════════ */
+const A = CTX('a', `
+  <div class="pop">
+    <div class="pop__head">
+      <span class="pop__back">‹</span>
+      <div class="crumbs">
+        <span class="crumb">Claude Code</span>
+        <span class="crumb__sep">›</span>
+        <span class="crumb">opencode</span>
+        <span class="crumb__sep">›</span>
+        <span class="crumb is-now">模型</span>
+      </div>
+    </div>
+    <div class="pop__list">
+      ${item({ name: 'deepseek-v4.1-flash[1m]', mono: true, on: true, sub: '默认' })}
+      ${item({ name: 'deepseek-chat', mono: true })}
+      ${item({ name: 'deepseek-reasoner', mono: true })}
+      <div class="pop__sep"></div>
+      ${item({ name: '自定义…', sub: '手动填模型名' })}
+    </div>
+  </div>`)
+
+/* ══ B · 三列并排 ═══════════════════════════════════════ */
+const B = CTX('b', `
+  <div class="pop">
+    <div class="cols">
+      <div class="col">
+        <div class="col__h">CLI</div>
+        ${item({ name: 'Claude Code', on: true })}
+        ${item({ name: 'Codex CLI', off: true, sub: '未接入' })}
+      </div>
+      <div class="col">
+        <div class="col__h">渠道 · Claude Code</div>
+        ${item({ name: 'opencode', on: true })}
+        ${item({ name: 'DeepSeek 中转' })}
+        ${item({ name: '公司网关' })}
+      </div>
+      <div class="col">
+        <div class="col__h">模型 · opencode</div>
+        ${item({ name: 'deepseek-v4.1-flash[1m]', mono: true, on: true })}
+        ${item({ name: 'deepseek-chat', mono: true })}
+        ${item({ name: 'deepseek-reasoner', mono: true })}
+        <div class="pop__sep"></div>
+        ${item({ name: '自定义…' })}
+      </div>
+    </div>
+  </div>`)
+
+/* ══ C · 左树右表 ═══════════════════════════════════════ */
+const C = CTX('c', `
+  <div class="pop">
+    <div class="cols">
+      <div class="col">
+        <div class="grp">Claude Code</div>
+        ${item({ name: 'opencode', on: true })}
+        <div class="sub">${item({ name: 'DeepSeek 中转' })}</div>
+        <div class="sub">${item({ name: '公司网关' })}</div>
+        <div class="grp">Codex CLI <span style="color:#c9a227">未接入</span></div>
+      </div>
+      <div class="col">
+        <div class="grp">模型 · opencode</div>
+        ${item({ name: 'deepseek-v4.1-flash[1m]', mono: true, on: true, sub: '默认' })}
+        ${item({ name: 'deepseek-chat', mono: true })}
+        ${item({ name: 'deepseek-reasoner', mono: true })}
+        <div class="pop__sep"></div>
+        ${item({ name: '自定义…' })}
+      </div>
+    </div>
+  </div>`)
+
+/* ══ D · 搜索平铺 ═══════════════════════════════════════ */
+const D = CTX('d', `
+  <div class="pop">
+    <div class="search">🔍 搜 cli / 渠道 / 模型…<span class="k">esc</span></div>
+    <div class="pop__list">
+      <div class="grp">CLI</div>
+      ${item({ name: 'Claude Code', on: true })}
+      ${item({ name: 'Codex CLI', off: true, sub: '未接入' })}
+      <div class="grp">渠道 <span>· Claude Code</span></div>
+      ${item({ name: 'opencode', on: true })}
+      ${item({ name: 'DeepSeek 中转' })}
+      <div class="grp">模型 <span>· opencode</span></div>
+      ${item({ name: 'deepseek-v4.1-flash[1m]', mono: true, on: true })}
+      ${item({ name: 'deepseek-chat', mono: true })}
+    </div>
+  </div>`)
+
+const VARIANTS = {
+  a: { html: A, desc: '<b>A 钻取式</b> —— 单列，点一层进一层，顶部面包屑可以点回去。最省地方（330px，跟现在这个弹层差不多宽）。代价是要点三次才能选到模型，而且看不到"隔壁渠道有什么"。' },
+  b: { html: B, desc: '<b>B 三列并排</b> —— CLI / 渠道 / 模型 三列摊开，点哪列改哪项，一次看到全部。最快、最直观。代价是宽（680px），在窄窗口里会顶到左边。' },
+  c: { html: C, desc: '<b>C 左树右表</b> —— 左边是 CLI + 渠道的树，右边是该渠道的模型。宽度折中（540px），切换渠道时右边即时换。比 B 窄，比 A 少点一次。' },
+  d: { html: D, desc: '<b>D 搜索平铺</b> —— 一个大搜索框，下面按 CLI / 渠道 / 模型 分组平铺，打字即过滤。键盘党的最爱，也不用一层层点。代价是列表长，找东西靠搜不靠扫。' }
+}
+
+/* ── 渲染 ─────────────────────────────────────────────── */
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

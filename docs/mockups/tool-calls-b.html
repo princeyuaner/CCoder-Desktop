@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>工具调用 · 参考 B 的四个变体</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 40px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+::-webkit-scrollbar { width: 0; height: 0; }
+
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1080px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#stage { padding: 18px 24px 0; }
+
+/* ══ 舞台 ═══════════════════════════════════════════════ */
+.pane {
+  width: 940px;
+  padding: 26px 0 26px;
+  background: #191919;
+  border: 1px solid #26262e;
+  border-radius: 12px;
+}
+.tl { position: relative; width: 780px; margin: 0 auto; }
+.tl::before {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: 12px;
+  width: 1px; background: #2c2c2e;
+}
+.row { position: relative; padding-left: 26px; margin-bottom: 9px; }
+.dot {
+  position: absolute; left: 0; top: 9px; width: 9px; height: 9px; border-radius: 50%;
+  box-shadow: 0 0 0 3px #191919;
+}
+.dot.ok { background: #4b9e5f; }
+.dot.run { background: #c9a227; }
+.dot.err { background: #e5534b; }
+.dot.think { background: #3a3a46; }
+.note { position: relative; padding-left: 26px; margin: 16px 0 12px; font-size: 12px; color: #4f4f5c; }
+.note .dot { top: 5px; }
+
+/* 共用：工具字形、统计、正文 */
+.g { font-style: normal; }
+.ico { flex: none; display: grid; place-items: center; border-radius: 6px; background: rgba(255,255,255,.055); }
+.ico.t-bash { color: #9ece6a; }
+.ico.t-read { color: #7aa2f7; }
+.ico.t-edit { color: #e0af68; }
+.ico.t-write { color: #c4a7f7; }
+.ico.is-run { color: #c9a227; animation: spin 1.6s linear infinite; }
+.ico.is-err { color: #e5534b; }
+
+.stat { display: inline-flex; align-items: center; gap: 3px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.stat .add { color: #7fbf7f; }
+.stat .del { color: #d98a8a; }
+.pillstat { display: inline-flex; gap: 4px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 10px; font-variant-numeric: tabular-nums; }
+.pillstat span { padding: 0 4px; border-radius: 3px; line-height: 1.5; }
+.pillstat .add { color: #8fcf8f; background: rgba(75, 158, 95, .13); }
+.pillstat .del { color: #e39b9b; background: rgba(229, 83, 75, .11); }
+
+.body .cmd { font-size: 11.5px; line-height: 1.65; color: #a8a8bc; white-space: pre-wrap; overflow-wrap: anywhere; }
+.body .cmd::before { content: '$ '; color: #4d4d5c; }
+.body .out {
+  margin-top: 7px; padding-top: 7px; border-top: 1px dashed rgba(255,255,255,.06);
+  font-size: 11px; line-height: 1.6; color: #6f6f80; white-space: pre-wrap;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══ 1 精修：B 的骨架，统计内联 ══════════════════════════ */
+.v1 {
+  background: #1c1c22; border: 1px solid #28282f; border-radius: 8px; overflow: hidden;
+}
+.v1.is-run { border-color: rgba(201, 162, 39, .30); }
+.v1.is-err { border-color: rgba(229, 83, 75, .32); }
+.v1-main { display: flex; align-items: center; gap: 9px; padding: 7px 10px; }
+.v1 .ico { width: 20px; height: 20px; font-size: 11px; }
+.v1-sub { flex: 1; min-width: 0; font-size: 12.5px; color: #d2d2dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v1-dir { flex: none; font-size: 10.5px; color: #4f4f5c; }
+.v1-name { flex: none; font-size: 10px; letter-spacing: .06em; color: #5c5c6e; }
+.v1-time { flex: none; font-size: 10.5px; color: #55555f; }
+.v1-chev { flex: none; font-size: 9px; color: #4a4a55; }
+.v1-body { padding: 8px 11px 9px 40px; border-top: 1px solid #26262d; background: rgba(0, 0, 0, .16); }
+
+/* ══ 2 色条：状态在左缘，统计成小药丸 ════════════════════ */
+.v2 {
+  position: relative;
+  background: #1b1b21; border: 1px solid #27272e; border-radius: 7px; overflow: hidden;
+}
+.v2::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: #4b9e5f; }
+.v2.is-run::before { background: #c9a227; }
+.v2.is-err::before { background: #e5534b; }
+.v2-main { display: flex; align-items: center; gap: 9px; padding: 7px 10px 7px 11px; }
+.v2 .g { width: 14px; text-align: center; font-size: 11.5px; }
+.v2 .g.t-bash { color: #9ece6a; }
+.v2 .g.t-read { color: #7aa2f7; }
+.v2 .g.t-edit { color: #e0af68; }
+.v2 .g.t-write { color: #c4a7f7; }
+.v2 .g.is-run { color: #c9a227; animation: spin 1.6s linear infinite; }
+.v2 .g.is-err { color: #e5534b; }
+.v2-sub { flex: 1; min-width: 0; font-size: 12.5px; color: #d2d2dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v2-dir { flex: none; font-size: 10.5px; color: #4f4f5c; }
+.v2-name { flex: none; font-size: 10px; letter-spacing: .06em; color: #5c5c6e; }
+.v2-time { flex: none; font-size: 10.5px; color: #55555f; }
+.v2-chev { flex: none; font-size: 9px; color: #4a4a55; }
+.v2-body { padding: 8px 11px 9px 33px; border-top: 1px solid #25252c; background: rgba(0, 0, 0, .16); }
+
+/* ══ 3 双层：主题一行，工具元信息一行 ════════════════════ */
+.v3 {
+  background: #1c1c22; border: 1px solid #28282f; border-radius: 8px; overflow: hidden;
+}
+.v3.is-run { border-color: rgba(201, 162, 39, .30); }
+.v3.is-err { border-color: rgba(229, 83, 75, .32); }
+.v3-main { display: flex; align-items: center; gap: 9px; padding: 7px 10px 2px; }
+.v3 .ico { width: 20px; height: 20px; font-size: 11px; }
+.v3-sub { flex: 1; min-width: 0; font-size: 12.5px; color: #d2d2dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v3-chev { flex: none; font-size: 9px; color: #4a4a55; }
+.v3-meta { display: flex; align-items: center; gap: 6px; padding: 0 10px 7px 39px; font-size: 10.5px; color: #55555f; }
+.v3-meta .mn { color: #5c5c6e; }
+.v3-meta .sep { color: #3a3a44; }
+.v3-meta .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4f4f5c; }
+.v3-body { padding: 8px 11px 9px 39px; border-top: 1px solid #26262d; background: rgba(0, 0, 0, .16); }
+
+/* ══ 4 统计成列：数字右对齐，像一张账 ════════════════════ */
+.v4 {
+  background: #1c1c22; border: 1px solid #28282f; border-radius: 7px; overflow: hidden;
+}
+.v4.is-run { border-color: rgba(201, 162, 39, .30); }
+.v4.is-err { border-color: rgba(229, 83, 75, .32); }
+.v4-main { display: flex; align-items: center; gap: 9px; padding: 6px 10px; }
+.v4 .ico { width: 18px; height: 18px; font-size: 10px; }
+.v4-sub { flex: 1; min-width: 0; font-size: 12.5px; color: #d2d2dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v4-stat { flex: none; width: 62px; text-align: right; }
+.v4-name { flex: none; width: 34px; text-align: right; font-size: 9.5px; letter-spacing: .06em; color: #5c5c6e; }
+.v4-time { flex: none; width: 34px; text-align: right; font-size: 10px; color: #55555f; }
+.v4-chev { flex: none; font-size: 9px; color: #4a4a55; width: 8px; }
+.v4-body { padding: 8px 11px 9px 38px; border-top: 1px solid #26262d; background: rgba(0, 0, 0, .16); }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>工具调用 · 参考 B 的四个变体</h1>
+  <button class="tabbtn" data-k="1">1 精修</button>
+  <button class="tabbtn" data-k="2">2 色条</button>
+  <button class="tabbtn" data-k="3">3 双层</button>
+  <button class="tabbtn" data-k="4">4 统计成列</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+const FACT = '<span class="fact">增删行数怎么来的：Edit 从 <code>input.old_string</code> / <code>new_string</code> '
+  + '做行级 diff（<code>replace_all</code> 时乘以出现次数），Write 按 <code>content</code> 的行数算 <code>+N</code>。'
+  + '两个来源 live 流和历史回放都拿得到，不依赖 CLI 私有的 structuredPatch。'
+  + '真实样本里 Edit 调用 1177 次、Write 540 次 —— 这个数字每行都会看到。</span>'
+
+function PANE(inner) { return '<div class="pane"><div class="tl">' + inner + '</div></div>' }
+
+const GLYPH = {
+  bash: '<span class="g">▸_</span>',
+  read: '<span class="g">▤</span>',
+  edit: '<span class="g">✎</span>',
+  write: '<span class="g">＋</span>'
+}
+
+/* ── 1 精修 ─────────────────────────────────────────────── */
+function V1() {
+  return `
+  <div class="row"><span class="dot run"></span>
+    <div class="v1 is-run"><div class="v1-main">
+      <span class="ico is-run">▸_</span>
+      <span class="v1-sub">Run layout probe against dev renderer</span>
+      <span class="v1-name">BASH</span><span class="v1-time">运行中</span><span class="v1-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v1"><div class="v1-main">
+      <span class="ico t-bash">▸_</span>
+      <span class="v1-sub">Restart dev server with persistence fix</span>
+      <span class="v1-name">BASH</span><span class="v1-time">0.4s</span><span class="v1-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v1"><div class="v1-main">
+      <span class="ico t-read">▤</span>
+      <span class="v1-sub">session-store.ts</span>
+      <span class="v1-dir">src/main</span>
+      <span class="v1-name">READ</span><span class="v1-time">12ms</span><span class="v1-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v1"><div class="v1-main">
+      <span class="ico t-edit">✎</span>
+      <span class="v1-sub">Transcript.tsx</span>
+      <span class="stat"><span class="add">+12</span><span class="del">−3</span></span>
+      <span class="v1-dir">…/components</span>
+      <span class="v1-name">EDIT</span><span class="v1-time">8ms</span><span class="v1-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v1"><div class="v1-main">
+      <span class="ico t-edit">✎</span>
+      <span class="v1-sub">useChat.ts</span>
+      <span class="stat"><span class="add">+2</span><span class="del">−1</span></span>
+      <span class="v1-dir">…/src</span>
+      <span class="v1-name">EDIT</span><span class="v1-time">5ms</span><span class="v1-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v1"><div class="v1-main">
+      <span class="ico t-write">＋</span>
+      <span class="v1-sub">tool-calls-b.html</span>
+      <span class="stat"><span class="add">+86</span></span>
+      <span class="v1-dir">mockups</span>
+      <span class="v1-name">WRITE</span><span class="v1-time">9ms</span><span class="v1-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot err"></span>
+    <div class="v1 is-err"><div class="v1-main">
+      <span class="ico is-err">▸_</span>
+      <span class="v1-sub">Install sharp for image cropping</span>
+      <span class="v1-name">BASH</span><span class="v1-time">1.2s</span><span class="v1-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v1"><div class="v1-main">
+      <span class="ico t-bash">▸_</span>
+      <span class="v1-sub">Scan pixels to locate the divider line</span>
+      <span class="v1-name">BASH</span><span class="v1-time">0.9s</span><span class="v1-chev">▾</span>
+    </div>
+    <div class="v1-body"><div class="body">
+      <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+      <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060</div>
+    </div></div></div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>`
+}
+
+/* ── 2 色条 ─────────────────────────────────────────────── */
+function V2() {
+  return `
+  <div class="row"><span class="dot run"></span>
+    <div class="v2 is-run"><div class="v2-main">
+      <span class="g is-run">▸_</span>
+      <span class="v2-sub">Run layout probe against dev renderer</span>
+      <span class="v2-name">BASH</span><span class="v2-time">运行中</span><span class="v2-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v2"><div class="v2-main">
+      <span class="g t-bash">▸_</span>
+      <span class="v2-sub">Restart dev server with persistence fix</span>
+      <span class="v2-name">BASH</span><span class="v2-time">0.4s</span><span class="v2-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v2"><div class="v2-main">
+      <span class="g t-read">▤</span>
+      <span class="v2-sub">session-store.ts</span>
+      <span class="v2-dir">src/main</span>
+      <span class="v2-name">READ</span><span class="v2-time">12ms</span><span class="v2-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v2"><div class="v2-main">
+      <span class="g t-edit">✎</span>
+      <span class="v2-sub">Transcript.tsx</span>
+      <span class="pillstat"><span class="add">+12</span><span class="del">−3</span></span>
+      <span class="v2-dir">…/components</span>
+      <span class="v2-name">EDIT</span><span class="v2-time">8ms</span><span class="v2-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v2"><div class="v2-main">
+      <span class="g t-edit">✎</span>
+      <span class="v2-sub">useChat.ts</span>
+      <span class="pillstat"><span class="add">+2</span><span class="del">−1</span></span>
+      <span class="v2-dir">…/src</span>
+      <span class="v2-name">EDIT</span><span class="v2-time">5ms</span><span class="v2-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v2"><div class="v2-main">
+      <span class="g t-write">＋</span>
+      <span class="v2-sub">tool-calls-b.html</span>
+      <span class="pillstat"><span class="add">+86</span></span>
+      <span class="v2-dir">mockups</span>
+      <span class="v2-name">WRITE</span><span class="v2-time">9ms</span><span class="v2-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot err"></span>
+    <div class="v2 is-err"><div class="v2-main">
+      <span class="g is-err">▸_</span>
+      <span class="v2-sub">Install sharp for image cropping</span>
+      <span class="v2-name">BASH</span><span class="v2-time">1.2s</span><span class="v2-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v2"><div class="v2-main">
+      <span class="g t-bash">▸_</span>
+      <span class="v2-sub">Scan pixels to locate the divider line</span>
+      <span class="v2-name">BASH</span><span class="v2-time">0.9s</span><span class="v2-chev">▾</span>
+    </div>
+    <div class="v2-body"><div class="body">
+      <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+      <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060</div>
+    </div></div></div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>`
+}
+
+/* ── 3 双层 ─────────────────────────────────────────────── */
+function V3() {
+  return `
+  <div class="row"><span class="dot run"></span>
+    <div class="v3 is-run">
+      <div class="v3-main">
+        <span class="ico is-run">▸_</span>
+        <span class="v3-sub">Run layout probe against dev renderer</span>
+        <span class="v3-chev"></span>
+      </div>
+      <div class="v3-meta"><span class="mn">BASH</span><span class="sep">·</span><span>运行中</span></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v3">
+      <div class="v3-main">
+        <span class="ico t-bash">▸_</span>
+        <span class="v3-sub">Restart dev server with persistence fix</span>
+        <span class="v3-chev"></span>
+      </div>
+      <div class="v3-meta"><span class="mn">BASH</span><span class="sep">·</span><span>0.4s</span></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v3">
+      <div class="v3-main">
+        <span class="ico t-read">▤</span>
+        <span class="v3-sub">session-store.ts</span>
+        <span class="v3-chev"></span>
+      </div>
+      <div class="v3-meta"><span class="mn">READ</span><span class="sep">·</span><span>12ms</span><span class="sep">·</span><span class="path">src/main/session-store.ts</span></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v3">
+      <div class="v3-main">
+        <span class="ico t-edit">✎</span>
+        <span class="v3-sub">Transcript.tsx</span>
+        <span class="stat"><span class="add">+12</span><span class="del">−3</span></span>
+        <span class="v3-chev"></span>
+      </div>
+      <div class="v3-meta"><span class="mn">EDIT</span><span class="sep">·</span><span>8ms</span><span class="sep">·</span><span class="path">src/renderer/src/components/Transcript.tsx</span></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v3">
+      <div class="v3-main">
+        <span class="ico t-edit">✎</span>
+        <span class="v3-sub">useChat.ts</span>
+        <span class="stat"><span class="add">+2</span><span class="del">−1</span></span>
+        <span class="v3-chev"></span>
+      </div>
+      <div class="v3-meta"><span class="mn">EDIT</span><span class="sep">·</span><span>5ms</span><span class="sep">·</span><span class="path">src/renderer/src/useChat.ts</span></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v3">
+      <div class="v3-main">
+        <span class="ico t-write">＋</span>
+        <span class="v3-sub">tool-calls-b.html</span>
+        <span class="stat"><span class="add">+86</span></span>
+        <span class="v3-chev"></span>
+      </div>
+      <div class="v3-meta"><span class="mn">WRITE</span><span class="sep">·</span><span>9ms</span><span class="sep">·</span><span class="path">docs/mockups/tool-calls-b.html</span></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot err"></span>
+    <div class="v3 is-err">
+      <div class="v3-main">
+        <span class="ico is-err">▸_</span>
+        <span class="v3-sub">Install sharp for image cropping</span>
+        <span class="v3-chev"></span>
+      </div>
+      <div class="v3-meta"><span class="mn">BASH</span><span class="sep">·</span><span>1.2s</span></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v3">
+      <div class="v3-main">
+        <span class="ico t-bash">▸_</span>
+        <span class="v3-sub">Scan pixels to locate the divider line</span>
+        <span class="v3-chev">▾</span>
+      </div>
+      <div class="v3-meta"><span class="mn">BASH</span><span class="sep">·</span><span>0.9s</span></div>
+      <div class="v3-body"><div class="body">
+        <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+        <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060</div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>`
+}
+
+/* ── 4 统计成列 ─────────────────────────────────────────── */
+function V4() {
+  return `
+  <div class="row"><span class="dot run"></span>
+    <div class="v4 is-run"><div class="v4-main">
+      <span class="ico is-run">▸_</span>
+      <span class="v4-sub">Run layout probe against dev renderer</span>
+      <span class="v4-stat"></span><span class="v4-name">BASH</span><span class="v4-time">—</span><span class="v4-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v4"><div class="v4-main">
+      <span class="ico t-bash">▸_</span>
+      <span class="v4-sub">Restart dev server with persistence fix</span>
+      <span class="v4-stat"></span><span class="v4-name">BASH</span><span class="v4-time">0.4s</span><span class="v4-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v4"><div class="v4-main">
+      <span class="ico t-read">▤</span>
+      <span class="v4-sub">session-store.ts</span>
+      <span class="v4-stat"></span><span class="v4-name">READ</span><span class="v4-time">12ms</span><span class="v4-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v4"><div class="v4-main">
+      <span class="ico t-edit">✎</span>
+      <span class="v4-sub">Transcript.tsx</span>
+      <span class="v4-stat"><span class="stat"><span class="add">+12</span><span class="del">−3</span></span></span>
+      <span class="v4-name">EDIT</span><span class="v4-time">8ms</span><span class="v4-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v4"><div class="v4-main">
+      <span class="ico t-edit">✎</span>
+      <span class="v4-sub">useChat.ts</span>
+      <span class="v4-stat"><span class="stat"><span class="add">+2</span><span class="del">−1</span></span></span>
+      <span class="v4-name">EDIT</span><span class="v4-time">5ms</span><span class="v4-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v4"><div class="v4-main">
+      <span class="ico t-write">＋</span>
+      <span class="v4-sub">tool-calls-b.html</span>
+      <span class="v4-stat"><span class="stat"><span class="add">+86</span></span></span>
+      <span class="v4-name">WRITE</span><span class="v4-time">9ms</span><span class="v4-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot err"></span>
+    <div class="v4 is-err"><div class="v4-main">
+      <span class="ico is-err">▸_</span>
+      <span class="v4-sub">Install sharp for image cropping</span>
+      <span class="v4-stat"></span><span class="v4-name">BASH</span><span class="v4-time">1.2s</span><span class="v4-chev"></span>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="v4"><div class="v4-main">
+      <span class="ico t-bash">▸_</span>
+      <span class="v4-sub">Scan pixels to locate the divider line</span>
+      <span class="v4-stat"></span><span class="v4-name">BASH</span><span class="v4-time">0.9s</span><span class="v4-chev">▾</span>
+    </div>
+    <div class="v4-body"><div class="body">
+      <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+      <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060</div>
+    </div></div></div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>`
+}
+
+const VARIANTS = {
+  '1': {
+    html: PANE(V1()),
+    desc: '<b>1 「精修」</b> —— B 的骨架不动，只调密度和层次：图标保持方块，主题 12.5px，'
+      + '增删行数用等宽数字靠右排（<code>+12 −3</code>），父目录收在它后面。'
+      + '改动最小、最稳，代价是右侧仍是"目录 + 工具名 + 耗时"三小段。' + FACT
+  },
+  '2': {
+    html: PANE(V2()),
+    desc: '<b>2 「色条」</b> —— 状态从描边挪到卡片左缘一根 2px 竖条：绿=成功、琥珀=运行中、红=失败，'
+      + '拖一眼就能扫完整列状态。图标去掉方块、只留字形，增删行数做成两个浅底色小药丸。'
+      + '最像编辑器 gutter，代价是颜色比 B 多一些；而且左侧轨道本来就有一个状态点，等于强调两次。' + FACT
+  },
+  '3': {
+    html: PANE(V3()),
+    desc: '<b>3 「双层」</b> —— 主题独占第一行，工具名 / 耗时 / 完整路径退到第二行小字。'
+      + '文件工具第一次有了"文件头"的感觉，路径不用再截断；增删行数靠右显示。'
+      + '读起来最从容，代价是每行约 46px —— 长会话会比 B 高一截（分块渲染已经能扛住）。' + FACT
+  },
+  '4': {
+    html: PANE(V4()),
+    desc: '<b>4 「统计成列」</b> —— 把所有编辑的 <code>+N −M</code> 放进一列固定宽度、右对齐，'
+      + '像一张小型 diff 账本；工具名和耗时也各自成列。连续改十个文件时，数字会排成一条竖线，'
+      + '一眼看出哪次改动最大。代价是列宽固定，长文件名会被省略得更早。' + FACT
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('1')
+}
+</script>
+</body>
+</html>

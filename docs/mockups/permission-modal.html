@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>权限审批 · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1040px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#stage { padding: 18px 24px 0; }
+
+/* ══ 应用外壳（只做背景，用来判断"遮不遮得住上下文"） ═══ */
+.app {
+  position: relative; display: flex;
+  width: 1080px; height: 640px;
+  background: #191919; border: 1px solid #26262e; border-radius: 12px;
+  overflow: hidden;
+}
+.side {
+  flex: none; width: 210px; padding: 16px 12px;
+  background: #141414; border-right: 1px solid #242424;
+}
+.side__brand { padding: 0 8px 16px; font-size: 13px; font-weight: 600; color: #e8e8e8; }
+.side__new {
+  display: block; width: 100%; margin-bottom: 16px; padding: 8px;
+  text-align: center; font-size: 12.5px; color: #d8d8e2;
+  background: #1e1e1e; border: 1px solid #2c2c2c; border-radius: 8px;
+}
+.side__grp { padding: 8px; font-size: 10.5px; letter-spacing: .4px; color: #4a4a55; }
+.side__it { padding: 6px 8px; font-size: 12.5px; color: #8a8a9a; border-radius: 6px; }
+
+.main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 26px 12px; border-bottom: 1px solid #202024;
+}
+.head__t { font-size: 13.5px; font-weight: 500; }
+.head__badge {
+  padding: 2px 9px; font-size: 11.5px; border-radius: 999px;
+  color: #8a8a9a; background: #232323; border: 1px solid #2c2c2c;
+}
+.body { flex: 1; min-height: 0; overflow: hidden; padding: 16px 26px 0; }
+.body__inner { max-width: 660px; margin: 0 auto; }
+.tl { position: relative; }
+.tl::before { content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px; width: 1px; background: #2c2c2c; }
+.row { position: relative; padding-left: 24px; margin-bottom: 11px; }
+.dot { position: absolute; left: 0; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: #3a3a46; box-shadow: 0 0 0 3px #191919; }
+.dot.me { background: #22d3ee; box-shadow: 0 0 0 3px #191919, 0 0 10px rgba(34,211,238,.55); }
+.dot.ok { background: #4b9e5f; }
+.row--me { display: flex; justify-content: flex-end; }
+.me {
+  display: inline-block; max-width: 80%; padding: 6px 11px;
+  font-size: 13px; line-height: 1.6; color: #d8f8ff;
+  background: rgba(34,211,238,.09); border: 1px solid rgba(34,211,238,.22); border-radius: 8px;
+}
+.say { font-size: 13px; line-height: 1.7; color: #dcdce6; }
+.say .ic { padding: 2px 5px; font-size: .86em; border-radius: 5px; background: #26262f; color: #ddd6fe; }
+.tool {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 11px; border-radius: 8px; font-size: 12.5px;
+  background: #1e1e24; border: 1px solid #28282f; color: #b8b8c8;
+}
+.tool .g { color: #4b9e5f; }
+.tool code { font-size: 11.5px; color: #8a8a9a; }
+/* 弹窗关掉后留的那条痕 */
+.trace {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px 3px 7px; border-radius: 999px; font-size: 11.5px;
+  color: #fcd9a0; background: rgba(252,211,77,.09); border: 1px solid rgba(252,211,77,.24);
+}
+.trace .sym { font-size: 10px; }
+.trace .k { opacity: .72; }
+.trace-more { margin-left: 9px; font-size: 11.5px; color: #4a4a55; }
+
+.composer { flex: none; padding: 10px 26px 14px; }
+.cbox {
+  max-width: 660px; margin: 0 auto; padding: 11px 11px 9px;
+  background: #232323; border: 1px solid #2c2c2c; border-radius: 14px;
+}
+.cin { padding: 2px 4px 9px; font-size: 13px; color: #6b6b6b; }
+.cbar { display: flex; align-items: center; gap: 7px; }
+.sp { flex: 1; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px;
+  font-size: 12px; color: #a8a8a8; background: #232323; border: 1px solid #2c2c2c; border-radius: 999px;
+}
+.chip .d { width: 6px; height: 6px; border-radius: 50%; background: #4b9e5f; }
+.send { display: grid; place-items: center; width: 30px; height: 30px; font-size: 14px; color: #191919; background: #e8e8e8; border-radius: 50%; }
+.send.stop { background: #fcd34d; }
+.send.stop::after { content: ''; width: 9px; height: 9px; border-radius: 2px; background: #191919; }
+
+/* ══ 弹窗公共件 ═══════════════════════════════════════ */
+.dlg {
+  display: flex; flex-direction: column;
+  background: #202024; border: 1px solid #35353f; border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6);
+  overflow: hidden;
+}
+.dlg__h { display: flex; align-items: center; gap: 10px; padding: 13px 16px 12px; border-bottom: 1px solid #2c2c34; }
+.dlg__badge {
+  flex: none; padding: 2px 9px; font-size: 11.5px; border-radius: 999px;
+  color: #fcd34d; background: rgba(252,211,77,.16);
+}
+.dlg__t { flex: 1; min-width: 0; font-size: 14px; font-weight: 500; }
+.dlg__note { flex: none; font-size: 12px; color: #8a8aa0; }
+.dlg__q { flex: none; font-size: 11.5px; color: #6b6b78; }
+.dlg__b { padding: 13px 16px 14px; }
+.dlg__path { margin-bottom: 8px; font-size: 11.5px; color: #8a8aa0; overflow-wrap: anywhere; }
+.diff {
+  padding: 9px 12px; border-radius: 8px; background: rgba(0,0,0,.4);
+  font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 220px; overflow: auto;
+}
+.dl-add { color: #8fd39a; background: rgba(75,158,95,.12); }
+.dl-del { color: #e08b84; background: rgba(229,83,75,.1); }
+.dl-ctx { color: #6b7280; }
+.dlg__ask { margin-top: 12px; font-size: 12.5px; line-height: 1.6; color: #9a9aa8; }
+.dlg__ask b { color: #d8d8e2; }
+.dlg__f { display: flex; align-items: center; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid #2c2c34; }
+.btn {
+  padding: 7px 14px; font-size: 12.5px; border-radius: 8px;
+  color: #c0c0d0; border: 1px solid rgba(255,255,255,.16);
+}
+.btn .kbd { margin-left: 6px; font-size: 10.5px; color: #6b6b78; }
+.btn--primary { color: #16161e; background: rgba(255,255,255,.92); border-color: transparent; font-weight: 600; }
+.btn--primary .kbd { color: #6b6b70; }
+.btn--danger { color: #fda4af; border-color: rgba(244,63,94,.35); }
+
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+
+/* ══ A · 居中模态 + 遮罩 ═══════════════════════════════ */
+[data-v="a"] .dlg {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  width: 560px; max-height: 520px;
+}
+
+/* ══ B · 底部抽屉 ═════════════════════════════════════ */
+[data-v="b"] .dlg {
+  position: absolute; left: 24px; right: 24px; bottom: 14px;
+  border-radius: 14px; max-height: 460px;
+}
+[data-v="b"] .dlg__b { padding-bottom: 6px; }
+
+/* ══ C · 右侧抽屉 ═════════════════════════════════════ */
+[data-v="c"] .dlg {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 400px;
+  border-radius: 0; border: none; border-left: 1px solid #35353f;
+  box-shadow: -24px 0 60px rgba(0,0,0,.55);
+}
+[data-v="c"] .dlg__b { flex: 1; min-height: 0; overflow: auto; }
+[data-v="c"] .dlg__f { flex-wrap: wrap; }
+[data-v="c"] .diff { max-height: none; }
+
+/* ══ D · 右下浮动卡（不遮罩） ══════════════════════════ */
+[data-v="d"] .dlg {
+  position: absolute; right: 22px; bottom: 16px; width: 420px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.65), 0 0 0 1px rgba(252,211,77,.14);
+}
+[data-v="d"] .diff { max-height: 130px; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>权限审批 · 四个方案</h1>
+  <button class="tabbtn" data-k="a">A 居中模态</button>
+  <button class="tabbtn" data-k="b">B 底部抽屉</button>
+  <button class="tabbtn" data-k="c">C 右侧抽屉</button>
+  <button class="tabbtn" data-k="d">D 右下浮卡</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ══ 必须一起定的两件事 ══════════════════════════════════
+ * 1. 弹窗关掉之后，转写区还要不要留痕？四个方案我都**留了一条紧凑的痕**
+ *    （复用刚做的 pill 样式），因为不留的话，历史里就查不到"这一步被批准过"——
+ *    而审批恰恰是整条时间线里最该留档的动作。
+ * 2. 同时来两个请求怎么办？现在是嵌在流里的，天然排队；改成弹窗就必须显式处理。
+ *    四个方案里我都画了右上角的「1/2」计数。
+ */
+const FACT = `<span class="fact">
+两个连带决定，我一并画进图里了：<br>
+① <b>关掉后转写区留一条紧凑的痕</b>（复用刚做的 pill 样式）—— 不留的话历史里就查不到"这一步被批准过"，
+而审批恰恰是整条时间线里最该留档的动作。<br>
+② <b>同时来两个请求要显式排队</b> —— 嵌在流里时天然按顺序排，改成弹窗就必须自己管，
+右上角那个「1/2」就是它。</span>`
+
+/* ── 背景：一段跑到一半的对话 ─────────────────────────── */
+const SHELL = (extra) => `
+<div class="app">
+  <div class="side">
+    <div class="side__brand">◍ CCoder</div>
+    <div class="side__new">+ 新会话</div>
+    <div class="side__grp">工作区</div>
+    <div class="side__it">CCoder-Desktop</div>
+    <div class="side__it">Temp</div>
+  </div>
+  <div class="main">
+    <div class="head">
+      <span class="head__t">把 app.py 里的返回值改成读环境变量</span>
+      <span class="head__badge">标准模式</span>
+    </div>
+    <div class="body"><div class="body__inner"><div class="tl">
+      <div class="row row--me"><span class="dot me"></span>
+        <span class="me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span></div>
+      <div class="row"><span class="dot"></span>
+        <div class="say">先看一眼 <code class="ic">app.py</code> 现在长什么样。</div></div>
+      <div class="row"><span class="dot ok"></span>
+        <span class="tool"><span class="g">✓</span> Read <code>app.py</code></span></div>
+      <div class="row"><span class="dot"></span>
+        <div class="say">返回的是写死的字符串。我改成读环境变量，缺省值不变，这样不设
+          <code class="ic">SERVICE_NAME</code> 时行为跟现在一样。改动前请先过目：</div></div>
+      <div class="row"><span class="dot"></span>
+        <span class="trace"><span class="sym">◆</span><span class="k">审批</span>
+          <span>Edit · app.py 已允许</span></span>
+        <span class="trace-more">仅此一次</span></div>
+      <div class="row"><span class="dot ok"></span>
+        <span class="tool"><span class="g">✓</span> Edit <code>app.py</code></span></div>
+      <div class="row"><span class="dot"></span>
+        <div class="say">改好了，跑一下测试。</div></div>
+    </div></div></div>
+    <div class="composer"><div class="cbox">
+      <div class="cin">发消息或创建任务，/ 调用指令，@ 文件或对话</div>
+      <div class="cbar">
+        <span class="chip">deepseek-reasoner</span><span class="sp"></span>
+        <span class="chip">◈ ▬▬▬ 高</span>
+        <span class="chip"><span class="d"></span>标准</span>
+        <span class="send stop"></span>
+      </div>
+    </div></div>
+  </div>
+  ${extra}
+</div>`
+
+/* ── 弹窗本体（内容四个方案共用） ──────────────────────── */
+const DLG = (q) => `
+<div class="dlg">
+  <div class="dlg__h">
+    <span class="dlg__badge">等待你的许可</span>
+    <span class="dlg__t">编辑 app.py</span>
+    <span class="dlg__note">+2 −1</span>
+    <span class="dlg__q">${q}</span>
+  </div>
+  <div class="dlg__b">
+    <div class="dlg__path">C:/proj/app.py</div>
+    <div class="diff"><span class="dl-ctx">@app.route('/')</span>
+<span class="dl-ctx">def index():</span>
+<span class="dl-del">-    return "hello"</span>
+<span class="dl-add">+    name = os.environ.get("SERVICE_NAME", "hello")</span>
+<span class="dl-add">+    return name</span></div>
+    <div class="dlg__ask">模型要执行 <b>Edit</b> 改这个文件。放行吗？</div>
+  </div>
+  <div class="dlg__f">
+    <button class="btn btn--danger">拒绝<span class="kbd">Esc</span></button>
+    <span class="sp"></span>
+    <button class="btn">本会话总是允许 Edit</button>
+    <button class="btn btn--primary">允许<span class="kbd">⏎</span></button>
+  </div>
+</div>`
+
+const VARIANTS = {
+  a: {
+    html: SHELL(`<div class="scrim"></div>${DLG('1/2')}`).replace('<div class="app">', '<div class="app" data-v="a">'),
+    desc: '<b>A 居中模态 + 遮罩</b> —— 最传统的做法：背景压暗到 55%，弹窗居中，除了回答它哪儿也点不了。'
+      + '最不可能被忽略，这一点对审批很关键 —— 漏掉一次审批，整个 agent 就卡在那儿不动了。'
+      + '代价是**看不见上下文**：diff 里的 <code>@app.route</code> 改的是哪个文件、模型前面说了什么，全被压暗了。'
+      + '而且每次改一行也要关一次，打断感强。' + FACT
+  },
+  b: {
+    html: SHELL(DLG('1/2')).replace('<div class="app">', '<div class="app" data-v="b">'),
+    desc: '<b>B 底部抽屉</b> —— 从主区底部滑出，横跨整个内容宽度，就在输入框上方 —— 也就是你的手本来就在的地方。'
+      + '**不遮上下文**，上面那几句"我改成读环境变量，缺省值不变"全看得见，判断这个 diff 合不合理正需要它们。'
+      + '代价是 diff 长的时候抽屉要占很高，会把对话挤没；而且它跟输入框挨着，容易被当成输入区的一部分。' + FACT
+  },
+  c: {
+    html: SHELL(DLG('1/2')).replace('<div class="app">', '<div class="app" data-v="c">'),
+    desc: '<b>C 右侧抽屉</b> —— 主区右边切出 400px 一栏。左边照常看对话，右边看 diff，**可以对着读**。'
+      + 'diff 不受高度限制，长改动也不用滚小窗。代价是主区被压窄，本来就不宽的内容列再少 400px，'
+      + '长代码行会开始折行；而且右侧栏是"常驻感"的，审批完还得看着它滑走。' + FACT
+  },
+  d: {
+    html: SHELL(DLG('1/2')).replace('<div class="app">', '<div class="app" data-v="d">'),
+    desc: '<b>D 右下浮动卡</b> —— 不遮罩，一张卡浮在右下角，对话、输入框都还能用。最轻，不打断。'
+      + '代价是**它最可能被漏掉** —— 而审批的唯一要求就是"必须被回答"，漏了 agent 就一直卡着。'
+      + '它跟右下角本来就有的东西（回到底部按钮、状态栏）还容易打架。这个方案我建议排除。' + FACT
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

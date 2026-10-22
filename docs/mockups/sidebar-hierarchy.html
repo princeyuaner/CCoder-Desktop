@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>侧栏层级 + CLI 标识 · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1040px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#stage { padding: 18px 24px 0; }
+.cap { margin: 26px 0 10px; font-size: 12px; color: #5a5a68; letter-spacing: .3px; }
+
+/* ══ 侧栏片段（280px，跟真实宽度一致） ══════════════════ */
+.side {
+  width: 280px; padding: 12px 10px;
+  background: #141414; border: 1px solid #242424; border-radius: 10px;
+}
+.side__title { padding: 4px 8px 10px; font-size: 10.5px; letter-spacing: .4px; color: #4a4a55; }
+
+.wsg { margin-bottom: 6px; }
+.wsg__head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px; border-radius: 6px;
+}
+.wsg__ico { flex: none; font-size: 12px; color: #6b6b78; }
+.wsg__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsg__n { flex: none; }
+.acts { display: flex; gap: 2px; flex: none; opacity: 0; }
+.wsg__head:hover .acts { opacity: 1; }
+.act { display: grid; place-items: center; width: 20px; height: 20px; font-size: 14px; line-height: 1; color: #6b6b78; border-radius: 5px; }
+.act:hover { background: #2a2a2a; color: #e8e8e8; }
+
+.session { display: flex; align-items: center; border-radius: 6px; }
+.session:hover { background: #1f1f1f; }
+.session.is-active { background: #2a2a2a; }
+.session__main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 5px 4px; text-align: left; }
+.session__t { flex: 1; min-width: 0; font-size: 13.5px; color: #a8a8b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session.is-active .session__t { color: #e8e8e8; }
+.session__tm { flex: none; font-size: 11px; color: #4a4a55; }
+.session__del { flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-right: 4px; font-size: 14px; line-height: 1; color: #6b6b78; border-radius: 5px; opacity: 0; }
+.session:hover .session__del { opacity: 1; }
+.more { display: block; width: 100%; padding: 5px 8px 5px 34px; font-size: 11.5px; color: #5a5a68; text-align: left; }
+
+/* ── CLI 徽章 ─────────────────────────────────────────── */
+.cli { flex: none; display: grid; place-items: center; width: 16px; height: 16px; }
+.cli svg { width: 100%; height: 100%; display: block; }
+/* 品牌色：Claude 是珊瑚橙；OpenAI 的品牌色本来就是黑白，不硬安一个绿 */
+.cli--cc svg { fill: #d97757; }
+.cli--cx svg { fill: #e8e8e8; }
+
+/* ══ A · 小标签组头 ═════════════════════════════════════ */
+[data-v="a"] .wsg__name { font-size: 11px; letter-spacing: .5px; color: #6b6b78; font-weight: 600; }
+[data-v="a"] .wsg__ico { opacity: .5; }
+[data-v="a"] .wsg__n { font-size: 10.5px; color: #4a4a55; }
+[data-v="a"] .session__main { padding-left: 14px; }
+[data-v="a"] .more { padding-left: 36px; }
+
+/* ══ B · 底色条组头 ═════════════════════════════════════ */
+[data-v="b"] .wsg__head { background: #1b1b1b; border-top: 1px solid #242424; border-bottom: 1px solid #242424; border-radius: 0; padding: 6px 8px; }
+[data-v="b"] .wsg { margin-bottom: 10px; }
+[data-v="b"] .wsg__name { font-size: 12.5px; color: #d8d8e2; font-weight: 600; }
+[data-v="b"] .wsg__n { font-size: 11px; color: #6b6b78; }
+[data-v="b"] .session__main { padding-left: 14px; }
+[data-v="b"] .more { padding-left: 36px; }
+
+/* ══ C · 树状连接线 ═════════════════════════════════════ */
+[data-v="c"] .wsg { position: relative; }
+[data-v="c"] .wsg__head { color: #d8d8e2; }
+[data-v="c"] .wsg__name { font-size: 13px; font-weight: 600; }
+[data-v="c"] .wsg__n { font-size: 11px; color: #6b6b78; }
+[data-v="c"] .session { position: relative; }
+[data-v="c"] .session::before {
+  content: ''; position: absolute; left: 12px; top: 0; bottom: 0; width: 1px; background: #4a4a4a;
+}
+[data-v="c"] .session:last-child::before { bottom: 50%; }
+/* 徽章要挪到树线右边，否则两个都挤在左边那条槽里 */
+[data-v="c"] .session__main { padding-left: 24px; }
+[data-v="c"] .more { padding-left: 40px; }
+
+/* ══ D · 缩进 + 分隔线 ══════════════════════════════════ */
+[data-v="d"] .wsg { margin-bottom: 0; padding-bottom: 8px; border-bottom: 1px solid #262626; }
+[data-v="d"] .wsg:last-child { border-bottom: none; }
+[data-v="d"] .wsg__head { padding: 6px 8px; }
+[data-v="d"] .wsg__name { font-size: 13px; font-weight: 600; color: #d8d8e2; }
+[data-v="d"] .wsg__n { padding: 1px 6px; font-size: 10.5px; color: #8a8a9a; background: #232323; border-radius: 999px; }
+[data-v="d"] .session { margin-left: 16px; }
+[data-v="d"] .session__main { padding-left: 14px; }
+[data-v="d"] .session__t { font-size: 13px; }
+[data-v="d"] .more { padding-left: 52px; }
+
+/* ══ 徽章样式对照 ═══════════════════════════════════════ */
+.badges { display: flex; gap: 26px; }
+.badgecard { padding: 12px 14px; background: #141414; border: 1px solid #242424; border-radius: 10px; }
+.badgecard__t { margin-bottom: 10px; font-size: 11.5px; color: #6b6b78; }
+.badgerow { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13.5px; color: #a8a8b4; }
+.badgecard .cli { width: 15px; height: 15px; }
+.badgecard .cli--big { width: 17px; height: 17px; font-size: 10.5px; }
+
+/* 方块底 */
+.sq { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; padding: 2.5px; }
+.sq svg { width: 100%; height: 100%; display: block; }
+.sq--cc { background: #d97757; }
+.sq--cc svg { fill: #1a1210; }
+.sq--cx { background: #e8e8e8; }
+.sq--cx svg { fill: #141414; }
+.sq--soft.sq--cc { background: rgba(217,119,87,.16); }
+.sq--soft.sq--cc svg { fill: #d97757; }
+.sq--soft.sq--cx { background: rgba(232,232,232,.1); }
+.sq--soft.sq--cx svg { fill: #e8e8e8; }
+.badgerow em { font-style: normal; font-size: 10px; color: #5a5a68; }
+.badgerow code { font-size: 10px; color: #4a4a55; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>侧栏层级 + CLI 标识 · 四个方案</h1>
+  <button class="tabbtn" data-k="a">A 小标签组头</button>
+  <button class="tabbtn" data-k="b">B 底色条组头</button>
+  <button class="tabbtn" data-k="c">C 树状连接线</button>
+  <button class="tabbtn" data-k="d">D 缩进 + 分隔线</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ══ 为什么该有 CLI 标识 ═════════════════════════════════
+ * 不只是好看：**打开一条已有会话必须用当初创建它的那个 CLI**。
+ * CLI 各自读自己那份存储（claude 读 ~/.claude/projects，codex 读它自己的），
+ * 拿 claude 去 --resume 一条 codex 的会话是找不到的 —— 会话身份是
+ * (cli, cwd, id)，三样缺一不可。所以这个徽章是**载重**的，不是装饰。
+ */
+const FACT = `<span class="fact">
+CLI 标识不只是好看 —— <b>打开一条已有会话必须用当初创建它的那个 CLI</b>。
+各家 CLI 读各自那份存储（claude 读 <code>~/.claude/projects</code>，codex 读它自己的），
+拿 claude 去 <code>--resume</code> 一条 codex 的会话是找不到的：会话身份是 <code>(cli, cwd, id)</code>。
+所以徽章是载重的，不是装饰。<br>
+今天列表里全是 Claude Code（存储只接了它一家），但 Codex 一接上就得靠它区分 ——
+而且打开会话时得**按徽章自动切 CLI**，不能沿用当前选的那个。</span>`
+
+/* ── 数据：同一个目录下混着两家的会话 ─────────────────── */
+const SESSIONS = [
+  { t: '111', tm: '刚刚', cli: 'cc', on: true },
+  { t: '我想做一个桌面应用，接入 claude…', tm: '刚刚', cli: 'cc' },
+  { t: '111', tm: '18分钟', cli: 'cx' },
+  { t: 'opencode 的免费模型怎么通过 api…', tm: '1小时', cli: 'cc' },
+  { t: 'hi', tm: '1小时', cli: 'cx' }
+]
+
+/* 真实品牌标记，路径原样取自 simple-icons（claudecode / openai），未做任何变形 */
+const PATHS = { cc: 'M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z', cx: 'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z' }
+const cli = (k) => `<span class="cli cli--${k}"><svg viewBox="0 0 24 24"><path d="${PATHS[k]}"/></svg></span>`
+
+const row = (s) => `
+  <div class="session ${s.on ? 'is-active' : ''}">
+    <button class="session__main">
+      ${cli(s.cli)}
+      <span class="session__t">${s.t}</span>
+      <span class="session__tm">${s.tm}</span>
+    </button>
+    <button class="session__del">×</button>
+  </div>`
+
+const group = (name, n, list, more) => `
+  <div class="wsg">
+    <div class="wsg__head">
+      <span class="wsg__ico">▣</span>
+      <span class="wsg__name">${name}</span>
+      <span class="wsg__n">${n}</span>
+      <span class="acts"><span class="act">+</span><span class="act">×</span></span>
+    </div>
+    ${list.map(row).join('')}
+    ${more ? `<button class="more">展开其余 ${more} 个会话</button>` : ''}
+  </div>`
+
+const SIDE = (v, list) => `
+  <div class="side" data-v="${v}">
+    <div class="side__title">工作区</div>
+    ${group('CCoder-Desktop', 63, list, 58)}
+    ${group('server', 86, list.slice(0, 2), 84)}
+  </div>`
+
+/* ── 徽章四选一 ───────────────────────────────────────── */
+const BADGES = `
+<div class="cap">CLI 圆标怎么用 —— 都是同一对真实图标，只是底色和尺寸不同</div>
+<div class="badges">
+  <div class="badgecard">
+    <div class="badgecard__t">① 裸字形（品牌色）</div>
+    <div class="badgerow"><span class="cli cli--cc"><svg viewBox="0 0 24 24"><path d="${PATHS.cc}"/></svg></span>111</div>
+    <div class="badgerow"><span class="cli cli--cx"><svg viewBox="0 0 24 24"><path d="${PATHS.cx}"/></svg></span>合服文本生成</div>
+    <div class="badgerow"><code>最省地方，但 16px 下 OpenAI 的结有点糊</code></div>
+  </div>
+  <div class="badgecard">
+    <div class="badgecard__t">② 实心方块 + 反白字形</div>
+    <div class="badgerow"><span class="sq sq--cc"><svg viewBox="0 0 24 24"><path d="${PATHS.cc}"/></svg></span>111</div>
+    <div class="badgerow"><span class="sq sq--cx"><svg viewBox="0 0 24 24"><path d="${PATHS.cx}"/></svg></span>合服文本生成</div>
+    <div class="badgerow"><code>小尺寸下最清楚，色块本身就在替你找</code></div>
+  </div>
+  <div class="badgecard">
+    <div class="badgecard__t">③ 浅底方块 + 品牌色字形</div>
+    <div class="badgerow"><span class="sq sq--cc sq--soft"><svg viewBox="0 0 24 24"><path d="${PATHS.cc}"/></svg></span>111</div>
+    <div class="badgerow"><span class="sq sq--cx sq--soft"><svg viewBox="0 0 24 24"><path d="${PATHS.cx}"/></svg></span>合服文本生成</div>
+    <div class="badgerow"><code>比 ② 安静，不抢标题的字</code></div>
+  </div>
+  <div class="badgecard">
+    <div class="badgecard__t">④ 裸字形 + 文字标签</div>
+    <div class="badgerow"><span class="cli cli--cc"><svg viewBox="0 0 24 24"><path d="${PATHS.cc}"/></svg></span>111<em>Claude</em></div>
+    <div class="badgerow"><span class="cli cli--cx"><svg viewBox="0 0 24 24"><path d="${PATHS.cx}"/></svg></span>合服文本生成<em>Codex</em></div>
+    <div class="badgerow"><code>最不会认错，但吃掉 40px 横向空间</code></div>
+  </div>
+</div>`
+
+const VARIANTS = {
+  a: {
+    html: SIDE('a', SESSIONS) + BADGES,
+    desc: '<b>A 小标签组头</b> —— 目录名缩到 10.5px、加字距、压暗、字号变小，读起来就是个"分组标签"；'
+      + '会话保持 13.5px 正常亮度，是这一列真正的内容。'
+      + '靠<b>字号 + 明度</b>拉开层级，最轻，也不占额外的地方。'
+      + '代价是目录名小到有点难认 —— 你截图里那个"CCoder-Desktop"会变成一小行灰字。' + FACT
+  },
+  b: {
+    html: SIDE('b', SESSIONS) + BADGES,
+    desc: '<b>B 底色条组头</b> —— 目录那一行整条加浅底 + 上下细线，视觉上"封"成一段；'
+      + '目录名反而<b>加大加粗</b>（12.5px 半粗），跟会话拉开。'
+      + '层级最清楚，扫一眼就知道哪几行属于哪个目录。'
+      + '代价是最重，侧栏里横向的线条一多会显得碎。' + FACT
+  },
+  c: {
+    html: SIDE('c', SESSIONS) + BADGES,
+    desc: '<b>C 树状连接线</b> —— 会话行左边一条竖线连到目录行，最后一条收口成 └。'
+      + '结构感最强，一眼看出"这些挂在那个目录下"。'
+      + '代价是只有一层的时候，树线有点杀鸡用牛刀；而且它跟会话行左侧的 CLI 徽章抢位置，'
+      + '横向要吃掉 26px，标题能显示的字更少。' + FACT
+  },
+  d: {
+    html: SIDE('d', SESSIONS) + BADGES,
+    desc: '<b>D 缩进 + 分隔线</b> —— 目录行不缩进、会话行整体右移 10px，目录之间加一条分隔线；'
+      + '计数从裸数字变成小胶囊。靠<b>位置</b>和<b>分块</b>区分，不靠字号。'
+      + '代价是缩进只有 10px，层级弱于一眼前者；目录多的时候分隔线会连成一片。' + FACT
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

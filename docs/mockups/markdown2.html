@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>模型输出格式 · 第二轮</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8ee;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 960px; line-height: 1.75; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#stage { padding: 18px 24px 0; }
+
+/* ── 场景 ─────────────────────────────────────────────── */
+.pane {
+  width: 1080px;
+  background: #191919;
+  border: 1px solid #26262e; border-radius: 12px;
+  padding: 24px 44px 28px;
+}
+.inner { max-width: 820px; margin: 0 auto; }
+.tl { position: relative; }
+.tl::before {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px;
+  width: 1px; background: #2c2c2c;
+}
+.row { position: relative; padding-left: 26px; margin-bottom: 14px; }
+.dot {
+  position: absolute; left: 0; top: 5px; width: 9px; height: 9px;
+  border-radius: 50%; background: #3a3a46; box-shadow: 0 0 0 3px #191919;
+}
+.dot.me { background: #22d3ee; box-shadow: 0 0 0 3px #191919, 0 0 10px rgba(34,211,238,.55); }
+.me {
+  display: inline-block; padding: 7px 12px;
+  font-size: 14px; line-height: 1.65; color: #d8f8ff;
+  background: rgba(34,211,238,.09); border: 1px solid rgba(34,211,238,.22);
+  border-radius: 8px;
+}
+.row--me { display: flex; justify-content: flex-end; }
+
+/* 共用语法高亮 */
+.k { color: #c792ea; }
+.f { color: #82aaff; }
+.s { color: #c3e88d; }
+.b { color: #ffcb6b; }
+.d { color: #7fdbca; }
+
+/* ══ 共用排版（四个方案一致，差别只在装饰） ══════════════ */
+.md h3 { font-size: 16px; font-weight: 600; color: #f0f0f6; }
+.md p { font-size: 14px; line-height: 1.8; color: #dcdce6; }
+.md ul { padding-left: 20px; }
+.md li { font-size: 14px; line-height: 1.75; color: #dcdce6; }
+.md li::marker { color: #6a6a7c; }
+.md strong { color: #fff; }
+.md .ic {
+  padding: 2px 6px; font-size: .86em; border-radius: 5px;
+  background: #26262f; color: #ddd6fe; white-space: nowrap;
+}
+.md pre { font-size: 12.5px; line-height: 1.65; color: #c8c8d4; white-space: pre; overflow-x: auto; }
+.md table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.md th { text-align: left; padding: 6px 10px; font-weight: 500; color: #8a8a9c; }
+.md td { padding: 6px 10px; color: #d0d0dc; }
+.md .ok { color: #6ee7a8; }
+.md .cp { font-size: 11px; color: #5c5c6a; }
+
+/* ══ E · 零装饰 ═════════════════════════════════════════ */
+[data-v="e"] .md > * + * { margin-top: 14px; }
+[data-v="e"] .md h3 { margin-top: 20px; }
+[data-v="e"] .md h3:first-child { margin-top: 0; }
+[data-v="e"] .md li + li { margin-top: 4px; }
+[data-v="e"] .code { margin-top: 16px; }
+[data-v="e"] .lang { display: block; margin-bottom: 5px; font-size: 10.5px; letter-spacing: .5px; color: #4e4e5c; }
+[data-v="e"] .codebox { position: relative; background: #141419; border-radius: 8px; padding: 11px 13px; }
+[data-v="e"] .codebox .cp { position: absolute; top: 9px; right: 12px; }
+[data-v="e"] .md th { border-bottom: 1px solid #2c2c34; }
+[data-v="e"] .md td { border-bottom: 1px solid #23232b; }
+[data-v="e"] .md tr:last-child td { border-bottom: none; }
+
+/* ══ F · 节奏线 ═════════════════════════════════════════ */
+[data-v="f"] .md > * { padding: 14px 0; border-top: 1px solid #23232b; }
+[data-v="f"] .md > *:first-child { border-top: none; padding-top: 0; }
+[data-v="f"] .md > *:last-child { padding-bottom: 0; }
+[data-v="f"] .md h3 { font-size: 15px; }
+[data-v="f"] .md li + li { margin-top: 4px; }
+[data-v="f"] .lang { display: block; margin-bottom: 5px; font-size: 10.5px; letter-spacing: .5px; color: #4e4e5c; }
+[data-v="f"] .codebox { position: relative; background: #141419; border-radius: 8px; padding: 11px 13px; }
+[data-v="f"] .codebox .cp { position: absolute; top: 9px; right: 12px; }
+[data-v="f"] .md th { border-bottom: 1px solid #2c2c34; }
+[data-v="f"] .md td { border-bottom: 1px solid #23232b; }
+[data-v="f"] .md tr:last-child td { border-bottom: none; }
+
+/* ══ G · 左侧标记 ═══════════════════════════════════════ */
+[data-v="g"] .md > * { position: relative; padding-left: 26px; margin-top: 14px; }
+[data-v="g"] .md > *:first-child { margin-top: 0; }
+[data-v="g"] .md > *::before {
+  position: absolute; left: 0; top: 0;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px; line-height: 1.9; color: #3f3f4c;
+}
+[data-v="g"] .md > h3::before { content: '#'; color: #5a5a6c; }
+[data-v="g"] .md > p::before { content: '¶'; }
+[data-v="g"] .md > ul::before, [data-v="g"] .md > ol::before { content: '•'; }
+[data-v="g"] .md > .codebox::before { content: '</>'; font-size: 9.5px; line-height: 2.2; }
+[data-v="g"] .md > .tblwrap::before { content: '▦'; }
+[data-v="g"] .md h3 { margin-top: 20px; }
+[data-v="g"] .md h3:first-child { margin-top: 0; }
+[data-v="g"] .md li + li { margin-top: 4px; }
+[data-v="g"] .lang { display: block; margin-bottom: 5px; font-size: 10.5px; letter-spacing: .5px; color: #4e4e5c; }
+[data-v="g"] .codebox {
+  position: relative; background: transparent;
+  border-left: 2px solid #33333f; border-radius: 0 8px 8px 0;
+  padding: 9px 13px;
+}
+[data-v="g"] .codebox .cp { position: absolute; top: 7px; right: 4px; }
+[data-v="g"] .md th { border-bottom: 1px solid #2c2c34; }
+[data-v="g"] .md td { border-bottom: 1px solid #23232b; }
+[data-v="g"] .md tr:last-child td { border-bottom: none; }
+
+/* ══ H · 明度分层 ═══════════════════════════════════════ */
+[data-v="h"] .md > * + * { margin-top: 14px; }
+[data-v="h"] .md h3 { margin-top: 20px; }
+[data-v="h"] .md h3:first-child { margin-top: 0; }
+[data-v="h"] .md li + li { margin-top: 4px; }
+[data-v="h"] .md .codebox {
+  position: relative; padding: 12px 14px;
+  background: rgba(255,255,255,.045); border-radius: 10px;
+}
+[data-v="h"] .md .codebox .cp { position: absolute; top: 10px; right: 13px; }
+[data-v="h"] .lang { display: block; margin-bottom: 6px; font-size: 10.5px; letter-spacing: .5px; color: #565664; }
+[data-v="h"] .tblwrap { padding: 10px 14px; background: rgba(255,255,255,.022); border-radius: 10px; }
+[data-v="h"] .md th { border-bottom: 1px solid rgba(255,255,255,.07); }
+[data-v="h"] .md td { border-bottom: 1px solid rgba(255,255,255,.04); }
+[data-v="h"] .md tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>模型输出格式 · 第二轮</h1>
+  <button class="tabbtn" data-k="e">E 零装饰</button>
+  <button class="tabbtn" data-k="f">F 节奏线</button>
+  <button class="tabbtn" data-k="g">G 左侧标记</button>
+  <button class="tabbtn" data-k="h">H 明度分层</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+const CODE = [
+  '<span class="k">import</span> os',
+  '<span class="k">from</span> flask <span class="k">import</span> Flask',
+  '',
+  'app = Flask(__name__)',
+  '',
+  '<span class="k">def</span> <span class="f">service_name</span>() -&gt; <span class="b">str</span>:',
+  '    <span class="k">return</span> os.environ.get(<span class="s">"SERVICE_NAME"</span>, <span class="s">"hello"</span>)',
+  '',
+  '<span class="d">@app.route</span>(<span class="s">"/"</span>)',
+  '<span class="k">def</span> <span class="f">index</span>():',
+  '    <span class="k">return</span> <span class="f">service_name</span>()'
+].join('\n')
+
+const CODEBOX = (v) => `
+  <div class="codebox">
+    <span class="lang">python</span>
+    <span class="cp">复制</span>
+    <pre>${CODE}</pre>
+  </div>`
+
+const TBL = `<div class="tblwrap"><table>
+  <thead><tr><th>用例</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td>test_index_default</td><td class="ok">✓ 通过</td></tr>
+    <tr><td>test_index_custom</td><td class="ok">✓ 通过</td></tr>
+  </tbody>
+</table></div>`
+
+const BODY = (v) => `
+  <h3>改动说明</h3>
+  <p><code class="ic">app.py</code> 里返回的是写死的字符串，我把它改成读环境变量：</p>
+  <ul>
+    <li>新增 <code class="ic">SERVICE_NAME</code> 环境变量</li>
+    <li>没设的时候回落到 <code class="ic">"hello"</code>，行为跟现在一样</li>
+    <li>顺带把 <code class="ic">index()</code> 拆成两个小函数</li>
+  </ul>
+  ${CODEBOX(v)}
+  <p>跑了下测试，两个都过：</p>
+  ${TBL}
+  <p><strong>注意：</strong>部署时要记得设 <code class="ic">SERVICE_NAME</code>，否则线上还是 hello。</p>`
+
+const CTX = (v) => `
+  <div class="pane" data-v="${v}"><div class="inner"><div class="tl">
+    <div class="row row--me">
+      <span class="dot me"></span>
+      <span class="me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span>
+    </div>
+    <div class="row">
+      <span class="dot"></span>
+      <div class="md">${BODY(v)}</div>
+    </div>
+  </div></div></div>`
+
+const VARIANTS = {
+  e: { html: CTX('e'), desc: '<b>E 零装饰</b> —— 没有框、没有线、没有标签。段落就是段落，代码块是唯一的深色块，表格只有横线。层级全靠字号和留白。最安静，长回答读起来最顺。代价是块与块之间全靠眼睛分，非常长的回答里不太好定位。' },
+  f: { html: CTX('f'), desc: '<b>F 节奏线</b> —— 排版跟 E 一样，但每个块之间加一条很淡的横线。长回答有了节拍，扫的时候知道自己在第几段。代价是线多了会显得碎，短回答尤其明显（三段话两条线）。' },
+  g: { html: CTX('g'), desc: '<b>G 左侧标记</b> —— 每个块左边一个小符号（<code>#</code> 标题、<code>¶</code> 段落、<code>•</code> 列表、<code>&lt;/&gt;</code> 代码、<code>▦</code> 表格）。结构一眼看得出来，但正文不被框住。代码块只用左边一条竖线，不画整圈。代价是左边缘多一列符号，看久了有点像文档大纲。' },
+  h: { html: CTX('h'), desc: '<b>H 明度分层</b> —— 不用边框和线，靠背景深浅区分：段落透明、代码深一档、表格再浅一档。最柔和，层次有但不刺眼。代价是深色背景上明度差本来就小，对比度弱的屏幕上可能看不出层次。' }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('e')
+}
+</script>
+</body>
+</html>

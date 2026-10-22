@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>工作区操作 · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1040px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#stage { padding: 18px 24px 0; }
+.cap { margin: 22px 0 8px; font-size: 12px; color: #5a5a68; letter-spacing: .3px; }
+
+/* ══ 应用外壳 ═══════════════════════════════════════════ */
+.app {
+  position: relative; display: flex;
+  width: 1080px; height: 600px;
+  background: #191919; border: 1px solid #26262e; border-radius: 12px; overflow: hidden;
+}
+.side {
+  position: relative; flex: none; width: 264px; padding: 14px 10px;
+  background: #141414; border-right: 1px solid #242424;
+}
+.side__brand { padding: 0 8px 14px; font-size: 13px; font-weight: 600; }
+.side__new {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; margin-bottom: 14px; padding: 8px;
+  font-size: 12.5px; color: #d8d8e2;
+  background: #1e1e1e; border: 1px solid #2c2c2c; border-radius: 8px;
+}
+.side__nav { margin-bottom: 12px; }
+.side__navitem { display: flex; align-items: center; gap: 9px; padding: 6px 8px; font-size: 12.5px; color: #8a8a9a; border-radius: 6px; }
+.side__head { display: flex; align-items: center; padding: 8px 8px 6px; }
+.side__head-t { flex: 1; font-size: 10.5px; letter-spacing: .4px; color: #4a4a55; }
+.side__head-tools { display: flex; gap: 2px; }
+.tool { display: grid; place-items: center; width: 22px; height: 22px; font-size: 12px; color: #5a5a68; border-radius: 5px; }
+.tool:hover { background: #1e1e1e; color: #a8a8a8; }
+
+.wsg { margin-bottom: 4px; }
+.wsg__head {
+  position: relative; display: flex; align-items: center; gap: 7px;
+  padding: 6px 8px; border-radius: 6px;
+}
+.wsg__head:hover { background: #1a1a1a; }
+.wsg__ico { font-size: 12px; color: #6b6b78; }
+.wsg__name { flex: 1; min-width: 0; font-size: 12.5px; color: #c8c8d4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsg__n { font-size: 11px; color: #4a4a55; }
+.wsg__acts { display: flex; gap: 2px; }
+.act {
+  display: grid; place-items: center; width: 20px; height: 20px;
+  font-size: 13px; line-height: 1; color: #6b6b78; border-radius: 5px;
+}
+.act:hover { background: #2a2a2a; color: #e8e8e8; }
+.act--del:hover { background: rgba(244,63,94,.14); color: #fda4af; }
+
+.session {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 6px 8px 6px 22px; border-radius: 6px; text-align: left;
+}
+.session:hover { background: #1a1a1a; }
+.session.is-active { background: #232323; }
+.session__g { flex: none; width: 7px; height: 7px; border-radius: 2px; border: 1px solid #3a3a46; }
+.session__t { flex: 1; min-width: 0; font-size: 12.5px; color: #a8a8b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session.is-active .session__t { color: #e8e8e8; }
+.session__tm { flex: none; font-size: 11px; color: #4a4a55; }
+.session__x { flex: none; display: grid; place-items: center; width: 18px; height: 18px; font-size: 13px; color: #5a5a68; border-radius: 4px; }
+.session__x:hover { background: rgba(244,63,94,.14); color: #fda4af; }
+.more { display: block; width: 100%; padding: 5px 8px 5px 22px; font-size: 11.5px; color: #5a5a68; text-align: left; }
+.more:hover { color: #a8a8a8; }
+
+.side__foot {
+  position: absolute; left: 10px; right: 10px; bottom: 12px;
+  border-top: 1px solid #1e1e1e; padding-top: 10px;
+}
+.closed { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 8px; font-size: 12px; color: #6b6b78; border-radius: 6px; }
+.closed:hover { background: #1a1a1a; color: #a8a8a8; }
+.closed__n { flex: 1; text-align: left; }
+
+/* 浮层：右键菜单 / 「…」下拉 */
+.menu {
+  position: absolute; z-index: 40; min-width: 168px; padding: 5px;
+  background: #26262c; border: 1px solid #3a3a44; border-radius: 9px;
+  box-shadow: 0 14px 36px rgba(0,0,0,.6);
+}
+.menu__it { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 9px; font-size: 12.5px; color: #c8c8d4; border-radius: 6px; text-align: left; }
+.menu__it:hover { background: #33333d; }
+.menu__it.is-danger { color: #fda4af; }
+.menu__it.is-danger:hover { background: rgba(244,63,94,.14); }
+.menu__sep { height: 1px; margin: 4px 6px; background: #34343f; }
+.menu__k { flex: 1; }
+.menu__hint { font-size: 11px; color: #5a5a68; }
+
+/* ══ 主区 ═══════════════════════════════════════════════ */
+.main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.head { display: flex; align-items: center; gap: 10px; padding: 14px 26px 12px; border-bottom: 1px solid #202024; }
+.head__t { font-size: 13.5px; font-weight: 500; }
+.head__b { padding: 2px 9px; font-size: 11.5px; border-radius: 999px; color: #8a8a9a; background: #232323; border: 1px solid #2c2c2c; }
+.body { flex: 1; min-height: 0; overflow: hidden; padding: 16px 26px 0; }
+.body__in { max-width: 640px; margin: 0 auto; }
+.tl { position: relative; }
+.tl::before { content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px; width: 1px; background: #2c2c2c; }
+.row { position: relative; padding-left: 24px; margin-bottom: 11px; }
+.dot { position: absolute; left: 0; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: #3a3a46; box-shadow: 0 0 0 3px #191919; }
+.dot.me { background: #22d3ee; box-shadow: 0 0 0 3px #191919, 0 0 10px rgba(34,211,238,.55); }
+.dot.ok { background: #4b9e5f; }
+.row--me { display: flex; justify-content: flex-end; }
+.me { display: inline-block; max-width: 80%; padding: 6px 11px; font-size: 13px; line-height: 1.6; color: #d8f8ff; background: rgba(34,211,238,.09); border: 1px solid rgba(34,211,238,.22); border-radius: 8px; }
+.say { font-size: 13px; line-height: 1.7; color: #dcdce6; }
+.say .ic { padding: 2px 5px; font-size: .86em; border-radius: 5px; background: #26262f; color: #ddd6fe; }
+
+/* ── 输入区（含新增的目录行） ─────────────────────────── */
+.composer { flex: none; padding: 0 26px 12px; }
+.cwdwrap { max-width: 640px; margin: 0 auto 6px; }
+.cwd {
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 2px; font-size: 12px; color: #8a8a9a;
+}
+.cwd__ico { font-size: 11px; color: #6b6b78; }
+.cwd__name { color: #d8d8e2; font-weight: 500; }
+.cwd__path {
+  flex: 1; min-width: 0; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px;
+  color: #6b6b78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cwd__copy { flex: none; font-size: 11px; color: #4a4a55; opacity: 0; }
+.cwd:hover .cwd__copy { opacity: 1; }
+.cbox { max-width: 640px; margin: 0 auto; padding: 11px 11px 9px; background: #232323; border: 1px solid #2c2c2c; border-radius: 14px; }
+.cin { padding: 2px 4px 9px; font-size: 13px; color: #6b6b6b; }
+.cbar { display: flex; align-items: center; gap: 7px; }
+.sp { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; font-size: 12px; color: #a8a8a8; background: #232323; border: 1px solid #2c2c2c; border-radius: 999px; }
+.chip .d { width: 6px; height: 6px; border-radius: 50%; background: #4b9e5f; }
+.send { display: grid; place-items: center; width: 30px; height: 30px; font-size: 14px; color: #191919; background: #e8e8e8; border-radius: 50%; }
+
+/* ══ 小图：删除确认 ═════════════════════════════════════ */
+.insets { display: flex; gap: 20px; align-items: flex-start; }
+.card {
+  width: 420px; background: #202024; border: 1px solid #35353f; border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.5); overflow: hidden;
+}
+.card__h { display: flex; align-items: center; gap: 9px; padding: 13px 16px 12px; border-bottom: 1px solid #2c2c34; }
+.card__badge { padding: 2px 9px; font-size: 11.5px; border-radius: 999px; color: #fda4af; background: rgba(244,63,94,.16); }
+.card__t { font-size: 14px; font-weight: 500; }
+.card__b { padding: 13px 16px; }
+.card__line { font-size: 13px; color: #dcdce6; margin-bottom: 6px; }
+.card__p { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; color: #8a8aa0; overflow-wrap: anywhere; }
+.card__w { margin-top: 11px; padding: 9px 11px; font-size: 12px; line-height: 1.6; color: #e8b0b8; background: rgba(244,63,94,.08); border-radius: 8px; }
+.card__f { display: flex; align-items: center; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid #2c2c34; }
+.btn { padding: 7px 14px; font-size: 12.5px; border-radius: 8px; color: #c0c0d0; border: 1px solid rgba(255,255,255,.16); }
+.btn--primary { color: #16161e; background: rgba(255,255,255,.92); border-color: transparent; font-weight: 600; }
+.btn--danger { color: #fda4af; border-color: rgba(244,63,94,.35); }
+.kbd { margin-left: 6px; font-size: 10.5px; opacity: .62; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>工作区操作 · 四个方案</h1>
+  <button class="tabbtn" data-k="a">A 常驻图标</button>
+  <button class="tabbtn" data-k="b">B 悬停显形</button>
+  <button class="tabbtn" data-k="c">C 右键菜单</button>
+  <button class="tabbtn" data-k="d">D 「…」收纳</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ══ 两个必须先说清的语义 ═══════════════════════════════
+ * 「关闭工作区」= 只是从这个列表里收起来，**一个文件都不删**。
+ * 工作区就是磁盘上的一个目录，是 CLI 自己的东西，我们没有权力删。
+ * 收起来的列表要落盘（Settings.hiddenCwds），底部留一个「已关闭的工作区」能捞回来。
+ *
+ * 「删除会话」= 真的删掉那份 jsonl，**不可恢复**。所以要二次确认，
+ * 而且确认框里必须把"删哪一条、在哪个目录"写全 —— 这是唯一一次后悔机会。
+ */
+const FACT = `<span class="fact">
+两个语义必须先定死：<br>
+① <b>关闭工作区 ≠ 删东西</b>。工作区就是磁盘上一个目录，是 CLI 的地盘，我们没权力删。
+「关闭」只是从这个列表里收起来，落盘记在 <code>Settings.hiddenCwds</code> 里，底部留一个入口能捞回来。<br>
+② <b>删除会话 = 真删那份 jsonl，不可恢复</b>。所以必须二次确认，且确认框里要写全"删哪一条、在哪个目录"——
+那是唯一一次后悔的机会。</span>`
+
+/* ── 侧栏：三种交互模式的差异都在这里 ─────────────────── */
+const SESSIONS = [
+  { t: '我想做一个桌面应用，接入 claude code cli…', tm: '刚刚', on: true },
+  { t: 'opencode 的免费模型怎么通过 api 调用', tm: '22分钟' },
+  { t: '你好', tm: '24分钟' },
+  { t: '检查 svn 最近 7 天提交的…', tm: '18小时' }
+]
+
+const row = (s, mode, hover) => `
+  <button class="session ${s.on ? 'is-active' : ''}">
+    <span class="session__g"></span>
+    <span class="session__t">${s.t}</span>
+    ${s.on || (hover && mode !== 'ctx') ? '' : ''}
+    <span class="session__tm">${s.tm}</span>
+    ${hover && mode !== 'ctx' ? '<span class="session__x">×</span>' : ''}
+  </button>`
+
+const group = (name, count, mode, opts = {}) => `
+  <div class="wsg">
+    <div class="wsg__head">
+      <span class="wsg__ico">▣</span>
+      <span class="wsg__name">${name}</span>
+      <span class="wsg__n">${count}</span>
+      ${mode === 'always' ? '<span class="wsg__acts"><span class="act">+</span><span class="act act--del">×</span></span>' : ''}
+      ${mode === 'hover' && opts.hovered ? '<span class="wsg__acts"><span class="act">+</span><span class="act act--del">×</span></span>' : ''}
+      ${mode === 'menu' ? '<span class="wsg__acts"><span class="act">⋯</span></span>' : ''}
+    </div>
+    ${SESSIONS.slice(0, opts.n || 3).map((s, i) => row(s, mode, i === 0)).join('')}
+    ${count > (opts.n || 3) ? `<button class="more">展开其余 ${count - (opts.n || 3)} 个会话</button>` : ''}
+    ${opts.menu || ''}
+  </div>`
+
+const SIDEBAR = (mode) => `
+<div class="side">
+  <div class="side__brand">◍ CCoder</div>
+  <button class="side__new">+ 新会话</button>
+  <div class="side__nav">
+    <div class="side__navitem">▤ 插件</div>
+    <div class="side__navitem">◷ 自动化任务</div>
+  </div>
+  <div class="side__head">
+    <span class="side__head-t">工作区</span>
+    <span class="side__head-tools"><span class="tool">⌕</span><span class="tool">⇅</span><span class="tool">⊞</span></span>
+  </div>
+
+  ${group('CCoder-Desktop', 61, mode, { n: 3, hovered: true, menu: mode === 'menu' ? `
+    <div class="menu" style="left:186px; top:30px">
+      <button class="menu__it">+　在这个目录开新会话</button>
+      <button class="menu__it">⇱　在资源管理器中打开</button>
+      <div class="menu__sep"></div>
+      <button class="menu__it is-danger">×　关闭工作区<span class="menu__hint" style="margin-left:auto">不删文件</span></button>
+    </div>` : '' })}
+
+  ${group('server', 86, mode, { n: 2 })}
+
+  <div class="side__foot">
+    <button class="closed"><span>▤</span><span class="closed__n">已关闭的工作区</span><span>2</span></button>
+  </div>
+
+  ${mode === 'ctx' ? `
+  <div class="menu" style="left:120px; top:196px">
+    <button class="menu__it">打开<span class="menu__hint" style="margin-left:auto">⏎</span></button>
+    <button class="menu__it">+　在这里开新会话</button>
+    <div class="menu__sep"></div>
+    <button class="menu__it">⎘　复制会话 ID</button>
+    <button class="menu__it">⇱　打开所在目录</button>
+    <div class="menu__sep"></div>
+    <button class="menu__it is-danger">×　删除这条会话</button>
+  </div>` : ''}
+</div>`
+
+/* ── 主区（四个方案共用，含目录行） ───────────────────── */
+const MAIN = `
+<div class="main">
+  <div class="head">
+    <span class="head__t">把 app.py 里的返回值改成读环境变量</span>
+    <span class="head__b">标准模式</span>
+  </div>
+  <div class="body"><div class="body__in"><div class="tl">
+    <div class="row row--me"><span class="dot me"></span>
+      <span class="me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span></div>
+    <div class="row"><span class="dot"></span>
+      <div class="say">先看一眼 <code class="ic">app.py</code> 现在长什么样，再决定改哪里。</div></div>
+    <div class="row"><span class="dot ok"></span>
+      <div class="say">返回的是写死的字符串。我改成读 <code class="ic">SERVICE_NAME</code>，缺省值不变。</div></div>
+  </div></div></div>
+
+  <div class="composer">
+    <div class="cwdwrap">
+      <div class="cwd">
+        <span class="cwd__ico">▣</span>
+        <span class="cwd__name">CCoder-Desktop</span>
+        <span class="cwd__path">C:\\Users\\CY\\Desktop\\CCoder-Desktop</span>
+        <span class="cwd__copy">复制</span>
+      </div>
+    </div>
+    <div class="cbox">
+      <div class="cin">发消息或创建任务，/ 调用指令，@ 文件或对话</div>
+      <div class="cbar">
+        <span class="chip">deepseek-reasoner</span><span class="sp"></span>
+        <span class="chip">◈ ▬▬▬ 高</span>
+        <span class="chip"><span class="d"></span>标准</span>
+        <span class="send">↑</span>
+      </div>
+    </div>
+  </div>
+</div>`
+
+const SHELL = (mode) => `<div class="app">${SIDEBAR(mode)}${MAIN}</div>`
+
+/* ── 两张小图：删除确认 + 已关闭的工作区 ──────────────── */
+const INSETS = `
+<div class="cap">① 删除会话的二次确认 —— 写全"删哪条、在哪个目录"，因为这是唯一一次后悔机会</div>
+<div class="insets">
+  <div class="card">
+    <div class="card__h"><span class="card__badge">不可恢复</span><span class="card__t">删除这条会话？</span></div>
+    <div class="card__b">
+      <div class="card__line">我想做一个桌面应用，接入 claude code cli…</div>
+      <div class="card__p">C:\\Users\\CY\\Desktop\\CCoder-Desktop · 61a2f0e4</div>
+      <div class="card__w">会删掉 CLI 写的那份记录文件（含全部对话与工具调用）。这一步没法撤销。</div>
+    </div>
+    <div class="card__f">
+      <span class="sp"></span>
+      <button class="btn btn--primary">取消<span class="kbd">Esc</span></button>
+      <button class="btn btn--danger">删除</button>
+    </div>
+  </div>
+
+  <div class="card" style="width:320px">
+    <div class="card__h"><span class="card__t" style="font-size:13px">已关闭的工作区</span></div>
+    <div class="card__b" style="padding:8px">
+      <div class="menu__it" style="cursor:default">▣　M71-server<span class="menu__hint" style="margin-left:auto">86 条</span></div>
+      <div class="menu__it" style="cursor:default">▣　DragonCode<span class="menu__hint" style="margin-left:auto">21 条</span></div>
+      <div class="menu__sep"></div>
+      <div class="menu__it" style="color:#5a5a68; font-size:11.5px; line-height:1.6">
+        关闭只是从列表里收起来，文件一个没动。点任意一条就能放回来。
+      </div>
+    </div>
+  </div>
+</div>`
+
+const VARIANTS = {
+  a: {
+    html: SHELL('always') + INSETS,
+    desc: '<b>A 常驻图标</b> —— 每个工作区标题右边一直挂着 <code>+</code>（在这个目录开新会话）和 <code>×</code>（关闭工作区），'
+      + '每条会话右边 hover 出 <code>×</code>（删除）。'
+      + '最容易被发现 —— 新用户不用猜就能看到"这里能开新会话"。'
+      + '代价是侧栏本来就窄（264px），常驻图标把目录名挤掉一截，长目录名会更早开始省略。' + FACT
+  },
+  b: {
+    html: SHELL('hover') + INSETS,
+    desc: '<b>B 悬停显形</b> —— 平时干净，鼠标移到工作区标题上才浮出 <code>+</code> <code>×</code>，移到会话行才浮出删除。'
+      + '侧栏最安静，目录名能占满宽度。'
+      + '代价是**发现性差** —— 不 hover 就不知道有这些功能，而且删除藏在 hover 里，手一抖就点上了。' + FACT
+  },
+  c: {
+    html: SHELL('ctx') + INSETS,
+    desc: '<b>C 右键菜单</b> —— 标题行只保留一个不显眼的入口，所有操作（打开 / 开新会话 / 复制 ID / 打开目录 / 删除）'
+      + '都进右键菜单，会话和工作区各一套。'
+      + '最省地方，能塞下以后越来越多的操作。代价是**全藏在右键里**：不知道要右键的人永远找不到，'
+      + '而且触控板上右键本来就别扭。' + FACT
+  },
+  d: {
+    html: SHELL('menu') + INSETS,
+    desc: '<b>D 「…」收纳</b> —— 工作区标题右边一个 <code>…</code>，点开是个下拉：开新会话 / 在资源管理器中打开 / 关闭工作区。'
+      + '会话行仍是 hover 出 <code>×</code>。'
+      + '比 A 省地方，比 C 好发现，菜单里还能写清楚"关闭 ≠ 删除"。'
+      + '代价是多一次点击，而且"开新会话"这个高频操作被埋了一层。' + FACT
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

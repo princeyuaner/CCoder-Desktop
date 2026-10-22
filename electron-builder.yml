@@ -1,0 +1,44 @@
+appId: com.ccoder.desktop
+productName: CCoder
+copyright: Copyright © 2026 CCoder
+
+directories:
+  output: release
+  buildResources: build
+
+# 主进程/preload/renderer 都已被 electron-vite 打成独立 bundle，
+# 运行时不需要 node_modules —— 只带 out/ 和 package.json。
+files:
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+
+asar: true
+npmRebuild: false
+
+# 直接用 node_modules 里已装好的 Electron（版本与 devDependencies 一致），
+# 免得每次打包都去 GitHub 拉 100+MB 的 zip。
+# 注意：这个 dist 是 win32-x64 的；将来加 macOS 目标时要按平台换掉。
+electronDist: node_modules/electron/dist
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  artifactName: ${productName}-Setup-${version}-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: CCoder
+  deleteAppDataOnUninstall: false
+
+portable:
+  artifactName: ${productName}-Portable-${version}-${arch}.${ext}

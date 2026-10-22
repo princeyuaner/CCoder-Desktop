@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>CCoder 独立 IDE 窗口 · 方案稿</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #08080b; }
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: #e8e8e8;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: none; }
+svg.ic { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.mono { font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace; }
+
+.scene {
+  position: relative;
+  width: 1680px; height: 1050px;
+  overflow: hidden;
+  background:
+    radial-gradient(1100px 760px at 12% 4%, rgba(56, 101, 180, .42), transparent 62%),
+    radial-gradient(900px 640px at 88% 18%, rgba(122, 74, 168, .34), transparent 64%),
+    radial-gradient(800px 600px at 60% 100%, rgba(30, 80, 120, .22), transparent 70%),
+    linear-gradient(135deg, #0a1020 0%, #0c0c16 44%, #120d18 100%);
+}
+.scene::after {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none;
+  background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
+  opacity: .35;
+}
+.scene.hide { display: none; }
+
+/* ── 桌面图例 ─────────────────────────────────────────── */
+.legend {
+  position: absolute; left: 64px; top: 42px; z-index: 30;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 16px 13px;
+  background: rgba(12, 14, 20, .62);
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 10px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+}
+.legend .lt { display: flex; align-items: center; gap: 9px; font-size: 13px; color: #d8d8de; }
+.legend .lt b { font-weight: 600; color: #fff; }
+.legend .n {
+  flex: none; display: grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  font-size: 10px; font-weight: 700; color: #0b1220;
+  background: #8ab4f8;
+}
+.legend .sub { font-size: 11.5px; color: #8f909b; padding-left: 27px; }
+
+/* ── 窗口外壳 ─────────────────────────────────────────── */
+.win {
+  position: absolute;
+  background: #1c1c1c;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 34px 90px rgba(0,0,0,.62), 0 6px 20px rgba(0,0,0,.35);
+}
+.win.back { left: 70px; top: 160px; width: 1000px; }
+.win.back img { display: block; width: 1000px; }
+.win.front {
+  --w: 1080px;
+  --crop: 30.2px;
+  --vh: 605px;
+  left: 480px; top: 340px; width: var(--w);
+  border-color: rgba(138,180,248,.26);
+  box-shadow: 0 44px 120px rgba(0,0,0,.72), 0 0 0 1px rgba(138,180,248,.12);
+  z-index: 20;
+}
+.win.front.max {
+  --w: 1520px;
+  --crop: 42.5px;
+  --vh: 852px;
+  left: 80px; top: 60px;
+}
+.winbar {
+  display: flex; align-items: center;
+  height: 38px; padding: 0 0 0 14px;
+  background: #161616;
+  border-bottom: 1px solid #232323;
+}
+.winbar .brand { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.winbar .logo {
+  width: 16px; height: 16px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 9px; font-weight: 800; color: #191919; background: #e8e8e8;
+}
+.winbar .div { width: 1px; height: 15px; margin: 0 10px; background: #2c2c2c; }
+.winbar .wsp { font-size: 11.5px; color: #a8a8ae; white-space: nowrap; }
+.winbar .detach {
+  margin-left: 9px; display: inline-flex; align-items: center; gap: 4px;
+  height: 19px; padding: 0 6px;
+  font-size: 9.5px; color: #8ab4f8;
+  background: rgba(138,180,248,.08);
+  border: 1px solid rgba(138,180,248,.25);
+  border-radius: 4px;
+}
+.winbar .detach svg { width: 10px; height: 10px; }
+.winbar .wctl { margin-left: auto; display: flex; align-self: stretch; }
+.winbar .wc { display: grid; place-items: center; width: 44px; height: 100%; color: #8a8a8f; font-size: 13px; }
+.winbar .wc.x { color: #b0b0b5; }
+.viewport { height: var(--vh); overflow: hidden; background: #1c1c1c; }
+.viewport img { display: block; width: var(--w); margin-top: calc(-1 * var(--crop)); }
+
+/* ── 主窗口标注 ───────────────────────────────────────── */
+.winlabel {
+  position: absolute; z-index: 25;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px;
+  font-size: 11px; color: #c8c8d0;
+  background: rgba(18,20,26,.78);
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 6px;
+  backdrop-filter: blur(8px);
+}
+.winlabel.back { left: 90px; top: 112px; }
+.winlabel.front { left: 470px; top: 162px; color: #dbe7fb; border-color: rgba(138,180,248,.24); }
+.winlabel .dot { width: 5px; height: 5px; border-radius: 50%; background: #8ab4f8; }
+
+.ring {
+  position: absolute; z-index: 26;
+  left: 81px; top: 289px; width: 28px; height: 28px;
+  border: 2px solid #8ab4f8; border-radius: 8px;
+  box-shadow: 0 0 0 5px rgba(138,180,248,.13), 0 0 22px rgba(138,180,248,.5);
+}
+.ring .num {
+  position: absolute; right: -9px; top: -9px;
+  width: 17px; height: 17px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 9px; font-weight: 700; color: #0b1220; background: #8ab4f8;
+}
+
+/* ── 任务栏 ───────────────────────────────────────────── */
+.taskbar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 40;
+  height: 44px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(19, 20, 25, .84);
+  border-top: 1px solid rgba(255,255,255,.07);
+  backdrop-filter: blur(22px);
+}
+.tbgroup { display: flex; align-items: center; gap: 8px; }
+.tbicon {
+  position: relative;
+  display: grid; place-items: center;
+  width: 34px; height: 34px;
+  border-radius: 7px;
+  background: #1d1e24;
+  color: #d8d8de;
+  font-size: 13px;
+}
+.tbicon.plain { background: transparent; }
+.tbicon.sys { background: transparent; color: #a8a8b0; }
+.tbicon .logo-c {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; color: #191919; background: #e8e8e8;
+}
+.tbicon .code { font-family: var(--mono); font-size: 12px; color: #8ab4f8; }
+.tbicon.on::after {
+  content: ''; position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%);
+  width: 16px; height: 2px; border-radius: 1px; background: #8ab4f8;
+}
+.tbicon .run {
+  position: absolute; right: 5px; top: 5px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #d97757; box-shadow: 0 0 0 2px #1d1e24;
+}
+.tbsep { width: 1px; height: 20px; margin: 0 3px; background: rgba(255,255,255,.1); }
+.tbwinlogo { width: 15px; height: 15px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; }
+.tbwinlogo i { background: #cfd3da; border-radius: 1px; }
+.tbtray { position: absolute; right: 14px; display: flex; align-items: center; gap: 10px; color: #b0b0b8; }
+.tbtray svg { width: 13px; height: 13px; }
+.tbtime { text-align: right; font-size: 10.5px; line-height: 1.35; color: #d0d0d6; }
+.tb-tip {
+  position: absolute; z-index: 45; bottom: 52px;
+  padding: 5px 9px;
+  font-size: 10.5px; color: #d8d8de; white-space: nowrap;
+  background: rgba(24,26,32,.92);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 6px;
+  box-shadow: 0 10px 26px rgba(0,0,0,.45);
+}
+
+/* ── 场景 2：后台运行提示 ─────────────────────────────── */
+.bgcard {
+  position: absolute; right: 44px; bottom: 62px; z-index: 35;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 13px;
+  background: rgba(20, 22, 28, .82);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
+  backdrop-filter: blur(14px);
+}
+.bgcard .bc-logo { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #191919; background: #e8e8e8; }
+.bgcard .bc-t { font-size: 11.5px; color: #e0e0e4; }
+.bgcard .bc-s { margin-top: 2px; font-size: 10px; color: #8f909b; }
+.bgcard .bc-run { margin-left: 4px; width: 6px; height: 6px; border-radius: 50%; background: #d97757; box-shadow: 0 0 8px rgba(217,119,87,.6); }
+
+body.gallery { padding: 48px 24px 24px; display: flex; flex-direction: column; gap: 44px; align-items: center; }
+body.gallery .scene::before {
+  content: attr(data-label);
+  position: absolute; left: 0; top: -30px;
+  font-size: 13px; font-weight: 600; color: #c8c8d4;
+  z-index: 60;
+}
+</style>
+</head>
+<body class="gallery">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-detach" viewBox="0 0 16 16"><path d="M6.2 3H3.4v9.6h9.6V9.8"/><path d="M9.2 3h3.8v3.8"/><path d="M13 3L7.8 8.2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/></symbol>
+  <symbol id="i-task" viewBox="0 0 16 16"><rect x="2.2" y="3" width="5" height="10" rx="1"/><rect x="8.8" y="3" width="5" height="4.4" rx="1"/><rect x="8.8" y="8.6" width="5" height="4.4" rx="1"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 16 16"><path d="M2.4 6.2a8 8 0 0 1 11.2 0M4.6 8.5a5 5 0 0 1 6.8 0M6.8 10.8a2 2 0 0 1 2.4 0"/><circle cx="8" cy="13" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 16 16"><path d="M3 6.2h2.2L8 3.6v8.8L5.2 9.8H3z"/><path d="M10.4 6a3 3 0 0 1 0 4M12.2 4.4a5.4 5.4 0 0 1 0 7.2"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 16 16"><rect x="1.6" y="5" width="11.2" height="6" rx="1.4"/><path d="M14.4 7v2"/><rect x="3" y="6.4" width="7.6" height="3.2" rx=".6" fill="currentColor" stroke="none"/></symbol>
+</svg>
+
+<!-- ═══════════════ D · 独立 IDE 窗口 + 聊天窗口并存 ═══════════════ -->
+<div class="scene" id="s1" data-label="D · 独立 IDE 窗口 · 与聊天窗口并存">
+  <div class="legend">
+    <div class="lt"><span class="n">1</span>点击工作区左边的文件夹图标</div>
+    <div class="lt"><span class="n">2</span><b>打开一个独立 IDE 窗口</b></div>
+    <div class="sub">聊天继续在后台跑，两个窗口互不干扰</div>
+  </div>
+
+  <div class="win back"><img src="ide-shot-runpanel-many.png" alt="CCoder 聊天窗口" /></div>
+  <div class="ring"><span class="num">1</span></div>
+
+  <div class="win front">
+    <div class="winbar">
+      <div class="brand"><span class="logo">C</span>CCoder IDE</div>
+      <span class="div"></span>
+      <span class="wsp">CCoder-Desktop</span>
+      <span class="detach"><svg class="ic"><use href="#i-detach"/></svg>独立窗口</span>
+      <div class="wctl"><span class="wc">—</span><span class="wc">□</span><span class="wc x">×</span></div>
+    </div>
+    <div class="viewport"><img src="ide-v1.png" alt="CCoder IDE" /></div>
+  </div>
+
+  <div class="taskbar">
+    <div class="tbgroup">
+      <span class="tbicon plain"><span class="tbwinlogo"><i></i><i></i><i></i><i></i></span></span>
+      <span class="tbicon plain"><svg class="ic" style="width:16px;height:16px"><use href="#i-search"/></svg></span>
+      <span class="tbicon plain"><svg class="ic" style="width:16px;height:16px"><use href="#i-task"/></svg></span>
+      <span class="tbsep"></span>
+      <span class="tbicon"><span class="logo-c">C</span><span class="run"></span></span>
+      <span class="tbicon on"><span class="code">&lt;/&gt;</span></span>
+    </div>
+    <div class="tbtray">
+      <svg class="ic"><use href="#i-wifi"/></svg>
+      <svg class="ic"><use href="#i-volume"/></svg>
+      <svg class="ic"><use href="#i-battery"/></svg>
+      <div class="tbtime">09:41<br />2026/10/22</div>
+    </div>
+  </div>
+</div>
+<!-- ═══════════════ E · IDE 独立最大化 · 聊天在后台 ═══════════════ -->
+<div class="scene" id="s2" data-label="E · IDE 独立最大化 · 聊天仍在后台运行">
+  <div class="legend" style="left:80px; top:14px; padding:8px 13px">
+    <div class="lt" style="font-size:12px"><span class="n" style="background:#7fbf7f">●</span><b>IDE 窗口独立最大化</b>&nbsp;·&nbsp;主聊天继续在后台运行</div>
+  </div>
+
+  <div class="win front max">
+    <div class="winbar">
+      <div class="brand"><span class="logo">C</span>CCoder IDE</div>
+      <span class="div"></span>
+      <span class="wsp">CCoder-Desktop</span>
+      <span class="detach"><svg class="ic"><use href="#i-detach"/></svg>独立窗口</span>
+      <span class="detach" style="color:#9a9aa2;background:#222;border-color:#333">已最大化</span>
+      <div class="wctl"><span class="wc">—</span><span class="wc">❐</span><span class="wc x">×</span></div>
+    </div>
+    <div class="viewport"><img src="ide-v1.png" alt="CCoder IDE 最大化" /></div>
+  </div>
+
+  <div class="bgcard">
+    <span class="bc-logo">C</span>
+    <div>
+      <div class="bc-t">CCoder · 聊天窗口在后台运行</div>
+      <div class="bc-s">3 轮 9 步 · 正在修改 chat.css</div>
+    </div>
+    <span class="bc-run"></span>
+  </div>
+
+  <div class="taskbar">
+    <div class="tbgroup">
+      <span class="tbicon plain"><span class="tbwinlogo"><i></i><i></i><i></i><i></i></span></span>
+      <span class="tbicon plain"><svg class="ic" style="width:16px;height:16px"><use href="#i-search"/></svg></span>
+      <span class="tbicon plain"><svg class="ic" style="width:16px;height:16px"><use href="#i-task"/></svg></span>
+      <span class="tbsep"></span>
+      <span class="tbicon"><span class="logo-c">C</span><span class="run"></span></span>
+      <span class="tbicon on"><span class="code">&lt;/&gt;</span></span>
+    </div>
+    <div class="tb-tip" style="left:calc(50% + 54px); transform:translateX(-50%)">CCoder · 3 轮 9 步 · 正在运行</div>
+    <div class="tbtray">
+      <svg class="ic"><use href="#i-wifi"/></svg>
+      <svg class="ic"><use href="#i-volume"/></svg>
+      <svg class="ic"><use href="#i-battery"/></svg>
+      <div class="tbtime">09:41<br />2026/10/22</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const params = new URLSearchParams(location.search)
+  const v = params.get('v')
+  if (v) {
+    document.body.classList.remove('gallery')
+    document.querySelectorAll('.scene').forEach((s) => {
+      s.classList.toggle('hide', s.id !== 's' + v)
+    })
+  }
+</script>
+</body>
+</html>

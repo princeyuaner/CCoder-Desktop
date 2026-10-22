@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>输入框上方 · 本轮修改文件按钮</title>
+<link rel="stylesheet" href="../../src/renderer/src/styles/tokens.css" />
+<link rel="stylesheet" href="../../src/renderer/src/styles/global.css" />
+<link rel="stylesheet" href="../../src/renderer/src/styles/shell.css" />
+<link rel="stylesheet" href="../../src/renderer/src/styles/chat.css" />
+<style>
+  html, body { height: auto; overflow: visible; }
+  body {
+    background: #0d0d0f;
+    color: #e8e8e8;
+    padding: 0 0 44px;
+    font-family: var(--font-ui);
+  }
+  button { cursor: default; }
+
+  .doc { padding: 28px 32px 6px; max-width: 1000px; }
+  .doc h1 { margin: 0 0 8px; font-size: 17px; font-weight: 650; letter-spacing: .2px; }
+  .doc p { margin: 0; font-size: 12.5px; line-height: 1.85; color: #8a8a9c; }
+  .doc b { color: #c2c2d0; font-weight: 500; }
+  .doc code {
+    padding: 1px 5px; font-family: var(--font-mono); font-size: 11px;
+    color: #c9b8f0; background: rgba(196, 167, 247, .08); border-radius: 4px;
+  }
+  .doc__facts {
+    display: inline-flex; gap: 10px; margin-top: 10px;
+    font-family: var(--font-mono); font-size: 10.5px; color: #62626f;
+  }
+
+  .opt { padding: 22px 32px 0; }
+  .opt__head { max-width: 940px; margin-bottom: 11px; }
+  .opt__line { display: flex; align-items: baseline; gap: 10px; }
+  .opt__tag {
+    display: inline-grid; place-items: center; width: 20px; height: 20px;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: #0d0d0f; background: #cfcfda; border-radius: 6px;
+    transform: translateY(2px);
+  }
+  .opt__head h2 { margin: 0; font-size: 14px; font-weight: 600; color: #dcdce6; }
+  .opt__head p { margin: 5px 0 0 30px; font-size: 12px; line-height: 1.7; color: #747484; }
+  .opt__head p b { color: #a8a8ba; font-weight: 500; }
+
+  /* 取景框 */
+  .mockchat {
+    width: 940px;
+    height: 620px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-app);
+    border: 1px solid #26262e;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .mockchat .transcript { scrollbar-width: none; }
+  .mockchat .transcript::-webkit-scrollbar { display: none; }
+
+  /* ── 工作目录这一行：胶囊 + 新按钮 ─────────────────── */
+  .composer__cwdrow { display: flex; align-items: center; gap: 7px; }
+  .fbtnwrap { position: relative; display: inline-flex; flex: none; }
+
+  .fbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 25px;
+    padding: 0 9px;
+    font-size: 11.5px;
+    line-height: 1;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    transition: border-color .12s, background .12s;
+  }
+  .fbtn__ico { font-size: 10px; line-height: 1; }
+  .fbtn__label { color: var(--text-dim); }
+  .fbtn__label b {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .fbtn__diff {
+    display: inline-flex;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fbtn__diff em { font-style: normal; }
+  .add { color: #7fbf7f; }
+  .del { color: #d98a8a; }
+  .chev {
+    width: 5px;
+    height: 5px;
+    margin-top: 3px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(225deg);
+    opacity: .55;
+  }
+
+  /* A · 琥珀胶囊 */
+  .fbtn--amber {
+    color: #d9c3a0;
+    background: rgba(224, 175, 104, .07);
+    border-color: rgba(224, 175, 104, .26);
+  }
+  .fbtn--amber:hover {
+    background: rgba(224, 175, 104, .11);
+    border-color: rgba(224, 175, 104, .42);
+  }
+  .fbtn--amber .fbtn__ico { color: #e0af68; }
+
+  /* B · 图标 + 角标 */
+  .fbtn--icon {
+    position: relative;
+    justify-content: center;
+    width: 31px;
+    padding: 0;
+    background: var(--bg-raised);
+    border-color: var(--border);
+  }
+  .fbtn--icon .fbtn__ico { font-size: 11px; color: #e0af68; }
+  .fbtn__badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    display: grid;
+    place-items: center;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    font-weight: 600;
+    color: #191919;
+    background: #e0af68;
+    border: 1.5px solid var(--bg-app);
+    border-radius: var(--radius-pill);
+  }
+
+  /* C · 文字胶囊 */
+  .fbtn--text {
+    background: var(--bg-raised);
+    border-color: var(--border);
+  }
+  .fbtn--text .fbtn__ico { color: #e0af68; }
+  .fbtn--text .fbtn__label { color: var(--text-muted); }
+  .fbtn--text:hover { border-color: #3d3d3d; }
+
+  /* D · 分体胶囊 */
+  .fbtn--split {
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--bg-raised);
+    border-color: var(--border);
+  }
+  .fbtn__seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 100%;
+    padding: 0 9px;
+  }
+  .fbtn__seg--diff {
+    border-left: 1px solid var(--border);
+    background: rgba(255, 255, 255, .02);
+    color: var(--text-faint);
+  }
+  .fbtn--split .fbtn__ico { color: #e0af68; }
+  .fbtn--split .chev { margin-left: 1px; }
+
+  /* ── 点击后：向上的浮层 ─────────────────────────────── */
+  .fpop {
+    position: absolute;
+    z-index: 60;
+    bottom: calc(100% + 8px);
+    left: 0;
+    width: 386px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 10px;
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+    overflow: hidden;
+  }
+  .fpop__head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 12px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
+  }
+  .fpop__glyph { color: #e0af68; font-size: 10px; }
+  .fpop__title { font-size: 12px; color: var(--text-dim); }
+  .fpop__title b {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .fpop__sum {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fpop__list { max-height: 260px; overflow-y: auto; }
+  .frow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    font-size: 11.5px;
+  }
+  .frow + .frow { border-top: 1px solid rgba(255, 255, 255, .035); }
+  .frow__ico {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, .055);
+    font-size: 9px;
+    line-height: 1;
+  }
+  .frow__ico.is-edit { color: #e0af68; }
+  .frow__ico.is-write { color: #c4a7f7; }
+  .frow__name {
+    flex: none;
+    max-width: 158px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #d2d2dc;
+  }
+  .frow__dir {
+    flex: none;
+    max-width: 116px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10.5px;
+    color: #4f4f5c;
+  }
+  .frow__new {
+    flex: none;
+    padding: 0 5px;
+    font-size: 8.5px;
+    line-height: 1.45;
+    color: #a48ad4;
+    background: rgba(196, 167, 247, .08);
+    border: 1px solid rgba(196, 167, 247, .16);
+    border-radius: var(--radius-pill);
+  }
+  .frow__diff {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .frow__diff b { font-weight: 500; }
+  .fpop__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px 7px;
+    border-top: 1px solid rgba(255, 255, 255, .06);
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+  .fpop__foot span:last-child {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── 四联总览 ─────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 470px);
+    gap: 18px 20px;
+    padding: 4px 32px 40px;
+  }
+  .cell__h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 0 7px;
+    font-size: 12.5px;
+    color: #c2c2d0;
+  }
+  .cell__h .opt__tag { width: 18px; height: 18px; font-size: 10px; transform: none; }
+  .cell__frame { width: 470px; height: 310px; overflow: hidden; }
+  .cell__scale { width: 940px; transform: scale(.5); transform-origin: top left; }
+  .cell__scale .mockchat { width: 940px; height: 620px; }
+</style>
+</head>
+<body>
+
+<div class="doc" id="doc">
+  <h1>输入框上方 · 本轮修改文件按钮</h1>
+  <p>
+    按钮放在<b>工作目录胶囊右侧</b>，同一行。只有<b>本轮有文件被修改</b>时才出现，没有改动就整行只有目录胶囊。
+    点击后从按钮上方弹出文件清单（输入区在底部，只能往上开）；再点按钮、点外部或按 <code>Esc</code> 收起。
+    清单里是<b>本轮所有改过的文件</b>，按路径去重、累加行数，新建文件单独标「新」。
+  </p>
+  <div class="doc__facts">
+    <span>示例：5 个文件 · +126 −17 · 3 个修改 / 2 个新建</span>
+  </div>
+</div>
+
+<main id="stage"></main>
+
+<script>
+const ROWS = `
+  <div class="tl__row tl__row--me">
+    <span class="tl__dot tl__dot--me"></span>
+    <div class="tl__meblock">
+      <span class="tl__me selectable">把会话校验收进一个中间件，token 过期时自动刷新；顺手把失败分支的测试补上。</span>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot"></span>
+    <div class="tl__thinkwrap">
+      <button class="tl__think">
+        <span style="color:#5a5a68;font-size:10px">›</span>
+        <b>思考</b>
+        <span class="tl__peek"> · 先看 middleware/auth.ts 和 session/store.ts，确认刷新逻辑现在挂在哪。</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot tl__dot--ok"></span>
+    <div class="tool is-ok tool--full">
+      <button class="tool__row">
+        <span class="tool__ico tool__ico--edit">✎</span>
+        <span class="tool__subject">store.ts</span>
+        <span class="tool__stat"><span class="is-add">+38</span><span class="is-del">−12</span></span>
+        <span class="tool__dir">src/auth</span>
+        <span class="tool__name">EDIT</span>
+        <span class="tool__time">1.2s</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot tl__dot--ok"></span>
+    <div class="tool is-ok tool--full">
+      <button class="tool__row">
+        <span class="tool__ico tool__ico--write">＋</span>
+        <span class="tool__subject">store.test.ts</span>
+        <span class="tool__stat"><span class="is-add">+41</span></span>
+        <span class="tool__dir">src/auth</span>
+        <span class="tool__name">WRITE</span>
+        <span class="tool__time">0.8s</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="tl__row">
+    <span class="tl__dot"></span>
+    <div class="tl__say">已经校验收进 <span class="md"><span class="ic">requireSession</span></span> 中间件，并在 401 分支里接了 single-flight 刷新。测试补了过期、并发、失效 token 三条路径。</div>
+  </div>
+`
+
+const POP = `
+  <div class="fpop">
+    <div class="fpop__head">
+      <span class="fpop__glyph">✎</span>
+      <span class="fpop__title">本轮修改 <b>5</b> 个文件</span>
+      <span class="fpop__sum"><b class="add">+126</b><b class="del">−17</b></span>
+    </div>
+    <div class="fpop__list">
+      <div class="frow">
+        <span class="frow__ico is-edit">✎</span>
+        <span class="frow__name">store.ts</span>
+        <span class="frow__dir">src/auth</span>
+        <span class="frow__diff"><b class="add">+38</b><b class="del">−12</b></span>
+      </div>
+      <div class="frow">
+        <span class="frow__ico is-write">＋</span>
+        <span class="frow__name">middleware.ts</span>
+        <span class="frow__dir">src/auth</span>
+        <span class="frow__new">新</span>
+        <span class="frow__diff"><b class="add">+22</b></span>
+      </div>
+      <div class="frow">
+        <span class="frow__ico is-edit">✎</span>
+        <span class="frow__name">types.ts</span>
+        <span class="frow__dir">src/shared</span>
+        <span class="frow__diff"><b class="add">+7</b><b class="del">−3</b></span>
+      </div>
+      <div class="frow">
+        <span class="frow__ico is-write">＋</span>
+        <span class="frow__name">store.test.ts</span>
+        <span class="frow__dir">src/auth</span>
+        <span class="frow__new">新</span>
+        <span class="frow__diff"><b class="add">+41</b></span>
+      </div>
+      <div class="frow">
+        <span class="frow__ico is-edit">✎</span>
+        <span class="frow__name">auth.test.ts</span>
+        <span class="frow__dir">src/auth</span>
+        <span class="frow__diff"><b class="add">+18</b><b class="del">−2</b></span>
+      </div>
+    </div>
+    <div class="fpop__foot">
+      <span>3 个修改 · 2 个新建</span>
+      <span>+126 −17</span>
+    </div>
+  </div>`
+
+const BTNS = {
+  a: `
+    <button class="fbtn fbtn--amber">
+      <span class="fbtn__ico">✎</span>
+      <span class="fbtn__label"><b>5</b> 个文件</span>
+      <span class="fbtn__diff"><em class="add">+126</em><em class="del">−17</em></span>
+      <span class="chev"></span>
+    </button>`,
+
+  b: `
+    <button class="fbtn fbtn--icon" title="本轮修改 5 个文件 · +126 −17">
+      <span class="fbtn__ico">✎</span>
+      <span class="fbtn__badge">5</span>
+    </button>`,
+
+  c: `
+    <button class="fbtn fbtn--text">
+      <span class="fbtn__ico">✎</span>
+      <span class="fbtn__label">本轮修改 <b>5</b> 个文件</span>
+      <span class="chev"></span>
+    </button>`,
+
+  d: `
+    <button class="fbtn fbtn--split">
+      <span class="fbtn__seg fbtn__seg--main">
+        <span class="fbtn__ico">✎</span>
+        <span class="fbtn__label"><b>5</b> 个文件</span>
+      </span>
+      <span class="fbtn__seg fbtn__seg--diff">
+        <span class="fbtn__diff"><em class="add">+126</em><em class="del">−17</em></span>
+        <span class="chev"></span>
+      </span>
+    </button>`
+}
+
+const ICON_PLUS = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>`
+const ICON_CHEV = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5l4-4"/></svg>`
+const ICON_SEND = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5V3.5M8 3.5 4 7.5M8 3.5l4 4"/></svg>`
+
+const COMPOSER = `
+  <div class="composer">
+    <div class="composer__cwdrow">
+      <div class="composer__cwd" title="C:/proj/ccoder">
+        <span class="composer__cwd-name">ccoder</span>
+      </div>
+      <span class="fbtnwrap">__BTN__${POP}</span>
+    </div>
+
+    <div class="composer__box">
+      <textarea class="composer__input" rows="1" placeholder="发消息或创建任务，/ 调用指令，@ 文件或对话"></textarea>
+      <div class="composer__bar">
+        <button class="iconbtn" title="添加附件">${ICON_PLUS}</button>
+
+        <button class="chip chip--model">
+          <span>deepseek-chat</span>${ICON_CHEV}
+        </button>
+
+        <div class="composer__spacer"></div>
+
+        <button class="chip chip--eff">
+          <span class="chip__sym">◈</span>
+          <span class="chip__bars"><i class="is-on"></i><i class="is-on"></i><i class="is-on"></i><i></i><i></i></span>
+          <span>中</span>${ICON_CHEV}
+        </button>
+
+        <button class="chip chip--mode">
+          <span class="chip__dot"></span>
+          <span>标准模式</span>${ICON_CHEV}
+        </button>
+
+        <button class="send is-ready" title="发送">${ICON_SEND}</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <div class="statusbar__left"><span>3 轮 12 步</span><span class="statusbar__sep">·</span><span>38 tok/s</span></div>
+    <div class="statusbar__right"><span>12.4k tok</span><span class="statusbar__sep">|</span><span>缓存命中 72%</span><span class="statusbar__sep">|</span><span>41%</span></div>
+  </div>`
+
+const OPTS = [
+  ['a', '琥珀胶囊', '计数、增删合计和展开箭头都在一颗胶囊里。最醒目，一眼就知道这一轮改了多少；宽度也最大。'],
+  ['b', '图标 + 角标', '只占一个图标位，右上角用数字角标提示数量。最省地方；行数合计要点开才看得到。'],
+  ['c', '文字胶囊', '写清楚「本轮修改 N 个文件」，不在按钮上放行数。最直白，宽度中等；细节全在弹层里。'],
+  ['d', '分体胶囊', '左边计数、右边增删合计，中间一条分隔线。信息最全，但控件感最强，也更占宽度。']
+]
+
+function shell(btn) {
+  return `
+  <div class="mockchat">
+    <header class="chathead">
+      <div class="chathead__left">
+        <h1 class="chathead__title">把会话校验收进中间件</h1>
+        <span class="badge">标准模式</span>
+      </div>
+    </header>
+    <div class="tabbar">
+      <button class="tab is-active">对话</button>
+      <button class="tab">轨迹</button>
+    </div>
+    <div class="transcript-wrap">
+      <div class="transcript">
+        <div class="transcript__inner">
+          <div class="tl">${ROWS}</div>
+        </div>
+      </div>
+    </div>
+    ${COMPOSER.replace('__BTN__', btn)}
+  </div>`
+}
+
+const v = new URLSearchParams(location.search).get('v')
+const stage = document.getElementById('stage')
+
+if (v === 'grid') {
+  const grid = document.createElement('div')
+  grid.className = 'grid'
+  OPTS.forEach(([k, name]) => {
+    const cell = document.createElement('div')
+    cell.className = 'cell'
+    cell.innerHTML = `
+      <div class="cell__h"><span class="opt__tag">${k.toUpperCase()}</span>${name}</div>
+      <div class="cell__frame"><div class="cell__scale">${shell(BTNS[k])}</div></div>`
+    grid.appendChild(cell)
+  })
+  stage.appendChild(grid)
+} else {
+  OPTS.forEach(([k, name, desc]) => {
+    if (v && v !== k) return
+    const sec = document.createElement('section')
+    sec.className = 'opt'
+    sec.innerHTML = `
+      <div class="opt__head">
+        <div class="opt__line">
+          <span class="opt__tag">${k.toUpperCase()}</span>
+          <h2>${name}</h2>
+        </div>
+        <p>${desc}</p>
+      </div>
+      ${shell(BTNS[k])}`
+    stage.appendChild(sec)
+  })
+  if (v) document.getElementById('doc').style.display = 'none'
+}
+</script>
+</body>
+</html>

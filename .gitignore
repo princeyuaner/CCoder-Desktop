@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+release/
+.idea/
+.DS_Store
+*.log
+*.tsbuildinfo
+shot.png
+shot-*.png
+_edge.png
+tools/_*.cjs

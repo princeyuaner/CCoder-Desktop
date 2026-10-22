@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>输入框底部 · 上下文用量</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+::-webkit-scrollbar { display: none; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 26px 28px 38px;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+.mono { font-family: 'Cascadia Mono', Consolas, 'JetBrains Mono', monospace; }
+
+.page { width: 944px; margin: 0 auto; }
+.page__head { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 20px; }
+.page__title { font-size: 17px; font-weight: 650; letter-spacing: .2px; }
+.page__sub { font-size: 12px; color: #6f6f7c; line-height: 1.7; padding-bottom: 1px; }
+.page__sub b { color: #a8a8b8; font-weight: 500; }
+
+.cap { display: flex; align-items: baseline; gap: 10px; margin: 24px 0 10px; font-size: 12px; color: #6b6b78; }
+.cap:first-of-type { margin-top: 0; }
+.cap b { color: #c8c8d4; font-size: 13px; font-weight: 600; }
+.cap .k {
+  padding: 1px 7px; font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px; color: #d8d8e2; background: #23232a; border: 1px solid #34343d; border-radius: 5px;
+}
+.cap .why { color: #55555f; }
+
+.frame { width: 944px; }
+
+/* ── 输入区本体（照 tokens.css 的实际值）─────────────── */
+.composer { padding: 14px 30px 8px; background: #191919; border: 1px solid #26262e; border-radius: 12px; }
+.box {
+  max-width: 820px; margin: 0 auto; padding: 12px 12px 10px;
+  background: #232323; border: 1px solid #2c2c2c; border-radius: 14px;
+}
+.typed {
+  min-height: 44px; padding: 2px 4px 10px;
+  font-size: 14px; line-height: 1.6; color: #e8e8e8;
+}
+.caret { display: inline-block; width: 1px; height: 15px; margin-left: 1px; vertical-align: -2px; background: #e8e8e8; }
+.bar { display: flex; align-items: center; gap: 8px; }
+.spacer { flex: 1; }
+.plus { display: grid; place-items: center; width: 28px; height: 28px; color: #6b6b6b; font-size: 19px; font-weight: 300; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  font-size: 12.5px; color: #a8a8a8; background: #232323;
+  border: 1px solid #2c2c2c; border-radius: 999px;
+}
+.chip--eff { color: #c4b5fd; border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.07); }
+.chip--eff .sym { font-size: 11px; color: #a78bfa; }
+.bars { display: inline-flex; align-items: center; gap: 2px; }
+.bars i { width: 9px; height: 3px; border-radius: 1px; background: #4a4a55; }
+.bars i.on { background: #a78bfa; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #4b9e5f; }
+.send {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  color: #191919; background: #e8e8e8; border-radius: 50%; font-size: 17px; font-weight: 600;
+}
+
+/* ── A：框内状态行 ─────────────────────────────────── */
+.ctxrow {
+  display: flex; align-items: center; gap: 9px;
+  margin: 1px 2px -2px; padding: 9px 2px 0;
+  border-top: 1px solid #2b2b2b;
+}
+.ctxrow__label { font-size: 11.5px; color: #6b6b6b; white-space: nowrap; }
+.track { flex: 1; height: 3px; overflow: hidden; background: #30303a; border-radius: 2px; }
+.track > i { display: block; height: 100%; border-radius: 2px; background: #4b9e5f; }
+.ctxrow__pct { font-size: 11.5px; color: #a8a8a8; font-variant-numeric: tabular-nums; }
+.ctxrow__nums { font-size: 11px; color: #6b6b6b; }
+
+/* ── B：底栏环形胶囊 ───────────────────────────────── */
+.ctxchip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px;
+  font-size: 12px; color: #a8a8a8; background: #232323;
+  border: 1px solid #2c2c2c; border-radius: 999px; font-variant-numeric: tabular-nums;
+}
+.ctxchip svg { display: block; }
+.ctxchip b { font-weight: 500; color: #c8c8d4; }
+
+/* ── C：极简百分比 ─────────────────────────────────── */
+.ctxtext {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 2px; font-size: 11.5px; color: #6b6b6b; font-variant-numeric: tabular-nums;
+}
+.ctxtext i { width: 6px; height: 6px; border-radius: 50%; background: #4b9e5f; }
+.ctxtext b { font-weight: 500; color: #8a8a8a; }
+
+/* ── D：框外细行 ───────────────────────────────────── */
+.ctxbelow {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  max-width: 820px; margin: 7px auto 0; padding: 0 3px;
+  font-size: 11px; color: #5f5f6b; font-variant-numeric: tabular-nums;
+}
+.segs { display: inline-flex; gap: 2px; }
+.segs i { width: 8px; height: 4px; border-radius: 1px; background: #2e2e36; }
+.segs i.on { background: #4b9e5f; }
+.ctxbelow b { font-weight: 500; color: #8a8a8a; }
+
+/* ── 底部说明 ─────────────────────────────────────── */
+.legend { display: flex; align-items: center; gap: 18px; margin-top: 26px; padding: 14px 18px;
+  background: #161619; border: 1px solid #26262e; border-radius: 10px; font-size: 11.5px; color: #6b6b78; }
+.legend .lg { display: inline-flex; align-items: center; gap: 7px; }
+.legend .lg i { width: 7px; height: 7px; border-radius: 50%; }
+.legend .note { margin-left: auto; color: #55555f; }
+</style>
+</head>
+<body>
+<script>
+  const v = new URLSearchParams(location.search).get('v') || 'all'
+  document.documentElement.dataset.v = v
+</script>
+
+<div class="page">
+  <div class="page__head">
+    <div class="page__title">输入框底部 · 上下文用量</div>
+    <div class="page__sub">同一组数据：<b>已用 128k / 上限 1M · 13%</b> ｜ 选一个方向，我再接真实的 usage 数据</div>
+  </div>
+
+  <!-- A -->
+  <div class="frame" data-v="a">
+    <div class="cap"><span class="k">A</span><b>框内状态行</b><span class="why">细进度条 + 百分比 + 已用/总量，独立一行，信息最全</span></div>
+    <div class="composer">
+      <div class="box">
+        <div class="typed">把上下文用量放到输入框底部，先出几个样式看看<span class="caret"></span></div>
+        <div class="bar">
+          <span class="plus">+</span>
+          <span class="chip">deepseek-v4.1-flash[1m]</span>
+          <span class="spacer"></span>
+          <span class="chip chip--eff"><span class="sym">◈</span><span class="bars"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span>中</span></span>
+          <span class="chip"><span class="dot"></span><span>标准模式</span></span>
+          <span class="send">↑</span>
+        </div>
+        <div class="ctxrow">
+          <span class="ctxrow__label">上下文</span>
+          <span class="track"><i style="width:13%"></i></span>
+          <span class="ctxrow__pct">13%</span>
+          <span class="ctxrow__nums mono">128k / 1M</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="frame" data-v="b">
+    <div class="cap"><span class="k">B</span><b>底栏胶囊</b><span class="why">环形计量 + 百分比，跟模型 / 思考 / 模式 chip 同一行，不增高</span></div>
+    <div class="composer">
+      <div class="box">
+        <div class="typed">把上下文用量放到输入框底部，先出几个样式看看<span class="caret"></span></div>
+        <div class="bar">
+          <span class="plus">+</span>
+          <span class="chip">deepseek-v4.1-flash[1m]</span>
+          <span class="spacer"></span>
+          <span class="ctxchip">
+            <svg width="14" height="14" viewBox="0 0 20 20">
+              <circle cx="10" cy="10" r="7.5" fill="none" stroke="#3a3a44" stroke-width="2.4"></circle>
+              <circle cx="10" cy="10" r="7.5" fill="none" stroke="#4b9e5f" stroke-width="2.4"
+                      stroke-linecap="round" stroke-dasharray="6.1 41" transform="rotate(-90 10 10)"></circle>
+            </svg>
+            <b>13%</b>
+          </span>
+          <span class="chip chip--eff"><span class="sym">◈</span><span class="bars"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span>中</span></span>
+          <span class="chip"><span class="dot"></span><span>标准模式</span></span>
+          <span class="send">↑</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="frame" data-v="c">
+    <div class="cap"><span class="k">C</span><b>极简百分比</b><span class="why">只留一个状态色点 + 数字，最安静；token 明细进悬停</span></div>
+    <div class="composer">
+      <div class="box">
+        <div class="typed">把上下文用量放到输入框底部，先出几个样式看看<span class="caret"></span></div>
+        <div class="bar">
+          <span class="plus">+</span>
+          <span class="chip">deepseek-v4.1-flash[1m]</span>
+          <span class="spacer"></span>
+          <span class="ctxtext"><i></i><b>13%</b><span>上下文</span></span>
+          <span class="chip chip--eff"><span class="sym">◈</span><span class="bars"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span>中</span></span>
+          <span class="chip"><span class="dot"></span><span>标准模式</span></span>
+          <span class="send">↑</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D -->
+  <div class="frame" data-v="d">
+    <div class="cap"><span class="k">D</span><b>框外细行</b><span class="why">拖在输入框下方右侧，分段条看余量，不占框内空间</span></div>
+    <div class="composer">
+      <div class="box">
+        <div class="typed">把上下文用量放到输入框底部，先出几个样式看看<span class="caret"></span></div>
+        <div class="bar">
+          <span class="plus">+</span>
+          <span class="chip">deepseek-v4.1-flash[1m]</span>
+          <span class="spacer"></span>
+          <span class="chip chip--eff"><span class="sym">◈</span><span class="bars"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span>中</span></span>
+          <span class="chip"><span class="dot"></span><span>标准模式</span></span>
+          <span class="send">↑</span>
+        </div>
+      </div>
+      <div class="ctxbelow">
+        <span class="segs"><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <span>上下文</span>
+        <b class="mono">128k / 1M</b>
+        <span>13%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="lg"><i style="background:#4b9e5f"></i>&lt; 70% 充裕</span>
+    <span class="lg"><i style="background:#c9a227"></i>70–89% 偏满</span>
+    <span class="lg"><i style="background:#e5534b"></i>≥ 90% 建议新开会话</span>
+    <span class="note">悬停任意指示器：已用 128k · 缓存命中 96k · 剩余 872k</span>
+  </div>
+</div>
+
+<style>
+  html[data-v="a"] .frame:not([data-v="a"]),
+  html[data-v="b"] .frame:not([data-v="b"]),
+  html[data-v="c"] .frame:not([data-v="c"]),
+  html[data-v="d"] .frame:not([data-v="d"]) { display: none; }
+  html[data-v="a"] .page__head,
+  html[data-v="b"] .page__head,
+  html[data-v="c"] .page__head,
+  html[data-v="d"] .page__head { display: none; }
+  html[data-v="a"] .legend,
+  html[data-v="b"] .legend,
+  html[data-v="c"] .legend,
+  html[data-v="d"] .legend { display: none; }
+</style>
+</body>
+</html>

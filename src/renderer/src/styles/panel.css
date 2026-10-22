@@ -1,0 +1,515 @@
+/*
+ * 输出区右侧的「执行台」。
+ *
+ * 颜色优先走 token；只有状态色（进行中的琥珀、完成的绿）和卡片底是写死的 ——
+ * 浅色主题在 theme-light.css 里逐条掰回来。
+ */
+
+.runpanel {
+  flex: none;
+  width: 304px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #151515;
+  border-left: 1px solid var(--border-soft);
+}
+
+/* ── 头部：标题 + 实时耗时 + 分段进度 ───────────────────── */
+
+.runpanel__head {
+  flex: none;
+  /* 和「会话头 + 标签栏」同高：面板底边正好落在标签栏下划线上 */
+  min-height: 92px;
+  padding: 14px 16px 6px;
+  border-bottom: 1px solid #232323;
+}
+.runpanel__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.runpanel__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  color: var(--text);
+}
+.runpanel__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #c9a227;
+}
+.runpanel__state.is-done {
+  color: #6fae7e;
+}
+.runpanel__state i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fcd34d;
+  box-shadow: 0 0 0 3px rgba(252, 211, 77, 0.1);
+  animation: rp-pulse 1.4s ease-in-out infinite;
+}
+.runpanel__collapse {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  color: var(--text-faint);
+  border-radius: 5px;
+}
+.runpanel__collapse:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.runpanel__sub {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #6f6f7a;
+}
+
+/* 每段 = 一个任务。绿=完成，琥珀=进行中，暗=待办 */
+.runpanel__strip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 12px;
+}
+.runpanel__strip i {
+  flex: 1;
+  /* 任务数量不设上限：段数多了就让它们变细，标签页始终有位置 */
+  min-width: 0;
+  height: 3px;
+  border-radius: 1px;
+  background: #2c2c30;
+}
+.runpanel__strip i.is-done {
+  background: #3f7d4d;
+}
+.runpanel__strip i.is-run {
+  background: #fcd34d;
+  animation: rp-pulse 1.4s ease-in-out infinite;
+}
+.runpanel__strip span {
+  flex: none;
+  margin-left: 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #777782;
+}
+
+/* ── 分区滚动 ───────────────────────────────────────────── */
+
+/*
+ * 任务和子代理**各自滚动**。
+ *
+ * 外层只负责把两个分区竖着排开；滚动条挂在各区自己的列表上。
+ * 分区按内容高排，最后一块吃掉剩下的高度 —— 这样两个列表都短时
+ * 不会在中间留一大段空白，其中一个大时也不会把另一个挤没。
+ * `min-height` 是底线：再挤也留得下一两行，不至于缩成一条缝。
+ */
+.runpanel__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.rsec {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 112px;
+  padding: 14px 16px 0;
+}
+.rsec:last-child {
+  flex-grow: 1;
+}
+.rsec__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* 任务行的负外边距会让内容比容器宽一点，别因此长出横向滚动条 */
+  overflow-x: hidden;
+  /* 滚到底时别把整页也带着滚 */
+  overscroll-behavior: contain;
+  padding-bottom: 14px;
+  /* 滚动条往回收一点，别贴着卡片边 */
+  margin-right: -6px;
+  padding-right: 6px;
+}
+.rsec__list::-webkit-scrollbar {
+  width: 8px;
+}
+.rsec__list::-webkit-scrollbar-thumb {
+  background: #2a2a2e;
+  border-radius: 4px;
+}
+.rsec__list::-webkit-scrollbar-thumb:hover {
+  background: #38383e;
+}
+
+/* ── 分区 ───────────────────────────────────────────────── */
+
+.rsec + .rsec {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #222;
+}
+.rsec__h {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+.rsec__t {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: #74747e;
+}
+.rsec__n {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #5c5c66;
+}
+
+/* ── 任务清单 ───────────────────────────────────────────── */
+
+.rtask {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border-radius: 7px;
+}
+.rtask + .rtask {
+  margin-top: 1px;
+}
+.rtask__box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1px solid #3a3a42;
+  border-radius: 4px;
+  font-size: 9px;
+  line-height: 1;
+  color: transparent;
+}
+.rtask.is-done .rtask__box {
+  background: rgba(75, 158, 95, 0.13);
+  border-color: rgba(75, 158, 95, 0.48);
+  color: #8fd39a;
+}
+.rtask.is-run {
+  background: #1e1d17;
+  box-shadow: inset 2px 0 0 #fcd34d;
+}
+.rtask.is-run .rtask__box {
+  border-color: rgba(252, 211, 77, 0.58);
+  background: rgba(252, 211, 77, 0.08);
+}
+.rtask.is-run .rtask__box::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: #fcd34d;
+  animation: rp-pulse 1.3s ease-in-out infinite;
+}
+.rtask__main {
+  flex: 1;
+  min-width: 0;
+}
+.rtask__text {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #b8b8c2;
+}
+.rtask.is-done .rtask__text {
+  color: #6f6f78;
+  text-decoration: line-through;
+  text-decoration-color: #3a3a42;
+}
+.rtask.is-run .rtask__text {
+  color: #f0efea;
+  font-weight: 500;
+}
+.rtask.is-todo .rtask__text {
+  color: #8a8a94;
+}
+.rtask__form {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: #a08a48;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rtask__form i {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #c9a227;
+  animation: rp-pulse 1.3s ease-in-out infinite;
+}
+.rtask__time {
+  flex: none;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #5d5d66;
+}
+
+/* ── 子代理卡片 ─────────────────────────────────────────── */
+
+.ragent {
+  padding: 10px 10px 9px;
+  background: #1c1c1f;
+  border: 1px solid #29292e;
+  border-radius: 9px;
+}
+.ragent + .ragent {
+  margin-top: 8px;
+}
+.ragent.is-run {
+  border-color: #34302a;
+}
+.ragent.is-bad {
+  border-color: rgba(229, 83, 75, 0.32);
+}
+.ragent.is-stopped {
+  border-color: #2d2d32;
+}
+.ragent__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ragent__glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+}
+.ragent__glyph.is-explore {
+  color: #7dd3fc;
+  background: rgba(125, 211, 252, 0.1);
+}
+.ragent__glyph.is-general {
+  color: #c4a7f7;
+  background: rgba(196, 167, 247, 0.1);
+}
+.ragent__glyph.is-plan {
+  color: #6ee7a8;
+  background: rgba(110, 231, 168, 0.09);
+}
+.ragent__glyph.is-other {
+  color: #a8a8c0;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ragent__id {
+  flex: 1;
+  min-width: 0;
+}
+.ragent__name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #d8d8e0;
+}
+.ragent__name span {
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: #64646e;
+}
+.ragent__desc {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #9a9aa6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ragent__state {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #c9a227;
+}
+.ragent__state i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fcd34d;
+  animation: rp-pulse 1.3s ease-in-out infinite;
+}
+.ragent__state.is-done {
+  color: #6fae7e;
+}
+.ragent__state.is-bad {
+  color: #e5837b;
+}
+.ragent__state.is-stopped {
+  color: #8a8a94;
+}
+.ragent__live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #141416;
+  border: 1px solid #242428;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #797986;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ragent__spin {
+  flex: none;
+  color: #7dd3fc;
+}
+.ragent__result {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #87878f;
+}
+.ragent__result.is-bad {
+  color: #d99a94;
+}
+.ragent__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #62626d;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ragent__meta span + span::before {
+  content: '·';
+  margin-right: 8px;
+  color: #3e3e46;
+}
+.ragent__meta .tail {
+  margin-left: auto;
+  color: #6a6a75;
+}
+.ragent__meta .tail::before {
+  content: none;
+}
+
+/* ── 底栏 ───────────────────────────────────────────────── */
+
+.runpanel__foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px 11px;
+  border-top: 1px solid #232323;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #5b5b65;
+}
+.runpanel__diff {
+  display: inline-flex;
+  gap: 4px;
+}
+.runpanel__diff .is-add {
+  color: #7fbf7f;
+  font-weight: 400;
+}
+.runpanel__diff .is-del {
+  color: #d98a8a;
+  font-weight: 400;
+}
+.runpanel__link {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  color: #8a8a94;
+}
+.runpanel__link:hover {
+  color: var(--text);
+}
+
+/* ── 会话头里的开合按钮 ─────────────────────────────────── */
+
+.chip--icon {
+  padding: 0 9px;
+}
+.chip--icon.is-on {
+  background: var(--bg-active);
+  border-color: #3d3d3d;
+  color: var(--text);
+}
+.chip--icon .chip__dot {
+  flex: none;
+}
+
+@keyframes rp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/*
+ * 窗口窄到 1280 以下时，304px 再占一列会把正文挤成一条。
+ * 改成浮在右侧、盖住一部分转写 —— 用户随时能收起来。
+ */
+@media (max-width: 1280px) {
+  .mainpane.has-panel {
+    --pane-pad-x: 40px;
+  }
+  .mainpane.has-panel .runpanel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    box-shadow: -18px 0 44px rgba(0, 0, 0, 0.5);
+  }
+}

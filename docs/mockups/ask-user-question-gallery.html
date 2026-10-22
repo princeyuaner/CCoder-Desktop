@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>AskUserQuestion · 四方案对比</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1200px; padding: 26px 28px 40px; background: #0f0f12; color: #e8e8ee;
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 18px; font-weight: 600; }
+  .lead { margin-top: 7px; font-size: 12.5px; line-height: 1.75; color: #7f7f90; }
+  .lead b { color: #b9b9c8; font-weight: 500; }
+  .lead code { font-family: Consolas, monospace; color: #a5f3fc; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+  figure { background: #15151a; border: 1px solid #24242c; border-radius: 12px; overflow: hidden; }
+  figcaption { padding: 11px 14px 12px; border-bottom: 1px solid #24242c; }
+  .row1 { display: flex; align-items: baseline; gap: 9px; }
+  .k { font-size: 12px; font-weight: 700; letter-spacing: 1.2px; }
+  .k.a { color: #fcd34d; } .k.b { color: #22d3ee; } .k.c { color: #93c5fd; } .k.d { color: #c4b5fd; }
+  .t { font-size: 13px; color: #d0d0da; }
+  .rec {
+    margin-left: auto; padding: 1px 7px; font-size: 10.5px;
+    color: #a5f3fc; background: rgba(34,211,238,.12);
+    border: 1px solid rgba(34,211,238,.28); border-radius: 999px;
+  }
+  .d { margin-top: 4px; font-size: 11.5px; line-height: 1.65; color: #737383; }
+  img { display: block; width: 100%; height: auto; }
+  .note {
+    margin-top: 20px; padding: 12px 15px; font-size: 12px; line-height: 1.8;
+    color: #85859a; background: #15151a; border: 1px solid #24242c; border-radius: 10px;
+  }
+  .note b { color: #b9b9c8; font-weight: 500; }
+</style>
+</head>
+<body>
+  <h1>AskUserQuestion · 提问弹窗四方案</h1>
+  <p class="lead">
+    同一道题、同一套配色，只换<b>承载方式</b>。样例是 CLI 的 <code>input.questions[0]</code>：
+    单选题 + 三个选项 + 「其他…」。多选题会换成方块 + 空格勾选，题号与进度复用现有 <code>1/N</code> 语法。
+  </p>
+
+  <div class="grid">
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k a">A</span><span class="t">居中模态 + 遮罩</span></div>
+        <div class="d">沿用现有审批弹窗外壳，一题一屏。最不易漏答；但遮住上下文。</div>
+      </figcaption>
+      <img src="auq-a.png" alt="方案 A 居中模态" />
+    </figure>
+
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k b">B</span><span class="t">底部抽屉</span><span class="rec">推荐</span></div>
+        <div class="d">输入框上方滑出，不遮对话，手的位置不动；占用半屏高度。</div>
+      </figcaption>
+      <img src="auq-b.png" alt="方案 B 底部抽屉" />
+    </figure>
+
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k c">C</span><span class="t">右侧抽屉</span></div>
+        <div class="d">左边对话、右边问题，可以对照读；主区被压窄。</div>
+      </figcaption>
+      <img src="auq-c.png" alt="方案 C 右侧抽屉" />
+    </figure>
+
+    <figure>
+      <figcaption>
+        <div class="row1"><span class="k d">D</span><span class="t">输入框就地接管</span></div>
+        <div class="d">输入框原地变成问题卡，「其他」就是底部输入行；最轻，但会顶掉草稿。</div>
+      </figcaption>
+      <img src="auq-d.png" alt="方案 D 输入框接管" />
+    </figure>
+  </div>
+
+  <p class="note">
+    <b>推荐 B：</b>提问和审批不同 —— 审批看的是弹窗里的 diff，提问往往要回看上面几句讨论才能回答，
+    所以「不遮上下文 + 手在输入框」的底部抽屉更合适。<br>
+    <b>交互约定（四案通用）：</b>↑↓ 移动 · 1/2/3 直选 · ⏎ 选定/下一题 · 多选用 Space · Esc 跳过 ·
+    「其他…」展开自由输入。答完后沿用现有时间线留痕，记成一条「提问 · 已答」。
+  </p>
+</body>
+</html>

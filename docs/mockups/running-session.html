@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>会话「运行中」指示器 · 六选一</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1060px;
+    background: #0f0f0f; color: #e8e8e8;
+    padding: 26px 30px 34px;
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 17px; font-weight: 600; }
+  .lead { font-size: 12.5px; color: #8a8a8a; line-height: 1.85; margin-top: 7px; max-width: 980px; }
+  .lead code { font-family: Consolas, monospace; color: #c9a227; }
+  .lead b { color: #c8c8c8; font-weight: 500; }
+
+  .cols { display: flex; gap: 8px; margin-top: 12px; font-size: 11px; color: #4f4f4f; }
+  .cols span { flex: none; }
+
+  .bands { display: flex; flex-direction: column; gap: 9px; margin-top: 16px; }
+
+  /* 一条 = 一个方案：左边说明 / 中间放大关键帧 / 右边真实尺寸 */
+  .band {
+    display: grid;
+    grid-template-columns: 208px 1fr 316px;
+    gap: 16px;
+    align-items: center;
+    background: #111111;
+    border: 1px solid #202020;
+    border-radius: 12px;
+    padding: 12px 16px;
+  }
+  .band.is-pick { border-color: #3a2a24; background: #131110; }
+
+  .id { display: flex; align-items: baseline; gap: 8px; }
+  .k { font-size: 13px; font-weight: 700; letter-spacing: 1.4px; }
+  .t { font-size: 13px; color: #c8c8c8; }
+  .d { font-size: 11.5px; color: #6b6b6b; line-height: 1.65; margin-top: 5px; }
+  .badge {
+    display: inline-block; margin-left: 7px; padding: 1px 7px;
+    font-size: 10px; color: #191919; background: #d97757; border-radius: 999px;
+    vertical-align: 2px;
+  }
+
+  /* ── 放大关键帧：一个周期的六帧，全部冻结在各自的相位 ── */
+  .kf { display: flex; align-items: center; gap: 8px; }
+  .slot {
+    position: relative;
+    display: grid; place-items: center;
+    width: 46px; height: 46px;
+    background: #1b1b1b; border: 1px solid #232323; border-radius: 9px;
+  }
+  .slot .i { width: 30px; height: 30px; color: #d97757; }
+  /* 品牌标是实心字形，走 fill 不走 stroke —— 漏了这条就会渲染成黑色 */
+  .slot .i, .k-ring .i { fill: currentColor; }
+  .arrow { font-size: 11px; color: #3a3a3a; flex: none; }
+  .cyc { font-size: 10.5px; color: #4f4f4f; margin-left: 4px; white-space: nowrap; }
+
+  /* ── 真实尺寸：侧栏里的一行（16px 图标） ── */
+  .ctx {
+    background: #141414; border: 1px solid #242424; border-radius: 10px;
+    padding: 7px 6px 6px;
+  }
+  .ws { display: flex; align-items: center; gap: 8px; padding: 3px 10px 7px; }
+  .ws__ico { color: #8a8a8a; font-size: 11px; }
+  .ws__name { font-size: 13px; font-weight: 600; color: #e8e8e8; }
+  .ws__count {
+    margin-left: auto; padding: 1px 6px; font-size: 10.5px; color: #8a8a8a;
+    background: #2a2a2a; border-radius: 999px;
+  }
+  .srow {
+    display: flex; align-items: center; gap: 9px;
+    margin-left: 16px; padding: 5px 4px 5px 12px; border-radius: 6px;
+  }
+  .srow.is-active { background: #2a2a2a; }
+  .srow .t {
+    flex: 1; min-width: 0; font-size: 13px; color: #a8a8a8;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .srow.is-active .t { color: #e8e8e8; }
+  .srow .tm { flex: none; font-size: 12px; color: #6b6b6b; }
+
+  .cli { flex: none; display: grid; place-items: center; width: 16px; height: 16px; color: #d97757; }
+  .cli svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+  .cli.is-idle { color: #6d4b3e; }   /* 未运行的会话：图标压暗，跟运行中的对比 */
+  .ctx__note { font-size: 10.5px; color: #4f4f4f; padding: 5px 10px 1px; }
+
+  /* ── 动效定义 ─────────────────────────────────────────── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes wobble {
+    0%, 100% { transform: rotate(-14deg); }
+    50%      { transform: rotate(14deg); }
+  }
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0) scaleY(1); }
+    35%      { transform: translateY(-5px) scaleY(1.08); }
+    65%      { transform: translateY(0) scaleY(0.92); }
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(0.94); opacity: 0.72; filter: none; }
+    50%      { transform: scale(1.12); opacity: 1;
+               filter: drop-shadow(0 0 7px rgba(217, 119, 87, 0.55)); }
+  }
+  @keyframes dot {
+    0%, 100% { transform: translateY(0); opacity: 0.45; }
+    40%      { transform: translateY(-5px); opacity: 1; }
+  }
+
+  /* 关键帧条里全部暂停在各自的相位（负 delay 决定停在哪一帧） */
+  .k-spin   { animation: spin    1.1s linear      infinite; animation-play-state: paused; }
+  .k-wobble { animation: wobble  1.4s ease-in-out infinite; animation-play-state: paused; }
+  .k-bounce { animation: bounce  0.9s ease-in-out infinite; animation-play-state: paused; }
+  .k-breathe{ animation: breathe 1.6s ease-in-out infinite; animation-play-state: paused; }
+
+  /* 真实尺寸那一行是活的：浏览器里打开能直接看动效 */
+  .k-spin.is-live, .k-wobble.is-live, .k-bounce.is-live, .k-breathe.is-live {
+    animation-play-state: running;
+  }
+
+  /* 外圈环：图标本体不动，环在转 */
+  .k-ring { position: relative; display: grid; place-items: center; }
+  .k-ring .ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 1.5px solid rgba(217, 119, 87, 0.16);
+    border-top-color: #d97757;
+    animation: spin 0.9s linear infinite;
+    animation-delay: var(--d, 0s);
+    animation-play-state: paused;
+  }
+  .k-ring.is-live .ring { animation-play-state: running; }
+  .slot .k-ring { width: 34px; height: 34px; }
+  .slot .k-ring .i { width: 19px; height: 19px; }
+  .ctx .k-ring { width: 18px; height: 18px; }
+  .ctx .k-ring .i { width: 11px; height: 11px; }
+  .ctx .k-ring .ring { border-width: 1px; }
+
+  /* 三点跳动 */
+  .dots { display: flex; align-items: flex-end; gap: 4px; height: 15px; }
+  .dots i {
+    display: block; width: 5px; height: 5px; border-radius: 50%; background: #d97757;
+    animation: dot 1s ease-in-out infinite;
+    animation-play-state: paused;
+  }
+  .dots.is-live i { animation-play-state: running; }
+  .ctx .dots { gap: 2.5px; height: 12px; }
+  .ctx .dots i { width: 3.5px; height: 3.5px; }
+
+  .note {
+    margin-top: 18px; padding: 13px 16px; font-size: 12px; line-height: 1.9;
+    color: #8a8a8a; background: #141414; border: 1px solid #232323; border-radius: 10px;
+  }
+  .note b { color: #c8c8c8; font-weight: 500; }
+  .note code { font-family: Consolas, monospace; color: #c9a227; }
+  .note ul { margin: 6px 0 0 18px; }
+  .note li { margin-top: 3px; }
+</style>
+</head>
+<body>
+
+<!-- 品牌标：路径原样取自 simple-icons 的 claudecode，跟 Icons.tsx 里一致 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="claude" viewBox="0 0 24 24">
+    <path d="M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z" />
+  </symbol>
+</defs></svg>
+
+<h1>会话「运行中」· 侧栏指示器方案</h1>
+<p class="lead">
+  这条会话正在跑的时候，侧栏那一行前面的品牌图标怎么动。<b>左边是放大到 30px 的一个周期关键帧</b>（看清轨迹），
+  <b>右边是 16px 的真实尺寸</b> —— 就是它在侧栏里的实际大小。真实动效请用浏览器打开本文件看，PNG 里是静止的。
+</p>
+
+<div class="bands">
+
+  <!-- ── A 原地自转 ─────────────────────────────────────── -->
+  <div class="band">
+    <div>
+      <div class="id"><span class="k">A</span><span class="t">原地自转</span></div>
+      <div class="d">图标整体 360° 匀速转，1.1s 一圈。最像「在忙」，但字形一直斜着，小尺寸下辨识度掉得最多。</div>
+    </div>
+    <div class="kf">
+      <div class="slot"><svg class="i k-spin" style="animation-delay:-0.000s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-spin" style="animation-delay:-0.183s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-spin" style="animation-delay:-0.367s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-spin" style="animation-delay:-0.550s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-spin" style="animation-delay:-0.733s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-spin" style="animation-delay:-0.917s"><use href="#claude"/></svg></div>
+      <span class="cyc">一个周期</span>
+    </div>
+    <div class="ctx">
+      <div class="ws"><span class="ws__ico">▾</span><span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span></div>
+      <div class="srow is-active">
+        <span class="cli"><svg class="k-spin is-live"><use href="#claude"/></svg></span>
+        <span class="t">给侧栏加运行中指示器</span><span class="tm">刚刚</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="t">修 permission-preview 的 diff</span><span class="tm">2小时</span>
+      </div>
+      <div class="ctx__note">↑ 第二行是没在跑的会话，作为对照</div>
+    </div>
+  </div>
+
+  <!-- ── B 左右摆动 ─────────────────────────────────────── -->
+  <div class="band">
+    <div>
+      <div class="id"><span class="k">B</span><span class="t">左右摆动</span></div>
+      <div class="d">±14° 往复，1.4s 一次，像钟摆。比自转稳，但 16px 下摆幅只有 ±2px，几乎看不出来。</div>
+    </div>
+    <div class="kf">
+      <div class="slot"><svg class="i k-wobble" style="animation-delay:-0.000s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-wobble" style="animation-delay:-0.233s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-wobble" style="animation-delay:-0.467s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-wobble" style="animation-delay:-0.700s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-wobble" style="animation-delay:-0.933s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-wobble" style="animation-delay:-1.167s"><use href="#claude"/></svg></div>
+      <span class="cyc">一个周期</span>
+    </div>
+    <div class="ctx">
+      <div class="ws"><span class="ws__ico">▾</span><span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span></div>
+      <div class="srow is-active">
+        <span class="cli"><svg class="k-wobble is-live"><use href="#claude"/></svg></span>
+        <span class="t">给侧栏加运行中指示器</span><span class="tm">刚刚</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="t">修 permission-preview 的 diff</span><span class="tm">2小时</span>
+      </div>
+      <div class="ctx__note">↑ 第二行是没在跑的会话，作为对照</div>
+    </div>
+  </div>
+
+  <!-- ── C 上下跳动 ─────────────────────────────────────── -->
+  <div class="band">
+    <div>
+      <div class="id"><span class="k">C</span><span class="t">上下跳动</span></div>
+      <div class="d">起落 5px + 轻微挤压，0.9s 一次。最活泼；但小尺寸下容易被当成渲染抖动。</div>
+    </div>
+    <div class="kf">
+      <div class="slot"><svg class="i k-bounce" style="animation-delay:-0.000s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-bounce" style="animation-delay:-0.150s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-bounce" style="animation-delay:-0.300s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-bounce" style="animation-delay:-0.450s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-bounce" style="animation-delay:-0.600s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-bounce" style="animation-delay:-0.750s"><use href="#claude"/></svg></div>
+      <span class="cyc">一个周期</span>
+    </div>
+    <div class="ctx">
+      <div class="ws"><span class="ws__ico">▾</span><span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span></div>
+      <div class="srow is-active">
+        <span class="cli"><svg class="k-bounce is-live"><use href="#claude"/></svg></span>
+        <span class="t">给侧栏加运行中指示器</span><span class="tm">刚刚</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="t">修 permission-preview 的 diff</span><span class="tm">2小时</span>
+      </div>
+      <div class="ctx__note">↑ 第二行是没在跑的会话，作为对照</div>
+    </div>
+  </div>
+
+  <!-- ── D 呼吸发光 ─────────────────────────────────────── -->
+  <div class="band">
+    <div>
+      <div class="id"><span class="k">D</span><span class="t">呼吸 + 发光</span></div>
+      <div class="d">不转不跳：轻微放大加一圈同色辉光，1.6s 一次。最安静，挂着跑十分钟也不烦，但「忙」的语义最弱。</div>
+    </div>
+    <div class="kf">
+      <div class="slot"><svg class="i k-breathe" style="animation-delay:-0.000s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-breathe" style="animation-delay:-0.267s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-breathe" style="animation-delay:-0.533s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-breathe" style="animation-delay:-0.800s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-breathe" style="animation-delay:-1.067s"><use href="#claude"/></svg></div>
+      <div class="slot"><svg class="i k-breathe" style="animation-delay:-1.333s"><use href="#claude"/></svg></div>
+      <span class="cyc">一个周期</span>
+    </div>
+    <div class="ctx">
+      <div class="ws"><span class="ws__ico">▾</span><span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span></div>
+      <div class="srow is-active">
+        <span class="cli"><svg class="k-breathe is-live"><use href="#claude"/></svg></span>
+        <span class="t">给侧栏加运行中指示器</span><span class="tm">刚刚</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="t">修 permission-preview 的 diff</span><span class="tm">2小时</span>
+      </div>
+      <div class="ctx__note">↑ 第二行是没在跑的会话，作为对照</div>
+    </div>
+  </div>
+
+  <!-- ── E 外圈旋转环 ───────────────────────────────────── -->
+  <div class="band is-pick">
+    <div>
+      <div class="id"><span class="k">E</span><span class="t">外圈旋转环</span><span class="badge">推荐</span></div>
+      <div class="d">图标本体不动，外面一圈弧线在转（0.9s 一圈）。品牌字形始终正向、16px 下也看得清，是通用的「加载中」语义。代价：环占地方，图标要缩到 11px。</div>
+    </div>
+    <div class="kf">
+      <div class="slot"><span class="k-ring" style="--d:-0.000s"><span class="ring"></span><svg class="i"><use href="#claude"/></svg></span></div>
+      <div class="slot"><span class="k-ring" style="--d:-0.150s"><span class="ring"></span><svg class="i"><use href="#claude"/></svg></span></div>
+      <div class="slot"><span class="k-ring" style="--d:-0.300s"><span class="ring"></span><svg class="i"><use href="#claude"/></svg></span></div>
+      <div class="slot"><span class="k-ring" style="--d:-0.450s"><span class="ring"></span><svg class="i"><use href="#claude"/></svg></span></div>
+      <div class="slot"><span class="k-ring" style="--d:-0.600s"><span class="ring"></span><svg class="i"><use href="#claude"/></svg></span></div>
+      <div class="slot"><span class="k-ring" style="--d:-0.750s"><span class="ring"></span><svg class="i"><use href="#claude"/></svg></span></div>
+      <span class="cyc">一个周期</span>
+    </div>
+    <div class="ctx">
+      <div class="ws"><span class="ws__ico">▾</span><span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span></div>
+      <div class="srow is-active">
+        <span class="cli"><span class="k-ring is-live"><span class="ring"></span><svg><use href="#claude"/></svg></span></span>
+        <span class="t">给侧栏加运行中指示器</span><span class="tm">刚刚</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="t">修 permission-preview 的 diff</span><span class="tm">2小时</span>
+      </div>
+      <div class="ctx__note">↑ 第二行是没在跑的会话，作为对照</div>
+    </div>
+  </div>
+
+  <!-- ── F 三点跳动 ─────────────────────────────────────── -->
+  <div class="band">
+    <div>
+      <div class="id"><span class="k">F</span><span class="t">三点跳动</span></div>
+      <div class="d">把图标换成三个依次跳起的小点。语义最明确、16px 下最醒目 —— 但代价是运行时<b>看不出这条会话是哪个 CLI</b>。</div>
+    </div>
+    <div class="kf">
+      <div class="slot"><span class="dots"><i style="animation-delay:-0.000s"></i><i style="animation-delay:-0.130s"></i><i style="animation-delay:-0.260s"></i></span></div>
+      <div class="slot"><span class="dots"><i style="animation-delay:-0.167s"></i><i style="animation-delay:-0.297s"></i><i style="animation-delay:-0.427s"></i></span></div>
+      <div class="slot"><span class="dots"><i style="animation-delay:-0.333s"></i><i style="animation-delay:-0.463s"></i><i style="animation-delay:-0.593s"></i></span></div>
+      <div class="slot"><span class="dots"><i style="animation-delay:-0.500s"></i><i style="animation-delay:-0.630s"></i><i style="animation-delay:-0.760s"></i></span></div>
+      <div class="slot"><span class="dots"><i style="animation-delay:-0.667s"></i><i style="animation-delay:-0.797s"></i><i style="animation-delay:-0.927s"></i></span></div>
+      <div class="slot"><span class="dots"><i style="animation-delay:-0.833s"></i><i style="animation-delay:-0.963s"></i><i style="animation-delay:-1.093s"></i></span></div>
+      <span class="cyc">一个周期</span>
+    </div>
+    <div class="ctx">
+      <div class="ws"><span class="ws__ico">▾</span><span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span></div>
+      <div class="srow is-active">
+        <span class="cli"><span class="dots is-live"><i></i><i></i><i></i></span></span>
+        <span class="t">给侧栏加运行中指示器</span><span class="tm">刚刚</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="t">修 permission-preview 的 diff</span><span class="tm">2小时</span>
+      </div>
+      <div class="ctx__note">↑ 第二行是没在跑的会话，作为对照</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="note">
+  <b>几点说明</b>
+  <ul>
+    <li><b>只有 16px。</b>会话行前面的图标是 <code>.session__cli</code> 的 16×16 —— A / B / C 这三种「转 / 摆 / 跳」在这个尺寸下都只能靠位移感知，字形本身看不出在转。真正 16px 下还成立的只有 <b>E（环）</b>和 <b>F（点）</b>。</li>
+    <li><b>「运行中」不等于「当前打开」。</b>现在 <code>.session.is-active</code> 已经有底色了，指示器必须独立于它 —— 后台子代理还在跑时，你切去看别的会话，那一条也该继续转。</li>
+    <li><b>可选叠加：</b>运行中的那一行，把右侧的相对时间（<code>.session__time</code>）换成珊瑚色的「运行中」两个字，状态更明确；这个跟图标动效互相独立，可以只做其中一样。</li>
+    <li><b>数据从哪来：</b>现在侧栏拿不到运行状态 —— <code>SessionManager</code> 里的 <code>live</code> 表在主进程，<code>sessionStatus</code> 事件只广播给正在看的那条会话（<code>useChat</code> 按 <code>sessionId</code> 过滤）。要做这个效果，需要把「哪些 providerSessionId 在跑」一并推给侧栏。</li>
+  </ul>
+</div>
+
+</body>
+</html>

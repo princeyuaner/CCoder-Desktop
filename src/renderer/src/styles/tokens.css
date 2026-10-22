@@ -1,0 +1,84 @@
+/*
+ * 设计 token。取值照参考截图，集中在这里便于整体调色。
+ * 组件里不写死颜色，一律引用变量。
+ */
+:root {
+  color-scheme: dark;
+
+  /* 三层背景：侧栏比主区暗一档，浮起元素再亮一档 */
+  --bg-app: #191919;
+  --bg-sidebar: #141414;
+  --bg-raised: #232323;
+  --bg-hover: #1f1f1f;
+  --bg-active: #2a2a2a;
+
+  --border: #2c2c2c;
+  --border-soft: #242424;
+
+  --text: #e8e8e8;
+  --text-dim: #a8a8a8;
+  --text-muted: #8a8a8a;
+  --text-faint: #6b6b6b;
+
+  --accent: #e8e8e8;
+  --accent-fg: #191919;
+  --ok: #4b9e5f;
+  --warn: #c9a227;
+  --danger: #e5534b;
+  /* 「运行中」状态字。深色下用 Claude 品牌珊瑚色，跟那个在跳的图标同源 */
+  --running: #d97757;
+
+  --radius-card: 12px;
+  --radius-chip: 8px;
+  --radius-sm: 6px;
+  --radius-pill: 999px;
+
+  --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  /* 对话正文字号。设置页会把它写到 html 的内联样式上覆盖这里 */
+  --chat-font-size: 14px;
+
+  --titlebar-h: 36px;
+  --sidebar-w: 280px;
+  --pane-pad-x: 40px;
+  /* 与 global.css 里 ::-webkit-scrollbar 的宽度保持一致。
+     转写区要给滚动条留出这段宽度，正文右边界才能和输入框对齐 */
+  --scrollbar-w: 10px;
+  /* 转写 / 输入框 / 状态栏 共用同一列宽，三者的左右边界才对得齐。
+     主区在 1360 窗口下宽 1080 —— 692 会让右边空掉三分之一，卡片流撑到 820 才铺得开 */
+  --content-w: 820px;
+}
+
+/*
+ * 浅色主题：只换这一组变量，组件 CSS 不用逐个改。
+ *
+ * 但 chat.css / shell.css / settings.css 里还有一批写死的深色值（旧的实现
+ * 没走 token），它们由 theme-light.css 用更高权重的选择器覆盖。新写样式时
+ * 请优先用变量，别再往那两个文件里加写死的颜色。
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg-app: #f6f6f7;
+  --bg-sidebar: #efeff1;
+  --bg-raised: #ffffff;
+  --bg-hover: #e9e9ec;
+  --bg-active: #e2e2e6;
+
+  --border: #d7d7dc;
+  --border-soft: #e5e5e8;
+
+  --text: #1d1d1f;
+  --text-dim: #4c4c53;
+  --text-muted: #6c6c75;
+  --text-faint: #95959e;
+
+  --accent: #1d1d1f;
+  --accent-fg: #ffffff;
+  --ok: #2f8a45;
+  --warn: #a97b0b;
+  --danger: #c83b32;
+  /* 浅色下珊瑚色对比度不够（4.3:1），压深一档到 4.8:1，12px 的字才读得清 */
+  --running: #b04a28;
+}

@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>工具调用 · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 40px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+::-webkit-scrollbar { width: 0; height: 0; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1080px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#stage { padding: 18px 24px 0; }
+
+/* ══ 舞台：一段真实密度的转写 ═══════════════════════════ */
+.pane {
+  width: 940px;
+  padding: 26px 0 26px;
+  background: #191919;
+  border: 1px solid #26262e;
+  border-radius: 12px;
+}
+.tl { position: relative; width: 780px; margin: 0 auto; }
+.tl::before {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: 12px;
+  width: 1px; background: #2c2c2e;
+}
+.row { position: relative; padding-left: 26px; margin-bottom: 9px; }
+.dot {
+  position: absolute; left: 0; top: 9px; width: 9px; height: 9px; border-radius: 50%;
+  box-shadow: 0 0 0 3px #191919;
+}
+.dot.ok { background: #4b9e5f; }
+.dot.run { background: #c9a227; }
+.dot.err { background: #e5534b; }
+.dot.think { background: #3a3a46; }
+.note { position: relative; padding-left: 26px; margin: 16px 0 12px; font-size: 12px; color: #4f4f5c; }
+.note .dot { top: 5px; }
+
+/* ── 共享的正文块 ─────────────────────────────────────── */
+.body { margin-top: 5px; }
+.body .cmd {
+  font-size: 11.5px; line-height: 1.65; color: #a8a8bc;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.body .cmd::before { content: '$ '; color: #4d4d5c; }
+.body .out {
+  margin-top: 7px; padding-top: 7px; border-top: 1px dashed rgba(255,255,255,.06);
+  font-size: 11px; line-height: 1.6; color: #6f6f80; white-space: pre-wrap;
+}
+
+/* ══ A 极简行 ═══════════════════════════════════════════ */
+.a-tool {
+  display: flex; align-items: center; gap: 8px;
+  height: 30px; margin: -3px 0 -3px -7px; padding: 0 8px 0 7px;
+  border-radius: 6px;
+}
+.a-tool:hover { background: rgba(255, 255, 255, .035); }
+.a-st { flex: none; width: 12px; text-align: center; font-size: 11px; color: #4b9e5f; }
+.a-st.is-run { color: #c9a227; animation: spin 1.6s linear infinite; }
+.a-st.is-err { color: #e5534b; }
+.a-sub {
+  flex: 1; min-width: 0; font-size: 13px; color: #d6d6e0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.a-dir { flex: none; font-size: 10.5px; color: #4f4f5c; }
+.a-name { flex: none; font-size: 10.5px; letter-spacing: .06em; color: #5c5c6e; }
+.a-time { flex: none; font-size: 10.5px; color: #55555f; }
+.a-chev { flex: none; font-size: 9px; color: #46464f; width: 8px; }
+.a-body { margin: 2px 0 4px 17px; padding: 2px 0 2px 13px; border-left: 1px solid #2c2c34; }
+
+/* ══ B 图标卡 ═══════════════════════════════════════════ */
+.b-tool {
+  background: #1c1c22; border: 1px solid #28282f; border-radius: 8px;
+  overflow: hidden;
+}
+.b-tool.is-run { border-color: rgba(201, 162, 39, .30); }
+.b-tool.is-err { border-color: rgba(229, 83, 75, .32); }
+.b-main { display: flex; align-items: center; gap: 10px; padding: 7px 10px; }
+.b-ico {
+  flex: none; display: grid; place-items: center;
+  width: 21px; height: 21px; border-radius: 6px;
+  background: rgba(255, 255, 255, .055);
+  font-size: 11px; color: #9ece6a;
+}
+.b-ico.is-read { color: #7aa2f7; }
+.b-ico.is-edit { color: #e0af68; }
+.b-ico.is-write { color: #e0af68; }
+.b-ico.is-run { color: #c9a227; }
+.b-ico.is-err { color: #e5534b; }
+.b-sub { flex: 1; min-width: 0; font-size: 12.5px; color: #d2d2dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-dir { flex: none; font-size: 10.5px; color: #4f4f5c; }
+.b-name { flex: none; font-size: 10px; letter-spacing: .06em; color: #5c5c6e; }
+.b-time { flex: none; font-size: 10.5px; color: #55555f; }
+.b-chev { flex: none; font-size: 9px; color: #4a4a55; }
+.b-body { padding: 8px 11px 9px 41px; border-top: 1px solid #26262d; background: rgba(0, 0, 0, .16); }
+
+/* ══ C 工具药丸 ═════════════════════════════════════════ */
+.c-tool { display: flex; align-items: center; gap: 9px; height: 30px; margin-left: -4px; padding: 0 4px; border-radius: 6px; }
+.c-tool:hover { background: rgba(255, 255, 255, .03); }
+.c-st { flex: none; width: 12px; text-align: center; font-size: 11px; color: #4b9e5f; }
+.c-st.is-run { color: #c9a227; animation: spin 1.6s linear infinite; }
+.c-st.is-err { color: #e5534b; }
+.c-tag {
+  flex: none; padding: 1px 6px 2px; border-radius: 5px;
+  border: 1px solid #34343f; background: #1e1e25;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 10px; line-height: 1.4; color: #8f8fa4;
+}
+.c-tag.t-bash { color: #9ece6a; border-color: rgba(158, 206, 106, .26); background: rgba(158, 206, 106, .06); }
+.c-tag.t-read { color: #7aa2f7; border-color: rgba(122, 162, 247, .24); background: rgba(122, 162, 247, .06); }
+.c-tag.t-edit { color: #e0af68; border-color: rgba(224, 175, 104, .24); background: rgba(224, 175, 104, .06); }
+.c-tag.t-write { color: #e0af68; border-color: rgba(224, 175, 104, .24); background: rgba(224, 175, 104, .06); }
+.c-sub { flex: 1; min-width: 0; font-size: 13px; color: #d6d6e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-dir { flex: none; font-size: 10.5px; color: #4f4f5c; }
+.c-time { flex: none; font-size: 10.5px; color: #55555f; }
+.c-body { margin: 2px 0 4px 53px; padding: 2px 0 2px 13px; border-left: 1px solid #2c2c34; }
+
+/* ══ D 分组 ═════════════════════════════════════════════ */
+.d-group { background: #1b1b21; border: 1px solid #27272f; border-radius: 10px; overflow: hidden; }
+.d-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 11px; background: rgba(255, 255, 255, .018);
+  border-bottom: 1px solid #26262d;
+  font-size: 11px; color: #7a7a8a;
+}
+.d-head b { color: #b9b9c8; font-weight: 500; }
+.d-head .d-sep { color: #3f3f4a; }
+.d-item { display: flex; align-items: center; gap: 9px; padding: 6px 11px; }
+.d-item + .d-item { border-top: 1px solid rgba(255, 255, 255, .04); }
+.d-item.is-open { background: rgba(0, 0, 0, .14); }
+.d-ico { flex: none; width: 14px; text-align: center; font-size: 11px; color: #6f6f80; }
+.d-ico.ok { color: #4b9e5f; }
+.d-ico.run { color: #c9a227; animation: spin 1.6s linear infinite; }
+.d-ico.err { color: #e5534b; }
+.d-sub { flex: 1; min-width: 0; font-size: 12.5px; color: #cfcfda; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-dir { flex: none; font-size: 10.5px; color: #4f4f5c; }
+.d-name { flex: none; font-size: 10px; letter-spacing: .06em; color: #5c5c6e; }
+.d-time { flex: none; font-size: 10.5px; color: #55555f; }
+.d-body { padding: 2px 11px 9px 34px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 工具字形 */
+.g { font-style: normal; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>工具调用 · 四个方案</h1>
+  <button class="tabbtn" data-k="a">A 极简行</button>
+  <button class="tabbtn" data-k="b">B 图标卡</button>
+  <button class="tabbtn" data-k="c">C 工具药丸</button>
+  <button class="tabbtn" data-k="d">D 分组日志</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+const FACT = '<span class="fact">真实数据：本机这轮会话里 Bash 调用 1055 次，<b>每一次的 input 都带 description</b>'
+  + '（“List working directory contents” 这种）。命令本身还留在 input.command 里，展开时给。</span>'
+
+/* ── 一行工具内容的三种写法 ───────────────────────────── */
+
+function A_ROWS() {
+  return `
+  <div class="row"><span class="dot run"></span>
+    <div class="a-tool">
+      <span class="a-st is-run">◌</span>
+      <span class="a-sub">Run layout probe against dev renderer</span>
+      <span class="a-name">Bash</span>
+      <span class="a-time">运行中</span>
+      <span class="a-chev"></span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="a-tool">
+      <span class="a-st">✓</span>
+      <span class="a-sub">Restart dev server with persistence fix</span>
+      <span class="a-name">Bash</span>
+      <span class="a-time">0.4s</span>
+      <span class="a-chev"></span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="a-tool">
+      <span class="a-st">✓</span>
+      <span class="a-sub">session-store.ts</span>
+      <span class="a-dir">src/main</span>
+      <span class="a-name">Read</span>
+      <span class="a-time">12ms</span>
+      <span class="a-chev"></span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="a-tool">
+      <span class="a-st">✓</span>
+      <span class="a-sub">Transcript.tsx</span>
+      <span class="a-dir">…/components</span>
+      <span class="a-name">Edit</span>
+      <span class="a-time">8ms</span>
+      <span class="a-chev"></span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot err"></span>
+    <div class="a-tool">
+      <span class="a-st is-err">✕</span>
+      <span class="a-sub">Install sharp for image cropping</span>
+      <span class="a-name">Bash</span>
+      <span class="a-time">1.2s</span>
+      <span class="a-chev"></span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="a-tool">
+      <span class="a-st">✓</span>
+      <span class="a-sub">Scan pixels to locate the divider line</span>
+      <span class="a-name">Bash</span>
+      <span class="a-time">0.9s</span>
+      <span class="a-chev">▾</span>
+    </div>
+    <div class="a-body">
+      <div class="body">
+        <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+        <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060
+y=690 runs=283..1060
+y=691 runs=284..1059</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="a-tool">
+      <span class="a-st">✓</span>
+      <span class="a-sub">tool-calls.html</span>
+      <span class="a-dir">mockups</span>
+      <span class="a-name">Write</span>
+      <span class="a-time">6ms</span>
+      <span class="a-chev"></span>
+    </div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>
+  `
+}
+
+function B_ROWS() {
+  return `
+  <div class="row"><span class="dot run"></span>
+    <div class="b-tool is-run">
+      <div class="b-main">
+        <span class="b-ico is-run">▸_</span>
+        <span class="b-sub">Run layout probe against dev renderer</span>
+        <span class="b-name">BASH</span>
+        <span class="b-time">运行中</span>
+        <span class="b-chev"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="b-tool">
+      <div class="b-main">
+        <span class="b-ico">▸_</span>
+        <span class="b-sub">Restart dev server with persistence fix</span>
+        <span class="b-name">BASH</span>
+        <span class="b-time">0.4s</span>
+        <span class="b-chev"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="b-tool">
+      <div class="b-main">
+        <span class="b-ico is-read">▤</span>
+        <span class="b-sub">session-store.ts</span>
+        <span class="b-dir">src/main</span>
+        <span class="b-name">READ</span>
+        <span class="b-time">12ms</span>
+        <span class="b-chev"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="b-tool">
+      <div class="b-main">
+        <span class="b-ico is-edit">✎</span>
+        <span class="b-sub">Transcript.tsx</span>
+        <span class="b-dir">…/components</span>
+        <span class="b-name">EDIT</span>
+        <span class="b-time">8ms</span>
+        <span class="b-chev"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot err"></span>
+    <div class="b-tool is-err">
+      <div class="b-main">
+        <span class="b-ico is-err">▸_</span>
+        <span class="b-sub">Install sharp for image cropping</span>
+        <span class="b-name">BASH</span>
+        <span class="b-time">1.2s</span>
+        <span class="b-chev"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="b-tool">
+      <div class="b-main">
+        <span class="b-ico">▸_</span>
+        <span class="b-sub">Scan pixels to locate the divider line</span>
+        <span class="b-name">BASH</span>
+        <span class="b-time">0.9s</span>
+        <span class="b-chev">▾</span>
+      </div>
+      <div class="b-body">
+        <div class="body">
+          <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+          <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060
+y=690 runs=283..1060
+y=691 runs=284..1059</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="b-tool">
+      <div class="b-main">
+        <span class="b-ico is-write">＋</span>
+        <span class="b-sub">tool-calls.html</span>
+        <span class="b-dir">mockups</span>
+        <span class="b-name">WRITE</span>
+        <span class="b-time">6ms</span>
+        <span class="b-chev"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>
+  `
+}
+
+function C_ROWS() {
+  return `
+  <div class="row"><span class="dot run"></span>
+    <div class="c-tool">
+      <span class="c-st is-run">◌</span>
+      <span class="c-tag t-bash">Bash</span>
+      <span class="c-sub">Run layout probe against dev renderer</span>
+      <span class="c-time">运行中</span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="c-tool">
+      <span class="c-st">✓</span>
+      <span class="c-tag t-bash">Bash</span>
+      <span class="c-sub">Restart dev server with persistence fix</span>
+      <span class="c-time">0.4s</span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="c-tool">
+      <span class="c-st">✓</span>
+      <span class="c-tag t-read">Read</span>
+      <span class="c-sub">session-store.ts</span>
+      <span class="c-dir">src/main</span>
+      <span class="c-time">12ms</span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="c-tool">
+      <span class="c-st">✓</span>
+      <span class="c-tag t-edit">Edit</span>
+      <span class="c-sub">Transcript.tsx</span>
+      <span class="c-dir">…/components</span>
+      <span class="c-time">8ms</span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot err"></span>
+    <div class="c-tool">
+      <span class="c-st is-err">✕</span>
+      <span class="c-tag t-bash">Bash</span>
+      <span class="c-sub">Install sharp for image cropping</span>
+      <span class="c-time">1.2s</span>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="c-tool">
+      <span class="c-st">✓</span>
+      <span class="c-tag t-bash">Bash</span>
+      <span class="c-sub">Scan pixels to locate the divider line</span>
+      <span class="c-time">0.9s</span>
+    </div>
+    <div class="c-body">
+      <div class="body">
+        <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+        <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060
+y=690 runs=283..1060
+y=691 runs=284..1059</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row"><span class="dot ok"></span>
+    <div class="c-tool">
+      <span class="c-st">✓</span>
+      <span class="c-tag t-write">Write</span>
+      <span class="c-sub">tool-calls.html</span>
+      <span class="c-dir">mockups</span>
+      <span class="c-time">6ms</span>
+    </div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>
+  `
+}
+
+function D_ROWS() {
+  return `
+  <div class="row"><span class="dot ok"></span>
+    <div class="d-group">
+      <div class="d-head">
+        <span>工具调用</span><b>6 个</b><span class="d-sep">·</span><span>合计 2.6s</span>
+        <span style="flex:1"></span><span style="color:#4a4a55">▾</span>
+      </div>
+
+      <div class="d-item">
+        <span class="d-ico ok">✓</span>
+        <span class="d-sub">Restart dev server with persistence fix</span>
+        <span class="d-name">BASH</span><span class="d-time">0.4s</span>
+      </div>
+
+      <div class="d-item">
+        <span class="d-ico ok">✓</span>
+        <span class="d-sub">session-store.ts</span>
+        <span class="d-dir">src/main</span><span class="d-name">READ</span><span class="d-time">12ms</span>
+      </div>
+
+      <div class="d-item">
+        <span class="d-ico ok">✓</span>
+        <span class="d-sub">Transcript.tsx</span>
+        <span class="d-dir">…/components</span><span class="d-name">EDIT</span><span class="d-time">8ms</span>
+      </div>
+
+      <div class="d-item">
+        <span class="d-ico err">✕</span>
+        <span class="d-sub">Install sharp for image cropping</span>
+        <span class="d-name">BASH</span><span class="d-time">1.2s</span>
+      </div>
+
+      <div class="d-item is-open">
+        <span class="d-ico ok">✓</span>
+        <span class="d-sub">Scan pixels to locate the divider line</span>
+        <span class="d-name">BASH</span><span class="d-time">0.9s</span>
+        <span style="color:#4a4a55;font-size:9px">▾</span>
+      </div>
+      <div class="d-body">
+        <div class="body">
+          <div class="cmd">powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Bitmap]::FromFile('C:/Temp/11.png'); ..."</div>
+          <div class="out">y=688 runs=284..1059
+y=689 runs=283..1060</div>
+        </div>
+      </div>
+
+      <div class="d-item">
+        <span class="d-ico ok">✓</span>
+        <span class="d-sub">tool-calls.html</span>
+        <span class="d-dir">mockups</span><span class="d-name">WRITE</span><span class="d-time">6ms</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note"><span class="dot think"></span>模型继续说下一段……</div>
+  `
+}
+
+/** 把一行行内容装回 940px 的转写面板里 */
+function PANE(inner) {
+  return '<div class="pane"><div class="tl">' + inner + '</div></div>'
+}
+
+const VARIANTS = {
+  a: {
+    html: PANE(A_ROWS()),
+    desc: '<b>A 「极简行」</b> —— 去掉卡片外壳，一行就是一条：状态字形 · <b>调用主题</b> · 工具名 · 耗时。'
+      + '主题用正文字体，命令只在展开后出现。最安静、占高最小（30px），和思考行是同一套节奏。'
+      + '代价：工具名退到右边当小字，扫读时不如卡片显眼。' + FACT
+  },
+  b: {
+    html: PANE(B_ROWS()),
+    desc: '<b>B 「图标卡」</b> —— 保留卡片，但主角换成主题：左边一个 21px 的工具图标（终端 / 文件 / 笔），'
+      + '中间是主题，右边才是 <code>BASH</code> 和耗时。状态用卡片描边 + 图标颜色表示。'
+      + '信息层次最清楚，代价是每行 35px，比 A 高一点。' + FACT
+  },
+  c: {
+    html: PANE(C_ROWS()),
+    desc: '<b>C 「工具药丸」</b> —— 工具名做成带色的小药丸（<code>Bash</code> 绿、<code>Read</code> 蓝、<code>Edit</code> 琥珀），'
+      + '后面跟主题。没有卡片，但一眼能看出"这是哪类工具"；颜色编码在长会话里很好扫。'
+      + '代价：颜色多，和审批/设置那些药丸不是同一套语义。' + FACT
+  },
+  d: {
+    html: PANE(D_ROWS()),
+    desc: '<b>D 「分组日志」</b> —— 连续的多个工具调用收进一张卡片，卡头写"6 个 · 2.6s"，'
+      + '里面每条仍是"主题 + 工具名 + 耗时"，点开某条才出命令和输出。'
+      + '长会话最省地方，一屏能看到更多轮次；代价是工具和助手正文不再按时间严格交错，分组逻辑也要额外实现。' + FACT
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>输入框增强 · 图片粘贴 / @ 文件引用 / 系统指令</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 24px 28px 40px;
+}
+code, .mono { font-family: 'Cascadia Mono', Consolas, 'JetBrains Mono', monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+/* ── 稿子外框 ─────────────────────────────────────────── */
+.page__head { max-width: 1360px; margin: 0 auto 18px; display: flex; align-items: flex-end; gap: 14px; }
+.page__title { font-size: 17px; font-weight: 650; letter-spacing: .2px; }
+.page__sub { font-size: 12px; color: #6f6f7c; line-height: 1.7; padding-bottom: 1px; }
+.page__sub b { color: #a8a8b8; font-weight: 500; }
+
+.frame { max-width: 1360px; margin: 0 auto; }
+.cap {
+  display: flex; align-items: baseline; gap: 10px;
+  margin: 26px 0 9px; font-size: 12px; color: #6b6b78;
+}
+.cap b { color: #c8c8d4; font-size: 13px; font-weight: 600; }
+.cap .k {
+  padding: 1px 7px; font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px; color: #d8d8e2; background: #23232a; border: 1px solid #34343d; border-radius: 5px;
+}
+.cap .why { color: #55555f; }
+
+/* ── 应用外壳 ─────────────────────────────────────────── */
+.app {
+  position: relative;
+  width: 1360px; height: 800px;
+  background: #191919; border: 1px solid #26262e; border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0,0,0,.45);
+}
+.titlebar {
+  display: flex; align-items: center;
+  height: 38px; padding: 0 0 0 16px;
+  background: #161616; border-bottom: 1px solid #232323;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #e8e8e8; }
+.brand svg { color: #e8e8e8; }
+.win { display: flex; align-items: center; margin-left: auto; height: 100%; }
+.wbtn { display: grid; place-items: center; width: 46px; height: 100%; color: #8a8a8a; }
+.wbtn:hover { background: #222; color: #ddd; }
+.wbtn--close:hover { background: #c42b1c; color: #fff; }
+.wpanel { display: grid; place-items: center; width: 34px; height: 100%; color: #7d7d7d; }
+
+.body { display: flex; height: calc(100% - 38px); }
+
+/* ── 侧栏 ─────────────────────────────────────────────── */
+.side {
+  position: relative; flex: none; width: 280px;
+  padding: 14px 10px 12px;
+  background: #141414; border-right: 1px solid #242424;
+}
+.side__new {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; padding: 8px; margin-bottom: 14px;
+  font-size: 12.5px; color: #d8d8e2;
+  background: #1e1e1e; border: 1px solid #2c2c2c; border-radius: 8px;
+}
+.side__nav { margin-bottom: 12px; }
+.side__navitem {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 8px; font-size: 12.5px; color: #8a8a9a; border-radius: 6px;
+}
+.side__head { display: flex; align-items: center; padding: 8px 8px 6px; }
+.side__head-t { flex: 1; font-size: 10.5px; letter-spacing: .4px; color: #4a4a55; }
+.side__head-tools { display: flex; gap: 2px; }
+.tool { display: grid; place-items: center; width: 22px; height: 22px; color: #5a5a68; border-radius: 5px; }
+.wsg { margin-bottom: 4px; }
+.wsg__head { display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-radius: 6px; }
+.wsg__ico { display: grid; place-items: center; color: #6b6b78; }
+.wsg__name { flex: 1; min-width: 0; font-size: 12.5px; color: #c8c8d4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsg__n { font-size: 11px; color: #4a4a55; }
+.session {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 22px; border-radius: 6px;
+}
+.session.is-active { background: #232323; }
+.session__cli { flex: none; width: 15px; height: 15px; color: #8a5a45; display: grid; place-items: center; }
+.session.is-active .session__cli { color: #d97757; }
+.session__t { flex: 1; min-width: 0; font-size: 12.5px; color: #a8a8b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session.is-active .session__t { color: #e8e8e8; }
+.session__tm { flex: none; font-size: 11px; color: #4a4a55; }
+.session__tm.is-run { color: #d97757; }
+.more { display: block; width: 100%; padding: 5px 8px 5px 22px; font-size: 11.5px; color: #5a5a68; text-align: left; }
+.side__settings {
+  position: absolute; left: 10px; right: 10px; bottom: 12px;
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 8px; font-size: 12.5px; color: #8a8a9a; border-radius: 6px;
+  border-top: 1px solid #1e1e1e; padding-top: 12px;
+}
+
+/* ── 主区 ─────────────────────────────────────────────── */
+.main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.chathead {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 40px 12px; border-bottom: 1px solid #202024;
+}
+.chathead__t { font-size: 13.5px; font-weight: 500; }
+.badge {
+  padding: 2px 9px; font-size: 11.5px; border-radius: 999px;
+  color: #8a8a9a; background: #232323; border: 1px solid #2c2c2c;
+}
+.chathead__more { margin-left: auto; display: grid; place-items: center; width: 28px; height: 28px; color: #6b6b78; border-radius: 6px; }
+.tabbar { display: flex; gap: 18px; padding: 0 40px; border-bottom: 1px solid #202024; }
+.tab { position: relative; padding: 9px 1px 8px; font-size: 12.5px; color: #6b6b6b; }
+.tab.is-on { color: #e8e8e8; }
+.tab.is-on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: #e8e8e8; border-radius: 1px; }
+
+.transcript { flex: 1; min-height: 0; overflow: hidden; padding: 18px 40px 0; }
+.tlin { max-width: 820px; margin: 0 auto; }
+.tl { position: relative; }
+.tl::before { content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px; width: 1px; background: #2c2c2c; }
+.row { position: relative; padding-left: 26px; margin-bottom: 13px; }
+.dot { position: absolute; left: 0; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: #3a3a46; box-shadow: 0 0 0 3px #191919; }
+.dot--me { background: #22d3ee; box-shadow: 0 0 0 3px #191919, 0 0 10px rgba(34,211,238,.55); }
+.row--me { display: flex; justify-content: flex-end; }
+.meblock { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 78%; }
+.me {
+  padding: 7px 12px; font-size: 14px; line-height: 1.65;
+  color: #d8f8ff; background: rgba(34,211,238,.09);
+  border: 1px solid rgba(34,211,238,.22); border-radius: 8px;
+}
+.say { font-size: 14px; line-height: 1.75; color: #dcdce6; }
+.say code { padding: 1px 5px; font-size: .88em; color: #ddd6fe; background: #26262f; border-radius: 5px; }
+
+/* ── 输入区 ───────────────────────────────────────────── */
+.composer-wrap { flex: none; padding: 8px 40px 6px; }
+.cwdrow { max-width: 820px; margin: 0 auto 6px; padding: 0 3px; }
+.cwd {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 100%; padding: 3px 10px;
+  font-size: 12px; color: #8a8a8a;
+  background: #232323; border: 1px solid #2c2c2c; border-radius: 999px;
+}
+.cwd b { color: #e8e8e8; font-weight: 500; }
+.cwdwrap { position: relative; max-width: 820px; margin: 0 auto; }
+
+.cbox {
+  padding: 12px 12px 10px;
+  background: #232323; border: 1px solid #2c2c2c; border-radius: 14px;
+}
+.cbox.is-focus { border-color: #3d3d3d; }
+.cin {
+  min-height: 42px; padding: 2px 4px 10px;
+  font-size: 14px; line-height: 1.6; color: #e8e8e8;
+  overflow-wrap: anywhere;
+}
+.cin .ph { color: #6b6b6b; }
+.caret { display: inline-block; width: 1.5px; height: 17px; margin-left: 1px; vertical-align: -3px; background: #d8d8d8; }
+.cbar { display: flex; align-items: center; gap: 8px; }
+.sp { flex: 1; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 27px; padding: 0 10px;
+  font-size: 12px; color: #a8a8a8;
+  background: #232323; border: 1px solid #2c2c2c; border-radius: 999px;
+}
+.chip svg { color: #6b6b78; }
+.chip--eff { color: #c4b5fd; border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.07); }
+.chip__bars { display: inline-flex; align-items: center; gap: 2px; }
+.chip__bars i { display: block; width: 2px; height: 8px; border-radius: 1px; background: #4a4560; }
+.chip__bars i.is-on { background: #c4b5fd; }
+.chip__dot { width: 6px; height: 6px; border-radius: 50%; background: #4b9e5f; }
+.send {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  color: #191919; background: #e8e8e8; border-radius: 50%;
+}
+.send.is-off { color: #6b6b6b; background: #3a3a3a; }
+.iconbtn { display: grid; place-items: center; width: 28px; height: 28px; color: #8a8a8a; border-radius: 6px; }
+
+.hint { max-width: 820px; margin: 7px auto 0; padding: 0 3px; font-size: 11.5px; color: #5f5f6b; }
+.hint b { color: #8a8a9a; font-weight: 500; }
+
+/* ── 图片附件 ─────────────────────────────────────────── */
+.attach-row { display: flex; align-items: center; gap: 10px; padding: 0 4px 11px; }
+.attach {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px; background: #1d1d1d; border: 1px solid #343434; border-radius: 10px;
+}
+.attach__thumb {
+  position: relative; flex: none;
+  width: 78px; height: 52px;
+  background: #0f0f0f center / cover no-repeat;
+  border: 1px solid #3a3a3a; border-radius: 7px;
+  overflow: hidden;
+}
+.attach__thumb::after {
+  content: ''; position: absolute; inset: 0;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+}
+.attach__x {
+  position: absolute; top: 3px; right: 3px; z-index: 2;
+  display: grid; place-items: center; width: 17px; height: 17px;
+  color: #e8e8e8; background: rgba(0,0,0,.66); border-radius: 50%;
+  font-size: 12px; line-height: 1;
+}
+.attach__meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.attach__meta b { max-width: 230px; font-size: 12px; font-weight: 500; color: #d8d8e2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach__meta span { font-size: 11px; color: #6b6b78; font-family: 'Cascadia Mono', Consolas, monospace; }
+.attach__more { font-size: 11.5px; color: #6b6b78; }
+.paste-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: auto; padding: 3px 8px;
+  font-size: 11px; color: #8fb89a;
+  background: rgba(75,158,95,.08); border: 1px solid rgba(75,158,95,.22); border-radius: 999px;
+}
+
+/* ── @ 引用 ───────────────────────────────────────────── */
+.ref-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 7px; margin: 0 1px;
+  font-size: 12.5px; color: #d8f8ff;
+  background: rgba(34,211,238,.10);
+  border: 1px solid rgba(34,211,238,.28);
+  border-radius: 6px;
+  vertical-align: 1px;
+}
+.ref-chip svg { color: #22d3ee; }
+.ref-chip .path { color: #7fdcea; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; }
+
+.pop {
+  position: absolute; left: 0; z-index: 30;
+  background: #26262c; border: 1px solid #3a3a44; border-radius: 11px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.62);
+  overflow: hidden;
+}
+.pop--at { bottom: calc(100% + 9px); width: 590px; }
+.pop--slash { bottom: calc(100% + 9px); width: 660px; }
+
+.pop__head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px 9px; border-bottom: 1px solid #35353f;
+}
+.pop__title { font-size: 11.5px; font-weight: 600; letter-spacing: .5px; color: #a8a8b8; }
+.pop__scope {
+  padding: 1px 7px; font-size: 10.5px; color: #8a8a9a;
+  background: #1c1c22; border: 1px solid #383842; border-radius: 999px;
+}
+.pop__hint { margin-left: auto; font-size: 10.5px; color: #5a5a68; }
+.pop__query {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 12px; border-bottom: 1px solid #35353f;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12.5px; color: #e8e8e8;
+}
+.pop__query .at { color: #22d3ee; font-size: 14px; }
+.pop__query .dim { color: #6b6b78; }
+.pop__list { max-height: 300px; overflow: hidden; padding: 5px; }
+.pop__group { padding: 6px 9px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .4px; color: #5a5a68; }
+.item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 7px 9px; border-radius: 7px; text-align: left;
+}
+.item.is-on { background: #3a3a44; }
+.item__ico {
+  flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; font-size: 10px; font-weight: 700;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  color: #7dd3fc; background: rgba(56,189,248,.10); border-radius: 5px;
+}
+.item__ico.is-tsx { color: #67e8f9; background: rgba(34,211,238,.10); }
+.item__ico.is-md { color: #a8a8b8; background: rgba(168,168,184,.10); }
+.item__ico.is-folder { color: #c9a227; background: rgba(201,162,39,.10); }
+.item__main { flex: 1; min-width: 0; }
+.item__name { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; color: #d8d8e2; }
+.item__name b { color: #67e8f9; font-weight: 600; }
+.item__path { margin-top: 1px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 10.5px; color: #6b6b78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item__meta { flex: none; font-size: 10.5px; color: #5a5a68; }
+.item.is-on .item__meta { color: #9a9aa8; }
+.pop__foot {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 12px 9px; border-top: 1px solid #35353f;
+  font-size: 10.5px; color: #5a5a68;
+}
+.pop__foot .key { color: #9a9aa8; font-family: 'Cascadia Mono', Consolas, monospace; }
+
+/* ── / 指令 ───────────────────────────────────────────── */
+.cmd-cols { display: grid; grid-template-columns: 385px 1fr; height: 360px; }
+.cmd-list { padding: 5px; border-right: 1px solid #35353f; height: 360px; overflow: hidden; }
+.cmd {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 5px 9px; border-radius: 7px; text-align: left;
+}
+.cmd.is-on { background: #3a3a44; }
+.cmd__ico {
+  flex: none; display: grid; place-items: center;
+  width: 20px; height: 20px; color: #a8a8b8;
+  background: #303038; border-radius: 5px;
+}
+.cmd.is-on .cmd__ico { color: #e8e8e8; background: #44444f; }
+.cmd__name { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #d8d8e2; }
+.cmd__desc { flex: 1; min-width: 0; margin-left: 2px; font-size: 11px; color: #6b6b78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd__tag { flex: none; padding: 1px 5px; font-size: 9.5px; color: #c9a227; background: rgba(201,162,39,.10); border: 1px solid rgba(201,162,39,.22); border-radius: 999px; }
+.cmd-detail { padding: 14px 16px 12px; display: flex; flex-direction: column; }
+.cmd-detail__kicker { font-size: 10.5px; letter-spacing: .5px; color: #5a5a68; }
+.cmd-detail__name { margin-top: 5px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 17px; color: #e8e8e8; }
+.cmd-detail__desc { margin-top: 8px; font-size: 12px; line-height: 1.7; color: #9a9aa8; }
+.cmd-detail__warn {
+  margin-top: 10px; padding: 7px 9px;
+  font-size: 11px; line-height: 1.55; color: #e8b0b8;
+  background: rgba(244,63,94,.08); border: 1px solid rgba(244,63,94,.18); border-radius: 7px;
+}
+.cmd-detail__foot { margin-top: auto; display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: #5a5a68; }
+.enter-key { padding: 1px 6px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 10px; color: #b8b8c8; background: #303038; border: 1px solid #44444f; border-radius: 4px; }
+
+/* ── 状态栏 ───────────────────────────────────────────── */
+.statusbar { flex: none; display: flex; align-items: center; gap: 7px; padding: 0 40px 10px; font-size: 11.5px; color: #5a5a68; }
+.statusbar .sep { color: #3a3a44; }
+
+/* 单个展示时去掉外部留白，让图片就是应用本身 */
+body.only { padding: 0; background: #191919; }
+body.only .page__head, body.only .cap { display: none; }
+body.only .frame { max-width: none; }
+body.only .app { border: none; border-radius: 0; box-shadow: none; }
+</style>
+</head>
+<body>
+
+<div class="page__head">
+  <div class="page__title">输入框增强 · 效果稿</div>
+  <div class="page__sub">
+    三件事放进同一个输入区：<b>Ctrl+V 粘贴图片</b>、<b>@ 引用文件</b>、<b>/ 调用系统指令</b>。
+    不改变现有“模型 / 思考深度 / 权限模式”的底栏结构。
+  </div>
+</div>
+
+<div class="frame" id="stage"></div>
+
+<script>
+/* ══ 图标 ═══════════════════════════════════════════════ */
+const svg = (d, size = 16, extra = '') =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`
+const I = {
+  plus: svg('<path d="M8 3v10M3 8h10"/>'),
+  plugin: svg('<path d="M6 2.5v2M10 2.5v2"/><rect x="3" y="4.5" width="10" height="9" rx="1.6"/><path d="M6.2 8.2v2.4M9.8 8.2v2.4"/>'),
+  clock: svg('<circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.2l2 1.3"/>'),
+  folder: svg('<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/>'),
+  search: svg('<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>'),
+  sort: svg('<path d="M4 3v10M4 13l-2-2M4 13l2-2M12 13V3M12 3l-2 2M12 3l2 2"/>'),
+  gear: svg('<circle cx="8" cy="8" r="2.2"/><path d="M8 2.4v1.2M8 12.4v1.2M2.4 8h1.2M12.4 8h1.2M4 4l.9.9M11.1 11.1l.9.9M12 4l-.9.9M4.9 11.1 4 12"/>'),
+  more: svg('<circle cx="3.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r=".9" fill="currentColor" stroke="none"/>'),
+  panel: svg('<rect x="2.5" y="3" width="11" height="10" rx="1.6"/><path d="M10.5 3v10"/>'),
+  up: svg('<path d="M8 13V3M4 7l4-4 4 4"/>', 16, 'stroke-width="1.7"'),
+  image: svg('<rect x="2.5" y="3" width="11" height="10" rx="1.6"/><circle cx="5.7" cy="6.2" r="1.1"/><path d="M3.2 11.5 6.4 8.4l2.1 2 1.7-1.6 2.6 2.5"/>', 14),
+  file: svg('<path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/>', 12),
+  terminal: svg('<path d="M3 5l3 3-3 3M8 11h5"/>', 13),
+  slash: svg('<path d="M9.5 3 6.5 13"/>', 13),
+  bolt: svg('<path d="M8.6 1.8 3.5 9h3.4l-.5 5.2L11.5 7H8.1z"/>', 13),
+  x: svg('<path d="M4 4l8 8M12 4l-8 8"/>', 11)
+}
+
+/* ══ 外壳 ═══════════════════════════════════════════════ */
+const SIDEBAR = `
+<aside class="side">
+  <button class="side__new">${I.plus} 新会话</button>
+  <div class="side__nav">
+    <div class="side__navitem">${I.plugin} 插件</div>
+    <div class="side__navitem">${I.clock} 自动化任务</div>
+  </div>
+  <div class="side__head">
+    <span class="side__head-t">工作区</span>
+    <span class="side__head-tools"><span class="tool">${I.search}</span><span class="tool">${I.sort}</span></span>
+  </div>
+  <div class="wsg">
+    <div class="wsg__head">${I.folder}<span class="wsg__name">CCoder-Desktop</span><span class="wsg__n">61</span></div>
+    <div class="session is-active">
+      <span class="session__cli">✳</span>
+      <span class="session__t">给侧栏加运行中指示器</span>
+      <span class="session__tm is-run">运行中</span>
+    </div>
+    <div class="session">
+      <span class="session__cli">✳</span>
+      <span class="session__t">修 permission-preview 的…</span>
+      <span class="session__tm is-run">运行中</span>
+    </div>
+    <div class="session">
+      <span class="session__cli">✳</span>
+      <span class="session__t">把渠道测试改成走真…</span>
+      <span class="session__tm">5小时</span>
+    </div>
+    <button class="more">展开其余 58 个会话</button>
+  </div>
+  <div class="wsg">
+    <div class="wsg__head">${I.folder}<span class="wsg__name">agent kit</span><span class="wsg__n">1</span></div>
+    <div class="session"><span class="session__cli">✳</span><span class="session__t">重构 run-state 的任务…</span><span class="session__tm">1天</span></div>
+  </div>
+  <div class="side__settings">${I.gear} 设置</div>
+</aside>`
+
+const TRANSCRIPT = `
+<div class="transcript"><div class="tlin"><div class="tl">
+  <div class="row row--me">
+    <span class="dot dot--me"></span>
+    <div class="meblock"><span class="me">输入框要支持截图粘贴、@ 文件引用和 / 系统指令，先出个效果图。</span></div>
+  </div>
+  <div class="row">
+    <span class="dot"></span>
+    <div class="say">这三个都能落在同一个输入区里：附件放正文上方，@ 和 / 共用弹层，底栏的模型 / 思考深度 / 权限模式不动。</div>
+  </div>
+</div></div></div>`
+
+const CHIPBAR = ({ model = 'deepseek-reasoner', effort = '中', mode = '标准模式', ready = true }) => `
+<div class="cbar">
+  <button class="iconbtn" title="添加附件">${I.plus}</button>
+  <span class="sp"></span>
+  <span class="chip">${model}</span>
+  <span class="chip chip--eff"><span class="chip__bars"><i class="is-on"></i><i class="is-on"></i><i></i><i></i><i></i></span>${effort}</span>
+  <span class="chip"><span class="chip__dot"></span>${mode}</span>
+  <span class="send ${ready ? '' : 'is-off'}">${I.up}</span>
+</div>`
+
+const SHELL = (composer, caption) => `
+<div class="cap"><b>${caption.title}</b><span class="k">${caption.key}</span><span class="why">${caption.why}</span></div>
+<div class="app">
+  <div class="titlebar">
+    <div class="brand"><span style="display:grid;place-items:center">${svg('<circle cx="8" cy="8" r="6.2"/><path d="M8 4.2v7.6M4.2 8h7.6M5.3 5.3l5.4 5.4M10.7 5.3l-5.4 5.4"/>', 17)}</span><span>CCoder</span></div>
+    <div class="win">
+      <span class="wpanel">${I.panel}</span>
+      <span class="wbtn">${svg('<path d="M2.5 8h11"/>', 11)}</span>
+      <span class="wbtn">${svg('<rect x="3" y="3" width="10" height="10"/>', 11)}</span>
+      <span class="wbtn wbtn--close">${svg('<path d="M3 3l10 10M13 3L3 13"/>', 11)}</span>
+    </div>
+  </div>
+  <div class="body">
+    ${SIDEBAR}
+    <main class="main">
+      <header class="chathead">
+        <span class="chathead__t">输入框增强 · 效果稿</span>
+        <span class="badge">标准模式</span>
+        <button class="chathead__more">${I.more}</button>
+      </header>
+      <div class="tabbar"><span class="tab is-on">对话</span><span class="tab">轨迹</span></div>
+      ${TRANSCRIPT}
+      <div class="composer-wrap">
+        <div class="cwdrow"><span class="cwd">${I.folder}<b>CCoder-Desktop</b></span></div>
+        <div class="cwdwrap">${composer}</div>
+      </div>
+      <div class="statusbar"><span>1 轮</span><span class="sep">·</span><span>0 步</span></div>
+    </main>
+  </div>
+</div>`
+
+/* ══ ① 图片粘贴 ═════════════════════════════════════════ */
+const ATTACH = (name, dim, size) => `
+<div class="attach">
+  <div class="attach__thumb" style="background-image:url('../../shot-running.png')">
+    <span class="attach__x">${I.x}</span>
+  </div>
+  <div class="attach__meta"><b>${name}</b><span>${dim} · ${size}</span></div>
+</div>`
+
+const PASTE = `
+<div class="cbox is-focus">
+  <div class="attach-row">
+    ${ATTACH('截图 2026-10-21 194712.png', '1360 × 800', '148 KB')}
+    <span class="attach__more">再粘一张也行</span>
+    <span class="paste-pill">${I.image} 已从剪贴板粘贴</span>
+  </div>
+  <div class="cin">看下这张截图，右侧执行台的分隔线是不是太亮了？<span class="caret"></span></div>
+  ${CHIPBAR({ ready: true })}
+</div>
+<div class="hint"><b>Ctrl+V</b> 直接粘贴截图 · 也可以把图片拖进来 · 最多 5 张</div>`
+
+/* ══ ② @ 文件引用 ═══════════════════════════════════════ */
+const FILES = [
+  { name: 'useChat.ts', path: 'src/renderer/src/useChat.ts', meta: '581 行', ico: 'TS', cls: '' },
+  { name: 'useSettings.ts', path: 'src/renderer/src/useSettings.ts', meta: '120 行', ico: 'TS', cls: '' },
+  { name: 'useSessions.ts', path: 'src/renderer/src/useSessions.ts', meta: '157 行', ico: 'TS', cls: '' },
+  { name: 'useChat.tsx', path: 'src/renderer/src/components/Composer.tsx', meta: '560 行', ico: 'TSX', cls: 'is-tsx', hideName: 'Composer.tsx' },
+  { name: 'run-state.ts', path: 'src/renderer/src/run-state.ts', meta: '604 行', ico: 'TS', cls: '' }
+]
+
+const AT_ITEM = (f, on) => `
+<div class="item ${on ? 'is-on' : ''}">
+  <span class="item__ico ${f.cls}">${f.ico}</span>
+  <div class="item__main">
+    <div class="item__name">${f.hideName || f.name}</div>
+    <div class="item__path">${f.path}</div>
+  </div>
+  <span class="item__meta">${f.meta}</span>
+</div>`
+
+const AT = `
+<div class="pop pop--at">
+  <div class="pop__head">
+    <span class="pop__title">引用文件</span>
+    <span class="pop__scope">CCoder-Desktop</span>
+    <span class="pop__hint">3 个匹配</span>
+  </div>
+  <div class="pop__query"><span class="at">@</span>useC<span class="dim">|</span></div>
+  <div class="pop__list">
+    <div class="pop__group">匹配</div>
+    ${AT_ITEM(FILES[0], true)}
+    ${AT_ITEM(FILES[1], false)}
+    ${AT_ITEM(FILES[2], false)}
+    <div class="pop__group">最近引用</div>
+    ${AT_ITEM(FILES[3], false)}
+    ${AT_ITEM(FILES[4], false)}
+  </div>
+  <div class="pop__foot">
+    <span><span class="key">↑↓</span> 选择</span>
+    <span><span class="key">Enter</span> 插入</span>
+    <span><span class="key">Tab</span> 补全路径</span>
+    <span><span class="key">Esc</span> 关闭</span>
+  </div>
+</div>
+<div class="cbox is-focus">
+  <div class="cin">把 <span class="ref-chip">${I.file}<span class="path">src/renderer/src/useChat.ts</span></span> 里的事件归约再看一遍<span class="caret"></span></div>
+  ${CHIPBAR({ ready: true })}
+</div>`
+
+/* ══ ③ / 指令 ═══════════════════════════════════════════ */
+const CMDS = [
+  { name: '/clear', desc: '清空当前对话', group: '会话', ico: '✕' },
+  { name: '/compact', desc: '压缩上下文', group: '会话', ico: '↯' },
+  { name: '/resume', desc: '恢复一条会话', group: '会话', ico: '↩' },
+  { name: '/model', desc: '切换模型', group: '模型与权限', ico: '◈' },
+  { name: '/permissions', desc: '切换权限模式', group: '模型与权限', ico: '▣' },
+  { name: '/effort', desc: '调整思考深度', group: '模型与权限', ico: '▤' },
+  { name: '/status', desc: '查看会话状态', group: '系统', ico: '◷' },
+  { name: '/doctor', desc: '诊断 CLI 环境', group: '系统', ico: '✚' },
+  { name: '/help', desc: '查看全部指令', group: '系统', ico: '?' }
+]
+
+const CMD_ITEM = (c, on, tag) => `
+<div class="cmd ${on ? 'is-on' : ''}">
+  <span class="cmd__ico">${c.ico}</span>
+  <span class="cmd__name">${c.name}</span>
+  <span class="cmd__desc">${c.desc}</span>
+  ${tag ? `<span class="cmd__tag">${tag}</span>` : ''}
+</div>`
+
+const SLASH = `
+<div class="pop pop--slash">
+  <div class="pop__head">
+    <span class="pop__title">系统指令</span>
+    <span class="pop__scope">Claude Code</span>
+    <span class="pop__hint">输入名称筛选</span>
+  </div>
+  <div class="pop__query"><span class="at">/</span>cl<span class="dim">|</span></div>
+  <div class="cmd-cols">
+    <div class="cmd-list">
+      <div class="pop__group">会话</div>
+      ${CMD_ITEM(CMDS[0], true, '不可撤销')}
+      ${CMD_ITEM(CMDS[1], false)}
+      ${CMD_ITEM(CMDS[2], false)}
+      <div class="pop__group">模型与权限</div>
+      ${CMD_ITEM(CMDS[3], false)}
+      ${CMD_ITEM(CMDS[4], false)}
+      ${CMD_ITEM(CMDS[5], false)}
+      <div class="pop__group">系统</div>
+      ${CMD_ITEM(CMDS[6], false)}
+      ${CMD_ITEM(CMDS[7], false)}
+      ${CMD_ITEM(CMDS[8], false)}
+    </div>
+    <div class="cmd-detail">
+      <div class="cmd-detail__kicker">系统指令</div>
+      <div class="cmd-detail__name">/clear</div>
+      <div class="cmd-detail__desc">清空当前会话的转写记录与上下文，界面回到空白状态。CLI 侧的会话记录不会被删除。</div>
+      <div class="cmd-detail__warn">这一步不可撤销。如果想保留记录，请先导出或新开一条会话。</div>
+      <div class="cmd-detail__foot"><span class="enter-key">Enter</span><span>执行</span><span style="color:#3a3a44">·</span><span class="enter-key">Esc</span><span>关闭</span></div>
+    </div>
+  </div>
+</div>
+<div class="cbox is-focus">
+  <div class="cin"><span style="color:#22d3ee">/</span>cl<span class="caret"></span></div>
+  ${CHIPBAR({ ready: true })}
+</div>`
+
+/* ══ 展示 ═══════════════════════════════════════════════ */
+const VARIANTS = {
+  paste: {
+    title: '① Ctrl+V 粘贴图片',
+    key: 'composer · paste',
+    why: '附件缩略图放在正文上方；可继续粘、可单张移除，底栏不动。',
+    html: SHELL(PASTE, { title: '① Ctrl+V 粘贴图片', key: 'composer · paste', why: '附件缩略图放在正文上方；可继续粘、可单张移除，底栏不动。' })
+  },
+  at: {
+    title: '② @ 文件引用',
+    key: 'composer · mention',
+    why: '输入 @ 弹出项目内文件搜索；选中后变成可识别的文件 chip。',
+    html: SHELL(AT, { title: '② @ 文件引用', key: 'composer · mention', why: '输入 @ 弹出项目内文件搜索；选中后变成可识别的文件 chip。' })
+  },
+  slash: {
+    title: '③ / 系统指令',
+    key: 'composer · slash',
+    why: '输入 / 弹出指令面板；左侧列表、右侧说明，危险指令单独标黄。',
+    html: SHELL(SLASH, { title: '③ / 系统指令', key: 'composer · slash', why: '输入 / 弹出指令面板；左侧列表、右侧说明，危险指令单独标黄。' })
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const only = params.get('v')
+const stage = document.getElementById('stage')
+
+if (only && VARIANTS[only]) {
+  document.body.classList.add('only')
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  stage.innerHTML = VARIANTS.paste.html + VARIANTS.at.html + VARIANTS.slash.html
+}
+</script>
+</body>
+</html>

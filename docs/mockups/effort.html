@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>思考深度 · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1000px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#stage { padding: 18px 24px 0; }
+
+/* ── 场景外壳 ─────────────────────────────────────────── */
+.pane {
+  position: relative;
+  width: 1080px; height: 660px;
+  display: flex; flex-direction: column;
+  background: #191919;
+  border: 1px solid #26262e; border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 转写区（只做背景，不参与讨论） */
+.chat { flex: 1; min-height: 0; padding: 22px 44px 0; overflow: hidden; }
+.chat .inner { max-width: 820px; margin: 0 auto; }
+.row { position: relative; padding-left: 26px; margin-bottom: 14px; }
+.row::before {
+  content: ''; position: absolute; left: 4px; top: 5px; width: 9px; height: 9px;
+  border-radius: 50%; background: #3a3a46;
+}
+.row--me { display: flex; justify-content: flex-end; padding-left: 0; }
+.row--me::before { display: none; }
+.me {
+  display: inline-block; padding: 7px 12px;
+  font-size: 14px; line-height: 1.65; color: #d8f8ff;
+  background: rgba(34,211,238,.09); border: 1px solid rgba(34,211,238,.22);
+  border-radius: 8px;
+}
+.ai { font-size: 14px; line-height: 1.75; color: #dcdce6; }
+.ai .ic { padding: 2px 6px; font-size: .86em; border-radius: 5px; background: #26262f; color: #ddd6fe; }
+
+/* ── 输入区 ───────────────────────────────────────────── */
+.composer { padding: 8px 40px 12px; }
+.cbox {
+  position: relative;
+  max-width: 820px; margin: 0 auto;
+  padding: 12px 12px 10px;
+  background: #232323; border: 1px solid #3a3a3a; border-radius: 14px;
+}
+.cinput { padding: 2px 4px 10px; font-size: 14px; line-height: 1.6; color: #6b6b6b; }
+.cbar { display: flex; align-items: center; gap: 8px; }
+.sp { flex: 1; }
+.iconbtn {
+  display: grid; place-items: center; width: 28px; height: 28px;
+  font-size: 17px; color: #6b6b6b; border-radius: 8px;
+}
+.iconbtn:hover { background: #2a2a2a; color: #a8a8a8; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px;
+  font-size: 12.5px; color: #a8a8a8;
+  background: #232323; border: 1px solid #2c2c2c; border-radius: 999px;
+}
+.chip:hover { border-color: #3d3d3d; color: #e8e8e8; }
+.chip .cv { font-size: 9px; color: #5a5a68; }
+.chip__dot { width: 7px; height: 7px; border-radius: 50%; background: #4b9e5f; }
+
+/* 思考深度 chip：给一个自己的色，跟绿色的权限模式区分开 */
+.chip--eff { color: #c4b5fd; border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.07); }
+.chip--eff:hover { border-color: rgba(167,139,250,.45); color: #ddd6fe; }
+.chip--eff .sym { font-size: 11px; color: #a78bfa; }
+.chip--eff.is-follow { color: #8a8a9c; border-color: #2c2c2c; background: #232323; }
+.chip--eff.is-follow .sym { color: #5a5a68; }
+
+.send {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  font-size: 15px; color: #191919; background: #e8e8e8; border-radius: 50%;
+}
+
+/* ── 弹层通用 ─────────────────────────────────────────── */
+.anchor { position: relative; display: inline-flex; }
+.pop {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40;
+  padding: 6px; background: #2a2a2a; border: 1px solid #3a3a3a;
+  border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.5);
+}
+.pop__head {
+  padding: 6px 10px 8px; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .4px; color: #6b6b6b;
+}
+.pop__note {
+  padding: 8px 12px 9px; margin-top: 4px;
+  border-top: 1px solid #34343f;
+  font-size: 11.5px; line-height: 1.6; color: #6b6b6b;
+}
+.pop__note code { color: #8a8a9c; }
+
+/* ── A · 同款列表 ─────────────────────────────────────── */
+[data-v="a"] .pop { width: 316px; }
+.item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 10px; border-radius: 6px; text-align: left;
+}
+.item:hover { background: #383838; }
+.item.is-on { background: #3a3a3a; }
+.item__tick { flex: none; width: 11px; font-size: 11px; color: #6ee7a8; }
+.item__name { flex: none; width: 42px; font-size: 13px; color: #e8e8e8; }
+.item__en { flex: none; width: 46px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #5a5a68; }
+.item__hint { flex: 1; font-size: 11.5px; line-height: 1.4; color: #6b6b6b; }
+
+/* ── B · 分段滑轨 ─────────────────────────────────────── */
+[data-v="b"] .pop { width: 348px; padding: 14px 16px 13px; }
+.track { position: relative; height: 4px; margin: 12px 0 0; border-radius: 2px; background: #34343f; }
+.track__fill { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; border-radius: 2px; background: #a78bfa; }
+.track__knob {
+  position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px;
+  border-radius: 50%; background: #e8e8ee; box-shadow: 0 0 0 3px #2a2a2a, 0 2px 6px rgba(0,0,0,.5);
+}
+.track__tick { position: absolute; top: -3px; width: 1px; height: 10px; background: #3f3f4c; }
+.raillab { display: flex; justify-content: space-between; margin-top: 11px; }
+.raillab span { font-size: 11.5px; color: #5a5a68; }
+.raillab span.on { color: #ddd6fe; font-weight: 600; }
+[data-v="b"] .lvl { margin-top: 14px; padding: 10px 12px; background: rgba(255,255,255,.035); border-radius: 8px; }
+[data-v="b"] .lvl__t { font-size: 13px; color: #e8e8e8; }
+[data-v="b"] .lvl__t em { font-style: normal; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #7a7a8c; }
+[data-v="b"] .lvl__d { margin-top: 3px; font-size: 11.5px; line-height: 1.6; color: #7a7a8c; }
+[data-v="b"] .meter { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 11.5px; color: #6b6b6b; }
+[data-v="b"] .meter i { flex: 1; height: 3px; border-radius: 2px; background: #34343f; position: relative; }
+[data-v="b"] .meter i::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 62%; background: #6a6a7c; border-radius: 2px; }
+
+/* ── C · 三档简化 ─────────────────────────────────────── */
+[data-v="c"] .pop { width: 300px; }
+.swrow { display: flex; align-items: center; gap: 10px; padding: 8px 10px 10px; }
+.swrow__t { flex: 1; font-size: 13px; color: #e8e8e8; }
+.swrow__h { display: block; margin-top: 2px; font-size: 11.5px; color: #6b6b6b; }
+.sw {
+  flex: none; width: 36px; height: 20px; border-radius: 999px;
+  background: #a78bfa; position: relative;
+}
+.sw::after {
+  content: ''; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #191919;
+}
+.segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 2px 6px 6px; }
+.seg {
+  padding: 9px 0 8px; border-radius: 8px; text-align: center;
+  background: #232323; border: 1px solid #34343f;
+}
+.seg__n { display: block; font-size: 13px; color: #b8b8c8; }
+.seg__e { display: block; margin-top: 2px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 10.5px; color: #5a5a68; }
+.seg.is-on { background: rgba(167,139,250,.12); border-color: rgba(167,139,250,.4); }
+.seg.is-on .seg__n { color: #ddd6fe; font-weight: 600; }
+.seg.is-on .seg__e { color: #a78bfa; }
+.more { display: block; width: 100%; padding: 8px 10px 4px; font-size: 11.5px; color: #6b6b6b; text-align: left; }
+.more:hover { color: #a8a8a8; }
+
+/* ── D · 设置页 ───────────────────────────────────────── */
+[data-v="d"] .pane { height: 660px; }
+.stg { display: flex; flex: 1; min-height: 0; }
+.stg__nav { flex: none; width: 200px; padding: 18px 10px; border-right: 1px solid #242424; }
+.stg__grp { padding: 6px 10px 6px; font-size: 11px; font-weight: 600; letter-spacing: .4px; color: #4a4a55; }
+.stg__it { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px; font-size: 13px; color: #a8a8a8; }
+.stg__it.is-on { background: #2a2a2a; color: #e8e8e8; }
+.stg__body { flex: 1; min-width: 0; padding: 22px 30px; overflow: hidden; }
+.stg__title { margin-bottom: 18px; font-size: 15px; font-weight: 600; color: #e8e8e8; }
+.sect { margin-bottom: 22px; padding: 14px 16px 16px; background: #1e1e1e; border: 1px solid #26262c; border-radius: 10px; }
+.sect__t { margin-bottom: 3px; font-size: 13px; font-weight: 600; color: #e8e8e8; }
+.sect__h { margin-bottom: 12px; font-size: 11.5px; line-height: 1.6; color: #6b6b6b; }
+.radio { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 7px; text-align: left; }
+.radio:hover { background: #262626; }
+.radio.is-on { background: rgba(167,139,250,.1); }
+.radio__mk {
+  flex: none; width: 13px; height: 13px; margin-top: 2px; border-radius: 50%;
+  border: 1px solid #4a4a55;
+}
+.radio.is-on .radio__mk { border-color: #a78bfa; box-shadow: inset 0 0 0 3px #1e1e1e, inset 0 0 0 8px #a78bfa; }
+.radio__b { flex: 1; min-width: 0; }
+.radio__n { font-size: 12.5px; color: #e8e8e8; }
+.radio__n code { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #7a7a8c; }
+.radio__d { margin-top: 2px; font-size: 11.5px; line-height: 1.55; color: #6b6b6b; }
+[data-v="d"] .strip { flex: none; padding: 10px 40px 14px; border-top: 1px solid #242424; }
+[data-v="d"] .strip .cbox { max-width: 820px; }
+[data-v="d"] .strip .cinput { padding-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>思考深度 · 四个方案</h1>
+  <button class="tabbtn" data-k="a">A 同款列表</button>
+  <button class="tabbtn" data-k="b">B 分段滑轨</button>
+  <button class="tabbtn" data-k="c">C 三档简化</button>
+  <button class="tabbtn" data-k="d">D 设置页默认</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ══ 事实：这一档到底是什么 ══════════════════════════════
+ * claude --help 里有 `--effort <level>`，取值 low / medium / high / xhigh / max，
+ * 说明是"当前会话"的档位；二进制里另有 MAX_THINKING_TOKENS 和
+ * CLAUDE_CODE_EFFORT_LEVEL 两个环境变量。所以这是个真实的 CLI 启动参数。
+ * 换档位 = 换进程 + --resume 接回，跟换模型/渠道一个机制，上下文不丢。
+ */
+const FACT = `<span class="fact">CLI 侧对应的是 <code>--effort low|medium|high|xhigh|max</code>（当前会话档位），
+换档位要重启进程并用 <code>--resume</code> 接回 —— 跟换模型、换渠道同一个机制，上下文不丢。
+下面四个方案的区别只在<b>放哪、怎么选</b>。</span>`
+
+const LEVELS = [
+  { zh: '低', en: 'low', hint: '直接答，几乎不推演。最快、最省。' },
+  { zh: '中', en: 'medium', hint: 'CLI 默认档。日常改动的平衡点。' },
+  { zh: '高', en: 'high', hint: '动代码前先推演一遍。' },
+  { zh: '极高', en: 'xhigh', hint: '多步推理，慢但稳，留给重构和排查。' },
+  { zh: '最高', en: 'max', hint: '吃满预算。最慢最贵，留给硬骨头。' }
+]
+
+/* ── 转写区背景（四个方案共用） ─────────────────────────── */
+const CHAT = `
+  <div class="chat"><div class="inner">
+    <div class="row row--me"><span class="me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span></div>
+    <div class="row"><div class="ai">改好了。<code class="ic">app.py</code> 里返回的是写死的字符串，我把它改成读 <code class="ic">SERVICE_NAME</code>，没设的时候回落到 <code class="ic">"hello"</code>，行为跟现在一样。两个测试都过。</div></div>
+    <div class="row row--me"><span class="me">再看看有没有别的硬编码，顺便把错误处理补一下</span></div>
+  </div></div>`
+
+const BAR = (eff) => `
+  <div class="cbar">
+    <button class="iconbtn">+</button>
+    <button class="chip">deepseek-reasoner <span class="cv">▾</span></button>
+    <span class="sp"></span>
+    ${eff}
+    <button class="chip"><span class="chip__dot"></span>标准 <span class="cv">▾</span></button>
+    <button class="send">↑</button>
+  </div>`
+
+const BOX = (eff, pop) => `
+  <div class="composer"><div class="cbox">
+    <div class="cinput">继续优化一下这个函数</div>
+    ${BAR(eff)}
+    ${pop}
+  </div></div>`
+
+const PANE = (v, eff, pop) => `
+  <div class="pane" data-v="${v}">${CHAT}${BOX(eff, pop)}</div>`
+
+/* ══ A · 同款列表 ═══════════════════════════════════════ */
+const A_EFF = `<span class="anchor">
+  <button class="chip chip--eff"><span class="sym">◈</span>思考 · 高 <span class="cv">▾</span></button>
+  <div class="pop">
+    <div class="pop__head">思考深度</div>
+    ${LEVELS.map((l) => `
+      <button class="item ${l.zh === '高' ? 'is-on' : ''}">
+        <span class="item__tick">${l.zh === '高' ? '✓' : ''}</span>
+        <span class="item__name">${l.zh}</span>
+        <span class="item__en">${l.en}</span>
+        <span class="item__hint">${l.hint}</span>
+      </button>`).join('')}
+    <div class="pop__note">换档位会重启 CLI 进程并用 <code>--resume</code> 接回，上下文不丢。</div>
+  </div>
+</span>`
+
+/* ══ B · 分段滑轨 ═══════════════════════════════════════ */
+const B_EFF = `<span class="anchor">
+  <button class="chip chip--eff"><span class="sym">◈</span>
+    <span style="display:inline-flex;gap:2px;align-items:center">
+      <i style="width:9px;height:3px;border-radius:1px;background:#a78bfa"></i>
+      <i style="width:9px;height:3px;border-radius:1px;background:#a78bfa"></i>
+      <i style="width:9px;height:3px;border-radius:1px;background:#a78bfa"></i>
+      <i style="width:9px;height:3px;border-radius:1px;background:#4a4a55"></i>
+      <i style="width:9px;height:3px;border-radius:1px;background:#4a4a55"></i>
+    </span> 高 <span class="cv">▾</span></button>
+  <div class="pop">
+    <div class="pop__head">思考深度</div>
+    <div class="track">
+      <div class="track__fill"></div>
+      <span class="track__tick" style="left:0"></span>
+      <span class="track__tick" style="left:25%"></span>
+      <span class="track__tick" style="left:50%"></span>
+      <span class="track__tick" style="left:75%"></span>
+      <span class="track__tick" style="left:100%"></span>
+      <div class="track__knob"></div>
+    </div>
+    <div class="raillab">
+      <span>低</span><span>中</span><span class="on">高</span><span>极高</span><span>最高</span>
+    </div>
+    <div class="lvl">
+      <div class="lvl__t">高 <em>high</em></div>
+      <div class="lvl__d">动代码前先推演一遍，比默认多一步计划。</div>
+    </div>
+    <div class="meter"><span>更快</span><i></i><span>更慢 / 更贵</span></div>
+  </div>
+</span>`
+
+/* ══ C · 三档简化 ═══════════════════════════════════════ */
+const C_EFF = `<span class="anchor">
+  <button class="chip chip--eff"><span class="sym">◈</span>思考 · 深入 <span class="cv">▾</span></button>
+  <div class="pop">
+    <div class="pop__head">思考深度</div>
+    <div class="swrow">
+      <span class="swrow__t">扩展思考<span class="swrow__h">关掉就直接答，不推演</span></span>
+      <span class="sw"></span>
+    </div>
+    <div class="segs">
+      <button class="seg"><span class="seg__n">省</span><span class="seg__e">low</span></button>
+      <button class="seg"><span class="seg__n">标准</span><span class="seg__e">medium</span></button>
+      <button class="seg is-on"><span class="seg__n">深入</span><span class="seg__e">high</span></button>
+    </div>
+    <button class="more">更多档位（极高 / 最高）…</button>
+  </div>
+</span>`
+
+/* ══ D · 设置页默认 ═════════════════════════════════════ */
+const D_EFF = `<button class="chip chip--eff is-follow"><span class="sym">◈</span>思考 · 跟随默认（高） <span class="cv">▾</span></button>`
+
+const D_PANE = `
+  <div class="pane" data-v="d">
+    <div class="stg">
+      <div class="stg__nav">
+        <div class="stg__grp">系统</div>
+        <div class="stg__it">通用</div>
+        <div class="stg__it">外观</div>
+        <div class="stg__grp">CLI</div>
+        <div class="stg__it is-on">Claude Code</div>
+        <div class="stg__it">Codex</div>
+      </div>
+      <div class="stg__body">
+        <div class="stg__title">Claude Code</div>
+        <div class="sect">
+          <div class="sect__t">思考深度</div>
+          <div class="sect__h">新会话默认用哪一档。会话里还能单独改，只影响那一条会话。</div>
+          ${LEVELS.map((l) => `
+            <button class="radio ${l.zh === '高' ? 'is-on' : ''}">
+              <span class="radio__mk"></span>
+              <span class="radio__b">
+                <span class="radio__n">${l.zh} <code>${l.en}</code></span>
+                <span class="radio__d">${l.hint}</span>
+              </span>
+            </button>`).join('')}
+        </div>
+        <div class="sect">
+          <div class="sect__t">权限</div>
+          <div class="sect__h">新会话默认权限模式</div>
+          <div class="radio"><span class="radio__mk"></span><span class="radio__b"><span class="radio__n">标准</span></span></div>
+          <div class="radio"><span class="radio__mk"></span><span class="radio__b"><span class="radio__n">自动接受编辑</span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="strip">
+      <div class="cbox">
+        <div class="cinput">继续优化一下这个函数</div>
+        ${BAR(D_EFF)}
+      </div>
+    </div>
+  </div>`
+
+const VARIANTS = {
+  a: {
+    html: PANE('a', A_EFF, ''),
+    desc: '<b>A 同款列表</b> —— chip 放输入区右侧、权限模式左边，弹层跟「权限模式」一模一样：五档全列，每行「中文名 + CLI 原值 + 一句话说明」。'
+      + '跟现有 UI 完全同构，实现成本最低，五档的差别也讲得最清楚。'
+      + '代价是弹层 5 行有点高，而且档位之间的"程度感"要靠读字，看不出来是渐进的。' + FACT
+  },
+  b: {
+    html: PANE('b', B_EFF, ''),
+    desc: '<b>B 分段滑轨</b> —— chip 上直接画五小格，一眼看出当前在第几档；弹层是一根滑轨 + 五个刻度，'
+      + '下面跟着当前档的说明和「更快 ↔ 更慢更贵」的对比条。'
+      + '程度感最强，不用读字也知道深浅。代价是 chip 比别的 chip 宽一截，五格在小字号下容易糊成一团。' + FACT
+  },
+  c: {
+    html: PANE('c', C_EFF, ''),
+    desc: '<b>C 三档简化</b> —— 对外只露三个档（省 / 标准 / 深入），上面加一个「扩展思考」总开关，'
+      + '剩下两档收进「更多档位」。绝大多数人只需要这三个，弹层最短最干净。'
+      + '代价是 `xhigh` / `max` 藏起来了，想用的人得多点一次；开关和档位两套语义叠在一起也容易让人愣一下。' + FACT
+  },
+  d: {
+    html: D_PANE,
+    desc: '<b>D 设置页默认</b> —— 不做成 chip，放进设置页当成「新会话默认值」，输入区只显示一行「跟随默认（高）」。'
+      + '输入区最干净，适合"定了就不动"的人。代价是想临时深挖一次得进设置页改，改完还得记着改回来 —— 而这一档恰恰是最想临时调的东西。'
+      + '<br>（图上那条 chip 是"跟随默认"的样子，点它也能就地覆盖，只是主入口在设置页。）' + FACT
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

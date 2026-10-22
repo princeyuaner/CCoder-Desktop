@@ -1,0 +1,460 @@
+/* ── 设置页（主区独立页面） ─────────────────────────────── */
+
+.settings {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  min-width: 0;
+}
+
+.settings__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px var(--pane-pad-x) 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.settings__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings__head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.saved-flash {
+  font-size: 12.5px;
+  color: var(--ok);
+}
+/* 保存中 / 还没改动时用灰字，别让「绿色」显得像刚存过 */
+.saved-flash.is-busy {
+  color: var(--text-faint);
+}
+.saved-flash--error {
+  color: var(--danger);
+}
+
+.settings__body {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  min-height: 0;
+}
+
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 12px;
+  border-right: 1px solid var(--border-soft);
+}
+.settings__navgroup {
+  padding: 12px 12px 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+}
+.settings__navgroup:first-child {
+  padding-top: 2px;
+}
+.settings__navitem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.settings__navitem:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.settings__navitem.is-active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.settings__navtag {
+  margin-left: auto;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.settings__content {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px var(--pane-pad-x) 32px;
+}
+.settings__content > * {
+  max-width: 640px;
+}
+
+/* ── 按钮 ───────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-chip);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.btn--ghost {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+.btn--ghost:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.btn--primary {
+  color: var(--accent-fg);
+  background: var(--accent);
+  font-weight: 500;
+}
+.btn--primary:disabled {
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  cursor: default;
+}
+.btn--danger {
+  color: var(--danger);
+  border-color: #4a2a28;
+}
+.btn--danger:hover {
+  background: #2a1a19;
+}
+.btn--xs {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
+/* ── CLI 标题行 ─────────────────────────────────────────── */
+
+.clipane {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+.clipane__main {
+  flex: 1;
+  min-width: 0;
+}
+.clipane__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.clipane__hint {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.clipane__todo {
+  margin: 0 0 20px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #e0c98a;
+  background: #2a2418;
+  border: 1px solid #4a3f22;
+  border-radius: var(--radius-chip);
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.switch input {
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  background: #3a3a3a;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #8a8a8a;
+  border-radius: 50%;
+  transition:
+    transform 0.12s,
+    background 0.12s;
+}
+.switch input:checked {
+  background: var(--accent);
+}
+.switch input:checked::after {
+  transform: translateX(14px);
+  background: var(--bg-app);
+}
+
+/* ── 渠道列表 ───────────────────────────────────────────── */
+
+.chlist {
+  margin: 22px 0 26px;
+}
+.chlist__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.4px;
+}
+.chlist__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 4px 4px;
+  margin-bottom: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+}
+.chlist__item:hover {
+  border-color: #3d3d3d;
+}
+.chlist__item.is-active {
+  border-color: #4a4a4a;
+  background: var(--bg-active);
+}
+/* 整行可点（选中编辑），右侧的「启用」是行内另一个按钮，故不能整块做成 button */
+.chlist__main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: left;
+}
+.chlist__name {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.chlist__meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge--ok {
+  color: var(--ok);
+  border-color: #2c4a34;
+  background: #16241a;
+}
+
+/* ── 渠道表单 ───────────────────────────────────────────── */
+
+.chform__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.chform__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.field__label {
+  padding-top: 7px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.field__body {
+  min-width: 0;
+}
+.field__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+/* 主控件下面紧跟的第二个输入框（字体自定义） */
+.field__sub {
+  margin-top: 8px;
+}
+
+.input {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  outline: none;
+  user-select: text;
+}
+.input:focus {
+  border-color: #4a4a4a;
+}
+.input:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+select.input {
+  cursor: pointer;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+.input-row .input {
+  flex: 1;
+}
+
+.envlist__row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.envlist__row .input:first-child {
+  flex: 0 0 40%;
+}
+
+.chform__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+.chform__spacer {
+  flex: 1;
+}
+
+/* ── 测试结果 ───────────────────────────────────────────── */
+
+.testresult {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.testresult.is-ok {
+  border-color: #2c4a34;
+}
+.testresult.is-fail {
+  border-color: #4a2a28;
+}
+.testresult__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.testresult.is-ok .testresult__head {
+  color: var(--ok);
+}
+.testresult.is-fail .testresult__head {
+  color: var(--danger);
+}
+.testresult__latency {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.testresult__msg {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* ── 思考深度：五档分段按钮 ─────────────────────────────── */
+
+.effpick {
+  display: flex;
+  gap: 6px;
+}
+.effpick__it {
+  flex: 1;
+  padding: 8px 0 7px;
+  text-align: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+}
+.effpick__it:hover {
+  border-color: #3d3d3d;
+}
+.effpick__it.is-on {
+  background: rgba(167, 139, 250, 0.12);
+  border-color: rgba(167, 139, 250, 0.4);
+}
+.effpick__n {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.effpick__e {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.effpick__it.is-on .effpick__n {
+  color: #ddd6fe;
+}
+.effpick__it.is-on .effpick__e {
+  color: #a78bfa;
+}
+.field__hint code {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* 与上一节之间的分隔线（思考深度紧跟在渠道表单的按钮行后面） */
+.chform--sep {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-soft);
+}

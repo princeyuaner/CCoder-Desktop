@@ -1,0 +1,462 @@
+/* ── 标题栏（无边框自绘） ───────────────────────────────── */
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--titlebar-h);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-soft);
+  -webkit-app-region: drag;
+}
+
+.titlebar__right {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__panel {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 100%;
+  color: var(--text-muted);
+}
+.titlebar__panel:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.wctl {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+  color: var(--text-dim);
+}
+.wctl:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.wctl--close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+/* ── 左侧栏 ─────────────────────────────────────────────── */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-soft);
+  padding: 10px 10px 6px;
+}
+
+.titlebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 12px;
+}
+.titlebar__brand-mark {
+  color: #d8d8d8;
+}
+.titlebar__brand-name {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+.sidebar__new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 9px 12px;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.sidebar__new:hover {
+  background: #2b2b2b;
+  border-color: #3a3a3a;
+}
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 8px;
+}
+
+.navitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.navitem:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.sidebar__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+}
+.sidebar__section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.4px;
+}
+.sidebar__section-tools {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.sidebar__section-head:hover .sidebar__section-tools {
+  opacity: 1;
+}
+
+.sidebar__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.sidebar__hint {
+  margin: 6px 10px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-faint);
+}
+
+.wsgroup__count {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.iconbtn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+}
+.iconbtn:hover {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.iconbtn--sm {
+  width: 22px;
+  height: 22px;
+}
+
+/* 工作区分组 */
+.wsgroup {
+  margin-bottom: 6px;
+}
+.wsgroup__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  color: var(--text-dim);
+}
+.wsgroup__icon {
+  color: var(--text-muted);
+  flex: none;
+}
+.wsgroup__name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 外层只负责 hover 底色和摆位；内边距全在 .session__main 上，
+   否则两处 padding 会叠起来，行距看着比别处宽一截 */
+.session {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.session:hover {
+  background: var(--bg-hover);
+}
+.session.is-active {
+  background: var(--bg-active);
+}
+.session__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session.is-active .session__title {
+  color: var(--text);
+}
+.session__time {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+/* 在跑的那一行，时间位置写状态字（见 Sidebar 里的注释） */
+.session__time--running {
+  color: var(--running);
+}
+
+.wsgroup__expand {
+  /*
+   * 跟会话行对齐，拆成两段：
+   *  - margin-left 16：会话行本身的缩进（见下面的 .session）；
+   *  - padding-left 12 + 16 + 9：会话行左内边距、CLI 图标、行内 gap。
+   * 这样文字正好落在**会话标题**那一列，hover 底色也跟会话行同宽同起点。
+   */
+  width: calc(100% - 16px);
+  margin-left: 16px;
+  padding: 6px 10px 6px calc(12px + 16px + 9px);
+  font-size: 13px;
+  color: var(--text-faint);
+  text-align: left;
+  border-radius: var(--radius-sm);
+}
+.wsgroup__expand:hover {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+}
+
+.sidebar__settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.sidebar__settings:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* ── 主区骨架 ───────────────────────────────────────────── */
+
+/*
+ * 主区 = 对话列 + 右侧执行台。
+ *
+ * 对话列内部用 flex 而不是固定行数的 grid：标题/提示条/审批提示都是条件渲染的，
+ * 子元素个数会变。固定 grid-template-rows 一旦对不上，1fr 就落在错的那一行上，
+ * 转写区会被压扁。
+ */
+.mainpane {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-app);
+}
+
+.chatcol {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 执行台展开时对话列窄一档，左右内边距跟着收一点，正文才不至于挤成一条 */
+.mainpane.has-panel {
+  --pane-pad-x: 28px;
+}
+
+/* ── 工作区标题上的操作按钮（hover 才浮出来） ───────────── */
+
+.wsgroup__acts {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  opacity: 0;
+}
+/* 平时收着：侧栏只有 280px，常驻会把目录名挤掉一截 */
+.wsgroup__head:hover .wsgroup__acts,
+.wsgroup__acts:focus-within {
+  opacity: 1;
+}
+.wsact {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-faint);
+  border-radius: 5px;
+}
+.wsact:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.wsact--del:hover {
+  background: rgba(244, 63, 94, 0.14);
+  color: #fda4af;
+}
+
+/* ── 会话行：主体 + hover 才出的删除键 ─────────────────── */
+
+.session__main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  /* 竖向内边距收窄 + 删除键压到 20px：这两个里谁大谁决定行高，
+     22px 的按钮会把行撑到 34px，比改版前还松 */
+  padding: 5px 4px 5px 12px;
+  text-align: left;
+}
+.session__del {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 5px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-faint);
+  border-radius: 5px;
+  opacity: 0;
+}
+.session:hover .session__del,
+.session__del:focus-visible {
+  opacity: 1;
+}
+.session__del:hover {
+  background: rgba(244, 63, 94, 0.14);
+  color: #fda4af;
+}
+
+/* ── 目录行 vs 会话行：靠缩进和分块分开（方案 D）─────────
+ * 之前两者都是 13~13.5px、都不缩进，层级是反的（会话比目录还大）。
+ * 这里目录行不缩进、加重，会话行整体右移，目录之间加隔线。
+ */
+
+.wsgroup {
+  padding-bottom: 8px;
+}
+/* 只在**两个目录之间**画线，末尾那个不画 —— 不然列表底下会吊着一条悬空的线 */
+.wsgroup + .wsgroup {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.wsgroup__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* 计数从裸数字变成小胶囊，一眼看出是"分组"不是"又一条会话" */
+.wsgroup__count {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  background: var(--bg-active);
+  border-radius: var(--radius-pill);
+}
+
+.session {
+  margin-left: 16px;
+}
+.session__title {
+  font-size: 13px;
+}
+
+/* ── 会话来自哪个 CLI ───────────────────────────────────── */
+
+/* 方案 ④：裸字形，不着底色 —— 品牌色本身就在替你区分 */
+.session__cli {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+.session__cli svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* 品牌色：Claude 是珊瑚橙 #D97757；OpenAI 本来就是黑白，不硬安一个绿 */
+.session__cli--claude svg {
+  fill: #d97757;
+}
+.session__cli--codex svg {
+  fill: #e8e8e8;
+}
+
+/*
+ * 会话正在跑：图标原地跳。
+ *
+ * 为什么是「跳」而不是「转」：这个图标只有 16px，转起来根本看不出在转
+ * （一帧转过去，字形还一直是斜的，反而像渲染坏了）；位移是同样尺寸下
+ * 唯一还看得见的维度。0.9s 一次、起落 5px，落地时压一下（scaleY）才有重量感 ——
+ * 只做上下平移的话像在飘。
+ *
+ * 幅度写死绝对值，不跟字号走：侧栏这个图标尺寸是固定的。
+ * 动效只是**加强**：真正说明状态的是 title 里的「· 运行中」，
+ * 所以下面 prefers-reduced-motion 那条直接关掉动画也不会丢信息。
+ */
+@keyframes session-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  35% {
+    transform: translateY(-5px) scaleY(1.08);
+  }
+  65% {
+    transform: translateY(0) scaleY(0.92);
+  }
+}
+
+.session__cli.is-running svg {
+  animation: session-bounce 0.9s ease-in-out infinite;
+}
+
+/* 系统里开了「减少动态效果」就老老实实别动 */
+@media (prefers-reduced-motion: reduce) {
+  .session__cli.is-running svg {
+    animation: none;
+  }
+}

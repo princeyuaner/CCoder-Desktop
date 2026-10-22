@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>切换提示 · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+#bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1000px; line-height: 1.8; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc code { color: #b8a8e8; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#stage { padding: 18px 24px 0; }
+
+/* ── 场景外壳（照抄真实转写区） ─────────────────────────── */
+.pane {
+  width: 1080px;
+  background: #191919;
+  border: 1px solid #26262e; border-radius: 12px;
+  padding: 26px 44px 30px;
+}
+.inner { max-width: 820px; margin: 0 auto; }
+.tl { position: relative; }
+.tl::before {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px;
+  width: 1px; background: #2c2c2c;
+}
+.row { position: relative; padding-left: 26px; margin-bottom: 12px; }
+.dot {
+  position: absolute; left: 0; top: 5px; width: 9px; height: 9px;
+  border-radius: 50%; background: #3a3a46; box-shadow: 0 0 0 3px #191919;
+}
+.dot.me { background: #22d3ee; box-shadow: 0 0 0 3px #191919, 0 0 10px rgba(34,211,238,.55); }
+.row--me { display: flex; justify-content: flex-end; }
+.me {
+  display: inline-block; max-width: 78%; padding: 7px 12px;
+  font-size: 14px; line-height: 1.65; color: #d8f8ff;
+  background: rgba(34,211,238,.09); border: 1px solid rgba(34,211,238,.22);
+  border-radius: 8px;
+}
+.say { font-size: 14px; line-height: 1.75; color: #dcdce6; }
+.say .ic { padding: 2px 6px; font-size: .86em; border-radius: 5px; background: #26262f; color: #ddd6fe; }
+.sep {
+  padding-left: 26px; margin: 16px 0 14px;
+  font-size: 11px; letter-spacing: .3px; color: #565664;
+}
+
+/* 系统色：思考深度用紫、权限模式用琥珀 —— 跟 chip 上那两个色对上 */
+:root { --eff: #a78bfa; --perm: #fcd34d; }
+
+/* ══ A · 极简分隔行 ═════════════════════════════════════ */
+[data-v="a"] .sw {
+  padding-left: 26px; margin: 16px 0 14px;
+  font-size: 11.5px; letter-spacing: .3px; color: #7a7a8c;
+}
+[data-v="a"] .sw em { font-style: normal; color: #565664; }
+[data-v="a"] .sw .arw { margin: 0 5px; color: #4a4a55; }
+[data-v="a"] .sw .to { color: #ddd6fe; font-weight: 600; }
+
+/* ══ B · 系统行（轨道上的齿轮点） ═══════════════════════ */
+[data-v="b"] .dot--sys { background: var(--eff); }
+[data-v="b"] .dot--sys.is-perm { background: var(--perm); }
+[data-v="b"] .sw { padding-top: 1px; }
+[data-v="b"] .sw__t { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: #dcdce6; }
+[data-v="b"] .sw__t .k { color: #8a8a9c; }
+[data-v="b"] .sw__t .from { color: #6b6b6b; }
+[data-v="b"] .sw__t .arw { color: #4a4a55; }
+[data-v="b"] .sw__t .to { color: #ddd6fe; font-weight: 600; }
+[data-v="b"] .sw__d { margin-top: 3px; font-size: 11.5px; line-height: 1.6; color: #6b6b6b; }
+[data-v="b"] .sw__d code { color: #8a8a9c; }
+
+/* ══ C · 前后对照卡 ═════════════════════════════════════ */
+[data-v="c"] .dot--sys { background: var(--eff); }
+[data-v="c"] .card {
+  display: inline-block; min-width: 340px;
+  padding: 11px 14px 12px;
+  background: rgba(255,255,255,.032);
+  border: 1px solid #2c2c34; border-radius: 10px;
+}
+[data-v="c"] .card__h { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #7a7a8c; }
+[data-v="c"] .card__h .tag {
+  padding: 1px 6px; border-radius: 4px; font-size: 10.5px; letter-spacing: .4px;
+  color: #c4b5fd; background: rgba(167,139,250,.12);
+}
+[data-v="c"] .card__v {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 8px; font-size: 15px;
+}
+[data-v="c"] .card__v .from { color: #6b6b6b; }
+[data-v="c"] .card__v .arw { color: #4a4a55; font-size: 13px; }
+[data-v="c"] .card__v .to { color: #ddd6fe; font-weight: 600; }
+[data-v="c"] .card__f {
+  margin-top: 9px; padding-top: 9px; border-top: 1px solid #26262c;
+  font-size: 11.5px; line-height: 1.6; color: #6b6b6b;
+}
+[data-v="c"] .card__f code { color: #8a8a9c; }
+
+/* ══ D · 紧凑胶囊 ═══════════════════════════════════════ */
+[data-v="d"] .dot--sys { background: var(--eff); }
+[data-v="d"] .pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px; font-size: 11.5px;
+  color: #c4b5fd; background: rgba(167,139,250,.09);
+  border: 1px solid rgba(167,139,250,.24);
+}
+[data-v="d"] .pill .sym { font-size: 10px; }
+[data-v="d"] .pill .k { color: #7a6fa8; }
+[data-v="d"] .pill .to { font-weight: 600; }
+[data-v="d"] .pill__more { margin-left: 9px; font-size: 11.5px; color: #4a4a55; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>切换提示 · 四个方案</h1>
+  <button class="tabbtn" data-k="a">A 极简分隔行</button>
+  <button class="tabbtn" data-k="b">B 系统行</button>
+  <button class="tabbtn" data-k="c">C 前后对照卡</button>
+  <button class="tabbtn" data-k="d">D 紧凑胶囊</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ══ 事实 ════════════════════════════════════════════════
+ * 模型 / 渠道 / 思考深度 / 权限模式走的是**同一条** reconfigure 路径：
+ * 都是 CLI 启动参数，改了就得换进程，再用 --resume 把原会话接回来。
+ * 所以这一条提示天然能覆盖四种切换，不用各写一套。
+ *
+ * 时机上有个必须说清的点：reconfigure 会立刻把旧进程收掉，但**新进程
+ * 是下一轮发送时才拉起来的**（ensureSession 是懒的）。所以此刻状态是
+ * "已登记、尚未生效"，文案不能写成"已切换完成"。
+ */
+const FACT = `<span class="fact">模型 / 渠道 / 思考深度 / 权限模式走的是<b>同一条</b> <code>reconfigure</code> 路径 ——
+都是启动参数，改了就得换进程再 <code>--resume</code> 接回。所以一条提示能覆盖这四种切换。
+<br>但时机上要说准：旧进程是<b>立刻</b>收掉的，新进程<b>下一轮发送时</b>才拉起来（懒启动）。
+所以文案只能写到"已登记"，写"已切换完成"是假的。</span>`
+
+/* ── 场景：一段真实对话，切换发生在两轮之间 ────────────── */
+const CHAT = (sw) => `
+<div class="pane" data-v="V">
+  <div class="inner"><div class="tl">
+    <div class="row row--me"><span class="dot me"></span>
+      <span class="me">把 app.py 里的返回值改成读环境变量，然后跑一下测试</span></div>
+    <div class="row"><span class="dot"></span>
+      <div class="say">改好了。<code class="ic">app.py</code> 里返回的是写死的字符串，我把它改成读
+        <code class="ic">SERVICE_NAME</code>，没设的时候回落到 <code class="ic">"hello"</code>，行为跟现在一样。两个测试都过。</div></div>
+    <div class="sep">已完成 · 用时 12 秒 · 3 步 · 1.2k tok · 10月21日 13:52</div>
+    ${sw}
+    <div class="row row--me"><span class="dot me"></span>
+      <span class="me">再看看有没有别的硬编码，顺便把错误处理补一下</span></div>
+  </div></div>
+</div>`
+
+/* ══ A · 极简分隔行 ═════════════════════════════════════ */
+const SW_A = `
+  <div class="sw">思考深度 <em>高</em> <span class="arw">→</span> <span class="to">极高</span>
+    <em>· 下一轮生效</em></div>`
+
+/* ══ B · 系统行 ═════════════════════════════════════════ */
+const SW_B = `
+  <div class="row"><span class="dot dot--sys"></span>
+    <div class="sw">
+      <div class="sw__t"><span class="k">思考深度</span>
+        <span class="from">高</span><span class="arw">→</span><span class="to">极高</span></div>
+      <div class="sw__d">下一轮生效。旧进程已经收掉，下次发送会用新参数重开，并用
+        <code>--resume</code> 接回当前会话 —— 上下文不丢。</div>
+    </div>
+  </div>`
+
+/* ══ C · 前后对照卡 ═════════════════════════════════════ */
+const SW_C = `
+  <div class="row"><span class="dot dot--sys"></span>
+    <div class="card">
+      <div class="card__h"><span class="tag">思考深度</span>已登记，下一轮生效</div>
+      <div class="card__v"><span class="from">高</span><span class="arw">→</span><span class="to">极高</span></div>
+      <div class="card__f">下次发送会用新参数重开进程，并用 <code>--resume</code> 接回当前会话，上下文不丢。</div>
+    </div>
+  </div>`
+
+/* ══ D · 紧凑胶囊 ═══════════════════════════════════════ */
+const SW_D = `
+  <div class="row"><span class="dot dot--sys"></span>
+    <div>
+      <span class="pill"><span class="sym">◈</span><span class="k">思考深度</span>
+        <span>高 → <span class="to">极高</span></span></span>
+      <span class="pill__more">下一轮生效 · 上下文不丢</span>
+    </div>
+  </div>`
+
+const VARIANTS = {
+  a: {
+    html: CHAT(SW_A).replace('data-v="V"', 'data-v="a"'),
+    desc: '<b>A 极简分隔行</b> —— 完全复用现有"已完成 · 用时…"那条分隔行的样式，只是把内容换成切换说明，一行讲完。'
+      + '最安静，不打断阅读节奏。代价是它长得太像回合分隔条，扫过去会当成"这轮跑完了"的一部分而漏掉 —— '
+      + '而漏掉恰恰是最要命的：用户以为自己还在「高」，其实已经是「极高」了。' + FACT
+  },
+  b: {
+    html: CHAT(SW_B).replace('data-v="V"', 'data-v="b"'),
+    desc: '<b>B 系统行</b> —— 在轨道上占一个节点，点用系统色（思考深度紫、权限模式琥珀，跟输入区那两个 chip 对得上），'
+      + '主行写「思考深度 高 → 极高」，副行解释发生了什么。'
+      + '和现有 rail 同构，结构上就是个正经节点，漏不掉；信息也够。'
+      + '代价是比 A 占地方，连续切几次会把对话顶得比较散。' + FACT
+  },
+  c: {
+    html: CHAT(SW_C).replace('data-v="V"', 'data-v="c"'),
+    desc: '<b>C 前后对照卡</b> —— 一张小卡：上面一行标签「思考深度 · 已登记，下一轮生效」，中间大字写「高 → 极高」，'
+      + '下面一行脚注讲进程怎么换的。信息最全、最不可能误读。'
+      + '代价是重量级 —— 一次切换占的版面比助手一整段回答还大，连切几次会把转写区搞得像日志。' + FACT
+  },
+  d: {
+    html: CHAT(SW_D).replace('data-v="V"', 'data-v="d"'),
+    desc: '<b>D 紧凑胶囊</b> —— 一个小药丸「◈ 思考深度 高 → 极高」，后面跟一行灰字「下一轮生效 · 上下文不丢」。'
+      + '占地方最小，靠颜色和形状跟正文区分开，连续切换也不吵。'
+      + '代价是药丸窄，长一点的档位名（比如「自动接受编辑」）会把它撑得很长，权限模式那条尤其明显。' + FACT
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>
