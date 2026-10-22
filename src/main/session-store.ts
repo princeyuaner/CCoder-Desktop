@@ -21,6 +21,16 @@ const ROOT = (): string => join(homedir(), '.claude', 'projects')
 /** 只读文件头。首条用户消息几乎总在前几 KB，没必要把 1MB 的文件全读进来。 */
 const HEAD_BYTES = 32 * 1024
 
+/**
+ * 首条消息带图片时，一个 JSONL 行就有几百 KB（图片 base64），而 `cwd` 又排在
+ * 整条记录的最后 —— 只读 32KB 会停在 base64 中间，既拿不到 cwd 也拿不到标题，
+ * 这条会话于是被整个跳过（侧栏里看不到）。头里找不到 cwd 时按需扩大重读。
+ */
+const MAX_HEAD_BYTES = 8 * 1024 * 1024
+
+/** 文件尾兜底：即使首行超过 MAX_HEAD_BYTES，cwd 也总在最后一条记录末尾附近 */
+const TAIL_BYTES = 256 * 1024
+
 /** 单份会话最多回放这么多条记录，防一份异常大的文件把界面拖死 */
 const MAX_RECORDS = 20_000
 
@@ -28,19 +38,31 @@ const obj = (v: unknown): Record<string, unknown> | undefined =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
-function readHead(file: string): string {
+function readHead(file: string, bytes = HEAD_BYTES): string {
   const fd = openSync(file, 'r')
   try {
-    const buf = Buffer.alloc(HEAD_BYTES)
-    const n = readSync(fd, buf, 0, HEAD_BYTES, 0)
+    const buf = Buffer.alloc(bytes)
+    const n = readSync(fd, buf, 0, bytes, 0)
     return buf.subarray(0, n).toString('utf8')
   } finally {
     closeSync(fd)
   }
 }
 
+/**
+ * 首条消息可能带着 IDE 代码引用块（<ide_reference>…</ide_reference>）。
+ * 引用块动辄几百行，直接拿来当标题会把侧栏撑成一串 XML —— 先剥掉，
+ * 只留用户自己写的说明。
+ */
+function stripIdeRefs(s: string): string {
+  return s
+    .replace(/<ide_reference\s+[^>]*>[\s\S]*?<\/ide_reference>/g, ' ')
+    // 头部被截断时闭合标签可能不在，从开标签一直切到结尾
+    .replace(/<ide_reference\b[\s\S]*$/g, ' ')
+}
+
 function cleanTitle(s: string): string {
-  return s.replace(/\s+/g, ' ').trim().slice(0, 80)
+  return stripIdeRefs(s).replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 
 /**
@@ -50,19 +72,55 @@ function cleanTitle(s: string): string {
  * 给 400+ 份文件各读 32KB 头 —— 实测 110ms，而且是同步读，期间主进程
  * 一个 IPC 都处理不了。文件没变就直接复用上次的解析结果，只剩 statSync。
  */
-const headCache = new Map<string, { mtimeMs: number; size: number; cwd: string; title: string }>()
+const headCache = new Map<
+  string,
+  { mtimeMs: number; size: number; cwd: string; title: string; createdAt: number }
+>()
 
-/** 从文件头里抠出 cwd 和标题 */
-function parseHead(head: string): { cwd: string; title: string } {
+/** 从文件头里抠出 cwd、标题和创建时间 */
+function parseHead(head: string): { cwd: string; title: string; createdAt: number } {
   let cwd = ''
   let title = ''
+  let createdAt = 0
   for (const line of head.split('\n')) {
     if (!line.trim().startsWith('{')) continue
     let rec: Record<string, unknown>
     try {
       rec = JSON.parse(line) as Record<string, unknown>
     } catch {
-      continue // 头部可能截断在半个 JSON 上，正常
+      // 头部可能截断在半个 JSON 上。第一条用户消息带了一大段 IDE 代码引用时
+      // 很容易超过 32KB，整行解析不了 —— 但 cwd 和开头那句人话都在前缀里，
+      // 直接抠出来，别让侧栏标题变成「无标题」。
+      if (!title && line.includes('"type":"user"') && !line.includes('"isSidechain":true')) {
+        if (!cwd) {
+          const cm = line.match(/"cwd"\s*:\s*"((?:\\.|[^"\\])*)"/)
+          if (cm) {
+            try {
+              cwd = JSON.parse(`"${cm[1]}"`) as string
+            } catch {
+              cwd = cm[1]
+            }
+          }
+        }
+        // 不要要求闭合引号：第一条消息可能整行都被截断，只取开头一段
+        const tm = line.match(/"text"\s*:\s*"((?:\\.|[^"\\]){0,2048})/)
+        if (tm) {
+          let raw = tm[1]
+          try {
+            raw = JSON.parse(`"${raw}"`) as string
+          } catch {
+            // 转义序列本身被截断时直接用原文
+          }
+          if (raw.trim() && !looksInjected(raw)) title = cleanTitle(raw)
+        }
+      }
+      continue
+    }
+    // 第一条带时间戳的记录就是会话的创建时间。文件是追加写的，顺序可靠；
+    // 首条可能是 queue-operation 而不是用户消息，同样是创建时刻。
+    if (!createdAt && typeof rec.timestamp === 'string') {
+      const t = Date.parse(rec.timestamp)
+      if (Number.isFinite(t)) createdAt = t
     }
     if (!cwd && typeof rec.cwd === 'string') cwd = rec.cwd
     if (title) continue
@@ -84,7 +142,52 @@ function parseHead(head: string): { cwd: string; title: string } {
     // 图片-only 的首条消息没有文字，给它一个能认出来的标题
     else if (!title && hasImage) title = '图片消息'
   }
-  return { cwd, title }
+  return { cwd, title, createdAt }
+}
+
+/**
+ * 解析文件头；没拿到 cwd 就按 8 倍扩大重读（32KB → 256KB → 2MB → 8MB）。
+ * 图片消息的 base64 把 cwd/标题推到了几百 KB 之外，一次读满 8MB 太浪费。
+ */
+function parseHeadExpanding(
+  file: string,
+  size: number
+): { head: { cwd: string; title: string; createdAt: number }; text: string } {
+  let bytes = Math.min(size, HEAD_BYTES)
+  let text = readHead(file, bytes)
+  let head = parseHead(text)
+  while (!head.cwd && bytes < MAX_HEAD_BYTES && bytes < size) {
+    bytes = Math.min(bytes * 8, MAX_HEAD_BYTES, size)
+    text = readHead(file, bytes)
+    head = parseHead(text)
+  }
+  return { head, text }
+}
+
+/**
+ * 从文件尾找 cwd —— 首行大到 8MB 还装不下时（连发多张大图）的兜底。
+ * cwd 排在每条记录的最后，所以文件最后 256KB 一定覆盖得到。
+ */
+function readTailCwd(file: string, size: number): string {
+  const bytes = Math.min(TAIL_BYTES, size)
+  if (bytes <= 0) return ''
+  const fd = openSync(file, 'r')
+  try {
+    const buf = Buffer.alloc(bytes)
+    const n = readSync(fd, buf, 0, bytes, size - bytes)
+    const m = buf
+      .subarray(0, n)
+      .toString('utf8')
+      .match(/"cwd"\s*:\s*"((?:\\.|[^"\\])*)"/)
+    if (!m) return ''
+    try {
+      return JSON.parse(`"${m[1]}"`) as string
+    } catch {
+      return m[1]
+    }
+  } finally {
+    closeSync(fd)
+  }
 }
 
 /**
@@ -125,17 +228,29 @@ export function listStoredSessions(): StoredSession[] {
         const st = statSync(full)
         if (!st.isFile()) continue
 
-        // mtime 和大小都没变 → 上次解析出来的 cwd/标题照样成立
+        // mtime 和大小都没变 → 上次解析出来的 cwd/标题/创建时间照样成立
         const hit = headCache.get(full)
-        let head: { cwd: string; title: string }
+        let head: { cwd: string; title: string; createdAt: number }
         if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
           head = hit
         } else {
-          head = parseHead(readHead(full))
+          const parsed = parseHeadExpanding(full, st.size)
+          head = parsed.head
+          // 首行超过 8MB（连发多张大图）：cwd 从文件尾兜底，标题退成「图片消息」
+          if (!head.cwd) {
+            const cwd = readTailCwd(full, st.size)
+            if (cwd) {
+              head = {
+                cwd,
+                title: head.title || (parsed.text.includes('"type":"image"') ? '图片消息' : ''),
+                createdAt: head.createdAt
+              }
+            }
+          }
           headCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, ...head })
         }
 
-        const { cwd, title } = head
+        const { cwd, title, createdAt } = head
         if (!cwd) continue // 连 cwd 都读不到的文件，列表里没意义
         const id = f.slice(0, -'.jsonl'.length)
         const k = keyOf(cwd, id)
@@ -145,6 +260,8 @@ export function listStoredSessions(): StoredSession[] {
           id,
           cwd,
           title: title || '(无标题)',
+          // 记录里没时间戳（老文件/被截断）就退回到文件创建时间，再退 mtime
+          createdAt: createdAt || st.birthtimeMs || st.mtimeMs,
           updatedAt: st.mtimeMs,
           // 这里只扫 ~/.claude/projects，所以必然是 claude。
           // 接 Codex 时它会有自己的一份扫描，把各自的 cli 填进来即可。
@@ -161,7 +278,17 @@ export function listStoredSessions(): StoredSession[] {
     if (!seen.has(k)) headCache.delete(k)
   }
 
-  return out.sort((a, b) => b.updatedAt - a.updatedAt)
+  /*
+   * 默认按**创建时间**倒序，而不是 mtime。
+   *
+   * mtime 在会话运行期间每写一条记录就变一次，而列表会在每个 turn_end
+   * 重拉 —— 后台跑着几条会话时，谁刚结束一轮谁就跳到顶部，看起来像在乱序。
+   * 创建时间不会变，新会话仍然会出现在顶部，运行中的行则原地不动。
+   * 同一毫秒创建（比如批量导入）再用 id 兜底，避免退化成目录遍历顺序。
+   */
+  return out.sort(
+    (a, b) => b.createdAt - a.createdAt || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)
+  )
 }
 
 function findFile(cwd: string, id: string): string | null {

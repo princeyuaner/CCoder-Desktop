@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { activeChannelOf, cliConfig, type CliId } from '@shared/settings'
+import type { ChatActiveInfo, IdeCodeRef } from '@shared/ide-chat'
+import { parseIdeRefs } from '../ideRef'
 import { MODE_LABEL } from '../constants'
 import { useSettings } from '../useSettings'
 import {
@@ -26,9 +28,22 @@ interface Props {
   cwdReady: boolean
   /** /clear：切到同目录下的一条新会话 */
   onNewSession: (cwd?: string) => void
+  /** 把当前会话（含真实 cwd / 标题）报给 App，再转给主进程 */
+  onActiveInfo: (info: ChatActiveInfo) => void
+  /** IDE 发来的代码引用，等 Composer 收下 */
+  incomingRefs: { nonce: number; refs: IdeCodeRef[] } | null
+  onIncomingConsumed: () => void
 }
 
-export function MainPane({ active, fallbackCwd, cwdReady, onNewSession }: Props): JSX.Element {
+export function MainPane({
+  active,
+  fallbackCwd,
+  cwdReady,
+  onNewSession,
+  onActiveInfo,
+  incomingRefs,
+  onIncomingConsumed
+}: Props): JSX.Element {
   const [tab, setTab] = useState<TabKey>('chat')
   /** 新会话用哪个 CLI。换 CLI 就是另一套 provider + 另一份会话记录，等于开新会话 */
   const [pickedCli, setPickedCli] = useState<CliId>('claude')
@@ -78,7 +93,8 @@ export function MainPane({ active, fallbackCwd, cwdReady, onNewSession }: Props)
    * 主对话这一轮结束了，后台子代理可能还在跑 —— 只看 chat.busy 会把它
    * 误标成已完成。只要还有 running 的代理，面板就继续显示运行中。
    */
-  const panelLive = running || chat.run.agents.some((a) => a.status === 'running')
+  const agentsRunning = chat.run.agents.filter((a) => a.status === 'running').length
+  const panelLive = running || agentsRunning > 0
 
   /**
    * 执行台的展开状态。
@@ -175,16 +191,35 @@ export function MainPane({ active, fallbackCwd, cwdReady, onNewSession }: Props)
   const changedFiles = chat.files
 
   const firstUser = chat.items.find((i) => i.kind === 'user')
+  // 首条消息可能带着 IDE 代码引用块，标题只取用户自己写的那部分
+  const firstText =
+    firstUser && firstUser.kind === 'user' ? parseIdeRefs(firstUser.text).text.trim() : ''
   const title =
     active.kind === 'stored'
       ? active.title
       : firstUser && firstUser.kind === 'user'
-        ? firstUser.text.trim()
-          ? firstUser.text.slice(0, 40)
+        ? firstText
+          ? firstText.slice(0, 40)
           : firstUser.images?.length
             ? '图片消息'
             : '新会话'
         : '新会话'
+
+  /*
+   * IDE 的「发送到聊天」要知道主窗口现在停在哪个工作区 / 哪条会话。
+   * 这里报的是**有效 cwd**（含设置里的默认目录和侧栏兜底），
+   * App 自己算不出来。
+   */
+  const activeId = active.kind === 'stored' ? active.id : null
+  useEffect(() => {
+    onActiveInfo({
+      cwd,
+      cli,
+      id: activeId,
+      title,
+      isNew: active.kind === 'new'
+    })
+  }, [cwd, cli, activeId, title, active.kind, onActiveInfo])
 
   return (
     <main className={`mainpane ${panelOpen ? 'has-panel' : ''}`}>
@@ -218,11 +253,13 @@ export function MainPane({ active, fallbackCwd, cwdReady, onNewSession }: Props)
           items={chat.items}
           tab={tab}
           status={chat.status}
+          agentsRunning={agentsRunning}
           // 换会话时转写区的滚动位置要复位。带上 cli —— 换 CLI 也是换会话
           sessionKey={`${cli}\u0000${sessionKey}`}
           showTimestamps={settings.showTimestamps}
           thinkingOpen={settings.thinkingOpen}
           toolDetail={settings.toolDetail}
+          cwd={cwd}
         />
         {/*
           提问抽屉：贴在输入框上方，不遮转写区。
@@ -238,9 +275,16 @@ export function MainPane({ active, fallbackCwd, cwdReady, onNewSession }: Props)
         )}
 
         <Composer
-          onSend={(input) => void chat.send(input)}
+          onSend={(input, meta) => void chat.send(input, meta)}
           onInterrupt={chat.interrupt}
           running={running}
+          queue={chat.queue}
+          queuePaused={chat.queuePaused}
+          onRemoveQueued={chat.removeQueued}
+          onClearQueue={chat.clearQueue}
+          onTakeQueued={chat.takeQueued}
+          onMoveQueued={chat.moveQueued}
+          onResumeQueue={chat.resumeQueue}
           locked={pendingQuestions.length > 0}
           cli={cli}
           channels={cfg.channels}
@@ -261,8 +305,16 @@ export function MainPane({ active, fallbackCwd, cwdReady, onNewSession }: Props)
           onModeChange={chat.applyPermissionMode}
           onEffortChange={chat.applyEffort}
           onClearConversation={clearConversation}
+          incomingRefs={incomingRefs}
+          onIncomingConsumed={onIncomingConsumed}
         />
-        <StatusBar turns={chat.turns} steps={chat.steps} usage={chat.usage} />
+        <StatusBar
+          turns={chat.turns}
+          steps={chat.steps}
+          usage={chat.usage}
+          live={chat.busy}
+          liveRate={chat.liveRate}
+        />
       </div>
 
       {/*
@@ -271,8 +323,12 @@ export function MainPane({ active, fallbackCwd, cwdReady, onNewSession }: Props)
       */}
       {panelOpen && (
         <RunPanel
+          // 换会话时把卡片里的弹窗选择一起清掉
+          key={`${cli}\u0000${sessionKey}`}
           run={chat.run}
           live={panelLive}
+          running={running}
+          onInterrupt={chat.interrupt}
           onCollapse={() => setPanelPref(false)}
           onOpenTrace={() => {
             setTab('trace')

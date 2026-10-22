@@ -13,9 +13,12 @@ import type { ToolDetail } from '@shared/settings'
 import { toolFamily, type ToolFamily } from '@shared/tool'
 import type { ChatItem, SystemKey } from '../useChat'
 import { RichText } from './rich'
-import { fmtDuration, fmtTokens, totalTokens } from './format'
+import { fmtClock, fmtDuration, fmtTokens, totalTokens } from './format'
 import type { TabKey } from './TabBar'
-import { IconChevronDown, IconChevronRight } from './Icons'
+import { IconChevronDown, IconChevronRight, IconOpenInIde } from './Icons'
+import { notify } from '../notice'
+import { baseName } from '@shared/path'
+import { parseIdeRefs, refRangeLabel, type ParsedIdeRef } from '../ideRef'
 
 /** 离底部多近算"贴着底部"（像素） */
 const NEAR_BOTTOM = 48
@@ -59,12 +62,15 @@ interface DisplayPrefs {
   showTimestamps: boolean
   thinkingOpen: boolean
   toolDetail: ToolDetail
+  /** 会话工作区 —— 工具卡点开文件时，主进程用它把绝对路径换算成 rel */
+  cwd: string
 }
 
 const DEFAULT_DISPLAY: DisplayPrefs = {
   showTimestamps: false,
   thinkingOpen: false,
-  toolDetail: 'full'
+  toolDetail: 'full',
+  cwd: ''
 }
 
 const DisplayContext = createContext<DisplayPrefs>(DEFAULT_DISPLAY)
@@ -96,22 +102,32 @@ interface Props {
    * 对外都是"这一轮没结束"，但对用户是两件事，占位文案不一样。
    */
   status: SessionStatus
+  /**
+   * 还在跑的子代理数量。Agent/Task 调用不进转写区（由执行台展示），
+   * 所以子代理跑着的时候转写区最后一条是"落定"的，会被判成在等模型。
+   * 带上这个数才能把占位文案说准。
+   */
+  agentsRunning: number
   /** 换会话时用它复位滚动位置 */
   sessionKey: string
   /** 以下三项来自设置 → 通用 → 对话 */
   showTimestamps: boolean
   thinkingOpen: boolean
   toolDetail: ToolDetail
+  /** 当前会话的工作区目录（工具卡里的文件要在 IDE 中打开） */
+  cwd: string
 }
 
 export function Transcript({
   items,
   tab,
   status,
+  agentsRunning,
   sessionKey,
   showTimestamps,
   thinkingOpen,
-  toolDetail
+  toolDetail,
+  cwd
 }: Props): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   /**
@@ -120,21 +136,38 @@ export function Transcript({
    * 同一批 commit 里读到旧值就会漏滚一次。
    */
   const pinnedRef = useRef(true)
+  /**
+   * 上一次**由我们**写进去的 scrollTop。
+   *
+   * 用来分辨这次滚动事件是"用户翻页"还是"内容变高导致的位移"。
+   * 只看到 `scrollHeight - scrollTop` 变大就判定用户离开了底部是错的：
+   * 切到一条正在跑的会话时，历史记录和新的流式增量会在一两帧里灌进来，
+   * 我们刚把 scrollTop 写到底，下一秒内容又长高了 —— 距离变大，
+   * 但根本没人滚动，`pinnedRef` 却被翻成 false，之后就不再自动跟随了。
+   * 这正是"切换运行中的会话偶尔不定位到最后一行"的根因。
+   */
+  const autoTopRef = useRef(0)
   const [showJump, setShowJump] = useState(false)
 
   // 只在设置真的变了时换 context 值，避免每来一个 delta 都把消费方全部重渲染
   const display = useMemo<DisplayPrefs>(
-    () => ({ showTimestamps, thinkingOpen, toolDetail }),
-    [showTimestamps, thinkingOpen, toolDetail]
+    () => ({ showTimestamps, thinkingOpen, toolDetail, cwd }),
+    [showTimestamps, thinkingOpen, toolDetail, cwd]
   )
 
-  const scrollToBottom = useCallback(() => {
+  /** 贴到底部，并记下浏览器实际落在哪儿（内容比视口短时会被夹到 0） */
+  const stickToBottom = useCallback((): void => {
     const el = scrollRef.current
     if (!el) return
+    el.scrollTop = el.scrollHeight
+    autoTopRef.current = el.scrollTop
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
     pinnedRef.current = true
     setShowJump(false)
-    el.scrollTop = el.scrollHeight
-  }, [])
+    stickToBottom()
+  }, [stickToBottom])
 
   /**
    * 滚动监听用**原生 passive 监听 + rAF 节流**，不走 React 的 onScroll。
@@ -152,8 +185,16 @@ export function Transcript({
       requestAnimationFrame(() => {
         queued = false
         const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM
-        pinnedRef.current = near
-        setShowJump((prev) => (prev === !near ? prev : !near))
+        /*
+         * 只有 scrollTop 真的离开了我们上次写入的位置，才算用户在翻。
+         * 内容又长高了几百像素、scrollTop 却纹丝不动 —— 那是流式输出，
+         * 不是用户往下翻，继续贴着底部。
+         */
+        const userMoved = Math.abs(el.scrollTop - autoTopRef.current) > 1
+        if (near) pinnedRef.current = true
+        else if (userMoved) pinnedRef.current = false
+        const jump = !pinnedRef.current
+        setShowJump((prev) => (prev === jump ? prev : jump))
       })
     }
     el.addEventListener('scroll', onScroll, { passive: true })
@@ -164,9 +205,8 @@ export function Transcript({
   useEffect(() => {
     pinnedRef.current = true
     setShowJump(false)
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [sessionKey])
+    stickToBottom()
+  }, [sessionKey, stickToBottom])
 
   // 轮到对面了、但它还没吐第一个字 —— 这段时间界面上什么都不长。
   // starting 和 running 都算"没结束"，但文案不一样（连 CLI / 想事情）。
@@ -190,10 +230,10 @@ export function Transcript({
       setShowJump(false)
     }
     if (!pinnedRef.current) return
-    el.scrollTop = el.scrollHeight
+    stickToBottom()
     // waiting 必须也在依赖里：占位行**不在 items 里**（它由 status 推出来），
     // 少这一项的话它一出现就把自己撑到可视区外面，半截卡在输入框后面
-  }, [items, waiting])
+  }, [items, waiting, stickToBottom])
 
   return (
     <DisplayContext.Provider value={display}>
@@ -214,7 +254,9 @@ export function Transcript({
               {chunks.map((c, i) => (
                 <RowChunk key={i} items={c} />
               ))}
-              {waiting && <PendingRow connecting={status === 'starting'} />}
+              {waiting && (
+                <PendingRow connecting={status === 'starting'} agentsRunning={agentsRunning} />
+              )}
             </div>
           )}
         </div>
@@ -260,7 +302,34 @@ function waitingOnModel(last: ChatItem | undefined): boolean {
   }
 }
 
-function PendingRow({ connecting }: { connecting: boolean }): JSX.Element {
+function PendingRow({
+  connecting,
+  agentsRunning
+}: {
+  connecting: boolean
+  agentsRunning: number
+}): JSX.Element {
+  // 子代理跑着的时候，球不在模型那边 —— 说出来比笼统的「等待响应」准确
+  const label = connecting
+    ? '正在连接 CLI…'
+    : agentsRunning === 1
+      ? '等待子代理完成…'
+      : agentsRunning > 1
+        ? `等待 ${agentsRunning} 个子代理完成…`
+        : '等待响应…'
+
+  /*
+   * 这段等待从占位行出现时算起，每秒跳一次。
+   * 用本地 state 而不是把时间传进来：占位行只在「真的在等」时挂载，
+   * 挂载时刻就是等待起点；工具跑完、模型再度安静时会自然重新计时。
+   */
+  const [startedAt] = useState(() => Date.now())
+  const [now, setNow] = useState(startedAt)
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+
   return (
     <div className="tl__row">
       <div className="tl__thinkwrap">
@@ -271,13 +340,16 @@ function PendingRow({ connecting }: { connecting: boolean }): JSX.Element {
             <i />
           </span>
           {/*
-            这两句不能混，也不能写成"思考中"。
-            连进程和等模型是两件事；而"等模型"那段我们**并不知道它在想** ——
+            这几种状态不能混，也不能写成"思考中"。
+            连进程、等子代理、等模型是三件事；而"等模型"那段我们**并不知道它在想** ——
             它可能在做扩展思考，也可能直接吐正文或直接调工具（不做扩展思考的
             模型压根不会出现「思考」卡，写"思考中"就是凭空说了句假话）。
             只说我们确定的事实：请求发出去了，还没回来。
           */}
-          <b className="pulse">{connecting ? '正在连接 CLI…' : '等待响应…'}</b>
+          <b className="pulse">{label}</b>
+          <span className="tl__waittime" title="已等待时间">
+            {fmtClock(now - startedAt)}
+          </span>
         </div>
       </div>
     </div>
@@ -316,7 +388,7 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
                 ))}
               </div>
             )}
-            {item.text && <span className="tl__me selectable">{item.text}</span>}
+            <UserBubble text={item.text} />
             {showTimestamps && item.at && <span className="tl__me-time">{item.at}</span>}
           </div>
         </div>
@@ -373,6 +445,57 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
       return null
   }
 })
+
+/* ── 用户消息里的 IDE 代码引用 ─────────────────────────── */
+
+/**
+ * 用户气泡。发送时正文里带着 `<ide_reference>` 块，这里拆成
+ * 「原话 + 引用卡」—— 历史回放读到的是同一份正文，所以刷新后也能还原。
+ */
+function UserBubble({ text }: { text: string }): JSX.Element | null {
+  const parsed = useMemo(() => parseIdeRefs(text), [text])
+  if (!parsed.text && parsed.refs.length === 0) return null
+  return (
+    <>
+      {parsed.text && <span className="tl__me selectable">{parsed.text}</span>}
+      {parsed.refs.length > 0 && (
+        <div className="tl__refs">
+          {parsed.refs.map((r, i) => (
+            <UserRefCard key={`${r.rel}:${r.lines}:${i}`} item={r} />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** 转写区里的引用卡：默认只露两行，点开后最多展开 500 行 */
+function UserRefCard({ item }: { item: ParsedIdeRef }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const lines = item.code.split('\n')
+  const limit = open ? 500 : 2
+  const shown = lines.slice(0, limit)
+  const more = lines.length > limit
+  return (
+    <div className="tl__ref">
+      <button className="tl__ref-head" onClick={() => setOpen((o) => !o)} title={item.rel}>
+        <span className="tl__ref-ico">&lt;/&gt;</span>
+        <span className="tl__ref-name">{baseName(item.rel) || item.rel}</span>
+        <span className="tl__ref-path">{item.rel}</span>
+        <span className="tl__ref-range">{refRangeLabel(item)}</span>
+        {open ? (
+          <IconChevronDown width={11} height={11} />
+        ) : (
+          <IconChevronRight width={11} height={11} />
+        )}
+      </button>
+      <pre className={`tl__ref-code${open ? ' is-open' : ''}`}>
+        {shown.join('\n')}
+        {more ? '\n…' : ''}
+      </pre>
+    </div>
+  )
+}
 
 /**
  * 一包行。**只有这一包的 item 变了才重渲染。**
@@ -450,9 +573,12 @@ function ThinkingLine({ item }: { item: Extract<ChatItem, { kind: 'thinking' }> 
  * 文件名 + 父目录 + 增删行数。命令 / 完整路径都还在，悬停看 title，
  * 点开看展开区 —— 长会话里一半以上的行都是工具调用，让命令占主角
  * 会把整条转写刷成终端日志。
+ *
+ * 文件名本身是「在 IDE 中打开」的入口：Read / Write / Edit 都带绝对路径，
+ * 图片文件由 IDE 的图片查看器接手；右侧 chevron 才是展开详情。
  */
 function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.Element {
-  const { toolDetail } = useContext(DisplayContext)
+  const { toolDetail, cwd } = useContext(DisplayContext)
   const [open, setOpen] = useState(false)
   const family = toolFamily(item.name)
   // Bash 永远有命令可看；文件工具要等结果回来才有内容
@@ -465,15 +591,54 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
   const time = item.status === 'running' ? '运行中' : item.ms !== undefined ? fmtMs(item.ms) : ''
   const stat = item.stat
   const showStat = !!stat && (stat.added > 0 || stat.removed > 0)
+  /** 文件类工具（Read / Write / Edit…）才有 path；点击去 IDE 里看 */
+  const openable = !!item.path && !!cwd
+
+  /**
+   * 在 IDE 里打开这个文件。图片（png/jpg…）由 IDE 自己的查看器接手 ——
+   * 主进程只认 `rel`，扩展名决定开文本还是图片标签页。
+   */
+  const openInIde = (): void => {
+    if (!item.path || !cwd) return
+    void window.api?.ide
+      ?.openFile(cwd, item.path, item.line)
+      .then((r) => {
+        if (!r.ok && r.message) notify(r.message)
+      })
+      .catch((err) => notify(`无法打开 IDE：${err instanceof Error ? err.message : String(err)}`))
+  }
+
   return (
     <div className={`tool is-${item.status} tool--${toolDetail}`}>
-      <button
-        className="tool__row"
-        onClick={() => expandable && setOpen((o) => !o)}
+      {/*
+        外行用 div 不用 button：里面还要放「文件名」和「展开」两个真按钮，
+        嵌套按钮是非法 HTML，点哪个都会触发外层的展开。
+      */}
+      <div
+        className={`tool__row${expandable ? ' is-clickable' : ''}`}
+        onClick={expandable ? () => setOpen((o) => !o) : undefined}
         title={item.command || item.path || item.subject}
       >
         <span className={`tool__ico tool__ico--${family}`}>{FAMILY_GLYPH[family]}</span>
-        <span className="tool__subject">{item.subject || item.summary || item.name}</span>
+        {openable ? (
+          <button
+            className="tool__subject tool__subject--open"
+            title={
+              item.line
+                ? `在 IDE 中打开 ${item.path}:${item.line}`
+                : `在 IDE 中打开 ${item.path}`
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              openInIde()
+            }}
+          >
+            <span className="tool__subjtext">{item.subject || item.summary || item.name}</span>
+            <IconOpenInIde width={11} height={11} className="tool__ideico" />
+          </button>
+        ) : (
+          <span className="tool__subject">{item.subject || item.summary || item.name}</span>
+        )}
         {stat && showStat && (
           <span className="tool__stat">
             {stat.added > 0 && <span className="is-add">+{stat.added}</span>}
@@ -483,13 +648,24 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         {showMeta && item.dir && <span className="tool__dir">{item.dir}</span>}
         {showMeta && <span className="tool__name">{label}</span>}
         <span className="tool__time">{time}</span>
-        {expandable &&
-          (open ? (
-            <IconChevronDown width={12} height={12} />
-          ) : (
-            <IconChevronRight width={12} height={12} />
-          ))}
-      </button>
+        {expandable && (
+          <button
+            className="tool__chev"
+            title={open ? '收起详情' : '展开详情'}
+            aria-expanded={open}
+            onClick={(e) => {
+              e.stopPropagation()
+              setOpen((o) => !o)
+            }}
+          >
+            {open ? (
+              <IconChevronDown width={12} height={12} />
+            ) : (
+              <IconChevronRight width={12} height={12} />
+            )}
+          </button>
+        )}
+      </div>
       {open && expandable && (
         <div className="tool__body">
           {item.command && <pre className="tool__cmd selectable">{item.command}</pre>}

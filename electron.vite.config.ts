@@ -23,6 +23,9 @@ export default defineConfig({
         '@shared': resolve(__dirname, 'src/shared')
       }
     },
+    // Monaco 的 worker 在 Electron file:// 下用 iife 更稳，避免模块 worker
+    // 被当成跨源脚本拦掉。
+    worker: { format: 'iife' },
     build: {
       rollupOptions: { input: { index: resolve(__dirname, 'src/renderer/index.html') } }
     },

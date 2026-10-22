@@ -29,6 +29,7 @@ const IGNORE_DIRS = new Set([
   'out',
   'dist',
   'build',
+  'release',
   'coverage',
   '.next',
   '.nuxt',
@@ -66,6 +67,9 @@ function isIgnoredFile(name: string, rel: string): boolean {
   return false
 }
 
+/** IDE 文件树也用这一份忽略表，免得 node_modules 又冒出来 */
+export const WORKSPACE_IGNORE_DIRS: ReadonlySet<string> = IGNORE_DIRS
+
 interface Cached {
   /** resolve 后的真实根路径，用来读盘 */
   root: string
@@ -75,6 +79,11 @@ interface Cached {
 
 const cache = new Map<string, Cached>()
 const inFlight = new Map<string, Promise<FileMatch[]>>()
+/**
+ * 失效代数。清缓存时递增，让失效前已经开始的扫描不要把它读到的旧目录
+ * 内容再写回缓存 —— 否则外部改完文件后快速打开仍可能看到旧列表。
+ */
+let generation = 0
 
 /** 缓存键：Windows 上盘符大小写不敏感，折叠一下；POSIX 保持原样 */
 function cacheKey(cwd: string): string {
@@ -142,14 +151,18 @@ function getScan(cwd: string): Promise<FileMatch[]> {
   if (running) return running
 
   const root = resolve(cwd)
+  const gen = generation
   const p = scan(root)
     .then((files) => {
-      cache.set(key, { root, at: Date.now(), files })
-      // 只留最近用到的几个工作区，避免长时间运行后缓存无限涨
-      while (cache.size > MAX_ROOTS) {
-        const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
-        if (!oldest) break
-        cache.delete(oldest[0])
+      // 扫描期间缓存被失效（外部文件变化）就不要回填旧结果
+      if (gen === generation) {
+        cache.set(key, { root, at: Date.now(), files })
+        // 只留最近用到的几个工作区，避免长时间运行后缓存无限涨
+        while (cache.size > MAX_ROOTS) {
+          const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+          if (!oldest) break
+          cache.delete(oldest[0])
+        }
       }
       return files
     })
@@ -179,6 +192,22 @@ function score(m: FileMatch, query: string): number {
   if (m.kind === 'file') s += 8
   s += Math.max(0, 24 - m.path.split('/').length * 3)
   return s
+}
+
+/**
+ * 工作区的完整条目表（含目录），供 IDE 代码搜索复用。
+ *
+ * 和 `searchWorkspaceFiles` 共用同一份扫描缓存；调用方自己决定上限。
+ */
+export async function listWorkspaceFiles(cwd: string): Promise<FileMatch[]> {
+  if (!cwd || !isAbsolute(cwd)) return []
+  try {
+    const st = await fs.stat(cwd)
+    if (!st.isDirectory()) return []
+    return await getScan(cwd)
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -231,8 +260,9 @@ export async function searchWorkspaceFiles(
     .map((x) => x.f)
 }
 
-/** 测试用：清掉缓存，避免不同 fixture 互相污染 */
+/** 清掉缓存：测试用，外部文件变化时也用来让快速打开立刻看到新列表 */
 export function resetWorkspaceSearchCache(): void {
+  generation++
   cache.clear()
   inFlight.clear()
 }

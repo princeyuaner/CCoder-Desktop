@@ -16,7 +16,8 @@ import { useMemo, useState, type ReactNode } from 'react'
 function inlineNodes(text: string, key: string): ReactNode[] {
   // **每次新建**，不能用模块级共享的 g 正则 —— 这个函数会递归（粗体里还有行内代码），
   // 递归会把共享正则的 lastIndex 重置掉，外层的游标跟着回到 0，直接死循环。
-  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(\[[^\]\n]+\]\([^)\n]+\))/g
+  const re =
+    /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(\[[^\]\n]+\]\([^)\n]+\))|(<br\s*\/?>)/gi
   const out: ReactNode[] = []
   let last = 0
   let n = 0
@@ -37,7 +38,7 @@ function inlineNodes(text: string, key: string): ReactNode[] {
       out.push(<strong key={k}>{inlineNodes(tok.slice(2, -2), k)}</strong>)
     } else if (m[3]) {
       out.push(<em key={k}>{inlineNodes(tok.slice(1, -1), k)}</em>)
-    } else {
+    } else if (m[4]) {
       // 链接：文字染色，但**不给 href** —— 渲染层里点一个外链会把整个应用导航走
       const cut = tok.lastIndexOf('](')
       out.push(
@@ -45,6 +46,9 @@ function inlineNodes(text: string, key: string): ReactNode[] {
           {inlineNodes(tok.slice(1, cut), k)}
         </span>
       )
+    } else {
+      // 模型偶尔会在表格单元格里用 <br> 换行；只认这一个安全标签
+      out.push(<br key={k} />)
     }
     last = m.index + tok.length
   }
@@ -57,7 +61,7 @@ function inlineNodes(text: string, key: string): ReactNode[] {
 type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'para'; text: string }
-  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'list'; ordered: boolean; start: number; items: string[] }
   | { kind: 'code'; lang: string; code: string }
   | { kind: 'table'; head: string[]; rows: string[][] }
   | { kind: 'hr' }
@@ -78,11 +82,14 @@ function cells(line: string): string[] {
 }
 
 /** 这一行是不是某个块的开始 —— 段落靠它判断什么时候收尾 */
-function startsBlock(line: string): boolean {
+function startsBlock(lines: string[], i: number): boolean {
+  const line = lines[i] ?? ''
   const t = line.trim()
   if (!t) return true
   if (RE_FENCE.test(t) || RE_HEADING.test(t) || RE_HR.test(t) || RE_LIST.test(line)) return true
-  return false
+  // 表格头：当前行含 |，下一行是 |---| 分隔行。少了这条，紧跟在
+  // 加粗/正文后面的表格会被段落整段吞掉，界面上只剩一堆竖线。
+  return t.includes('|') && i + 1 < lines.length && RE_TABLE_SEP.test(lines[i + 1])
 }
 
 function parseBlocks(src: string): Block[] {
@@ -153,21 +160,46 @@ function parseBlocks(src: string): Block[] {
     const li = RE_LIST.exec(line)
     if (li) {
       const ordered = /\d/.test(li[1])
+      // 保留起始序号：从 3. 开始的列表，DOM 上也得从 3 显示
+      const first = Number.parseInt(li[1], 10)
+      const start = ordered && Number.isFinite(first) ? first : 1
       const items: string[] = []
       while (i < lines.length) {
         const m = RE_LIST.exec(lines[i])
         if (!m || /\d/.test(m[1]) !== ordered) break
-        items.push(m[2].trim())
+        let text = m[2].trim()
         i++
+        // 缩进的续行属于这一项。模型经常把一条写成两三行；
+        // 不收进来的话，续行会掉出去变成独立段落。
+        while (i < lines.length && /^\s+\S/.test(lines[i]) && !startsBlock(lines, i)) {
+          text += `\n${lines[i].trim()}`
+          i++
+        }
+        items.push(text)
+        /*
+         * 松散列表：项目之间空一行是合法 Markdown，仍然属于同一个列表。
+         * 以前遇到空行就 break，后面的项会被解析成新的 <ol>，而 HTML 的
+         * <ol> 默认从 1 开始 —— 界面上就变成「1. 1. 1.」。
+         *
+         * 空行后面不是同类型列表项时才结束；没有空行则直接回到循环顶部，
+         * 由它判断下一行（紧凑列表就是这么接上的）。
+         */
+        let j = i
+        while (j < lines.length && !lines[j].trim()) j++
+        if (j > i) {
+          const nextItem = j < lines.length ? RE_LIST.exec(lines[j]) : null
+          if (!nextItem || /\d/.test(nextItem[1]) !== ordered) break
+          i = j
+        }
       }
-      out.push({ kind: 'list', ordered, items })
+      out.push({ kind: 'list', ordered, start, items })
       continue
     }
 
     // ── 段落：吃到下一个块开始或空行为止 ──
     const buf: string[] = [line]
     i++
-    while (i < lines.length && !startsBlock(lines[i])) buf.push(lines[i++])
+    while (i < lines.length && !startsBlock(lines, i)) buf.push(lines[i++])
     out.push({ kind: 'para', text: buf.join('\n').trim() })
   }
 
@@ -301,13 +333,16 @@ function BlockView({ b, i }: { b: Block; i: number }): JSX.Element {
       return <p className="md-p">{inlineNodes(b.text, k)}</p>
 
     case 'list': {
-      const Tag = b.ordered ? 'ol' : 'ul'
-      return (
-        <Tag className="md-list">
-          {b.items.map((it, j) => (
-            <li key={j}>{inlineNodes(it, `${k}-${j}`)}</li>
-          ))}
-        </Tag>
+      const items = b.items.map((it, j) => (
+        <li key={j}>{inlineNodes(it, `${k}-${j}`)}</li>
+      ))
+      // start 只对 <ol> 有意义；分开写，别把非法属性塞给 <ul>
+      return b.ordered ? (
+        <ol className="md-list" start={b.start}>
+          {items}
+        </ol>
+      ) : (
+        <ul className="md-list">{items}</ul>
       )
     }
 

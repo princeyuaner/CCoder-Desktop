@@ -23,20 +23,33 @@ import {
   type SendKey
 } from '@shared/settings'
 import type { ImageAttachment } from '@shared/attachment'
+import type { IdeCodeRef } from '@shared/ide-chat'
 import type { SessionSendInput } from '@shared/session'
+import type { QueuedMessage, SendMeta } from '../useChat'
 import type { FileMatch } from '@shared/workspace'
+import { composeIdeMessage } from '../ideRef'
 import { MODE_HINT, MODE_LABEL, PERMISSION_MODES } from '../constants'
 import { baseName } from '@shared/path'
 import type { ChangedFile } from '../changedFiles'
 import { ChangedFiles } from './ChangedFiles'
 import { CommandPopup, MentionPopup } from './ComposerPopups'
 import { filterCommands, type SlashCommand } from '../commands'
-import { IconChevronDown, IconPlus, IconSend } from './Icons'
+import { IconBrain, IconChevronDown, IconPlus, IconSend } from './Icons'
 import { contextPercent, contextWindowOf, fmtTokens } from './format'
 import { MAX_IMAGES, readImageFiles } from '../imagePaste'
 
 /** 输入框自动长高的上限 —— 到这儿之后改为框内滚动，别把对话区挤没了 */
 const MAX_INPUT_HEIGHT = 180
+
+/** 同一段代码从 IDE 发两次只留一张卡 */
+const refKey = (r: IdeCodeRef): string =>
+  `${r.kind}:${r.rel}:${r.startLine ?? 0}:${r.endLine ?? 0}`
+
+/** 输入框里的代码卡只露前几行，完整内容在发送时才拼进正文 */
+function previewCode(code: string): string {
+  const lines = code.split('\n')
+  return lines.length > 3 ? `${lines.slice(0, 3).join('\n')}\n…` : lines.join('\n')
+}
 
 /** 上下文小环的周长：r=7.5，2πr */
 const CTX_RING = 2 * Math.PI * 7.5
@@ -79,9 +92,18 @@ function findCommand(value: string, caret: number): { query: string } | null {
 }
 
 interface Props {
-  onSend: (input: SessionSendInput) => void
+  onSend: (input: SessionSendInput, meta?: SendMeta) => void
   onInterrupt: () => void
   running: boolean
+  /** 等待队列：运行中发的消息排在这里，轮末自动发送 */
+  queue: QueuedMessage[]
+  queuePaused: boolean
+  onRemoveQueued: (id: string) => void
+  onClearQueue: () => void
+  /** 取回一条排队消息到输入框；返回 null 表示已经被发走了 */
+  onTakeQueued: (id: string) => QueuedMessage | null
+  onMoveQueued: (id: string, dir: -1 | 1) => void
+  onResumeQueue: () => void
   /** 模型正在提问：输入框锁住，先答题再发消息 */
   locked?: boolean
   /** 这条会话跑在哪个 CLI 上 */
@@ -113,12 +135,22 @@ interface Props {
   onEffortChange: (l: EffortLevel) => void
   /** /clear：清空并重开一条 CLI 会话 */
   onClearConversation: () => void
+  /** IDE 发来的引用；nonce 变化才收，避免重渲染时重复加 */
+  incomingRefs?: { nonce: number; refs: IdeCodeRef[] } | null
+  onIncomingConsumed?: () => void
 }
 
 export function Composer({
   onSend,
   onInterrupt,
   running,
+  queue,
+  queuePaused,
+  onRemoveQueued,
+  onClearQueue,
+  onTakeQueued,
+  onMoveQueued,
+  onResumeQueue,
   locked = false,
   cli,
   channels,
@@ -138,10 +170,14 @@ export function Composer({
   onModelChange,
   onModeChange,
   onEffortChange,
-  onClearConversation
+  onClearConversation,
+  incomingRefs,
+  onIncomingConsumed
 }: Props): JSX.Element {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
+  /** IDE 发来的代码引用：发送前和图片一样挂在输入框上方 */
+  const [refs, setRefs] = useState<IdeCodeRef[]>([])
   const [mention, setMention] = useState<MentionState | null>(null)
   const [command, setCommand] = useState<CommandState | null>(null)
   /** 由 /model、/permissions、/effort 打开的底栏选择器 */
@@ -149,9 +185,25 @@ export function Composer({
   const [toast, setToast] = useState<string | null>(null)
   /** 上下文详情浮层是否展开 */
   const [ctxOpen, setCtxOpen] = useState(false)
-  const canSend = !locked && (text.trim().length > 0 || attachments.length > 0)
-  /** 当前档在五档里的下标 —— chip 上那几根小竖条画到哪一根 */
-  const effortIdx = Math.max(0, EFFORT_LEVELS.indexOf(effort))
+  const canSend =
+    !locked && (text.trim().length > 0 || attachments.length > 0 || refs.length > 0)
+
+  /** 收下 IDE 送来的引用。nonce 保证同一批只加一次 */
+  const lastRefNonce = useRef(0)
+  useEffect(() => {
+    if (!incomingRefs || incomingRefs.nonce === lastRefNonce.current) return
+    lastRefNonce.current = incomingRefs.nonce
+    setRefs((cur) => {
+      const seen = new Set(cur.map(refKey))
+      const add = incomingRefs.refs.filter((r) => !seen.has(refKey(r)))
+      return add.length > 0 ? [...cur, ...add] : cur
+    })
+    onIncomingConsumed?.()
+  }, [incomingRefs, onIncomingConsumed])
+
+  const removeRef = (id: string): void => {
+    setRefs((cur) => cur.filter((r) => r.id !== id))
+  }
 
   /**
    * 上下文胶囊。
@@ -394,6 +446,7 @@ export function Composer({
 
     switch (c.action) {
       case 'clear':
+        setRefs([])
         onClearConversation()
         showToast('已清空当前对话')
         break
@@ -552,13 +605,38 @@ export function Composer({
 
   const submit = (): void => {
     const t = text.trim()
-    if (!t && attachments.length === 0) return
+    if (!t && attachments.length === 0 && refs.length === 0) return
     const images = attachments
+    // 引用在发送时展开成完整的 <ide_reference> 块；输入框里只留摘要
+    const body = composeIdeMessage(t, refs)
     setText('')
     setAttachments([])
+    setRefs([])
     setMention(null)
     setCommand(null)
-    onSend({ text: t, images })
+    // meta 只用于「运行中入队」时恢复原稿；直接发送时主进程只读 text/images
+    onSend({ text: body, images }, { draft: t, refs })
+  }
+
+  /** 把一条排队消息取回输入框。当前已有草稿时接在后面，不覆盖用户正在写的东西 */
+  const editQueued = (q: QueuedMessage): void => {
+    const taken = onTakeQueued(q.id)
+    if (!taken) return
+    setText((cur) => (cur.trim() ? `${cur}\n\n${taken.draft}` : taken.draft))
+    if (taken.refs.length > 0) {
+      setRefs((cur) => {
+        const seen = new Set(cur.map(refKey))
+        const add = taken.refs.filter((r) => !seen.has(refKey(r)))
+        return add.length > 0 ? [...cur, ...add] : cur
+      })
+    }
+    const imgs = taken.images ?? []
+    if (imgs.length > 0) {
+      setAttachments((cur) => [...cur, ...imgs].slice(0, MAX_IMAGES))
+    }
+    setMention(null)
+    setCommand(null)
+    requestAnimationFrame(() => inputRef.current?.focus())
   }
 
   return (
@@ -614,6 +692,103 @@ export function Composer({
             if (e.dataTransfer.types.includes('Files')) e.preventDefault()
           }}
         >
+          {queue.length > 0 && (
+            <div className={`composer__queue ${queuePaused ? 'is-paused' : ''}`}>
+              <div className="composer__queue-head">
+                <span className="composer__queue-title">待发送</span>
+                <b className="composer__queue-count">{queue.length}</b>
+                <span className="composer__queue-hint">
+                  {queuePaused ? '已暂停' : '本轮结束后按顺序自动发送'}
+                </span>
+                {queuePaused ? (
+                  <button className="composer__queue-action is-resume" onClick={onResumeQueue}>
+                    继续发送
+                  </button>
+                ) : (
+                  <button className="composer__queue-action" onClick={onClearQueue}>
+                    全部撤回
+                  </button>
+                )}
+              </div>
+              {queue.map((q, i) => (
+                <div className="composer__queue-row" key={q.id}>
+                  <span className="composer__queue-idx">{i + 1}</span>
+                  <span className="composer__queue-text" title={q.draft}>
+                    {q.draft.replace(/\s+/g, ' ').trim()}
+                  </span>
+                  {q.refs.length > 0 && (
+                    <span className="composer__queue-meta">引用 {q.refs.length}</span>
+                  )}
+                  {(q.images?.length ?? 0) > 0 && (
+                    <span className="composer__queue-meta">图片 {q.images?.length}</span>
+                  )}
+                  <span className="composer__queue-acts">
+                    {queue.length > 1 && (
+                      <>
+                        <button
+                          title="上移"
+                          disabled={i === 0}
+                          onClick={() => onMoveQueued(q.id, -1)}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          title="下移"
+                          disabled={i === queue.length - 1}
+                          onClick={() => onMoveQueued(q.id, 1)}
+                        >
+                          ↓
+                        </button>
+                      </>
+                    )}
+                    <button onClick={() => editQueued(q)}>编辑</button>
+                    <button
+                      className="is-del"
+                      title="撤回这条"
+                      aria-label="撤回这条排队消息"
+                      onClick={() => onRemoveQueued(q.id)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {refs.length > 0 && (
+            <div className="composer__refs">
+              {refs.map((r) => (
+                <div className="composer__ref" key={r.id}>
+                  <div className="composer__ref-head">
+                    <span className="composer__ref-ico">&lt;/&gt;</span>
+                    <span className="composer__ref-name">{r.name}</span>
+                    <span className="composer__ref-path" title={r.rel}>
+                      {r.rel}
+                    </span>
+                    <span className="composer__ref-range">
+                      {r.kind === 'file'
+                        ? `全文 · ${r.totalLines} 行${r.truncated ? ' · 已截断' : ''}`
+                        : r.startLine === r.endLine
+                          ? `L${r.startLine}`
+                          : `L${r.startLine}–${r.endLine}`}
+                    </span>
+                    <span className="composer__ref-tag">来自 IDE</span>
+                    <button
+                      className="composer__ref-x"
+                      onClick={() => removeRef(r.id)}
+                      title="移除引用"
+                      aria-label={`移除 ${r.name} 引用`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  {r.kind === 'selection' && (
+                    <pre className="composer__ref-code">{previewCode(r.code)}</pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           {attachments.length > 0 && (
           <div className="composer__attachments">
             {attachments.map((a) => (
@@ -862,11 +1037,10 @@ export function Composer({
             }}
             label={
               <>
-                <span className="chip__sym">◈</span>
-                <span className="chip__bars">
-                  {EFFORT_LEVELS.map((l, i) => (
-                    <i key={l} className={i <= effortIdx ? 'is-on' : ''} />
-                  ))}
+                {/* 五根刻度条只留在弹层滑轨里；收起态用「脑 + 档位」就够了，
+                    放回去会把 chip 撑到 128px，比旁边的权限模式宽一倍 */}
+                <span className="chip__icon">
+                  <IconBrain width={15} height={15} />
                 </span>
                 <span>{EFFORT_LABEL[effort]}</span>
               </>
@@ -923,9 +1097,19 @@ export function Composer({
           </Picker>
 
           {running ? (
-            <button className="send is-stop" title="停止" onClick={onInterrupt}>
-              <span className="send__stop" />
-            </button>
+            <>
+              {/* 运行中：主按钮仍是停止；有内容时旁边多一个「加入队列」 */}
+              {canSend && (
+                <button className="queueadd" title="本轮结束后自动发送" onClick={submit}>
+                  <span>↵</span>
+                  <span>加入队列</span>
+                  {queue.length > 0 && <b>{queue.length}</b>}
+                </button>
+              )}
+              <button className="send is-stop" title="停止" onClick={onInterrupt}>
+                <span className="send__stop" />
+              </button>
+            </>
           ) : (
             <button
               className={`send ${canSend ? 'is-ready' : ''}`}

@@ -179,5 +179,69 @@ console.log('\n[2] control_request → 审批事件')
   fs.rmSync(tmp, { recursive: true, force: true })
 }
 
+// ── 3) 工具入参流：卡片必须比完整 tool_call 先出现
+console.log('\n[3] tool_started：生成大文件时卡片立刻出现')
+{
+  const tr = new ClaudeStreamTranslator()
+  const start = (index, id, name) => ({
+    type: 'stream_event',
+    event: { type: 'content_block_start', index, content_block: { type: 'tool_use', id, name } }
+  })
+  const delta = (index, partial_json) => ({
+    type: 'stream_event',
+    event: { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json } }
+  })
+
+  const input = {
+    file_path: path.join('C:', 'proj', 'src', 'big.ts'),
+    content: 'x\n'.repeat(2000)
+  }
+  const json = JSON.stringify(input)
+
+  tr.translate({ type: 'stream_event', event: { type: 'message_start' } })
+  const evs = []
+  evs.push(...tr.translate(start(0, 'w1', 'Write')))
+  check('块一开始就发 tool_started', evs[0]?.t === 'tool_started' && evs[0]?.id === 'w1')
+  check('  此时还没有 path', evs[0]?.path === undefined)
+
+  // 路径通常在入参最前面；就算被分片切开也要能认出来
+  evs.push(...tr.translate(delta(0, json.slice(0, 12))))
+  check('路径没闭合前不发事件', evs.length === 1, evs.length)
+  evs.push(...tr.translate(delta(0, json.slice(12, 60))))
+  const withPath = evs.filter((e) => e.t === 'tool_started' && e.path)
+  check(
+    '路径闭合后补一条',
+    withPath.length === 1 && withPath[0].path === input.file_path,
+    withPath[0]
+  )
+
+  const after = tr.translate(delta(0, json.slice(60)))
+  check('之后不再每段都发', after.length === 0, after.length)
+
+  // 完整入参照旧走 tool_call；渲染层按 id 合并成同一张卡
+  const full = tr.translate({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', id: 'w1', name: 'Write', input }] }
+  })
+  check('完整入参 → tool_call', full[0]?.t === 'tool_call' && full[0]?.id === 'w1')
+  check('  入参完整', full[0]?.input?.content === input.content)
+
+  // 新消息的块序号从 0 重来：别把上一条消息的残留拼进来
+  tr.translate({ type: 'stream_event', event: { type: 'message_start' } })
+  const fresh = tr.translate(start(0, 'w2', 'Read'))
+  check('新消息重新从 index 0 开始', fresh[0]?.id === 'w2', fresh[0])
+  const freshPath = tr.translate(delta(0, '{"file_path":"/tmp/a.ts"}'))
+  check('  新块独立认出路径', freshPath[0]?.path === '/tmp/a.ts', freshPath[0])
+
+  // 正文/思考块开始不该冒出一张工具卡
+  check(
+    'text 块不发 tool_started',
+    tr.translate({
+      type: 'stream_event',
+      event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+    }).length === 0
+  )
+}
+
 console.log(`\n${failed === 0 ? '全部通过 ✓' : `${failed} 项失败 ✗`}`)
 process.exit(failed === 0 ? 0 : 1)

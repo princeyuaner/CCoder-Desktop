@@ -46,5 +46,8 @@ for (const a of run.agents) {
     } read=${stats ? stats.readCount : '-'} search=${stats ? stats.searchCount : '-'}`
   )
   if (a.result) console.log(`      result: ${a.result.slice(0, 80)}`)
+  if (a.error) console.log(`      error: ${a.error.slice(0, 120)}`)
+  if (a.report) console.log(`      report: ${a.report.length} chars`)
+  if (a.outputFile) console.log(`      outputFile: ${a.outputFile}`)
 }
 console.log(`steps=${run.steps} added=${run.added} removed=${run.removed}`)

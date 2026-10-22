@@ -14,6 +14,7 @@ import {
   newChannel,
   PROTOCOL_LABEL,
   SEND_KEY_LABEL,
+  THEME_GROUPS,
   THEME_LABEL,
   TOOL_DETAIL_LABEL,
   UI_FONT_PRESETS,
@@ -393,14 +394,18 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                       value={draft.theme}
                       onChange={(e) => patch({ theme: e.target.value as ThemeMode })}
                     >
-                      {(Object.keys(THEME_LABEL) as ThemeMode[]).map((t) => (
-                        <option key={t} value={t}>
-                          {THEME_LABEL[t]}
-                        </option>
+                      {THEME_GROUPS.map((g) => (
+                        <optgroup key={g.label} label={g.label}>
+                          {g.themes.map((t) => (
+                            <option key={t} value={t}>
+                              {THEME_LABEL[t]}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                     <p className="field__hint">
-                      浅色主题只换配色，布局不变。「跟随系统」会随 Windows 的深浅色模式切换。
+                      主题只换配色，布局不变。「跟随系统」会随 Windows 的深浅色模式在深色 / 浅色之间切换。
                     </p>
                   </div>
                 </div>

@@ -481,6 +481,91 @@
   color: var(--text-faint);
 }
 
+/* 用户气泡下面的 IDE 代码引用 */
+.tl__refs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.tl__ref {
+  width: 380px;
+  max-width: 100%;
+  overflow: hidden;
+  background: #1a1a1e;
+  border: 1px solid #2f2f37;
+  border-radius: 8px;
+}
+.tl__ref-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  text-align: left;
+}
+.tl__ref-head:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.tl__ref-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.1);
+  border-radius: 5px;
+}
+.tl__ref-name {
+  flex: none;
+  font-size: 11.5px;
+  color: #e2e2e8;
+}
+.tl__ref-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: #6f6f79;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl__ref-range {
+  flex: none;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: #9cc4fa;
+  background: rgba(138, 180, 248, 0.09);
+  border: 1px solid rgba(138, 180, 248, 0.2);
+  border-radius: 4px;
+}
+.tl__ref-head svg {
+  flex: none;
+  opacity: 0.55;
+}
+.tl__ref-code {
+  max-height: 60px;
+  margin: 0;
+  padding: 6px 9px 7px 35px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: #9d9daa;
+  white-space: pre;
+  background: #161619;
+  border-top: 1px solid #2a2a31;
+}
+.tl__ref-code.is-open {
+  max-height: 320px;
+}
+
 /* 用户消息里的图片附件：缩略图排在文字上方，点开原图交给系统查看 */
 .tl__me-imgs {
   display: flex;
@@ -594,7 +679,7 @@
   font-family: var(--font-mono);
   font-size: 0.86em;
   color: #ddd6fe;
-  background: #26262f;
+  background: var(--bg-raised);
   border-radius: 5px;
   /*
    * 行内代码允许折行。nowrap 时，一个没有空格的 token（长路径、JSON 片段、
@@ -703,7 +788,7 @@
 .md .md-hr {
   height: 1px;
   border: none;
-  background: #23232b;
+  background: var(--border-soft);
 }
 
 .inline-code {
@@ -779,6 +864,14 @@
 .tl__wait i:nth-child(3) {
   animation-delay: 0.3s;
 }
+/* 等待计时：等宽数字，秒数跳动时宽度不变，行不会抖 */
+.tl__waittime {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
 @keyframes bounce {
   0%,
   80%,
@@ -813,13 +906,18 @@
 
 .tool {
   max-width: 100%;
-  background: #1c1c22;
-  border: 1px solid #28282f;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
   overflow: hidden;
 }
 .tool.is-running {
   border-color: rgba(201, 162, 39, 0.3);
+}
+/* 「运行中」要看得出来还在动：写大文件时入参要流很久，静止的文字像卡死 */
+.tool.is-running .tool__time {
+  color: #c9a227;
+  animation: pulse 1.4s ease-in-out infinite;
 }
 .tool.is-error,
 .tool.is-denied {
@@ -887,6 +985,63 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 行本身是 div 了（里面有真按钮），展开态要自己给指针 */
+.tool__row.is-clickable {
+  cursor: pointer;
+}
+
+/* ── 文件名 = 「在 IDE 中打开」 ─────────────────────────── */
+.tool__subject--open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.tool__subject--open:hover {
+  color: #e8e8f0;
+}
+.tool__subjtext {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 常驻下划线：不靠悬停也能看出这行文件名可点 */
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.24);
+  text-underline-offset: 2.5px;
+  transition: text-decoration-color 0.12s ease;
+}
+.tool__subject--open:hover .tool__subjtext {
+  text-decoration-color: #8ab4f8;
+}
+/* 图标平时收着，悬停才亮 —— 每个文件工具卡都挂一个亮色小标太吵 */
+.tool__subject--open .tool__ideico {
+  flex: none;
+  color: #6d7a92;
+  opacity: 0.35;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.tool__subject--open:hover .tool__ideico {
+  color: #8ab4f8;
+  opacity: 1;
+}
+
+/* 展开/收起单独一颗按钮，免得和文件名抢同一次点击 */
+.tool__chev {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  margin-left: -2px;
+  color: inherit;
+  opacity: 0.6;
+}
+.tool__chev:hover {
+  opacity: 1;
 }
 .tool__stat {
   flex: none;
@@ -1127,8 +1282,8 @@
   width: 560px;
   max-width: calc(100vw - 64px);
   max-height: calc(100% - 64px);
-  background: #202024;
-  border: 1px solid #35353f;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
   overflow: hidden;
@@ -1141,6 +1296,72 @@
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.6),
     0 0 0 3px rgba(244, 63, 94, 0.09);
+}
+
+/* 子代理报告：比审批弹窗宽一档，正文才装得下 Markdown */
+.modal__dlg.is-report {
+  width: 760px;
+}
+.report__badge.is-done {
+  color: #8fd6a4;
+  background: rgba(110, 231, 168, 0.13);
+}
+.report__badge.is-stopped {
+  color: #a8a8b8;
+  background: rgba(255, 255, 255, 0.08);
+}
+.report__badge.is-bad {
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.16);
+}
+.report__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #7d7d8c;
+}
+.report__err {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #f0a9a2;
+  background: rgba(229, 83, 75, 0.1);
+  border: 1px solid rgba(229, 83, 75, 0.25);
+  border-radius: 7px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.report__body {
+  padding-bottom: 8px;
+  font-size: 12.5px;
+}
+.report__empty {
+  padding-bottom: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.report__note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: #7d7d8c;
+}
+.report__file {
+  margin: 10px 0 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #66667a;
+  overflow-wrap: anywhere;
+}
+.report__cp {
+  flex: none;
+}
+.report__cp:disabled {
+  opacity: 0.45;
 }
 
 @keyframes fade-in {
@@ -1316,7 +1537,7 @@
   width: calc(100% - 52px);
   max-width: 660px;
   margin: 0 auto 2px;
-  background: #1e1e24;
+  background: var(--bg-raised);
   border: 1px solid rgba(34, 211, 238, 0.32);
   border-radius: 14px;
   box-shadow:
@@ -1416,15 +1637,15 @@
   align-items: flex-start;
   gap: 10px;
   padding: 8px 11px;
-  border: 1px solid #2c2c34;
+  border: 1px solid var(--border-soft);
   border-radius: 10px;
-  background: #1d1d22;
+  background: var(--bg-raised);
   cursor: default;
   user-select: none;
 }
 .qopt.is-active {
-  border-color: #44444f;
-  background: #202027;
+  border-color: var(--border);
+  background: var(--bg-active);
 }
 .qopt.is-on {
   border-color: rgba(34, 211, 238, 0.55);
@@ -1697,6 +1918,157 @@
   border-radius: 2px;
 }
 
+/* ── 等待队列（运行中发的消息排在这里） ─────────────────── */
+
+.composer__queue {
+  margin: 0 2px 9px;
+  border: 1px dashed color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  overflow: hidden;
+}
+.composer__queue.is-paused {
+  border-color: color-mix(in srgb, var(--text-faint) 45%, transparent);
+  background: color-mix(in srgb, var(--text-faint) 6%, transparent);
+}
+.composer__queue-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.composer__queue-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--warn) 78%, var(--text));
+}
+.composer__queue.is-paused .composer__queue-title {
+  color: var(--text-dim);
+}
+.composer__queue-count {
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  border-radius: 999px;
+}
+.composer__queue.is-paused .composer__queue-count {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text-faint) 18%, transparent);
+}
+.composer__queue-action {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.composer__queue-action:hover {
+  color: var(--text-dim);
+}
+.composer__queue-action.is-resume {
+  color: var(--warn);
+}
+.composer__queue-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.composer__queue-row + .composer__queue-row {
+  border-top: 1px solid color-mix(in srgb, var(--warn) 13%, transparent);
+}
+.composer__queue.is-paused .composer__queue-row + .composer__queue-row {
+  border-top-color: color-mix(in srgb, var(--text-faint) 13%, transparent);
+}
+.composer__queue-idx {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: color-mix(in srgb, var(--warn) 70%, var(--text));
+  background: color-mix(in srgb, var(--warn) 13%, transparent);
+  border-radius: 4px;
+}
+.composer__queue.is-paused .composer__queue-idx {
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--text-faint) 13%, transparent);
+}
+.composer__queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer__queue-meta {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+}
+.composer__queue-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.composer__queue-acts button {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.composer__queue-acts button:hover:not(:disabled) {
+  color: var(--text-dim);
+}
+.composer__queue-acts button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.composer__queue-acts .is-del {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--danger) 65%, var(--text-faint));
+}
+.queueadd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: 999px;
+}
+.queueadd:hover {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+.queueadd b {
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--bg-app);
+  background: var(--warn);
+  border-radius: 999px;
+}
+
 /* ── 输入区 ─────────────────────────────────────────────── */
 
 .composer {
@@ -1713,6 +2085,99 @@
 }
 .composer__box:focus-within {
   border-color: #3d3d3d;
+}
+
+/* IDE 发来的代码引用：和图片附件同区，排在输入框上方 */
+.composer__refs {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0 4px 10px;
+}
+.composer__ref {
+  overflow: hidden;
+  background: #1d1d20;
+  border: 1px solid #34343b;
+  border-radius: 9px;
+}
+.composer__ref-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+}
+.composer__ref-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.1);
+  border-radius: 5px;
+}
+.composer__ref-name {
+  flex: none;
+  font-size: 12px;
+  color: #e2e2e8;
+}
+.composer__ref-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #6f6f79;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer__ref-range {
+  flex: none;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #9cc4fa;
+  background: rgba(138, 180, 248, 0.09);
+  border: 1px solid rgba(138, 180, 248, 0.2);
+  border-radius: 5px;
+}
+.composer__ref-tag {
+  flex: none;
+  padding: 1px 5px;
+  font-size: 9.5px;
+  color: #7f9cc4;
+  background: rgba(138, 180, 248, 0.07);
+  border: 1px solid rgba(138, 180, 248, 0.14);
+  border-radius: 4px;
+}
+.composer__ref-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: #7a7a84;
+  border-radius: 4px;
+}
+.composer__ref-x:hover {
+  color: #ddd;
+  background: #34343b;
+}
+.composer__ref-code {
+  margin: 0;
+  padding: 7px 10px 8px 36px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: #9d9daa;
+  white-space: pre;
+  background: #19191c;
+  border-top: 1px solid #2c2c33;
 }
 
 /* 粘贴 / 拖入的图片：发送前排在正文上方 */
@@ -1775,8 +2240,8 @@
   z-index: 45;
   max-width: min(660px, calc(100vw - 80px));
   overflow: hidden;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
   border-radius: 11px;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
 }
@@ -2090,8 +2555,8 @@
   font-size: 12px;
   line-height: 1.5;
   color: #d8d8e2;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
   border-radius: 9px;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
 }
@@ -2154,8 +2619,8 @@
   z-index: 40;
   width: 320px;
   padding: 6px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   max-height: 380px;
@@ -2175,6 +2640,10 @@
 /* 给这一档一个自己的色：绿色的点已经被权限模式占了，
    两个 chip 挨着放，不同色才分得清谁是谁 */
 .chip--eff {
+  /* 收起态只剩「脑 + 档位 + 箭头」，排紧一点才能真收窄；
+     五根刻度条在弹层滑轨里，不占这儿的宽度 */
+  gap: 5px;
+  padding: 0 9px;
   color: #c4b5fd;
   border-color: rgba(167, 139, 250, 0.28);
   background: rgba(167, 139, 250, 0.07);
@@ -2183,24 +2652,14 @@
   border-color: rgba(167, 139, 250, 0.45);
   color: #ddd6fe;
 }
-.chip--eff .chip__sym {
-  font-size: 11px;
+.chip--eff .chip__icon {
+  display: grid;
+  place-items: center;
+  margin-left: -1px;
   color: #a78bfa;
 }
-/* chip 上的五根小竖条：当前档以前的亮，以后的暗 */
-.chip__bars {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-.chip__bars i {
-  width: 9px;
-  height: 3px;
-  border-radius: 1px;
-  background: #4a4a55;
-}
-.chip__bars i.is-on {
-  background: #a78bfa;
+.chip--eff .chip__icon svg {
+  display: block;
 }
 
 .epick {
@@ -2648,8 +3107,8 @@
   bottom: calc(100% + 8px);
   left: 0;
   width: 386px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   overflow: hidden;

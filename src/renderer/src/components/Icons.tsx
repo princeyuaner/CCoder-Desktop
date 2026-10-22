@@ -77,9 +77,28 @@ export const IconChevronRight = (p: IconProps) => (
   </svg>
 )
 
+/**
+ * 大脑 —— 思考深度 chip 的标识。
+ * 原稿是 24 格，缩到 15px 时线宽也跟着按比例变细，所以这边把 strokeWidth
+ * 提到 2，视觉粗细才跟 16 格里的 1.5 对得上。
+ */
+export const IconBrain = (p: IconProps) => (
+  <svg {...base(p)} viewBox="0 0 24 24" strokeWidth={2}>
+    <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z" />
+    <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" />
+  </svg>
+)
+
 export const IconChevronLeft = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M9.5 4 5.5 8l4 4" />
+  </svg>
+)
+
+/** 在 IDE 中打开 —— 一对代码尖括号，比通用外链更像"看代码" */
+export const IconOpenInIde = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M5.8 4.2 2.6 8l3.2 3.8M10.2 4.2 13.4 8l-3.2 3.8" />
   </svg>
 )
 

@@ -97,13 +97,92 @@ export function isEffortLevel(v: unknown): v is EffortLevel {
 
 /* ── 外观与交互 ────────────────────────────────────────────── */
 
-/** 主题。system = 跟随操作系统的深色/浅色偏好 */
-export type ThemeMode = 'dark' | 'light' | 'system'
+/**
+ * 主题。system = 跟随操作系统的深色/浅色偏好。
+ *
+ * 除了最初的两套（dark / light），其余都是在这两套的骨架上换调色板：
+ * data-theme 决定 tokens.css 里用哪一组变量，data-scheme 决定组件级覆盖
+ * （theme-light.css / ide.css 末尾）是否生效。浅色主题必须同时有
+ * THEME_SCHEME = 'light'，否则会拿到为深色写的组件样式。
+ */
+export type ThemeMode =
+  | 'dark'
+  | 'midnight'
+  | 'forest'
+  | 'mist'
+  | 'coffee'
+  | 'moss'
+  | 'contrast'
+  | 'light'
+  | 'sepia'
+  | 'system'
+
+/** 主题的明暗底色。纯视觉主题都归入 dark / light 两个 scheme */
+export type ThemeScheme = 'dark' | 'light'
+
+export const THEME_SCHEME: Record<Exclude<ThemeMode, 'system'>, ThemeScheme> = {
+  dark: 'dark',
+  midnight: 'dark',
+  forest: 'dark',
+  mist: 'dark',
+  coffee: 'dark',
+  moss: 'dark',
+  contrast: 'dark',
+  light: 'light',
+  sepia: 'light'
+}
 
 export const THEME_LABEL: Record<ThemeMode, string> = {
   dark: '深色',
+  midnight: '午夜蓝',
+  forest: '森林绿',
+  mist: '雾紫',
+  coffee: '咖啡棕',
+  moss: '苔原',
+  contrast: '高对比',
   light: '浅色',
+  sepia: '暖纸',
   system: '跟随系统'
+}
+
+/**
+ * 设置页下拉里的分组顺序。
+ * 深色系放前面（默认主题就在这里），浅色单独一组，跟随系统是行为而不是配色。
+ */
+export const THEME_GROUPS: { label: string; themes: ThemeMode[] }[] = [
+  {
+    label: '深色',
+    themes: ['dark', 'midnight', 'forest', 'mist', 'coffee', 'moss', 'contrast']
+  },
+  { label: '浅色', themes: ['light', 'sepia'] },
+  { label: '其它', themes: ['system'] }
+]
+
+export function isThemeMode(v: unknown): v is ThemeMode {
+  // 用 hasOwnProperty 而不是 `in`：后者会把 toString / constructor 这类
+  // 原型链上的名字也当成合法主题，落盘文件里一个脏值就能把界面搞坏
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(THEME_LABEL, v)
+}
+
+/** 跟随系统时用系统偏好解析；显式主题原样返回 */
+export function resolveThemeMode(
+  mode: ThemeMode,
+  systemPrefersDark: boolean
+): Exclude<ThemeMode, 'system'> {
+  return mode === 'system' ? (systemPrefersDark ? 'dark' : 'light') : mode
+}
+
+/** 窗口底色。主进程用它给 BrowserWindow 上色，避免页面渲染前闪一下 */
+export const THEME_BG: Record<Exclude<ThemeMode, 'system'>, string> = {
+  dark: '#191919',
+  midnight: '#0c141f',
+  forest: '#0f1612',
+  mist: '#232833',
+  coffee: '#1b1713',
+  moss: '#171a19',
+  contrast: '#000000',
+  light: '#f6f6f7',
+  sepia: '#f3eee3'
 }
 
 /** 新消息的发送快捷键。enter = Enter 发送；ctrlEnter = Ctrl/Cmd+Enter 发送 */
@@ -288,8 +367,8 @@ export function defaultSettings(): Settings {
     permissionMode: 'standard',
     defaultCwd: '',
     openedCwds: [],
-    // 默认保持深色：这个应用此前只有深色，升级后不该因为系统是浅色就突然变样
-    theme: 'dark',
+    // 默认高对比：深色底 + 更亮的文字/边框，长时间读代码更稳
+    theme: 'contrast',
     uiZoom: 1,
     chatFontSize: 14,
     uiFont: DEFAULT_UI_FONT,
@@ -339,7 +418,7 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
       ? src.openedCwds.filter((c) => typeof c === 'string')
       : [],
     // 老版本没有这几个字段 —— 一律回落到「保持原来的深色外观」
-    theme: src.theme === 'light' || src.theme === 'system' ? src.theme : 'dark',
+    theme: isThemeMode(src.theme) ? src.theme : 'contrast',
     uiZoom: clampZoom(src.uiZoom),
     chatFontSize: clampChatFontSize(src.chatFontSize),
     uiFont:

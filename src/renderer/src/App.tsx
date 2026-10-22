@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StoredSession } from '@shared/session'
 import { sameCwd, type CliId } from '@shared/settings'
 import { disposeIdleNewChats, disposeStoredChat } from './useChat'
@@ -11,6 +11,8 @@ import { baseName } from '@shared/path'
 import { useSessions, type WorkspaceView } from './useSessions'
 import { useSettings } from './useSettings'
 import { applyAppearance } from './appearance'
+import { onNotice } from './notice'
+import type { ChatActiveInfo, IdeCodeRef, IdeSendPayload } from '@shared/ide-chat'
 import './styles/shell.css'
 import './styles/chat.css'
 import './styles/settings.css'
@@ -44,7 +46,7 @@ export function App(): JSX.Element {
    * 新会话 controller，被错误地复用。
    */
   const newSeq = useRef(0)
-  const { workspaces, loading, running, refresh } = useSessions()
+  const { workspaces, loading, running, sort, toggleSort, refresh } = useSessions()
   const { settings, save } = useSettings()
 
   // 设置落盘（或启动时读完）后立刻应用主题 / 缩放 / 字体
@@ -55,6 +57,29 @@ export function App(): JSX.Element {
   const [pendingDelete, setPendingDelete] = useState<StoredSession | null>(null)
   /** 删除失败的说明，浮在顶上 */
   const [notice, setNotice] = useState<string | null>(null)
+
+  // 深层组件（工具卡 → IDE）走轻量事件总线报告失败，统一在这里显示
+  useEffect(() => onNotice(setNotice), [])
+
+  /**
+   * IDE 发来的代码引用。
+   *
+   * App 只负责「切到目标会话 + 把引用往下传」，真正塞进输入框是 Composer
+   * 的事。pending 保留到 Composer 确认收下为止 —— 切会话/切设置页时
+   * Composer 可能晚一拍挂载，提前清掉就丢了。
+   */
+  const [incomingRefs, setIncomingRefs] = useState<{
+    nonce: number
+    refs: IdeCodeRef[]
+  } | null>(null)
+  const activeInfoRef = useRef<ChatActiveInfo | null>(null)
+  /** 引用批次号：只增不减，Composer 靠它判断“这一批是新到的” */
+  const refSeq = useRef(0)
+
+  const reportActive = useCallback((info: ChatActiveInfo): void => {
+    activeInfoRef.current = info
+    window.api?.chat?.reportActive(info)
+  }, [])
 
   /**
    * 用户主动打开过的目录。没打开过就是空串。
@@ -89,7 +114,8 @@ export function App(): JSX.Element {
    */
   const lastCwd = pickedCwd || visible[0]?.cwd || workspaces[0]?.cwd || ''
 
-  const openStored = (s: StoredSession): void => {
+  /** 只认身份字段：调用方可能来自侧栏（完整记录）或 IDE 投递（只有目标信息） */
+  const openStored = (s: Pick<StoredSession, 'id' | 'cwd' | 'title' | 'cli'>): void => {
     // 切走之后，刚才那条没发过消息的新会话就再也点不回来了 —— 顺手收掉
     disposeIdleNewChats()
     setActive({ kind: 'stored', id: s.id, cwd: s.cwd, title: s.title, cli: s.cli })
@@ -148,6 +174,50 @@ export function App(): JSX.Element {
     void refresh()
   }
 
+  /**
+   * 收到 IDE 的引用：先保证当前会话就是目标会话，再把引用交给 Composer。
+   *
+   * handler 挂在 ref 上，只订阅一次 IPC；这样里面读到的 active / 切会话
+   * 函数永远是最新一版，不用因为依赖变化反复重订。
+   */
+  const attachRef = useRef<(payload: IdeSendPayload) => void>(() => undefined)
+  attachRef.current = (payload) => {
+    const { target, refs } = payload
+    if (!target?.cwd || !Array.isArray(refs) || refs.length === 0) return
+
+    const cur = activeInfoRef.current
+    const sameTarget =
+      !!cur &&
+      sameCwd(cur.cwd, target.cwd) &&
+      (target.id ? cur.id === target.id : cur.isNew)
+
+    if (!sameTarget) {
+      if (target.id) {
+        openStored({
+          id: target.id,
+          cwd: target.cwd,
+          title: target.title,
+          cli: target.cli
+        })
+      } else {
+        newSession(target.cwd)
+      }
+    }
+
+    setView('chat')
+    // 同一轮里连发两次时累加；Composer 收下后再清空
+    refSeq.current += 1
+    const nonce = refSeq.current
+    setIncomingRefs((prev) => ({
+      nonce,
+      refs: [...(prev?.refs ?? []), ...refs]
+    }))
+  }
+
+  useEffect(() => {
+    return window.api?.chat?.onAttachRefs((p) => attachRef.current(p))
+  }, [])
+
   return (
     <div className="app">
       <TitleBar />
@@ -156,10 +226,13 @@ export function App(): JSX.Element {
           workspaces={visible}
           loading={loading}
           running={running}
+          sort={sort}
+          onToggleSort={toggleSort}
           activeId={active.kind === 'stored' ? active.id : null}
           onSelect={openStored}
           onNewSession={newSession}
           onCloseWorkspace={closeWorkspace}
+          onOpenIde={(cwd) => void window.api?.ide?.open(cwd)}
           onPickWorkspace={() => void pickWorkspace()}
           onDeleteSession={setPendingDelete}
           onRefresh={() => void refresh()}
@@ -175,6 +248,9 @@ export function App(): JSX.Element {
             fallbackCwd={lastCwd}
             cwdReady={!loading}
             onNewSession={newSession}
+            onActiveInfo={reportActive}
+            incomingRefs={incomingRefs}
+            onIncomingConsumed={() => setIncomingRefs(null)}
           />
         )}
       </div>

@@ -89,8 +89,8 @@
   border-radius: 10px;
 }
 .sidebar__new:hover {
-  background: #2b2b2b;
-  border-color: #3a3a3a;
+  background: var(--bg-hover);
+  border-color: var(--border);
 }
 
 .sidebar__nav {
@@ -184,6 +184,21 @@
   gap: 8px;
   padding: 6px 10px;
   color: var(--text-dim);
+}
+/* 目录图标现在是「打开独立 IDE」的入口：给一点点击面积，hover 变蓝 */
+.wsgroup__iconbtn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 -2px 0 -4px;
+  border-radius: 5px;
+}
+.wsgroup__iconbtn:hover {
+  background: var(--bg-active);
+}
+.wsgroup__iconbtn:hover .wsgroup__icon {
+  color: #8ab4f8;
 }
 .wsgroup__icon {
   color: var(--text-muted);

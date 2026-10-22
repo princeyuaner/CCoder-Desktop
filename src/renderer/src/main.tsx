@@ -4,6 +4,7 @@ import { defaultSettings, type Settings } from '@shared/settings'
 import './styles/tokens.css'
 import './styles/global.css'
 import { App } from './App'
+import { IdeApp } from './ide/IdeApp'
 import { applyAppearance } from './appearance'
 
 const el = document.getElementById('root')
@@ -25,9 +26,12 @@ async function boot(): Promise<void> {
     }
   }
   applyAppearance(settings)
+  const params = new URLSearchParams(location.search)
+  const isIde = params.get('view') === 'ide'
+  const ideCwd = params.get('cwd') ?? ''
   createRoot(el!).render(
     <React.StrictMode>
-      <App />
+      {isIde ? <IdeApp cwd={ideCwd} /> : <App />}
     </React.StrictMode>
   )
 }

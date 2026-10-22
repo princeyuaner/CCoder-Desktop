@@ -45,6 +45,15 @@ export interface RunAgent {
   ms?: number
   /** 结果摘要（一句话） */
   result?: string
+  /**
+   * 完整报告正文（Markdown）。卡片只渲染 result 摘要，弹窗用这一份。
+   * 上限定在 REPORT_MAX，避免一条超大回执把会话状态撑爆。
+   */
+  report?: string
+  /** 失败 / 停止原因；和 result 分开，避免摘要被错误信息顶掉 */
+  error?: string
+  /** CLI 回传的报告文件路径。只展示，不在这里读文件 */
+  outputFile?: string
   /** 实时活动：task_progress 的 summary / last_tool_name */
   activity?: string
   /** 后台启动（async_launched）；完成状态要等 task_notification */
@@ -152,13 +161,33 @@ function todosOf(input: unknown): RawTodo[] | null {
 }
 
 /** 子代理结果外面常包一层 [Subagent hand-back] 说明；摘要要的是正文 */
-function summaryOfContent(content: string): string | undefined {
-  let s = content.trim()
+function stripHandback(content: string): string {
+  const s = content.trim()
+  if (!s.startsWith('[Subagent hand-back]')) return s
+  const cut = s.indexOf('\n\n')
+  return cut >= 0 ? s.slice(cut + 2).trim() : s.replace(/^\[Subagent hand-back\][^\n]*\n?/, '').trim()
+}
+
+/** 完整报告最多留这么多字符。正常 handback 一两万字符，够用且可控 */
+const REPORT_MAX = 20_000
+
+function reportOfContent(content: string): string | undefined {
+  const s = content.replace(/\r\n/g, '\n').trim()
   if (!s) return undefined
-  if (s.startsWith('[Subagent hand-back]')) {
-    const cut = s.indexOf('\n\n')
-    s = cut >= 0 ? s.slice(cut + 2).trim() : s.replace(/^\[Subagent hand-back\][^\n]*\n?/, '').trim()
-  }
+  if (s.length <= REPORT_MAX) return s
+  return `${s.slice(0, REPORT_MAX)}\n\n…（报告已截断，原文 ${s.length} 字符）`
+}
+
+/** 失败原因：压成一行，别让一屏堆栈把卡片撑爆 */
+function clipError(s: string | undefined): string | undefined {
+  const t = (s ?? '').replace(/\s+/g, ' ').trim()
+  if (!t) return undefined
+  return t.length > 500 ? `${t.slice(0, 500)}…` : t
+}
+
+function summaryOfContent(content: string): string | undefined {
+  const s = stripHandback(content)
+  if (!s) return undefined
   const lines = s
     .split('\n')
     .map((l) => l.trim())
@@ -357,6 +386,7 @@ function applyAgentResult(
   const status = agentStatusOf(e.status, info)
   const ms = info.durationMs ?? (base.startedAt && live ? now - base.startedAt : undefined)
   const result = info.summary || summaryOfContent(e.content)
+  const failed = status === 'error' || status === 'denied'
   const next: RunAgent = {
     ...base,
     type: info.agentType || base.type,
@@ -364,6 +394,10 @@ function applyAgentResult(
     status,
     ms,
     result,
+    report: reportOfContent(e.content) ?? base.report,
+    error: failed
+      ? clipError(summaryOfContent(e.content) || (status === 'denied' ? '权限被拒绝' : '子代理执行失败'))
+      : undefined,
     isBackground: info.async ? true : base.isBackground,
     activity: undefined,
     info: mergeAgentInfo(base.info, info)
@@ -562,12 +596,13 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
         }
         return { ...base, agents }
       }
-      if (!e.toolUseId && !e.agentType) return base
+      // 没有 agentType 的 task_started 是后台 shell/workflow，不建子代理卡
+      if (!e.agentType) return base
       const agent: RunAgent = {
         id: e.toolUseId || `task:${e.taskId}`,
         tool: 'Agent',
         taskId: e.taskId,
-        type: e.agentType || 'subagent',
+        type: e.agentType,
         description: e.description || e.agentType || '子代理',
         status: 'running',
         startedAt: live ? now : 0,
@@ -627,7 +662,9 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
         description: e.description || prev.description,
         status,
         ms: endMs && prev.startedAt ? endMs - prev.startedAt : prev.ms,
-        result: e.error || prev.result,
+        // error 单独存：摘要留给 result，别让一行错误信息把结果顶掉
+        result: prev.result,
+        error: status === 'error' ? clipError(e.error || prev.error) : undefined,
         isBackground: e.isBackground ?? prev.isBackground,
         activity: status === 'running' ? prev.activity : undefined
       }
@@ -658,12 +695,22 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
 
       const prev = state.agents[idx]
       const agents = state.agents.slice()
+      // 完整报告进 report，卡片仍然只显示一行摘要 —— e.summary 可能是整份 handback
+      const report = reportOfContent(e.summary) ?? prev.report
+      const summary = summaryOfContent(e.summary) ?? prev.result
+      const err =
+        status === 'error' || status === 'stopped'
+          ? clipError(e.reason || (status === 'error' ? summaryOfContent(e.summary) : undefined) || prev.error)
+          : undefined
       agents[idx] = {
         ...prev,
         taskId: e.taskId,
         status,
         ms: e.durationMs ?? prev.ms,
-        result: e.summary || prev.result,
+        result: summary,
+        report,
+        error: err,
+        outputFile: e.outputFile || prev.outputFile,
         activity: undefined,
         info
       }
@@ -689,4 +736,25 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
 function parseAt(at: string): number {
   const t = Date.parse(at)
   return Number.isFinite(t) ? t : 0
+}
+
+/* ── 完成事件选择器 ───────────────────────────────────────── */
+
+/** 后台代理：显式标了 async，或者回执里带 async_launched */
+export function isBackgroundAgent(a: RunAgent): boolean {
+  return a.isBackground === true || a.info?.async === true
+}
+
+/**
+ * 两次归约之间「后台代理从运行中变成终态」的那几张卡。
+ *
+ * 用 before.status === 'running' 做去重：重复的 task_updated / task_notification
+ * 不会重复提醒，但迟到的通知仍然可以补充 report / error。
+ */
+export function finishedBackgroundAgents(prev: RunState, next: RunState): RunAgent[] {
+  const before = new Map(prev.agents.map((a) => [a.id, a]))
+  return next.agents.filter((a) => {
+    const b = before.get(a.id)
+    return !!b && b.status === 'running' && a.status !== 'running' && isBackgroundAgent(a)
+  })
 }

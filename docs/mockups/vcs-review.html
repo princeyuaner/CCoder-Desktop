@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>CCoder · Git / SVN 面板效果图</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: #0a0a0c;
+    color: #e8e8e8;
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 30px 32px 80px;
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; }
+  header { display: flex; align-items: flex-end; gap: 24px; flex-wrap: wrap; margin-bottom: 10px; }
+  h1 { font-size: 24px; font-weight: 650; letter-spacing: .2px; }
+  .sub { margin-top: 6px; font-size: 13px; color: #8f909b; }
+  nav { margin-left: auto; display: flex; gap: 6px; }
+  nav a {
+    padding: 5px 11px; font-size: 12px; color: #b8b8c0; text-decoration: none;
+    border: 1px solid #2c2c34; border-radius: 6px; background: #141416;
+  }
+  nav a:hover { color: #fff; border-color: #4a4a55; }
+  .note {
+    margin: 16px 0 26px; padding: 11px 14px;
+    font-size: 12px; line-height: 1.6; color: #b8b8c0;
+    background: rgba(138,180,248,.05);
+    border: 1px solid rgba(138,180,248,.18);
+    border-radius: 8px;
+  }
+  .note b { color: #8ab4f8; font-weight: 600; }
+  section { margin-top: 42px; scroll-margin-top: 18px; }
+  .sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .badge {
+    display: inline-flex; align-items: center; height: 21px; padding: 0 8px;
+    font-size: 11px; font-weight: 750; color: #0b0b0c; background: #8ab4f8;
+    border-radius: 5px;
+  }
+  h2 { font-size: 17px; font-weight: 600; }
+  .sec-head p { margin-left: auto; font-size: 11.5px; color: #77777f; }
+  figure { margin: 0; border: 1px solid #2a2a31; border-radius: 10px; overflow: hidden; background: #111113; }
+  figure img { display: block; width: 100%; height: auto; }
+  figcaption { padding: 10px 13px; font-size: 11.5px; line-height: 1.55; color: #8a8a94; border-top: 1px solid #242429; }
+  figcaption b { color: #d8d8de; font-weight: 600; }
+  .open { margin-left: 10px; font-size: 11px; color: #8ab4f8; text-decoration: none; }
+  .open:hover { text-decoration: underline; }
+  footer { margin-top: 54px; padding-top: 18px; border-top: 1px solid #242429; font-size: 11.5px; color: #6f6f78; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Git / SVN 面板 · 效果图评审</h1>
+      <p class="sub">三套方案，每套都同时展示 Git 和 SVN 两种仓库状态。静态效果图，尚未接入真实操作。</p>
+    </div>
+    <nav>
+      <a href="#compare">对比</a>
+      <a href="#a">A · 侧栏</a>
+      <a href="#b">B · 独立工作区</a>
+      <a href="#c">C · 聊天侧边</a>
+    </nav>
+  </header>
+
+  <div class="note">
+    <b>设计口径：</b>一套 UI、两个适配器。按工作区自动识别 Git / SVN，只对 SVN 特有的 revision、lock、changelist、update 做条件展示，避免维护两套会逐渐漂移的界面。
+  </div>
+
+  <section id="compare">
+    <div class="sec-head"><span class="badge">对比</span><h2>三套方案总览</h2><p>点开大图看细节</p></div>
+    <figure>
+      <a href="vcs-compare.png" target="_blank"><img src="vcs-compare.png" alt="三套方案对比" /></a>
+      <figcaption>从左到右：A 侧栏式、B 独立版本控制工作区、C 聊天侧边变更审阅。</figcaption>
+    </figure>
+  </section>
+
+  <section id="a">
+    <div class="sec-head"><span class="badge">方案 A</span><h2>侧栏式源代码管理</h2><p>改动最小 · 与现有 IDE 最连贯</p></div>
+    <figure>
+      <a href="vcs-a-sidebar.png" target="_blank"><img src="vcs-a-sidebar.png" alt="方案 A 侧栏式" /></a>
+      <figcaption><b>适合：</b>想以最小改动补齐功能，保持现有操作路径。<br /><b>代价：</b>提交信息区偏窄，SVN 的锁定/冲突/修订信息会让侧栏更挤，diff 只能看单栏。<a class="open" href="vcs-a-sidebar.png" target="_blank">打开原图 ↗</a></figcaption>
+    </figure>
+  </section>
+
+  <section id="b">
+    <div class="sec-head"><span class="badge">方案 B</span><h2>独立版本控制工作区</h2><p>空间最大 · 推荐作为主视图</p></div>
+    <figure>
+      <a href="vcs-b-workspace.png" target="_blank"><img src="vcs-b-workspace.png" alt="方案 B 独立版本控制工作区" /></a>
+      <figcaption><b>适合：</b>在这个窗口里完成「改 → 看 diff → 提交」的完整闭环，尤其是大改动。<br /><b>代价：</b>新增一个视图；提交、同步、冲突处理需要更完整的状态机。<a class="open" href="vcs-b-workspace.png" target="_blank">打开原图 ↗</a></figcaption>
+    </figure>
+  </section>
+
+  <section id="c">
+    <div class="sec-head"><span class="badge">方案 C</span><h2>聊天侧边变更审阅</h2><p>离对话最近 · 改完直接审</p></div>
+    <figure>
+      <a href="vcs-c-review-dock.png" target="_blank"><img src="vcs-c-review-dock.png" alt="方案 C 聊天侧边变更审阅" /></a>
+      <figcaption><b>适合：</b>以聊天为主、频繁让 Agent 改代码，然后立刻审阅。<br /><b>代价：</b>占用主窗口宽度；需要和执行台共用一个 Dock；不适合长时间做完整的版本控制操作。<a class="open" href="vcs-c-review-dock.png" target="_blank">打开原图 ↗</a></figcaption>
+    </figure>
+  </section>
+
+  <footer>
+    建议：<b style="color:#d8d8de">B 作为主版本控制视图</b>，A 作为后续的紧凑模式，C 作为第二阶段增强。如果只做一个，选 B —— 它能同时容纳 Git 的 stage 和 SVN 的 revision / lock / conflict。<br />
+    效果图源文件：vcs-panels.html / vcs-panels.css / vcs-panels.js；说明：vcs-options.md。
+  </footer>
+</div>
+</body>
+</html>

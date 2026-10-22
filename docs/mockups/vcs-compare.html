@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Git / SVN 面板 · 方案对比</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #0a0a0c; overflow: hidden; }
+  body {
+    width: 1400px; padding: 26px 30px 30px;
+    color: #e8e8e8;
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 22px; font-weight: 650; letter-spacing: .2px; }
+  .sub { margin-top: 6px; font-size: 12.5px; color: #8f909b; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 18px; }
+  figure {
+    overflow: hidden; border: 1px solid #2a2a31; border-radius: 10px;
+    background: #111113;
+  }
+  .thumb { height: 430px; overflow: hidden; background: #0d0d0f; }
+  .thumb img { display: block; width: 100%; }
+  figcaption { padding: 10px 12px 11px; border-top: 1px solid #242429; }
+  figcaption b { display: inline-flex; align-items: center; height: 19px; padding: 0 7px; border-radius: 4px; font-size: 10px; color: #0b0b0c; background: #8ab4f8; margin-right: 7px; }
+  figcaption strong { font-size: 12.5px; font-weight: 600; }
+  figcaption p { margin-top: 5px; font-size: 10.5px; line-height: 1.5; color: #8a8a94; }
+  .note {
+    margin-top: 16px; padding: 11px 14px;
+    font-size: 11.5px; line-height: 1.6; color: #b8b8c0;
+    background: rgba(138,180,248,.05);
+    border: 1px solid rgba(138,180,248,.18);
+    border-radius: 8px;
+  }
+  .note b { color: #8ab4f8; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Git / SVN 面板 · 三套方案</h1>
+  <p class="sub">同一套界面 + 两个适配器；每张效果图都同时展示了 Git 和 SVN 两种仓库状态。</p>
+  <div class="grid">
+    <figure>
+      <div class="thumb"><img src="vcs-a-sidebar.png" /></div>
+      <figcaption><b>A</b><strong>侧栏式源代码管理</strong><p>改动最小，和现有 IDE 最连贯；提交框和 SVN 信息偏挤。</p></figcaption>
+    </figure>
+    <figure>
+      <div class="thumb"><img src="vcs-b-workspace.png" /></div>
+      <figcaption><b>B</b><strong>独立版本控制工作区</strong><p>左侧清单 + 右侧完整 diff + AI 审阅；空间最充裕，新增一个视图。</p></figcaption>
+    </figure>
+    <figure>
+      <div class="thumb"><img src="vcs-c-review-dock.png" /></div>
+      <figcaption><b>C</b><strong>聊天侧边变更审阅</strong><p>和对话上下文并排，改完直接审；占用主窗口宽度，和执行台共用 Dock。</p></figcaption>
+    </figure>
+  </div>
+  <div class="note"><b>建议：</b>B 作为主版本控制视图，A 作为后续的紧凑模式，C 作为第二阶段增强。如果只做一个，选 B —— 它能同时容纳 Git 的 stage 和 SVN 的 revision / lock / conflict。</div>
+</body>
+</html>

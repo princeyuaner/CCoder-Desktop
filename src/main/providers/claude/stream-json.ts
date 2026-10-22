@@ -55,6 +55,27 @@ function stringifyContent(v: unknown): string {
 }
 
 /**
+ * 从未完成的 JSON 文本里抠一个**已经闭合**的字符串字段。
+ *
+ * 入参流到一半时不能 JSON.parse（右括号还没到），但 `"file_path"` 通常
+ * 在开头就已经是完整字符串了。这里只认引号已闭合的值，反转义交给
+ * JSON.parse —— 手写反转义在 Windows 路径的 `\\` 上很容易出错。
+ */
+function partialStringField(json: string, field: string): string | undefined {
+  // 只认对象键的位置（`{` 或 `,` 之后）。正文里出现 `\"file_path\"` 这种
+  // 文本时，前面是反斜杠，不会被误当成键。
+  const re = new RegExp(`(?:^|[{,])\\s*"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`)
+  const m = re.exec(json)
+  if (!m) return undefined
+  try {
+    const v: unknown = JSON.parse(`"${m[1]}"`)
+    return typeof v === 'string' && v ? v : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * `claude --output-format stream-json` 的 NDJSON 事件 → 归一化 AgentEvent。
  *
  * **有状态**，因为文本会来两遍：开了 `--include-partial-messages` 后，
@@ -84,6 +105,17 @@ export class ClaudeStreamTranslator {
   private editFiles = new Map<
     string,
     { path: string; wrote: boolean; estimate?: { added: number; removed: number } }
+  >()
+  /**
+   * 正在流式生成的 tool_use 块，按 content block index 存。
+   *
+   * `--include-partial-messages` 下，入参是 `input_json_delta` 一段段来的；
+   * `content_block_start` 只给 id / name。写大文件时这个阶段能持续几十秒，
+   * 界面不能等 assistant 消息（完整 input）到了才画卡片。
+   */
+  private toolBlocks = new Map<
+    number,
+    { id: string; name: string; json: string; pathDone: boolean }
   >()
 
   translate(raw: Record<string, unknown>): AgentEvent[] {
@@ -137,19 +169,64 @@ export class ClaudeStreamTranslator {
 
   private streamEvent(o: Record<string, unknown>): AgentEvent[] {
     const ev = obj(o.event)
-    if (!ev || ev.type !== 'content_block_delta') return []
-    const d = obj(ev.delta)
-    if (!d) return []
-    if (d.type === 'text_delta') {
-      this.sawTextDelta = true
-      return [{ t: 'text_delta', text: str(d.text) }]
+    if (!ev) return []
+
+    switch (ev.type) {
+      case 'message_start':
+        // 块序号每条消息都从 0 重新开始：清掉上一条消息的残留，
+        // 否则两次调用会拼进同一个槽里。
+        this.toolBlocks.clear()
+        return []
+
+      case 'content_block_start': {
+        const cb = obj(ev.content_block)
+        if (!cb || cb.type !== 'tool_use') return []
+        const id = str(cb.id)
+        const name = str(cb.name)
+        if (!id || !name) return []
+        const index = typeof ev.index === 'number' ? ev.index : -1
+        if (index >= 0) this.toolBlocks.set(index, { id, name, json: '', pathDone: false })
+        // 卡片先出来；文件名、行数等入参流出来后再补
+        return [{ t: 'tool_started', id, name }]
+      }
+
+      case 'content_block_delta': {
+        const d = obj(ev.delta)
+        if (!d) return []
+
+        if (d.type === 'text_delta') {
+          this.sawTextDelta = true
+          return [{ t: 'text_delta', text: str(d.text) }]
+        }
+        if (d.type === 'thinking_delta') {
+          this.sawThinkingDelta = true
+          return [{ t: 'thinking_delta', text: str(d.thinking) }]
+        }
+        if (d.type === 'input_json_delta') {
+          const index = typeof ev.index === 'number' ? ev.index : -1
+          const slot = index >= 0 ? this.toolBlocks.get(index) : undefined
+          const part = str(d.partial_json)
+          if (!slot || !part || slot.pathDone) return []
+          slot.json += part
+          // 只在前 8KB 里找路径。再大还没见到，说明这个工具多半没有路径，
+          // 或者字段排在正文后面 —— 每次 delta 都扫一遍全量文本会变成 O(n²)。
+          if (slot.json.length > 8192) {
+            slot.pathDone = true
+            return []
+          }
+          const path =
+            partialStringField(slot.json, 'file_path') ||
+            partialStringField(slot.json, 'notebook_path')
+          if (!path) return []
+          slot.pathDone = true
+          return [{ t: 'tool_started', id: slot.id, name: slot.name, path }]
+        }
+        return []
+      }
+
+      default:
+        return []
     }
-    if (d.type === 'thinking_delta') {
-      this.sawThinkingDelta = true
-      return [{ t: 'thinking_delta', text: str(d.thinking) }]
-    }
-    // input_json_delta：工具入参的增量，等 assistant 消息里拿完整 input
-    return []
   }
 
   private assistant(o: Record<string, unknown>, sidechain: boolean): AgentEvent[] {

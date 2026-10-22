@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { RunAgent, RunState, RunTask } from '../run-state'
-import { fmtTokens } from './format'
+import { fmtClock, fmtTokens } from './format'
 import { IconChevronRight } from './Icons'
+import { AgentReportModal } from './AgentReportModal'
 
 /**
  * 输出区右侧的「执行台」。
@@ -16,31 +17,53 @@ interface Props {
   run: RunState
   /** 这一轮还在跑（含正在连 CLI 的那一段） */
   live: boolean
+  /**
+   * 主对话这一轮还在跑。和 live 分开：只有后台子代理在跑时 live 仍为 true，
+   * 但 CLI 的 interrupt 是整轮中断，这时不该给「中断」按钮。
+   */
+  running: boolean
+  onInterrupt: () => void
   onCollapse: () => void
   onOpenTrace: () => void
 }
 
-export function RunPanel({ run, live, onCollapse, onOpenTrace }: Props): JSX.Element | null {
+export function RunPanel({
+  run,
+  live,
+  running,
+  onInterrupt,
+  onCollapse,
+  onOpenTrace
+}: Props): JSX.Element | null {
   const now = useNow(live)
+  const [reportId, setReportId] = useState<string | null>(null)
 
   if (run.tasks.length === 0 && run.agents.length === 0) return null
 
   const done = run.tasks.filter((t) => t.status === 'completed').length
   const active = run.tasks.filter((t) => t.status === 'in_progress').length
+  const agentsDone = run.agents.filter((a) => a.status !== 'running').length
+  const agentsActive = run.agents.length - agentsDone
   /*
    * 只在进行中显示计时。结束后不拿「主对话这一轮」的时长冒充整轮耗时 ——
    * 后台子代理可能比主对话多跑几分钟，那个数字会和卡片上的耗时打架。
    */
   const elapsed = live ? (run.startedAt ? now - run.startedAt : undefined) : undefined
+  /** 卡片的 id 可能比 agents 活得久（换轮次），取不到就自动关掉弹窗 */
+  const reportAgent = reportId ? run.agents.find((a) => a.id === reportId) ?? null : null
 
   const bits: string[] = []
   if (run.tasks.length) {
     bits.push(`${done} 完成`)
     if (active) bits.push(`${active} 进行中`)
   }
-  if (run.agents.length) bits.push(`${run.agents.length} 个子代理`)
+  if (run.agents.length) {
+    bits.push(`子代理 ${agentsDone}/${run.agents.length}`)
+    if (agentsActive) bits.push(`${agentsActive} 运行中`)
+  }
 
   return (
+    <>
     <aside className="runpanel">
       <div className="runpanel__head">
         <div className="runpanel__top">
@@ -49,6 +72,15 @@ export function RunPanel({ run, live, onCollapse, onOpenTrace }: Props): JSX.Ele
             {live ? <i /> : <b>✓</b>}
             {elapsed != null ? fmtClock(elapsed) : live ? '运行中' : '已完成'}
           </span>
+          {running && (
+            <button
+              className="runpanel__stop"
+              onClick={onInterrupt}
+              title="中断本轮；已在后台运行的子代理可能不会随之停止"
+            >
+              ■ 中断
+            </button>
+          )}
           <button className="runpanel__collapse" onClick={onCollapse} title="收起执行台">
             <IconChevronRight width={14} height={14} />
           </button>
@@ -98,11 +130,13 @@ export function RunPanel({ run, live, onCollapse, onOpenTrace }: Props): JSX.Ele
           <section className="rsec">
             <div className="rsec__h">
               <span className="rsec__t">子代理</span>
-              <span className="rsec__n">{run.agents.length}</span>
+              <span className="rsec__n">
+                {agentsDone} / {run.agents.length}
+              </span>
             </div>
             <div className="rsec__list">
               {run.agents.map((a) => (
-                <AgentCard key={a.id} agent={a} now={now} />
+                <AgentCard key={a.id} agent={a} now={now} onOpenReport={setReportId} />
               ))}
             </div>
           </section>
@@ -125,6 +159,10 @@ export function RunPanel({ run, live, onCollapse, onOpenTrace }: Props): JSX.Ele
         </button>
       </div>
     </aside>
+    {reportAgent && (
+      <AgentReportModal agent={reportAgent} onClose={() => setReportId(null)} />
+    )}
+    </>
   )
 }
 
@@ -167,11 +205,20 @@ function agentTone(type: string): { tone: string; glyph: string; label: string }
   return { tone: 'other', glyph: '◇', label: '子代理' }
 }
 
-function AgentCard({ agent, now }: { agent: RunAgent; now: number }): JSX.Element {
+function AgentCard({
+  agent,
+  now,
+  onOpenReport
+}: {
+  agent: RunAgent
+  now: number
+  onOpenReport: (id: string) => void
+}): JSX.Element {
   const { tone, glyph, label } = agentTone(agent.type)
   const running = agent.status === 'running'
   const stopped = agent.status === 'stopped'
   const failed = agent.status === 'error' || agent.status === 'denied'
+  const isBackground = agent.isBackground === true || agent.info?.async === true
   const stateText = running
     ? '运行中'
     : stopped
@@ -183,6 +230,12 @@ function AgentCard({ agent, now }: { agent: RunAgent; now: number }): JSX.Elemen
         : '完成'
   const ms = agent.ms ?? (running && agent.startedAt ? now - agent.startedAt : undefined)
   const stats = agentStats(agent)
+  /** 失败/停止时优先给原因；摘要仍然留在 result 里 */
+  const detail = failed || stopped ? agent.error || agent.result : agent.result
+  /** 结果和描述一模一样时只显示一次 —— 后台任务尤其容易这样 */
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase()
+  const showResult = !!detail && norm(detail) !== norm(agent.description)
+  const canOpenReport = !running && !!(agent.report || agent.error || agent.result)
 
   return (
     <div
@@ -194,6 +247,7 @@ function AgentCard({ agent, now }: { agent: RunAgent; now: number }): JSX.Elemen
           <div className="ragent__name">
             {agent.type}
             <span>{label}</span>
+            {isBackground && <em className="ragent__bg">后台</em>}
           </div>
           <div className="ragent__desc">{agent.description}</div>
         </div>
@@ -212,9 +266,19 @@ function AgentCard({ agent, now }: { agent: RunAgent; now: number }): JSX.Elemen
           {agent.activity || '子代理运行中，等待返回…'}
         </div>
       ) : (
-        agent.result && (
-          <div className={`ragent__result ${failed ? 'is-bad' : ''}`}>{agent.result}</div>
+        showResult && (
+          <div className={`ragent__result ${failed ? 'is-bad' : ''}`}>{detail}</div>
         )
+      )}
+
+      {canOpenReport && (
+        <button
+          className="ragent__open"
+          data-report-id={agent.id}
+          onClick={() => onOpenReport(agent.id)}
+        >
+          查看完整报告 →
+        </button>
       )}
 
       {(stats.length > 0 || ms != null) && (
@@ -244,17 +308,6 @@ function agentStats(agent: RunAgent): string[] {
 }
 
 /* ── 工具 ─────────────────────────────────────────────────── */
-
-/** 毫秒 → 「01:12」；超过一小时给「1:02:03」 */
-function fmtClock(ms: number): string {
-  const total = Math.max(0, Math.round(ms / 1000))
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  const mm = String(m).padStart(2, '0')
-  const ss = String(s).padStart(2, '0')
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
 
 /** 面板在跑的时候每秒跳一次；停了就不再重建定时器 */
 function useNow(active: boolean): number {

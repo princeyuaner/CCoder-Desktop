@@ -114,6 +114,28 @@ app.whenReady().then(async () => {
     })
   })
 
+  // 报告弹窗用的 Markdown：标题 / 列表 / 代码块都要能渲染
+  const bgReport = [
+    '# 刷新调用点梳理',
+    '',
+    '共找到 **6 处** `refreshIfExpired` 调用点：',
+    '',
+    '- `src/auth/middleware.ts:42` —— 无并发保护',
+    '- `src/auth/middleware.ts:77` —— 无并发保护',
+    '- `src/auth/store.ts:88` —— 已加 single-flight',
+    '',
+    '## 建议',
+    '',
+    '1. 给 middleware 里那两处补 single-flight。',
+    '2. 回归测试覆盖「并发刷新 + 失效 token」。',
+    '',
+    '```ts',
+    'await refreshIfExpired(token)',
+    '```',
+    '',
+    '完整报告结束。'
+  ].join('\n')
+
   const update = (id, taskId, from, to) => {
     send({ t: 'tool_call', id, name: 'TaskUpdate', input: { taskId: String(taskId), status: to } })
     send({
@@ -281,10 +303,13 @@ app.whenReady().then(async () => {
         taskId: 'task-bg1',
         toolUseId: 'bg1',
         status: 'completed',
-        summary: '已定位 6 处调用点，其中 2 处缺少并发保护。',
+        summary: process.env.SHOT_REPORT
+          ? bgReport
+          : '已定位 6 处调用点，其中 2 处缺少并发保护。',
         totalTokens: 2000,
         toolUses: 8,
-        durationMs: 72000
+        durationMs: 72000,
+        outputFile: 'C:/tmp/subagent-report.md'
       })
       await new Promise((r) => setTimeout(r, 700))
     }
@@ -361,6 +386,105 @@ app.whenReady().then(async () => {
     await new Promise((r) => setTimeout(r, 900))
   }
 
+  let assertionFailed = false
+  const check = (name, ok) => {
+    console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`)
+    if (!ok) assertionFailed = true
+  }
+
+  /*
+   * SHOT_REPORT：打开已完成后台代理的报告弹窗。
+   * 依赖 SHOT_BACKGROUND + SHOT_BACKGROUND_DONE（那两条事件里才有报告正文）。
+   */
+  if (process.env.SHOT_REPORT) {
+    const clicked = await win.webContents.executeJavaScript(`(() => {
+      const b = document.querySelector('[data-report-id="bg1"]')
+      if (!b) return false
+      b.click()
+      return true
+    })()`)
+    await new Promise((r) => setTimeout(r, 700))
+    const state = await win.webContents.executeJavaScript(`(() => {
+      const dlg = document.querySelector('.modal__dlg.is-report')
+      const body = document.querySelector('.report__body')
+      return {
+        dialog: !!dlg,
+        body: !!body,
+        text: body ? body.innerText : ''
+      }
+    })()`)
+    check('报告入口可点击', clicked)
+    check('弹窗已打开', state.dialog)
+    check('报告正文已渲染', state.body && state.text.includes('刷新调用点梳理'))
+    check('Markdown 代码块已渲染', state.text.includes('refreshIfExpired'))
+  }
+
+  /*
+   * SHOT_TOAST：窗口隐藏时收尾一个后台代理，应用内轻提示应该出现。
+   * 隐藏窗口 = document.visibilityState 'hidden' / 失焦，正好绕过抑制规则。
+   */
+  if (process.env.SHOT_TOAST) {
+    send({
+      t: 'tool_call',
+      id: 'bg2',
+      name: 'Agent',
+      input: {
+        description: '后台跑回归',
+        subagent_type: 'general-purpose',
+        run_in_background: true,
+        prompt: '跑回归'
+      }
+    })
+    send({
+      t: 'tool_result',
+      id: 'bg2',
+      status: 'ok',
+      content: 'Async agent launched successfully.',
+      agent: { agentId: 'task-bg2', agentType: 'general-purpose', status: 'async_launched', async: true }
+    })
+    send({
+      t: 'task_started',
+      taskId: 'task-bg2',
+      toolUseId: 'bg2',
+      description: '后台跑回归',
+      agentType: 'general-purpose',
+      isBackground: true
+    })
+    await new Promise((r) => setTimeout(r, 400))
+
+    win.hide()
+    await new Promise((r) => setTimeout(r, 300))
+    send({
+      t: 'task_notification',
+      taskId: 'task-bg2',
+      toolUseId: 'bg2',
+      status: 'completed',
+      summary: '回归全部通过。',
+      durationMs: 15000
+    })
+    await new Promise((r) => setTimeout(r, 1000))
+    win.show()
+    await new Promise((r) => setTimeout(r, 400))
+
+    const toast = await win.webContents.executeJavaScript(`(() => {
+      const el = document.querySelector('.notice--float')
+      return el ? el.innerText : ''
+    })()`)
+    check('窗口隐藏时出现完成提示', toast.includes('后台子代理') && toast.includes('已完成'))
+  }
+
+  /*
+   * SHOT_STOP=present|absent：主对话 running 时才有「中断」；
+   * 只有后台代理在跑（主轮已结束）时不应该出现。
+   */
+  if (process.env.SHOT_STOP) {
+    const present = await win.webContents.executeJavaScript(
+      `!!document.querySelector('.runpanel__stop')`
+    )
+    const want = process.env.SHOT_STOP !== 'absent'
+    check(`中断按钮${want ? '存在' : '不存在'}`, present === want)
+  }
+
   if (process.env.SHOT_COLLAPSE) {
     await win.webContents.executeJavaScript(`document.querySelector('.chip--icon')?.click()`)
     await new Promise((r) => setTimeout(r, 500))
@@ -373,5 +497,6 @@ app.whenReady().then(async () => {
   const img = await win.webContents.capturePage()
   fs.writeFileSync(out, img.toPNG())
   console.log('wrote', out)
+  if (assertionFailed) process.exitCode = 1
   app.quit()
 })

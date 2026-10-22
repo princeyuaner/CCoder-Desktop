@@ -12,6 +12,9 @@ files:
   - out/**/*
   - package.json
   - "!**/*.map"
+  # 主进程 / preload / renderer 都已经 bundle，运行时不需要 node_modules；
+  # 不排掉的话 electron-builder 会把 Monaco 源码整包塞进 app.asar。
+  - "!node_modules/**/*"
 
 asar: true
 npmRebuild: false

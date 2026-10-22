@@ -8,6 +8,20 @@ export interface WorkspaceView {
   sessions: StoredSession[]
 }
 
+/**
+ * 侧栏会话行的排序方式。
+ *
+ * - `created`：按会话创建时间，**运行中不会换位**（默认）
+ * - `recent`：按最近活动（mtime），刚跑完一轮的会话会跳到顶部
+ */
+export type SessionSort = 'created' | 'recent'
+
+const byCreated = (a: StoredSession, b: StoredSession): number =>
+  b.createdAt - a.createdAt || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)
+
+const byRecent = (a: StoredSession, b: StoredSession): number =>
+  b.updatedAt - a.updatedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id)
+
 /** 相对时间：刚刚 / N分钟 / N小时 / N天 / 日期 */
 export function relTime(ms: number): string {
   const diff = Date.now() - ms
@@ -31,36 +45,50 @@ const THROTTLE_MS = 800
  *
  * 注意这里**不会**凭空造出一条会话来：新建的会话在发第一条消息之前，
  * 磁盘上根本还没有那份 jsonl（CLI 是懒启动的），没得可读。
- * 第一次发送之后 CLI 立刻就会写盘，一轮跑完我们就把列表拉一次。
+ * 第一次发送之后 CLI 会异步写盘：拿到 CLI 的 session id 就开始盯着索引，
+ * 出现即停，机灵点的话用户还没等到这一轮结束就能在侧栏看到它。
  */
 export function useSessions(): {
   workspaces: WorkspaceView[]
   loading: boolean
   /** 正在跑的会话 —— 键是 **CLI 自己的 session id**，就是会话行的 id */
   running: Set<string>
-  refresh: () => Promise<void>
+  /** 当前排序方式 */
+  sort: SessionSort
+  toggleSort: () => void
+  refresh: () => Promise<StoredSession[]>
 } {
   const [sessions, setSessions] = useState<StoredSession[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState<Set<string>>(() => new Set())
+  // 默认按创建时间：运行中的会话写盘不会改变行序
+  const [sort, setSort] = useState<SessionSort>('created')
   const lastAt = useRef(0)
-  const inFlight = useRef<Promise<void> | null>(null)
+  const inFlight = useRef<Promise<StoredSession[]> | null>(null)
+  /** 防抖待执行的刷新（turn_end / focus 共用，保证最后一次事件一定会刷） */
+  const soonTimer = useRef<number | null>(null)
+  /** 正在等索引出现的 CLI session id → 重试计时器 */
+  const watching = useRef(new Set<string>())
+  const watchTimers = useRef<number[]>([])
 
-  const refresh = useCallback(async (): Promise<void> => {
+  const refresh = useCallback(async (): Promise<StoredSession[]> => {
     if (!window.api?.sessions) {
       setLoading(false)
-      return
+      return []
     }
     // 已经在拉了就复用它 —— 否则连续切换会话会叠出好几个并发扫描
     if (inFlight.current) return inFlight.current
     const p = (async () => {
+      let next: StoredSession[] = []
       try {
-        setSessions(await window.api!.sessions.list())
+        next = await window.api!.sessions.list()
+        setSessions(next)
       } catch {
         // 读不到就当没有，不该让界面挂掉
       }
       setLoading(false)
       lastAt.current = Date.now()
+      return next
     })().finally(() => {
       inFlight.current = null
     })
@@ -68,27 +96,85 @@ export function useSessions(): {
     return p
   }, [])
 
+  /**
+   * 事件触发的刷新：**防抖**而不是节流。
+   *
+   * 以前是「距上次刷新不足 800ms 就直接 return」—— 一次 turn_end 恰好落在
+   * 这个窗口里就被永久丢掉了，新会话于是要等用户点一下侧栏（那里会强制
+   * refresh）才出现。现在把这次刷新排到窗口末尾执行，事件再多也至少刷一次。
+   */
   const refreshSoon = useCallback((): void => {
-    if (Date.now() - lastAt.current < THROTTLE_MS) return
-    void refresh()
-  }, [refresh])
-
-  useEffect(() => {
-    void refresh()
+    if (soonTimer.current !== null) return
+    const wait = Math.max(0, THROTTLE_MS - (Date.now() - lastAt.current))
+    soonTimer.current = window.setTimeout(() => {
+      soonTimer.current = null
+      void refresh()
+    }, wait)
   }, [refresh])
 
   /**
-   * 一轮跑完就刷一次 —— 这是"新会话该出现在侧栏了"的时刻。
+   * 新会话的 CLI id 拿到之后，盯到它真的出现在磁盘索引里为止。
    *
-   * CLI 其实在收到第一条消息时就落盘了，但要等这一轮结束，文件里才既有
-   * 用户那句话（当标题用）、又写完了一整轮。提前刷只会得到一条「(无标题)」。
+   * CLI 的 jsonl 是异步写的：session_started 到来时文件可能还没创建，
+   * turn_end 时也可能刚好差半拍。按 350ms → 900ms → 2s → 4s 重试几次，
+   * 命中就停 —— 新会话通常几百毫秒内就会出现在侧栏，不用等用户手动刷新。
+   */
+  const watchUntilListed = useCallback(
+    (id: string, attempt = 0): void => {
+      if (!id) return
+      if (attempt === 0) {
+        if (watching.current.has(id)) return
+        watching.current.add(id)
+      }
+      const delays = [350, 900, 2000, 4000]
+      void refresh().then((list) => {
+        if (!watching.current.has(id)) return
+        if (list.some((s) => s.id === id)) {
+          watching.current.delete(id)
+          return
+        }
+        if (attempt >= delays.length) {
+          watching.current.delete(id)
+          return
+        }
+        watchTimers.current.push(
+          window.setTimeout(() => watchUntilListed(id, attempt + 1), delays[attempt])
+        )
+      })
+    },
+    [refresh]
+  )
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  /** 卸载时别让排队的刷新/重试打到已经卸载的组件上 */
+  useEffect(() => {
+    return () => {
+      if (soonTimer.current !== null) window.clearTimeout(soonTimer.current)
+      for (const t of watchTimers.current) window.clearTimeout(t)
+      watchTimers.current = []
+      watching.current.clear()
+    }
+  }, [])
+
+  /**
+   * 会话事件驱动的刷新。
+   *
+   * - session_started：CLI 自己的 id 已经有了，盯到它出现在索引里为止；
+   * - turn_end：新会话此刻应该已经完整落盘，按常规再刷一次。
    */
   useEffect(() => {
     const off = window.api?.session.onEvent((p) => {
-      if (p.event.t === 'turn_end') refreshSoon()
+      if (p.event.t === 'session_started' && p.event.sessionId) {
+        watchUntilListed(p.event.sessionId)
+      } else if (p.event.t === 'turn_end') {
+        refreshSoon()
+      }
     })
     return off
-  }, [refreshSoon])
+  }, [refreshSoon, watchUntilListed])
 
   /** 切回窗口时也刷一次 —— 用户可能刚在终端里跑过 claude */
   useEffect(() => {
@@ -137,6 +223,10 @@ export function useSessions(): {
     }
   }, [])
 
+  const toggleSort = useCallback((): void => {
+    setSort((s) => (s === 'created' ? 'recent' : 'created'))
+  }, [])
+
   const workspaces = useMemo(() => {
     const byCwd = new Map<string, StoredSession[]>()
     for (const s of sessions) {
@@ -144,14 +234,24 @@ export function useSessions(): {
       if (list) list.push(s)
       else byCwd.set(s.cwd, [s])
     }
+    const cmp = sort === 'created' ? byCreated : byRecent
     const out: WorkspaceView[] = []
     for (const [cwd, list] of byCwd) {
+      // 组内显式排序 —— main 给的是创建时间序，切到「最近活动」时这里要重排
+      list.sort(cmp)
       out.push({ cwd, name: baseName(cwd), sessions: list })
     }
-    // 组内已是时间倒序，组间按最新一条排
-    out.sort((a, b) => (b.sessions[0]?.updatedAt ?? 0) - (a.sessions[0]?.updatedAt ?? 0))
+    /*
+     * 组间固定按「最近活动」排，不跟行序走。
+     * 侧栏的工作区顺序由 settings.openedCwds 决定，这里的顺序只用于
+     * 「所有工作区都关了，新会话该落到哪」的兜底 —— 那种场景下"最近动过"
+     * 比"最新创建"更符合直觉。
+     */
+    const latest = (list: StoredSession[]): number =>
+      list.reduce((m, s) => Math.max(m, s.updatedAt), 0)
+    out.sort((a, b) => latest(b.sessions) - latest(a.sessions) || a.cwd.localeCompare(b.cwd))
     return out
-  }, [sessions])
+  }, [sessions, sort])
 
-  return { workspaces, loading, running, refresh }
+  return { workspaces, loading, running, sort, toggleSort, refresh }
 }

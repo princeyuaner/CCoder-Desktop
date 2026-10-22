@@ -12,6 +12,38 @@ import type {
   StoredSession
 } from '../shared/session'
 import type { AgentEvent } from '../shared/events'
+import type { IdeFsChanged, IdeTarget } from '../shared/ide'
+import type {
+  ChatActiveInfo,
+  ChatTargetInfo,
+  IdeSendPayload,
+  IdeSendResult
+} from '../shared/ide-chat'
+import type { VcsApi } from '../shared/vcs'
+
+/**
+ * IDE 窗口的「打开文件」推送。
+ *
+ * 主进程可能在这个窗口的 React 还没挂上订阅时就把目标发过来（比如刚
+ * 创建窗口就连点两次），所以先攒最后一条，等订阅方出现再补发。
+ * 不攒的话表现就是"点了没反应"。
+ */
+let pendingReveal: IdeTarget | null = null
+const revealListeners = new Set<(target: IdeTarget) => void>()
+
+ipcRenderer.on(IPC.ideReveal, (_e: Electron.IpcRendererEvent, target: IdeTarget) => {
+  if (revealListeners.size === 0) pendingReveal = target
+  else for (const cb of revealListeners) cb(target)
+})
+
+/** 主进程请求关窗口；React 还没订阅时先记下来 */
+let pendingCloseRequest = false
+const closeListeners = new Set<() => void>()
+
+ipcRenderer.on(IPC.ideCloseRequest, () => {
+  if (closeListeners.size === 0) pendingCloseRequest = true
+  else for (const cb of closeListeners) cb()
+})
 
 /**
  * 渲染进程能看到的**全部**能力都在这里。加能力必须先在这里加一行，
@@ -81,6 +113,86 @@ const api: WindowApi = {
   workspace: {
     searchFiles: (cwd: string, query: string, limit?: number) =>
       ipcRenderer.invoke(IPC.workspaceSearchFiles, cwd, query, limit)
+  },
+
+  ide: {
+    open: (cwd: string): Promise<void> => ipcRenderer.invoke(IPC.ideOpen, cwd),
+    openFile: (cwd, file, line) => ipcRenderer.invoke(IPC.ideOpenFile, cwd, file, line),
+    onReveal: (cb) => {
+      revealListeners.add(cb)
+      // 订阅之前就到的目标，补发一次；随后清掉，别在重挂载时又打开一遍
+      const late = pendingReveal
+      if (late) {
+        pendingReveal = null
+        cb(late)
+      }
+      return () => {
+        revealListeners.delete(cb)
+      }
+    },
+    /**
+     * 文件变化由主进程的 watcher 推送。订阅之前发生的变化会丢，
+     * 但首屏的 listDir / readFile / vcs.status 本来就会读最新状态。
+     */
+    onFsChanged: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, batch: IdeFsChanged): void => cb(batch)
+      ipcRenderer.on(IPC.ideFsChanged, listener)
+      return () => ipcRenderer.off(IPC.ideFsChanged, listener)
+    },
+    listDir: (cwd, rel) => ipcRenderer.invoke(IPC.ideListDir, cwd, rel),
+    readFile: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadFile, cwd, rel),
+    readImage: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadImage, cwd, rel),
+    searchCode: (cwd, query) => ipcRenderer.invoke(IPC.ideSearchCode, cwd, query),
+    saveFile: (req) => ipcRenderer.invoke(IPC.ideSaveFile, req),
+    createEntry: (req) => ipcRenderer.invoke(IPC.ideCreateEntry, req),
+    renameEntry: (req) => ipcRenderer.invoke(IPC.ideRenameEntry, req),
+    deleteEntry: (req) => ipcRenderer.invoke(IPC.ideDeleteEntry, req),
+    setDirty: (dirty) => ipcRenderer.send(IPC.ideDirty, dirty),
+    onCloseRequest: (cb) => {
+      closeListeners.add(cb)
+      if (pendingCloseRequest) {
+        pendingCloseRequest = false
+        cb()
+      }
+      return () => {
+        closeListeners.delete(cb)
+      }
+    },
+    confirmClose: () => ipcRenderer.send(IPC.ideConfirmClose)
+  },
+
+  vcs: {
+    detect: (cwd) => ipcRenderer.invoke(IPC.vcsDetect, cwd),
+    status: (req) => ipcRenderer.invoke(IPC.vcsStatus, req),
+    diff: (req) => ipcRenderer.invoke(IPC.vcsDiff, req),
+    log: (req) => ipcRenderer.invoke(IPC.vcsLog, req),
+    commitDetail: (req) => ipcRenderer.invoke(IPC.vcsCommitDetail, req),
+    stage: (req) => ipcRenderer.invoke(IPC.vcsStage, req),
+    unstage: (req) => ipcRenderer.invoke(IPC.vcsUnstage, req),
+    discard: (req) => ipcRenderer.invoke(IPC.vcsDiscard, req),
+    revert: (req) => ipcRenderer.invoke(IPC.vcsRevert, req),
+    resolve: (req) => ipcRenderer.invoke(IPC.vcsResolve, req),
+    commit: (req) => ipcRenderer.invoke(IPC.vcsCommit, req),
+    fetch: (req) => ipcRenderer.invoke(IPC.vcsFetch, req),
+    pull: (req) => ipcRenderer.invoke(IPC.vcsPull, req),
+    push: (req) => ipcRenderer.invoke(IPC.vcsPush, req),
+    update: (req) => ipcRenderer.invoke(IPC.vcsUpdate, req),
+    cancel: (req) => ipcRenderer.invoke(IPC.vcsCancel, req)
+  } satisfies VcsApi,
+
+  chat: {
+    targets: (cwd: string): Promise<ChatTargetInfo[]> =>
+      ipcRenderer.invoke(IPC.ideChatTargets, cwd),
+    sendRefs: (payload: IdeSendPayload): Promise<IdeSendResult> =>
+      ipcRenderer.invoke(IPC.ideSendRefs, payload),
+    reportActive: (info: ChatActiveInfo): void =>
+      ipcRenderer.send(IPC.chatReportActive, info),
+    onAttachRefs: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: IdeSendPayload): void =>
+        cb(payload)
+      ipcRenderer.on(IPC.chatAttachRefs, listener)
+      return () => ipcRenderer.off(IPC.chatAttachRefs, listener)
+    }
   }
 }
 

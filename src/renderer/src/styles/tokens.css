@@ -82,3 +82,193 @@
   /* 浅色下珊瑚色对比度不够（4.3:1），压深一档到 4.8:1，12px 的字才读得清 */
   --running: #b04a28;
 }
+
+/* ============================================================
+ * 其它主题：只换这一组变量。
+ *
+ * 全部沿用同一套 token 名称，组件 CSS 不需要知道当前是哪套主题。
+ * data-scheme（由 appearance.ts 写在 <html> 上）只区分 dark / light，
+ * theme-light.css 里的浅色补丁对「暖纸」同样生效。
+ * ============================================================ */
+
+/* 午夜蓝：深海军蓝底 + 亮蓝强调 */
+:root[data-theme='midnight'] {
+  color-scheme: dark;
+
+  --bg-app: #0c141f;
+  --bg-sidebar: #091019;
+  --bg-raised: #142032;
+  --bg-hover: #101b29;
+  --bg-active: #192639;
+
+  --border: #243447;
+  --border-soft: #182536;
+
+  --text: #dbe7f6;
+  --text-dim: #9fb3cb;
+  --text-muted: #7e94ad;
+  --text-faint: #5f7691;
+
+  --accent: #5b9dff;
+  --accent-fg: #08111c;
+  --ok: #4fb57a;
+  --warn: #d9a93a;
+  --danger: #e5645c;
+  --running: #e2896b;
+}
+
+/* 森林绿：墨绿底 + 薄荷绿强调 */
+:root[data-theme='forest'] {
+  color-scheme: dark;
+
+  --bg-app: #0f1612;
+  --bg-sidebar: #0b110e;
+  --bg-raised: #17211a;
+  --bg-hover: #131c16;
+  --bg-active: #1d2a21;
+
+  --border: #2a3a2e;
+  --border-soft: #1e2c23;
+
+  --text: #e2ede5;
+  --text-dim: #a2b8a8;
+  --text-muted: #82988a;
+  --text-faint: #62786a;
+
+  --accent: #7fc99a;
+  --accent-fg: #0c1410;
+  --ok: #55b877;
+  --warn: #cfa83a;
+  --danger: #e06058;
+  --running: #e09a63;
+}
+
+/* 雾紫：Nord 式蓝灰底 + 雾紫强调 */
+:root[data-theme='mist'] {
+  color-scheme: dark;
+
+  --bg-app: #232833;
+  --bg-sidebar: #20252f;
+  --bg-raised: #2e3440;
+  --bg-hover: #2a303b;
+  --bg-active: #353d4b;
+
+  --border: #3e4757;
+  --border-soft: #343b47;
+
+  --text: #eceff4;
+  --text-dim: #c0c9d7;
+  --text-muted: #9aa6b8;
+  --text-faint: #77849a;
+
+  --accent: #b8a1e0;
+  --accent-fg: #1c2130;
+  --ok: #a3be8c;
+  --warn: #ebcb8b;
+  --danger: #d06b73;
+  --running: #d08770;
+}
+
+/* 咖啡棕：暖褐底 + 拿铁色强调 */
+:root[data-theme='coffee'] {
+  color-scheme: dark;
+
+  --bg-app: #1b1713;
+  --bg-sidebar: #15110e;
+  --bg-raised: #26201a;
+  --bg-hover: #211b16;
+  --bg-active: #2e271f;
+
+  --border: #3a3229;
+  --border-soft: #2a231d;
+
+  --text: #ece4d9;
+  --text-dim: #bcae9e;
+  --text-muted: #9c8e7d;
+  --text-faint: #7b6f60;
+
+  --accent: #d7a77a;
+  --accent-fg: #1b1713;
+  --ok: #7fb98c;
+  --warn: #d3a948;
+  --danger: #e06a5e;
+  --running: #e0966a;
+}
+
+/* 苔原：冷灰绿、几乎无彩色，刻意压低的界面 */
+:root[data-theme='moss'] {
+  color-scheme: dark;
+
+  --bg-app: #171a19;
+  --bg-sidebar: #131615;
+  --bg-raised: #202523;
+  --bg-hover: #1b201e;
+  --bg-active: #252b28;
+
+  --border: #333b37;
+  --border-soft: #262d2a;
+
+  --text: #e4e9e6;
+  --text-dim: #aab4ae;
+  --text-muted: #8b968f;
+  --text-faint: #6b756f;
+
+  --accent: #9fc4ae;
+  --accent-fg: #121615;
+  --ok: #71b58a;
+  --warn: #c7a95c;
+  --danger: #d97b72;
+  --running: #d69a6f;
+}
+
+/* 高对比：纯黑底 + 黄强调，可读性优先 */
+:root[data-theme='contrast'] {
+  color-scheme: dark;
+
+  --bg-app: #000000;
+  --bg-sidebar: #000000;
+  --bg-raised: #121212;
+  --bg-hover: #1c1c1c;
+  --bg-active: #262626;
+
+  --border: #555555;
+  --border-soft: #3a3a3a;
+
+  --text: #ffffff;
+  --text-dim: #dedede;
+  --text-muted: #c0c0c0;
+  --text-faint: #a0a0a0;
+
+  --accent: #ffd60a;
+  --accent-fg: #000000;
+  --ok: #4dff88;
+  --warn: #ffd60a;
+  --danger: #ff665c;
+  --running: #ff9b6a;
+}
+
+/* 暖纸：米黄纸面 + 深褐文字，长时间阅读舒服（浅色 scheme） */
+:root[data-theme='sepia'] {
+  color-scheme: light;
+
+  --bg-app: #f3eee3;
+  --bg-sidebar: #ebe5d8;
+  --bg-raised: #fffbf2;
+  --bg-hover: #e7e0d2;
+  --bg-active: #ded5c4;
+
+  --border: #d7cbb6;
+  --border-soft: #e4dbc9;
+
+  --text: #322a1e;
+  --text-dim: #5c5040;
+  --text-muted: #7b6c57;
+  --text-faint: #9a8b74;
+
+  --accent: #6b4f2b;
+  --accent-fg: #fffbf2;
+  --ok: #3f7d46;
+  --warn: #a06b0b;
+  --danger: #b8442f;
+  --running: #b05f36;
+}

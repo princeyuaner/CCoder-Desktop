@@ -50,9 +50,15 @@ export function taskSystemEvent(raw: Record<string, unknown>): AgentEvent | null
     case 'task_started': {
       const taskId = str(raw.task_id)
       const toolUseId = str(raw.tool_use_id) || undefined
-      const agentType = str(raw.subagent_type) || undefined
-      // 后台 shell / workflow 没有 tool_use_id / subagent_type，不进子代理区
-      if (!taskId || (!toolUseId && !agentType && str(raw.task_type) !== 'local_agent')) return null
+      const taskType = str(raw.task_type)
+      const agentType =
+        str(raw.subagent_type) || (taskType === 'local_agent' ? 'agent' : undefined)
+      /*
+       * 只认真正的子代理。后台 shell 也会发 task_started，而且**带 tool_use_id** ——
+       * 之前拿「有 tool_use_id 就当代理」的判据，会把后台命令显示成两张
+       * 重复的「subagent」卡片（描述同时进了标题和结果行）。
+       */
+      if (!taskId || !agentType) return null
       return {
         t: 'task_started',
         taskId,

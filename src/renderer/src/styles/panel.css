@@ -11,7 +11,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #151515;
+  background: var(--bg-sidebar);
   border-left: 1px solid var(--border-soft);
 }
 
@@ -22,7 +22,7 @@
   /* 和「会话头 + 标签栏」同高：面板底边正好落在标签栏下划线上 */
   min-height: 92px;
   padding: 14px 16px 6px;
-  border-bottom: 1px solid #232323;
+  border-bottom: 1px solid var(--border-soft);
 }
 .runpanel__top {
   display: flex;
@@ -54,6 +54,20 @@
   background: #fcd34d;
   box-shadow: 0 0 0 3px rgba(252, 211, 77, 0.1);
   animation: rp-pulse 1.4s ease-in-out infinite;
+}
+.runpanel__stop {
+  flex: none;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  color: #c98f88;
+  background: transparent;
+  border: 1px solid rgba(229, 83, 75, 0.28);
+  border-radius: 5px;
+}
+.runpanel__stop:hover {
+  color: #f0a9a2;
+  background: rgba(229, 83, 75, 0.1);
+  border-color: rgba(229, 83, 75, 0.5);
 }
 .runpanel__collapse {
   display: grid;
@@ -87,7 +101,7 @@
   min-width: 0;
   height: 3px;
   border-radius: 1px;
-  background: #2c2c30;
+  background: var(--border-soft);
 }
 .runpanel__strip i.is-done {
   background: #3f7d4d;
@@ -296,6 +310,9 @@
 .ragent.is-stopped {
   border-color: #2d2d32;
 }
+.ragent.is-done {
+  border-color: #28282d;
+}
 .ragent__top {
   display: flex;
   align-items: flex-start;
@@ -344,6 +361,16 @@
   font-weight: 400;
   letter-spacing: 0.04em;
   color: #64646e;
+}
+.ragent__bg {
+  padding: 0 5px;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 14px;
+  color: #8f8fa8;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-pill);
 }
 .ragent__desc {
   margin-top: 2px;
@@ -412,6 +439,19 @@
 }
 .ragent__result.is-bad {
   color: #d99a94;
+}
+.ragent__open {
+  display: block;
+  margin: 6px 0 0 auto;
+  padding: 0;
+  font-size: 10.5px;
+  color: #7b8fb5;
+  background: none;
+  border: 0;
+}
+.ragent__open:hover {
+  color: #a9c0e8;
+  text-decoration: underline;
 }
 .ragent__meta {
   display: flex;

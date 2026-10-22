@@ -24,7 +24,14 @@ export interface StoredSession {
   cwd: string
   /** 首条用户消息，当标题用 */
   title: string
-  /** 文件最后修改时间（毫秒） */
+  /**
+   * 会话创建时间（毫秒）—— 取文件里第一条记录的时间戳。
+   *
+   * 侧栏默认按它排序。**不能用 `updatedAt` 排**：会话运行期间 CLI 每写一条
+   * 记录 mtime 就会变，后台会话一轮结束就跳到顶部，列表会来回跳。
+   */
+  createdAt: number
+  /** 文件最后修改时间（毫秒）—— 表示"最近活动"，只在切到该排序时用 */
   updatedAt: number
   /**
    * 这条会话是哪个 CLI 写的。

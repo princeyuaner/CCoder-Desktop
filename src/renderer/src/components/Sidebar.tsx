@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { StoredSession } from '@shared/session'
 import { cliDef, type CliId } from '@shared/settings'
-import { relTime, type WorkspaceView } from '../useSessions'
+import { relTime, type SessionSort, type WorkspaceView } from '../useSessions'
 import {
   IconClaudeCode,
   IconClock,
@@ -23,11 +23,16 @@ interface SidebarProps {
   loading: boolean
   /** 正在跑的会话（CLI 的 session id）—— 这些行的图标会跳 */
   running: Set<string>
+  /** 会话行排序：创建时间 / 最近活动 */
+  sort: SessionSort
+  onToggleSort: () => void
   activeId: string | null
   onSelect: (s: StoredSession) => void
   /** 不传 cwd 就按「默认工作目录 / 上次打开的目录」开 */
   onNewSession: (cwd?: string) => void
   onCloseWorkspace: (cwd: string) => void
+  /** 打开该工作区的独立 IDE 窗口 */
+  onOpenIde: (cwd: string) => void
   /** 弹系统目录选择器，挑一个新目录加进列表 */
   onPickWorkspace: () => void
   onDeleteSession: (s: StoredSession) => void
@@ -39,10 +44,13 @@ export function Sidebar({
   workspaces,
   loading,
   running,
+  sort,
+  onToggleSort,
   activeId,
   onSelect,
   onNewSession,
   onCloseWorkspace,
+  onOpenIde,
   onPickWorkspace,
   onDeleteSession,
   onRefresh,
@@ -72,7 +80,15 @@ export function Sidebar({
           <button className="iconbtn" title="搜索">
             <IconSearch width={14} height={14} />
           </button>
-          <button className="iconbtn" title="排序">
+          <button
+            className="iconbtn"
+            title={
+              sort === 'created'
+                ? '排序：创建时间（点击改为最近活动）'
+                : '排序：最近活动（点击改为创建时间）'
+            }
+            onClick={onToggleSort}
+          >
             <IconSort width={14} height={14} />
           </button>
           <button className="iconbtn" title="打开一个工作区（选目录）" onClick={onPickWorkspace}>
@@ -99,6 +115,7 @@ export function Sidebar({
             onSelect={onSelect}
             onNewSession={onNewSession}
             onCloseWorkspace={onCloseWorkspace}
+            onOpenIde={onOpenIde}
             onDeleteSession={onDeleteSession}
             onRefresh={onRefresh}
           />
@@ -120,6 +137,7 @@ function WorkspaceGroup({
   onSelect,
   onNewSession,
   onCloseWorkspace,
+  onOpenIde,
   onDeleteSession,
   onRefresh
 }: {
@@ -129,6 +147,7 @@ function WorkspaceGroup({
   onSelect: (s: StoredSession) => void
   onNewSession: (cwd?: string) => void
   onCloseWorkspace: (cwd: string) => void
+  onOpenIde: (cwd: string) => void
   onDeleteSession: (s: StoredSession) => void
   onRefresh: () => void
 }): JSX.Element {
@@ -143,7 +162,13 @@ function WorkspaceGroup({
         常驻会把目录名挤掉一截。目录名被省略时靠 title 看全路径。
       */}
       <div className="wsgroup__head" title={ws.cwd}>
-        <IconFolder width={15} height={15} className="wsgroup__icon" />
+        <button
+          className="wsgroup__iconbtn"
+          title="打开内置 IDE（独立窗口）"
+          onClick={() => onOpenIde(ws.cwd)}
+        >
+          <IconFolder width={15} height={15} className="wsgroup__icon" />
+        </button>
         <span className="wsgroup__name">{ws.name}</span>
         <span className="wsgroup__count">{ws.sessions.length}</span>
         <span className="wsgroup__acts">
@@ -178,9 +203,9 @@ function WorkspaceGroup({
         />
       ))}
 
-      {hidden > 0 && !expanded && (
-        <button className="wsgroup__expand" onClick={() => setExpanded(true)}>
-          展开其余 {hidden} 个会话
+      {hidden > 0 && (
+        <button className="wsgroup__expand" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? '收起会话' : `展开其余 ${hidden} 个会话`}
         </button>
       )}
     </div>

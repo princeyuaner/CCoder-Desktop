@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IDE → 聊天 · 效果稿评审</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0c0c10;
+    --panel: #141419;
+    --panel-2: #1a1a21;
+    --line: #2a2a33;
+    --text: #e8e8ee;
+    --dim: #9a9aa6;
+    --faint: #6d6d7a;
+    --blue: #8ab4f8;
+    --blue-deep: #2f6fbf;
+    --green: #7fbf7f;
+    --amber: #e0af68;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    background:
+      radial-gradient(900px 500px at 10% -10%, rgba(47, 88, 160, .22), transparent 65%),
+      radial-gradient(800px 500px at 90% 0%, rgba(100, 62, 140, .16), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace; }
+  .wrap { max-width: 1460px; margin: 0 auto; padding: 34px 32px 90px; }
+
+  /* ── 顶栏 ── */
+  header {
+    display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap;
+    padding-bottom: 22px; border-bottom: 1px solid var(--line);
+  }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin-bottom: 8px; font-size: 11px; letter-spacing: .14em; color: var(--blue);
+    text-transform: uppercase;
+  }
+  .kicker::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--blue); box-shadow: 0 0 0 4px rgba(138, 180, 248, .12);
+  }
+  h1 { font-size: 28px; line-height: 1.25; letter-spacing: -.02em; font-weight: 650; }
+  header p { max-width: 620px; margin-top: 4px; color: var(--dim); font-size: 13px; }
+  .meta { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag {
+    padding: 3px 9px; font-size: 10.5px; color: var(--dim);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  }
+  .tag b { color: var(--text); font-weight: 600; }
+  .tag.is-blue { color: #a9c6ee; border-color: rgba(138,180,248,.24); background: rgba(138,180,248,.07); }
+
+  /* ── 总览 ── */
+  .flow {
+    display: grid; grid-template-columns: 1fr 26px 1fr 26px 1fr;
+    align-items: center; gap: 8px; margin: 26px 0 8px;
+  }
+  .flow__step {
+    display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .flow__n {
+    flex: none; display: grid; place-items: center; width: 22px; height: 22px;
+    font-size: 10.5px; font-weight: 700; color: #0b1220; background: var(--blue);
+    border-radius: 50%;
+  }
+  .flow__step b { display: block; font-size: 12px; font-weight: 600; }
+  .flow__step span { display: block; font-size: 10.5px; color: var(--faint); }
+  .flow__arrow { text-align: center; color: #3d3d49; font-size: 16px; }
+
+  /* ── 场景 ── */
+  section.scene { margin-top: 38px; scroll-margin-top: 18px; }
+  .scene__head { display: flex; align-items: baseline; gap: 11px; flex-wrap: wrap; margin-bottom: 11px; }
+  .scene__idx {
+    display: inline-grid; place-items: center; width: 24px; height: 24px;
+    font-size: 11px; font-weight: 700; color: var(--blue);
+    background: rgba(138, 180, 248, .09); border: 1px solid rgba(138, 180, 248, .22);
+    border-radius: 7px;
+  }
+  .scene__head h2 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  .scene__head .sub { color: var(--faint); font-size: 12px; }
+  .scene__body {
+    display: grid; grid-template-columns: minmax(0, 1fr) 286px; gap: 18px;
+    align-items: start;
+  }
+  .shot {
+    position: relative; display: block; overflow: hidden;
+    background: #191919; border: 1px solid #2c2c35; border-radius: 12px;
+    box-shadow: 0 26px 70px rgba(0, 0, 0, .45);
+    cursor: zoom-in;
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot::after {
+    content: '点击查看原图 ↗';
+    position: absolute; right: 12px; bottom: 12px;
+    padding: 4px 9px; font-size: 10.5px; color: #dbe7fa;
+    background: rgba(16, 18, 26, .78); border: 1px solid rgba(138, 180, 248, .25);
+    border-radius: 6px; opacity: 0; transition: opacity .15s;
+    backdrop-filter: blur(6px);
+  }
+  .shot:hover::after { opacity: 1; }
+  .notes {
+    padding: 14px 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .notes h3 {
+    font-size: 10.5px; letter-spacing: .12em; color: var(--faint);
+    text-transform: uppercase; margin-bottom: 9px;
+  }
+  .notes ul { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .notes li { position: relative; padding-left: 14px; font-size: 12px; color: var(--dim); line-height: 1.55; }
+  .notes li::before {
+    content: ''; position: absolute; left: 0; top: 7px; width: 5px; height: 5px;
+    border-radius: 50%; background: #3c3c49;
+  }
+  .notes li b { color: var(--text); font-weight: 600; }
+  .notes code {
+    padding: 1px 5px; font-family: 'Cascadia Mono', Consolas, monospace;
+    font-size: 10.5px; color: #a9c6ee; background: rgba(138, 180, 248, .08);
+    border-radius: 4px;
+  }
+
+  /* ── 选择区 ── */
+  .decide {
+    margin-top: 46px; padding: 24px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px;
+  }
+  .decide__head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .decide__head h2 { font-size: 18px; font-weight: 600; }
+  .decide__head span { color: var(--faint); font-size: 12px; }
+  .qgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+  .q { padding: 15px 16px; background: var(--panel-2); border: 1px solid #24242d; border-radius: 10px; }
+  .q__title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
+  .q__title em {
+    font-style: normal; font-size: 9.5px; font-weight: 500; color: var(--green);
+    background: rgba(127, 191, 127, .09); border: 1px solid rgba(127, 191, 127, .22);
+    padding: 1px 6px; border-radius: 999px;
+  }
+  .q__hint { margin: 3px 0 10px; font-size: 11px; color: var(--faint); }
+  .opts { display: flex; flex-direction: column; gap: 6px; }
+  .opt {
+    display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px;
+    background: #17171d; border: 1px solid #272730; border-radius: 7px;
+    cursor: pointer; transition: border-color .12s, background .12s;
+  }
+  .opt:hover { border-color: #34343f; background: #1a1a21; }
+  .opt input { appearance: none; flex: none; width: 14px; height: 14px; margin-top: 2px; border: 1.5px solid #444452; border-radius: 50%; cursor: pointer; }
+  .opt input:checked { border-color: var(--blue); background: radial-gradient(circle at center, var(--blue) 0 3px, transparent 3.5px); }
+  .opt b { display: block; font-size: 11.5px; font-weight: 500; color: var(--text); }
+  .opt span { display: block; margin-top: 1px; font-size: 10.5px; color: var(--faint); line-height: 1.45; }
+  .opt:has(input:checked) { border-color: rgba(138, 180, 248, .38); background: rgba(138, 180, 248, .055); }
+  .opt:has(input:checked) b { color: #cfe3ff; }
+  textarea {
+    width: 100%; min-height: 70px; margin-top: 4px; padding: 9px 11px;
+    font: inherit; font-size: 12px; color: var(--text); resize: vertical;
+    background: #17171d; border: 1px solid #272730; border-radius: 7px; outline: none;
+  }
+  textarea:focus { border-color: rgba(138, 180, 248, .38); }
+  textarea::placeholder { color: #5c5c68; }
+
+  .decide__foot {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-top: 20px; padding-top: 17px; border-top: 1px solid #24242d;
+  }
+  .copybtn {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 34px; padding: 0 16px; font-size: 12px; font-weight: 600;
+    color: #14171d; background: #e8e8e8; border: none; border-radius: 8px; cursor: pointer;
+  }
+  .copybtn:hover { background: #fff; }
+  .copybtn svg { width: 13px; height: 13px; }
+  .copied { font-size: 11.5px; color: var(--green); opacity: 0; transition: opacity .15s; }
+  .copied.on { opacity: 1; }
+  .decide__foot .reset { margin-left: auto; font-size: 11px; color: var(--faint); cursor: pointer; }
+  .decide__foot .reset:hover { color: var(--text); }
+
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: #5f5f6c; font-size: 11px; }
+  footer code { font-family: 'Cascadia Mono', Consolas, monospace; color: #8a8a98; }
+
+  /* ── 大图 ── */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    align-items: center; justify-content: center; padding: 26px;
+    background: rgba(5, 5, 9, .9); backdrop-filter: blur(8px);
+  }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: 100%; border: 1px solid #3a3a46; border-radius: 10px; box-shadow: 0 40px 120px rgba(0,0,0,.7); }
+  .lightbox button {
+    position: absolute; top: 18px; right: 20px; width: 34px; height: 34px;
+    font-size: 18px; color: #ddd; background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.14); border-radius: 50%; cursor: pointer;
+  }
+  .lightbox button:hover { background: rgba(255,255,255,.14); }
+
+  @media (max-width: 1100px) {
+    .scene__body { grid-template-columns: 1fr; }
+    .qgrid { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; }
+    .flow__arrow { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="kicker">Design review · v1</div>
+      <h1>IDE → 聊天：代码 / 文件发送</h1>
+      <p>选中一段代码或整个文件，放进同工作区的聊天输入框，作为消息的代码引用。下面是三个场景的真实界面效果。</p>
+    </div>
+    <div class="meta">
+      <span class="tag is-blue"><b>3</b> 个场景</span>
+      <span class="tag">独立 IDE 窗口</span>
+      <span class="tag">未实现 · 设计稿</span>
+    </div>
+  </header>
+
+  <div class="flow">
+    <div class="flow__step">
+      <span class="flow__n">1</span>
+      <div><b>选中 / 定位</b><span>代码选区，或整份文件</span></div>
+    </div>
+    <div class="flow__arrow">→</div>
+    <div class="flow__step">
+      <span class="flow__n">2</span>
+      <div><b>确认目标</b><span>同工作区会话 · 代码预览</span></div>
+    </div>
+    <div class="flow__arrow">→</div>
+    <div class="flow__step">
+      <span class="flow__n">3</span>
+      <div><b>进入输入框</b><span>补说明后随消息发出</span></div>
+    </div>
+  </div>
+
+  <section class="scene" id="s1">
+    <div class="scene__head">
+      <span class="scene__idx">1</span>
+      <h2>选中代码发送</h2>
+      <span class="sub">浮动条 + 确认层</span>
+    </div>
+    <div class="scene__body">
+      <a class="shot" href="ide-send-selection.png" target="_blank" rel="noreferrer">
+        <img src="ide-send-selection.png" alt="选中代码发送效果图" />
+      </a>
+      <aside class="notes">
+        <h3>交互</h3>
+        <ul>
+          <li>选中代码后，选区底部出现 <b>已选 N 行 · 复制 · 发送到聊天</b>。</li>
+          <li>确认层展示目标会话、文件名、<code>L464–476</code>、相对路径、行数和代码预览。</li>
+          <li>面包屑右侧常驻 <b>发送选区</b>，不依赖浮动条。</li>
+          <li>点「发送」只把引用放进输入框，不会直接发给模型。</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <section class="scene" id="s2">
+    <div class="scene__head">
+      <span class="scene__idx">2</span>
+      <h2>整个文件发送</h2>
+      <span class="sub">资源管理器 + 面包屑两个入口</span>
+    </div>
+    <div class="scene__body">
+      <a class="shot" href="ide-send-file.png" target="_blank" rel="noreferrer">
+        <img src="ide-send-file.png" alt="整文件发送效果图" />
+      </a>
+      <aside class="notes">
+        <h3>入口</h3>
+        <ul>
+          <li>资源管理器文件行悬停，右侧出现<b>发送图标</b>。</li>
+          <li>当前文件在面包屑上常驻 <b>发送文件</b>。</li>
+          <li>确认层引用范围变成 <code>全文 · 218 行</code>，不再带行号区间。</li>
+          <li>和选区发送共用同一套目标会话与确认交互。</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <section class="scene" id="s3">
+    <div class="scene__head">
+      <span class="scene__idx">3</span>
+      <h2>聊天框接收</h2>
+      <span class="sub">输入框上方的代码引用卡</span>
+    </div>
+    <div class="scene__body">
+      <a class="shot" href="ide-send-chat.png" target="_blank" rel="noreferrer">
+        <img src="ide-send-chat.png" alt="聊天框接收效果图" />
+      </a>
+      <aside class="notes">
+        <h3>规则</h3>
+        <ul>
+          <li>引用卡和图片附件同区，位于输入框上方。</li>
+          <li>每条引用可单独移除，支持多个引用并存。</li>
+          <li><b>来自 IDE</b> 标签标明来源；代码文本随消息一起进入模型上下文。</li>
+          <li>用户补完问题后正常发送，不改变现有发送流程。</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <section class="decide" id="decide">
+    <div class="decide__head">
+      <h2>需要你拍板</h2>
+      <span>已按推荐项预选，选完复制回聊天即可</span>
+    </div>
+
+    <div class="qgrid">
+      <div class="q" data-q="目标会话">
+        <div class="q__title">1. 默认目标会话 <em>推荐</em></div>
+        <div class="q__hint">IDE 窗口是独立窗口，「对应的聊天框」如何确定？</div>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q1" value="同工作区当前活跃会话" checked /><div><b>同工作区当前活跃会话</b><span>和 IDE 同一个 cwd 的那条聊天；下拉可切换同工作区其他会话。</span></div></label>
+          <label class="opt"><input type="radio" name="q1" value="同工作区最近活跃会话" /><div><b>同工作区最近活跃会话</b><span>不看窗口焦点，按最近一次对话时间挑。</span></div></label>
+          <label class="opt"><input type="radio" name="q1" value="每次都手动选择" /><div><b>每次都手动选择</b><span>确认层必须选一次目标，避免发错会话。</span></div></label>
+        </div>
+      </div>
+
+      <div class="q" data-q="超长选区">
+        <div class="q__title">2. 超长选区 <em>推荐</em></div>
+        <div class="q__hint">选区过大时怎么处理？</div>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q2" value="超过 500 行时提示选择" checked /><div><b>超过 500 行时提示</b><span>让用户选「只发前 500 行」或「改发整文件」。</span></div></label>
+          <label class="opt"><input type="radio" name="q2" value="静默截断到 500 行" /><div><b>静默截断到 500 行</b><span>不打断操作，但用户可能不知道被截了。</span></div></label>
+          <label class="opt"><input type="radio" name="q2" value="不限制，原样发送" /><div><b>不限制，原样发送</b><span>交给用户自己判断，可能一次塞进过多 token。</span></div></label>
+        </div>
+      </div>
+
+      <div class="q" data-q="整文件内容">
+        <div class="q__title">3. 整文件发送的内容 <em>推荐</em></div>
+        <div class="q__hint">发送整个文件时，模型拿到什么？</div>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q3" value="默认全文" checked /><div><b>默认全文</b><span>文件名 + 完整内容；diff 作为后续版本的可选入口。</span></div></label>
+          <label class="opt"><input type="radio" name="q3" value="默认与 HEAD 的 diff" /><div><b>默认与 HEAD 的 diff</b><span>只看改动，适合代码审查；新文件没有 diff。</span></div></label>
+          <label class="opt"><input type="radio" name="q3" value="让用户在确认层选择" /><div><b>确认层二选一</b><span>全文 / diff 每次显式选择。</span></div></label>
+        </div>
+      </div>
+
+      <div class="q" data-q="完成反馈">
+        <div class="q__title">4. 发送后的反馈 <em>推荐</em></div>
+        <div class="q__hint">引用进入输入框后，IDE 侧要不要提示？</div>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q4" value="轻提示，2 秒消失" checked /><div><b>轻提示，2 秒消失</b><span>「已附加到聊天 · 修复登录流程」。</span></div></label>
+          <label class="opt"><input type="radio" name="q4" value="不提示，直接切换窗口" /><div><b>不提示，直接切换窗口</b><span>聊天窗口被带到前台，用户自然看到引用卡。</span></div></label>
+        </div>
+      </div>
+
+      <div class="q" style="grid-column: 1 / -1">
+        <div class="q__title">5. 其他调整</div>
+        <div class="q__hint">对布局、文案、入口位置有想法可以直接写在这里。</div>
+        <textarea id="notes" placeholder="例如：浮动条想只保留一个按钮；或者文件发送也想放到右键菜单里…"></textarea>
+      </div>
+    </div>
+
+    <div class="decide__foot">
+      <button class="copybtn" id="copy">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.4"/><path d="M10.5 3.5H4A1.5 1.5 0 0 0 2.5 5v6"/></svg>
+        复制我的选择
+      </button>
+      <span class="copied" id="copied">已复制，粘贴回聊天即可</span>
+      <span class="reset" id="reset">重置为推荐项</span>
+    </div>
+  </section>
+
+  <footer>
+    设计稿由 <code>docs/mockups/ide-send-to-chat.md</code> 与 <code>tools/shot-ide-send.cjs</code> 维护，图片基于真实界面注入生成。
+  </footer>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <button id="close" title="关闭">×</button>
+  <img id="lightbox-img" alt="" />
+</div>
+
+<script>
+  const KEY = 'ccoder.ide-send.review.v1'
+  const groupNames = { q1: '目标会话', q2: '超长选区', q3: '整文件内容', q4: '完成反馈' }
+
+  function save() {
+    const data = {}
+    for (const name of Object.keys(groupNames)) {
+      const el = document.querySelector(`input[name="${name}"]:checked`)
+      if (el) data[name] = el.value
+    }
+    const notes = document.getElementById('notes').value
+    localStorage.setItem(KEY, JSON.stringify({ data, notes }))
+  }
+
+  function restore() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(KEY) || 'null')
+      if (!raw) return
+      for (const [name, value] of Object.entries(raw.data || {})) {
+        const el = [...document.querySelectorAll(`input[name="${name}"]`)].find((x) => x.value === value)
+        if (el) el.checked = true
+      }
+      if (raw.notes) document.getElementById('notes').value = raw.notes
+    } catch {}
+  }
+
+  document.querySelectorAll('input[type=radio]').forEach((el) => el.addEventListener('change', save))
+  document.getElementById('notes').addEventListener('input', save)
+
+  document.getElementById('copy').addEventListener('click', async () => {
+    const lines = ['IDE → 聊天 设计选择：']
+    for (const [name, label] of Object.entries(groupNames)) {
+      const el = document.querySelector(`input[name="${name}"]:checked`)
+      if (el) lines.push(`- ${label}：${el.value}`)
+    }
+    const notes = document.getElementById('notes').value.trim()
+    if (notes) lines.push(`- 其他调整：${notes}`)
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      const tip = document.getElementById('copied')
+      tip.classList.add('on')
+      setTimeout(() => tip.classList.remove('on'), 2200)
+    } catch {
+      window.prompt('复制下面的内容：', lines.join('\n'))
+    }
+  })
+
+  document.getElementById('reset').addEventListener('click', () => {
+    localStorage.removeItem(KEY)
+    location.reload()
+  })
+
+  // 点图看大图
+  const lightbox = document.getElementById('lightbox')
+  const lightboxImg = document.getElementById('lightbox-img')
+  document.querySelectorAll('.shot').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault()
+      lightboxImg.src = a.querySelector('img').src
+      lightbox.classList.add('open')
+    })
+  })
+  document.getElementById('close').addEventListener('click', () => lightbox.classList.remove('open'))
+  lightbox.addEventListener('click', (e) => {
+    if (e.target === lightbox) lightbox.classList.remove('open')
+  })
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') lightbox.classList.remove('open')
+  })
+
+  restore()
+</script>
+</body>
+</html>

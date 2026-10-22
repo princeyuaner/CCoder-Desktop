@@ -12,6 +12,17 @@ export function fmtDuration(ms: number): string {
   return `${Math.floor(s / 60)} 分 ${s % 60} 秒`
 }
 
+/** 毫秒 → 「01:12」；超过一小时给「1:02:03」。等宽数字，跳秒时宽度不变 */
+export function fmtClock(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
 /** 缓存命中率 = 命中读取 / 总 token */
 /**
  * 缓存命中率 = 从缓存读到的 prompt token / prompt token 总量。

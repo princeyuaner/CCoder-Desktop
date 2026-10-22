@@ -200,6 +200,18 @@ export type AgentEvent =
   | { t: 'text_delta'; text: string }
   | { t: 'thinking_delta'; text: string }
   | { t: 'tool_call'; id: string; name: string; input: unknown }
+  /**
+   * 一个 tool_use 块**开始**流式生成，入参还没到齐。
+   *
+   * 开着 `--include-partial-messages` 时，工具入参是一段一段来的：写一个大
+   * 文件可能要生成几十秒，完整的 `tool_call`（带 input）要等整个块结束才到。
+   * 只等它就等于让界面空着几十秒 —— 所以块一出现就先发这条，让工具卡立刻
+   * 画出来；完整入参到达后仍按原来的 `tool_call` 发一次，渲染层按 id 合并。
+   *
+   * `path` 是从已经流出来的入参里提前认出的文件路径（文件类工具），
+   * 用来在生成期间就把文件名显示出来。认不出就不带。
+   */
+  | { t: 'tool_started'; id: string; name: string; path?: string }
   | {
       t: 'tool_result'
       id: string
