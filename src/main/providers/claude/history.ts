@@ -4,6 +4,7 @@ import { isFileEditTool, statFromPatch, toolDisplay, toolFamily } from '../../..
 import { agentRunInfo, taskResultInfo } from './tool-result-meta'
 import { taskNotificationFromText, taskSystemEvent } from './task-events'
 import { normalizeQuestions } from './control'
+import { t } from '../../i18n'
 
 /**
  * 把 CLI 自己写的会话记录（jsonl）回放成 AgentEvent。
@@ -87,7 +88,7 @@ function userImages(message: unknown): ImageAttachment[] {
       id: `hist-${out.length}-${mediaType}`,
       mediaType,
       data,
-      name: `历史图片 ${out.length + 1}`
+      name: t('history.imageName', { n: out.length + 1 })
     })
     if (out.length >= MAX_HISTORY_IMAGES) break
   }

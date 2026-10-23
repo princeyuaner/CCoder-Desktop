@@ -1,4 +1,10 @@
 import type { PermissionMode } from './events'
+import {
+  DEFAULT_LANGUAGE,
+  isLanguageSetting,
+  type LanguageSetting
+} from './i18n/locale'
+import type { MessageKey } from './i18n/catalog'
 
 /**
  * 渠道（channel）= 一个 API 端点 + 凭据 + 模型。
@@ -11,13 +17,15 @@ import type { PermissionMode } from './events'
 
 /**
  * 渠道说的协议。**由所属 CLI 决定**，不是用户在表单里挑的 ——
- * Claude Code 只会说 Anthropic 协议，Codex 只会说 OpenAI 协议。
+ * Claude Code 只会说 Anthropic 协议，Codex 只会说 OpenAI 协议，
+ * DeepSeek Harness 则由它自己的适配器读 DEEPSEEK_BASE_URL / KEY。
  */
-export type ChannelKind = 'anthropic' | 'openai'
+export type ChannelKind = 'anthropic' | 'openai' | 'deepseek'
 
-export const PROTOCOL_LABEL: Record<ChannelKind, string> = {
-  anthropic: 'Anthropic 兼容',
-  openai: 'OpenAI 兼容'
+export const PROTOCOL_LABEL_KEY: Record<ChannelKind, MessageKey> = {
+  anthropic: 'protocol.anthropic',
+  openai: 'protocol.openai',
+  deepseek: 'protocol.deepseek'
 }
 
 /**
@@ -74,22 +82,22 @@ export function effortLevelsFor(cli: CliId): EffortLevel[] {
   return cli === 'codex' ? CODEX_EFFORT_LEVELS : EFFORT_LEVELS
 }
 
-export const EFFORT_LABEL: Record<EffortLevel, string> = {
-  low: '低',
-  medium: '中',
-  high: '高',
-  xhigh: '极高',
-  max: '最高',
-  ultra: 'Ultra'
+export const EFFORT_LABEL_KEY: Record<EffortLevel, MessageKey> = {
+  low: 'effort.low',
+  medium: 'effort.medium',
+  high: 'effort.high',
+  xhigh: 'effort.xhigh',
+  max: 'effort.max',
+  ultra: 'effort.ultra'
 }
 
-export const EFFORT_HINT: Record<EffortLevel, string> = {
-  low: '直接答，几乎不推演。最快、最省。',
-  medium: 'CLI 默认档。日常改动的平衡点。',
-  high: '动代码之前先推演一遍。',
-  xhigh: '多步推理，慢但稳，留给重构和排查。',
-  max: '吃满预算。最慢最贵，留给硬骨头。',
-  ultra: 'Codex 专用：主动拆分并委派子任务，消耗最高。'
+export const EFFORT_HINT_KEY: Record<EffortLevel, MessageKey> = {
+  low: 'effortHint.low',
+  medium: 'effortHint.medium',
+  high: 'effortHint.high',
+  xhigh: 'effortHint.xhigh',
+  max: 'effortHint.max',
+  ultra: 'effortHint.ultra'
 }
 
 /**
@@ -140,36 +148,56 @@ export const THEME_SCHEME: Record<Exclude<ThemeMode, 'system'>, ThemeScheme> = {
   sepia: 'light'
 }
 
-export const THEME_LABEL: Record<ThemeMode, string> = {
-  dark: '深色',
-  midnight: '午夜蓝',
-  forest: '森林绿',
-  mist: '雾紫',
-  coffee: '咖啡棕',
-  moss: '苔原',
-  contrast: '高对比',
-  light: '浅色',
-  sepia: '暖纸',
-  system: '跟随系统'
+export const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
+  dark: 'theme.dark',
+  midnight: 'theme.midnight',
+  forest: 'theme.forest',
+  mist: 'theme.mist',
+  coffee: 'theme.coffee',
+  moss: 'theme.moss',
+  contrast: 'theme.contrast',
+  light: 'theme.light',
+  sepia: 'theme.sepia',
+  system: 'theme.system'
 }
 
 /**
  * 设置页下拉里的分组顺序。
  * 深色系放前面（默认主题就在这里），浅色单独一组，跟随系统是行为而不是配色。
  */
-export const THEME_GROUPS: { label: string; themes: ThemeMode[] }[] = [
+export const THEME_GROUPS: { labelKey: MessageKey; themes: ThemeMode[] }[] = [
   {
-    label: '深色',
+    labelKey: 'theme.group.dark',
     themes: ['dark', 'midnight', 'forest', 'mist', 'coffee', 'moss', 'contrast']
   },
-  { label: '浅色', themes: ['light', 'sepia'] },
-  { label: '其它', themes: ['system'] }
+  { labelKey: 'theme.group.light', themes: ['light', 'sepia'] },
+  { labelKey: 'theme.group.other', themes: ['system'] }
+]
+
+/** 合法的主题值。**不要用 label map 的 key 做校验**：label 本地化后它会变 */
+export const THEME_MODES: ThemeMode[] = [
+  'dark',
+  'midnight',
+  'forest',
+  'mist',
+  'coffee',
+  'moss',
+  'contrast',
+  'light',
+  'sepia',
+  'system'
 ]
 
 export function isThemeMode(v: unknown): v is ThemeMode {
-  // 用 hasOwnProperty 而不是 `in`：后者会把 toString / constructor 这类
-  // 原型链上的名字也当成合法主题，落盘文件里一个脏值就能把界面搞坏
-  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(THEME_LABEL, v)
+  return typeof v === 'string' && (THEME_MODES as string[]).includes(v)
+}
+
+/* ── 界面语言 ──────────────────────────────────────────────── */
+
+export const LANGUAGE_LABEL_KEY: Record<LanguageSetting, MessageKey> = {
+  zh: 'language.zh',
+  en: 'language.en',
+  system: 'language.system'
 }
 
 /** 跟随系统时用系统偏好解析；显式主题原样返回 */
@@ -196,60 +224,60 @@ export const THEME_BG: Record<Exclude<ThemeMode, 'system'>, string> = {
 /** 新消息的发送快捷键。enter = Enter 发送；ctrlEnter = Ctrl/Cmd+Enter 发送 */
 export type SendKey = 'enter' | 'ctrlEnter'
 
-export const SEND_KEY_LABEL: Record<SendKey, string> = {
-  enter: 'Enter 发送，Shift+Enter 换行',
-  ctrlEnter: 'Ctrl/Cmd+Enter 发送，Enter 换行'
+export const SEND_KEY_LABEL_KEY: Record<SendKey, MessageKey> = {
+  enter: 'sendKey.enter',
+  ctrlEnter: 'sendKey.ctrlEnter'
 }
 
 /** 工具调用在对话里的显示方式 */
 export type ToolDetail = 'full' | 'compact' | 'hidden'
 
-export const TOOL_DETAIL_LABEL: Record<ToolDetail, string> = {
-  full: '完整 —— 一行摘要，可展开命令与输出',
-  compact: '精简 —— 只保留一行摘要，不展开',
-  hidden: '隐藏 —— 不在对话里显示（轨迹页仍可查看）'
+export const TOOL_DETAIL_LABEL_KEY: Record<ToolDetail, MessageKey> = {
+  full: 'toolDetail.full',
+  compact: 'toolDetail.compact',
+  hidden: 'toolDetail.hidden'
 }
 
 /** 界面可选的字体栈。存的是完整 CSS font-family，自定义字体也能直接落盘 */
 export interface FontPreset {
-  label: string
+  labelKey: MessageKey
   value: string
 }
 
 export const UI_FONT_PRESETS: FontPreset[] = [
   {
-    label: '系统默认',
+    labelKey: 'font.system',
     value: "system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif"
   },
   {
-    label: '微软雅黑',
+    labelKey: 'font.yahei',
     value: "'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif"
   },
   {
-    label: 'Segoe UI',
+    labelKey: 'font.segoe',
     value: "'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif"
   },
   {
-    label: '苹方 / 思源黑体',
+    labelKey: 'font.pingfang',
     value: "'PingFang SC', 'Noto Sans SC', 'Source Han Sans SC', 'Microsoft YaHei', sans-serif"
   }
 ]
 
 export const MONO_FONT_PRESETS: FontPreset[] = [
   {
-    label: 'JetBrains Mono',
+    labelKey: 'font.mono.jetbrains',
     value: "'JetBrains Mono', 'Cascadia Mono', Consolas, monospace"
   },
   {
-    label: 'Cascadia Code',
+    labelKey: 'font.mono.cascadia',
     value: "'Cascadia Code', 'Cascadia Mono', Consolas, monospace"
   },
   {
-    label: 'Consolas',
+    labelKey: 'font.mono.consolas',
     value: "Consolas, 'Cascadia Mono', monospace"
   },
   {
-    label: '系统等宽',
+    labelKey: 'font.mono.system',
     value: "ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace"
   }
 ]
@@ -283,7 +311,10 @@ export function clampChatFontSize(v: unknown): number {
  * 两者的 baseUrl / 密钥 / 模型没有任何理由共用 —— 早先做成全局列表，
  * 结果是换个 CLI 就得把渠道全部重填一遍。
  */
-export type CliId = 'claude' | 'codex'
+export type CliId = 'claude' | 'codex' | 'dsh'
+
+/** DeepSeek Harness 在没配渠道时使用的默认模型 */
+export const DSH_DEFAULT_MODEL = 'deepseek-v4-flash'
 
 export interface CliDef {
   id: CliId
@@ -296,7 +327,8 @@ export interface CliDef {
 
 export const CLIS: CliDef[] = [
   { id: 'claude', name: 'Claude Code', protocol: 'anthropic', ready: true },
-  { id: 'codex', name: 'Codex CLI', protocol: 'openai', ready: true }
+  { id: 'codex', name: 'Codex CLI', protocol: 'openai', ready: true },
+  { id: 'dsh', name: 'DeepSeek Harness', protocol: 'deepseek', ready: true }
 ]
 
 export const CLI_IDS: CliId[] = CLIS.map((c) => c.id)
@@ -316,9 +348,9 @@ export function cliDef(id: CliId): CliDef {
  */
 export type CliAuthMode = 'channel' | 'official'
 
-export const AUTH_MODE_LABEL: Record<CliAuthMode, string> = {
-  channel: 'API 渠道',
-  official: '官方登录'
+export const AUTH_MODE_LABEL_KEY: Record<CliAuthMode, MessageKey> = {
+  channel: 'authMode.channel',
+  official: 'authMode.official'
 }
 
 export function isCliAuthMode(v: unknown): v is CliAuthMode {
@@ -341,6 +373,11 @@ export interface CliConfig {
 
 export interface Settings {
   clis: Record<CliId, CliConfig>
+  /**
+   * 界面语言。system = 跟随操作系统语言（启动 / 保存时解析）。
+   * 默认 system；老版本落盘没有这个字段时也回落到 system。
+   */
+  language: LanguageSetting
   /** 新会话默认权限模式 */
   permissionMode: PermissionMode
   /** 新会话默认工作目录；空 = 沿用上次打开的目录 */
@@ -388,8 +425,10 @@ export function emptyCliConfig(id: CliId): CliConfig {
     activeChannelId: null,
     channels: [],
     effort: DEFAULT_EFFORT,
-    authMode: 'channel',
-    officialModel: ''
+    // dsh 的 official = 用它自己 DSH_HOME 里的凭据；用户已经在终端里配过，
+    // 默认走这条，不要逼他再抄一份 key 到渠道里
+    authMode: id === 'dsh' ? 'official' : 'channel',
+    officialModel: id === 'dsh' ? DSH_DEFAULT_MODEL : ''
   }
 }
 
@@ -398,6 +437,7 @@ export function defaultSettings(): Settings {
   for (const id of CLI_IDS) clis[id] = emptyCliConfig(id)
   return {
     clis,
+    language: DEFAULT_LANGUAGE,
     permissionMode: 'standard',
     defaultCwd: '',
     openedCwds: [],
@@ -414,9 +454,22 @@ export function defaultSettings(): Settings {
   }
 }
 
-/** 取某个 CLI 的配置；缺字段时补一份空的，调用方不必到处判空 */
+/**
+ * 取某个 CLI 的配置；缺字段时合并默认值，调用方不必到处判空。
+ *
+ * 不能只在整条缺失时回落：旧版本 / 截图桩 / 手写的测试数据可能只给了
+ * `channels`，没有 `effort`。那样 `EFFORT_HINT_KEY[cfg.effort]` 会拿到
+ * undefined，翻译层直接崩掉。这里逐字段兜底。
+ */
 export function cliConfig(s: Settings, id: CliId): CliConfig {
-  return s.clis?.[id] ?? emptyCliConfig(id)
+  const empty = emptyCliConfig(id)
+  const cur = s.clis?.[id]
+  if (!cur) return empty
+  return {
+    ...empty,
+    ...cur,
+    channels: Array.isArray(cur.channels) ? cur.channels : empty.channels
+  }
 }
 
 /** 某个 CLI 当前在用的渠道 */
@@ -449,6 +502,7 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
   }
   return {
     clis,
+    language: isLanguageSetting(src.language) ? src.language : DEFAULT_LANGUAGE,
     permissionMode: src.permissionMode ?? 'standard',
     defaultCwd: src.defaultCwd ?? '',
     openedCwds: Array.isArray(src.openedCwds)
@@ -477,7 +531,7 @@ export interface ChannelTestResult {
   latencyMs: number
 }
 
-export function newChannel(kind: ChannelKind = 'anthropic'): Channel {
+export function newChannel(kind: ChannelKind = 'anthropic', name = ''): Channel {
   // crypto.randomUUID 只在安全上下文有；file:// 下不保证，故留兜底
   const id =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -485,7 +539,7 @@ export function newChannel(kind: ChannelKind = 'anthropic'): Channel {
       : `ch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   return {
     id,
-    name: '新渠道',
+    name,
     kind,
     baseUrl: '',
     model: '',

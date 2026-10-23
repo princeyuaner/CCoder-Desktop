@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { UpdateInstallResult, UpdateState } from '@shared/update'
 import { IconDownload } from './Icons'
+import { useI18n } from '../i18n'
 
 /**
  * 右下角的更新提醒。
@@ -17,6 +18,7 @@ export function UpdateToast({
   onDownload(): void
   onInstall(): Promise<UpdateInstallResult>
 }): JSX.Element | null {
+  const { t } = useI18n()
   const [hidden, setHidden] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [installError, setInstallError] = useState<string | null>(null)
@@ -39,7 +41,7 @@ export function UpdateToast({
 
   if (!visible || hidden) return null
 
-  const version = state.version ? `v${state.version}` : '新版本'
+  const version = state.version ? `v${state.version}` : t('update.newVersion')
   const percent = Math.round(state.percent ?? 0)
 
   const install = async (): Promise<void> => {
@@ -48,7 +50,7 @@ export function UpdateToast({
     const r = await onInstall()
     if (!r.ok) {
       setInstalling(false)
-      setInstallError(r.message ?? '无法安装更新')
+      setInstallError(r.message ?? t('update.installFailed'))
     }
     // 成功时应用会立刻退出，不需要再改状态
   }
@@ -60,17 +62,17 @@ export function UpdateToast({
           <IconDownload width={14} height={14} />
         </span>
         <span className="updtoast__title">
-          {phase === 'available' && `发现新版本 ${version}`}
-          {phase === 'downloading' && `正在下载 ${version}`}
-          {phase === 'downloaded' && `新版本 ${version} 已就绪`}
-          {phase === 'error' && '更新下载失败'}
+          {phase === 'available' && t('update.available', { version })}
+          {phase === 'downloading' && t('update.downloading', { version })}
+          {phase === 'downloaded' && t('update.downloaded', { version })}
+          {phase === 'error' && t('update.downloadFailed')}
         </span>
         {phase !== 'downloading' && (
           <button
             className="updtoast__x"
             onClick={() => setHidden(true)}
-            title="稍后再说"
-            aria-label="关闭"
+            title={t('update.laterTitle')}
+            aria-label={t('common.close')}
           >
             ×
           </button>
@@ -80,16 +82,14 @@ export function UpdateToast({
       {phase === 'available' && (
         <>
           {state.releaseName && <p className="updtoast__sub">{state.releaseName}</p>}
-          <p className="updtoast__hint">
-            下载完成后会提示你重启安装，不会现在打断正在进行的会话。
-          </p>
+          <p className="updtoast__hint">{t('update.hint')}</p>
           <div className="updtoast__acts">
             <button className="btn btn--primary btn--xs" onClick={onDownload}>
               <IconDownload width={12} height={12} />
-              下载
+              {t('update.download')}
             </button>
             <button className="btn btn--ghost btn--xs" onClick={() => setHidden(true)}>
-              稍后
+              {t('update.later')}
             </button>
           </div>
         </>
@@ -100,15 +100,15 @@ export function UpdateToast({
           <div className="updtoast__bar" aria-hidden="true">
             <span style={{ width: `${percent}%` }} />
           </div>
-          <p className="updtoast__hint">下载中… {percent}%</p>
+          <p className="updtoast__hint">
+            {t('update.downloadingPercent', { percent })}
+          </p>
         </>
       )}
 
       {phase === 'downloaded' && (
         <>
-          <p className="updtoast__hint">
-            重启后会完成安装。打开的会话会被关闭，之后还能从记录里继续。
-          </p>
+          <p className="updtoast__hint">{t('update.readyHint')}</p>
           {installError && <p className="updtoast__err">{installError}</p>}
           <div className="updtoast__acts">
             <button
@@ -116,14 +116,14 @@ export function UpdateToast({
               onClick={() => void install()}
               disabled={installing}
             >
-              {installing ? '正在重启…' : '重启并安装'}
+              {installing ? t('update.installing') : t('update.install')}
             </button>
             <button
               className="btn btn--ghost btn--xs"
               onClick={() => setHidden(true)}
               disabled={installing}
             >
-              稍后
+              {t('update.later')}
             </button>
           </div>
         </>
@@ -131,13 +131,15 @@ export function UpdateToast({
 
       {phase === 'error' && (
         <>
-          <p className="updtoast__err">{state.error || '请检查网络后重试'}</p>
+          <p className="updtoast__err">
+            {state.error || t('update.errorFallback')}
+          </p>
           <div className="updtoast__acts">
             <button className="btn btn--primary btn--xs" onClick={onDownload}>
-              重试
+              {t('update.retry')}
             </button>
             <button className="btn btn--ghost btn--xs" onClick={() => setHidden(true)}>
-              关闭
+              {t('update.close')}
             </button>
           </div>
         </>

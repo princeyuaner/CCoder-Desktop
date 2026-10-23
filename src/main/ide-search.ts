@@ -1,5 +1,6 @@
 import micromatch from 'micromatch'
 import type { IdeSearchOptions } from '../shared/ide'
+import { t } from './i18n'
 
 /**
  * IDE 工作区搜索的纯匹配层：不碰 Electron / fs，只负责把 query + options
@@ -60,12 +61,12 @@ export function compileSearch(
   options: IdeSearchOptions | undefined
 ): CompiledSearch {
   if (typeof query !== 'string') {
-    throw new SearchPatternError('invalid-query', '搜索内容不合法')
+    throw new SearchPatternError('invalid-query', t('ideError.searchInvalid'))
   }
   if (query.length > MAX_QUERY_CHARS) {
     throw new SearchPatternError(
       'invalid-query',
-      `搜索内容过长（最多 ${MAX_QUERY_CHARS} 个字符）`
+      t('ideError.searchLong', { n: MAX_QUERY_CHARS })
     )
   }
 
@@ -76,7 +77,7 @@ export function compileSearch(
   // 字面量沿用旧行为：去掉首尾空白；正则模式原样保留，空白可能有意义
   const core = regexMode ? query : escapeRegExp(query.trim())
   if (!core) {
-    throw new SearchPatternError('invalid-query', '搜索内容不能为空')
+    throw new SearchPatternError('invalid-query', t('ideError.searchEmpty'))
   }
 
   // 包一层非捕获组，捕获组编号不受影响；前后用定长 lookaround，Node/Chromium 都支持
@@ -87,7 +88,7 @@ export function compileSearch(
     regex = new RegExp(source, caseSensitive ? 'g' : 'gi')
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
-    throw new SearchPatternError('invalid-regex', `正则表达式不合法：${detail}`)
+    throw new SearchPatternError('invalid-regex', t('ideError.regexInvalid', { detail }))
   }
 
   return { regex, literal: !regexMode }
@@ -96,19 +97,19 @@ export function compileSearch(
 function normalizePatterns(raw: unknown, label: string): string[] {
   if (raw === undefined || raw === null) return []
   if (!Array.isArray(raw)) {
-    throw new SearchPatternError('invalid-glob', `${label}必须是字符串数组`)
+    throw new SearchPatternError('invalid-glob', t('ideError.globNotArray', { label }))
   }
   const out: string[] = []
   for (const item of raw) {
     if (typeof item !== 'string') {
-      throw new SearchPatternError('invalid-glob', `${label}里包含非字符串`)
+      throw new SearchPatternError('invalid-glob', t('ideError.globNotString', { label }))
     }
     const p = item.trim().replace(/\\/g, '/')
     if (!p) continue
     if (p.length > MAX_GLOB_CHARS) {
       throw new SearchPatternError(
         'invalid-glob',
-        `${label}里的模式过长（最多 ${MAX_GLOB_CHARS} 个字符）：${p.slice(0, 40)}…`
+        t('ideError.globLong', { label, raw: p.slice(0, 40) + '…' })
       )
     }
     out.push(p)
@@ -116,7 +117,7 @@ function normalizePatterns(raw: unknown, label: string): string[] {
   if (out.length > MAX_GLOB_PATTERNS) {
     throw new SearchPatternError(
       'invalid-glob',
-      `${label}最多 ${MAX_GLOB_PATTERNS} 条，当前 ${out.length} 条`
+      t('ideError.globMax', { label, n: MAX_GLOB_PATTERNS })
     )
   }
   return out
@@ -135,21 +136,21 @@ function compileMatchers(patterns: string[], label: string): ((rel: string) => b
     const p = raw.includes('/') ? raw : `**/${raw}`
     try {
       const fn = micromatch.matcher(p, opts)
-      if (typeof fn !== 'function') throw new Error('matcher 未生成')
+      if (typeof fn !== 'function') throw new Error(t('ideError.matcherMissing'))
       return fn
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
-      throw new SearchPatternError('invalid-glob', `${label}模式不合法「${raw}」：${detail}`)
+      throw new SearchPatternError('invalid-glob', t('ideError.globInvalid', { label, raw, detail }))
     }
   })
 }
 
 /** 编译 include / exclude；工作区相对 POSIX 路径判定 */
 export function compileGlobs(options: IdeSearchOptions | undefined): CompiledGlobs {
-  const include = normalizePatterns(options?.include, '包含')
-  const exclude = normalizePatterns(options?.exclude, '排除')
-  const includeFns = compileMatchers(include, '包含')
-  const excludeFns = compileMatchers(exclude, '排除')
+  const include = normalizePatterns(options?.include, t('ideError.include'))
+  const exclude = normalizePatterns(options?.exclude, t('ideError.exclude'))
+  const includeFns = compileMatchers(include, t('ideError.include'))
+  const excludeFns = compileMatchers(exclude, t('ideError.exclude'))
 
   return {
     includeCount: includeFns.length,

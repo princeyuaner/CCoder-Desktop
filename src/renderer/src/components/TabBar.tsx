@@ -1,8 +1,11 @@
+import type { MessageKey } from '@shared/i18n'
+import { useI18n } from '../i18n'
+
 export type TabKey = 'chat' | 'trace'
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'chat', label: '对话' },
-  { key: 'trace', label: '轨迹' }
+const TABS: { key: TabKey; labelKey: MessageKey }[] = [
+  { key: 'chat', labelKey: 'tabbar.chat' },
+  { key: 'trace', labelKey: 'tabbar.trace' }
 ]
 
 export function TabBar({
@@ -12,17 +15,18 @@ export function TabBar({
   active: TabKey
   onChange: (k: TabKey) => void
 }): JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="tabbar" role="tablist">
-      {TABS.map((t) => (
+      {TABS.map((tab) => (
         <button
-          key={t.key}
+          key={tab.key}
           role="tab"
-          aria-selected={active === t.key}
-          className={`tab ${active === t.key ? 'is-active' : ''}`}
-          onClick={() => onChange(t.key)}
+          aria-selected={active === tab.key}
+          className={`tab ${active === tab.key ? 'is-active' : ''}`}
+          onClick={() => onChange(tab.key)}
         >
-          {t.label}
+          {t(tab.labelKey)}
         </button>
       ))}
     </div>

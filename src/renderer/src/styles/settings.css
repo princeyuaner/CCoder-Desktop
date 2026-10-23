@@ -386,12 +386,20 @@ select.input {
   font-weight: 500;
 }
 .modelrow__default {
+  /* 绝对定位的 radio 要以 label 为包含块 —— 否则它相对文档定位，
+     会跑到内容滚动区之外，点 label 时浏览器把整个文档滚过去，
+     而 body 又是 overflow:hidden，界面就再也回不来了 */
+  position: relative;
   display: inline-flex;
   flex: none;
   cursor: pointer;
 }
 .modelrow__default input {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
   pointer-events: none;
 }

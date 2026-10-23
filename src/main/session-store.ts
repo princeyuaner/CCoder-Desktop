@@ -1,4 +1,13 @@
-import { closeSync, openSync, readFileSync, readSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import {
+  closeSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '../shared/events'
@@ -8,6 +17,8 @@ import {
   listCodexSessionFiles,
   readCodexTranscript
 } from './providers/codex/history'
+import { listDshSessionFiles, readDshTranscript } from './providers/dsh/history'
+import { t } from './i18n'
 
 /**
  * 读 CLI 自己的会话存储。
@@ -144,7 +155,7 @@ function parseHead(head: string): { cwd: string; title: string; createdAt: numbe
     // 工具结果和系统注入都不是"用户说的话"，不能当标题
     if (text.trim() && !looksInjected(text)) title = cleanTitle(text)
     // 图片-only 的首条消息没有文字，给它一个能认出来的标题
-    else if (!title && hasImage) title = '图片消息'
+    else if (!title && hasImage) title = t('chat.title.imageMessage')
   }
   return { cwd, title, createdAt }
 }
@@ -201,8 +212,10 @@ function readTailCwd(file: string, size: number): string {
  */
 interface SessionFile {
   file: string
-  cli: 'claude' | 'codex'
+  cli: 'claude' | 'codex' | 'dsh'
   id: string
+  /** dsh 的一条会话是一个目录，删除时要把目录整个收掉 */
+  dir?: string
 }
 
 const pathById = new Map<string, SessionFile>()
@@ -218,7 +231,9 @@ export function listStoredSessions(): StoredSession[] {
   try {
     projects = readdirSync(ROOT())
   } catch {
-    return [] // 还没跑过 claude，目录不存在
+    // 还没跑过 claude。**不能直接 return**：Codex / dsh 的会话跟这个目录无关，
+    // 没装 Claude Code 的人也该在侧栏里看到自己的 dsh 历史。
+    projects = []
   }
 
   for (const p of projects) {
@@ -252,7 +267,7 @@ export function listStoredSessions(): StoredSession[] {
             if (cwd) {
               head = {
                 cwd,
-                title: head.title || (parsed.text.includes('"type":"image"') ? '图片消息' : ''),
+                title: head.title || (parsed.text.includes('"type":"image"') ? t('chat.title.imageMessage') : ''),
                 createdAt: head.createdAt
               }
             }
@@ -269,7 +284,7 @@ export function listStoredSessions(): StoredSession[] {
         out.push({
           id,
           cwd,
-          title: title || '(无标题)',
+          title: title || t('codexHistory.untitled'),
           // 记录里没时间戳（老文件/被截断）就退回到文件创建时间，再退 mtime
           createdAt: createdAt || st.birthtimeMs || st.mtimeMs,
           updatedAt: st.mtimeMs,
@@ -297,6 +312,24 @@ export function listStoredSessions(): StoredSession[] {
     const k = keyOf(session.cwd, session.id)
     if (pathById.has(k)) continue
     pathById.set(k, { file, cli: 'codex', id: session.id })
+    out.push(session)
+  }
+
+  /*
+   * DeepSeek Harness 的会话是 $DSH_HOME/sessions 下的目录，cwd 从投影缓存
+   * 或会话头里读（不反解目录名）。子代理会话和空白会话由扫描器过滤掉。
+   */
+  let dshFiles: ReturnType<typeof listDshSessionFiles> = []
+  try {
+    dshFiles = listDshSessionFiles()
+  } catch {
+    // dsh home 不可读（权限 / 磁盘）不该把另外两个 CLI 的列表一起带崩
+  }
+  for (const entry of dshFiles) {
+    const { session } = entry
+    const k = keyOf(session.cwd, session.id)
+    if (pathById.has(k)) continue
+    pathById.set(k, { file: entry.file, cli: 'dsh', id: session.id, dir: entry.dir })
     out.push(session)
   }
 
@@ -333,17 +366,25 @@ export async function deleteStoredSession(
   id: string
 ): Promise<{ ok: boolean; message?: string }> {
   const found = findFile(cwd, id)
-  if (!found) return { ok: false, message: '找不到这条会话的记录文件' }
+  if (!found) return { ok: false, message: t('sessionStore.recordMissing') }
 
   const file = found.file
+  // dsh 的会话不只是单文件：整个目录（含未来可能出现的附件）都归它
+  const dir = found.cli === 'dsh' ? found.dir : undefined
   for (let i = 0; i < 6; i++) {
     try {
-      unlinkSync(file)
+      if (dir) rmSync(dir, { recursive: true })
+      else unlinkSync(file)
       pathById.delete(keyOf(cwd, id))
       headCache.delete(file)
       return { ok: true }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
+      // dsh 可能自己先一步收掉了目录；目标已经不在就算删成功
+      if (code === 'ENOENT' && dir) {
+        pathById.delete(keyOf(cwd, id))
+        return { ok: true }
+      }
       // 只对"被占用"重试；路径不存在之类的错误重试多少次都一样
       if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') {
         return { ok: false, message: String(err) }
@@ -351,7 +392,7 @@ export async function deleteStoredSession(
       await new Promise((r) => setTimeout(r, 150))
     }
   }
-  return { ok: false, message: '文件还被占用着 —— 可能有正在跑的 CLI 开着它' }
+  return { ok: false, message: t('sessionStore.fileBusy') }
 }
 
 /** 读一份会话并把记录回放成事件流。cwd 必须一起给：身份是 (cwd, id)。 */
@@ -359,6 +400,7 @@ export function readTranscript(cwd: string, id: string): AgentEvent[] {
   const found = findFile(cwd, id)
   if (!found) return []
   if (found.cli === 'codex') return readCodexTranscript(found.file, cwd, id)
+  if (found.cli === 'dsh') return readDshTranscript(found.file, cwd, id)
 
   const file = found.file
   let raw: string

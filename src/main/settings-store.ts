@@ -6,6 +6,7 @@ import {
   DEFAULT_EFFORT,
   defaultSettings,
   emptyCliConfig,
+  isCliAuthMode,
   isEffortLevel,
   normalizeSettings,
   type Channel,
@@ -35,6 +36,7 @@ type StoredCli = Omit<CliConfig, 'channels'> & { channels: StoredChannel[] }
  */
 interface StoredSettings {
   clis?: Partial<Record<CliId, StoredCli>>
+  language?: Settings['language']
   permissionMode?: Settings['permissionMode']
   defaultCwd?: string
   openedCwds?: string[]
@@ -119,7 +121,10 @@ export function loadSettings(): Settings {
         authToken: unseal(secret)
       })) as Channel[],
       effort: isEffortLevel(c?.effort) ? c.effort : empty.effort,
-      authMode: c?.authMode === 'official' ? 'official' : empty.authMode,
+      // 必须原样认下两种值：dsh 的 empty.authMode 是 official，早先这里
+      // 只认 'official'，用户切到「API 渠道」后一落盘就被读回 official，
+      // 界面上看起来就是根本切不过去。
+      authMode: isCliAuthMode(c?.authMode) ? c.authMode : empty.authMode,
       officialModel:
         typeof c?.officialModel === 'string' ? c.officialModel : empty.officialModel
     }
@@ -127,6 +132,7 @@ export function loadSettings(): Settings {
 
   return normalizeSettings({
     clis,
+    language: raw.language,
     permissionMode: raw.permissionMode,
     defaultCwd: raw.defaultCwd,
     openedCwds: raw.openedCwds,
@@ -161,6 +167,7 @@ export function saveSettings(s: Settings): void {
 
   const stored: StoredSettings = {
     clis,
+    language: s.language,
     permissionMode: s.permissionMode,
     defaultCwd: s.defaultCwd,
     // 少了这一行，打开过的工作区一重启就全没了（StoredSettings 字段全是可选的，

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { IconBrand, IconPanel } from './Icons'
+import { useI18n } from '../i18n'
 
 /**
  * 无边框窗口的自绘标题栏。
@@ -8,6 +9,7 @@ import { IconBrand, IconPanel } from './Icons'
  * no-drag，否则点不动。
  */
 export function TitleBar(): JSX.Element {
+  const { t } = useI18n()
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
@@ -25,19 +27,19 @@ export function TitleBar(): JSX.Element {
       <div className="titlebar__right">
         <button
           className="titlebar__panel"
-          title="切换侧栏"
+          title={t('titlebar.toggleSidebar')}
           onClick={() => undefined}
         >
           <IconPanel width={15} height={15} />
         </button>
-        <button className="wctl" title="最小化" onClick={() => window.api?.minimize()}>
+        <button className="wctl" title={t('titlebar.minimize')} onClick={() => window.api?.minimize()}>
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
           </svg>
         </button>
         <button
           className="wctl"
-          title={maximized ? '还原' : '最大化'}
+          title={maximized ? t('titlebar.restore') : t('titlebar.maximize')}
           onClick={() => window.api?.toggleMaximize()}
         >
           {maximized ? (
@@ -51,7 +53,7 @@ export function TitleBar(): JSX.Element {
             </svg>
           )}
         </button>
-        <button className="wctl wctl--close" title="关闭" onClick={() => window.api?.close()}>
+        <button className="wctl wctl--close" title={t('titlebar.close')} onClick={() => window.api?.close()}>
           <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor">
             <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
           </svg>

@@ -1,4 +1,5 @@
 import type { AgentEvent } from '../../../shared/events'
+import { t } from '../../i18n'
 
 /**
  * CLI 的 task_* system 事件 → 归一化 AgentEvent。
@@ -63,7 +64,7 @@ export function taskSystemEvent(raw: Record<string, unknown>): AgentEvent | null
         t: 'task_started',
         taskId,
         toolUseId,
-        description: str(raw.description) || agentType || '子代理',
+        description: str(raw.description) || agentType || t('agentType.subagent'),
         agentType,
         isBackground: raw.is_backgrounded === true ? true : undefined,
         skipTranscript: raw.skip_transcript === true ? true : undefined

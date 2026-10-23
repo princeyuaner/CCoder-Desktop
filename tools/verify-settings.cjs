@@ -58,6 +58,7 @@ app.whenReady().then(() => {
         channels: [channel('x1', 'OpenAI 中转', SECRET2)]
       }
     },
+    language: 'en',
     permissionMode: 'acceptEdits',
     defaultCwd: 'C:/proj',
     theme: 'light',
@@ -101,6 +102,7 @@ app.whenReady().then(() => {
     ['codex 密钥', back.clis.codex.channels[0].authToken, SECRET2],
     ['codex activeChannelId', back.clis.codex.activeChannelId, 'x1'],
     ['codex enabled', back.clis.codex.enabled, false],
+    ['language', back.language, 'en'],
     ['permissionMode', back.permissionMode, 'acceptEdits'],
     ['defaultCwd', back.defaultCwd, 'C:/proj'],
     ['extraEnv[0].key', c.extraEnv[0].key, 'HTTP_PROXY'],
@@ -118,7 +120,7 @@ app.whenReady().then(() => {
   for (const [label, got, want] of checks) {
     if (got !== want) fail(`${label}: 期望 ${JSON.stringify(want)}，实得 ${JSON.stringify(got)}`)
   }
-  console.log('PASS 往返一致（21 个字段）')
+  console.log('PASS 往返一致（22 个字段）')
 
   // 4) 两个 CLI 的渠道必须互不串门
   if (back.clis.claude.channels.length !== 1 || back.clis.codex.channels.length !== 1) {
@@ -155,14 +157,22 @@ app.whenReady().then(() => {
   if (migrated.clis.claude.activeChannelId !== 'old-1') fail('v1 的 activeChannelId 没有迁移')
   if (migrated.permissionMode !== 'plan') fail('v1 的 permissionMode 没有迁移')
   if (migrated.clis.codex.channels.length !== 0) fail('迁移凭空造出了 codex 渠道')
-  // 老文件没有外观字段 —— 必须回落到「保持原来的深色外观」
-  if (migrated.theme !== 'dark' || migrated.uiZoom !== 1 || migrated.chatFontSize !== 14) {
+  // 老文件没有外观字段 —— 必须回落到当前默认的高对比主题
+  if (migrated.theme !== 'contrast' || migrated.uiZoom !== 1 || migrated.chatFontSize !== 14) {
     fail('v1 迁移后的外观默认值不对')
   }
   if (migrated.toolDetail !== 'full' || migrated.sendKey !== 'enter' || migrated.thinkingOpen) {
     fail('v1 迁移后的对话 / 输入默认值不对')
   }
+  // 老文件没有语言字段 —— 默认跟随系统
+  if (migrated.language !== 'system') fail('v1 迁移后的语言默认值不是 system')
   console.log('PASS v1 → v2 迁移')
+
+  // 6.5) 非法语言值必须回落到 system，不能把界面搞坏
+  const badLang = { ...demo, language: 'fr' }
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(badLang), 'utf8')
+  if (loadSettings().language !== 'system') fail('非法语言没有回落到 system')
+  console.log('PASS 非法语言回落')
 
   // 7) 坏文件不能导致崩溃
   fs.writeFileSync(path.join(dir, 'settings.json'), '{ this is not json')

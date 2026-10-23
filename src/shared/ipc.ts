@@ -2,6 +2,7 @@
  * IPC 通道名与载荷类型。两端都从这里取，避免字符串散落各处。
  */
 import type { CodexStatus } from './codex'
+import type { DshStatus } from './dsh'
 import type {
   ClaudeAuthEvent,
   ClaudeAuthResult,
@@ -49,6 +50,7 @@ import type {
 import type { VcsApi } from './vcs'
 import type { UpdateInstallResult, UpdateState } from './update'
 import type { RendererLogReport } from './log'
+import type { LocaleInfo } from './i18n/locale'
 
 export const IPC = {
   winMinimize: 'win:minimize',
@@ -60,9 +62,13 @@ export const IPC = {
 
   settingsGet: 'settings:get',
   settingsSave: 'settings:save',
+  /** 启动时取系统语言和 system 解析后的实际语言 */
+  localeInfo: 'locale:info',
   channelTest: 'channel:test',
   /** Codex CLI 安装 / 登录 / app-server 状态 */
   codexStatus: 'codex:status',
+  /** DeepSeek Harness 安装 / Node / DSH_HOME 状态 */
+  dshStatus: 'dsh:status',
   /** Claude Code 官方登录状态 / 登录 / 登出 */
   claudeAuthStatus: 'claude:auth-status',
   claudeAuthLogin: 'claude:auth-login',
@@ -185,6 +191,14 @@ export interface WindowApi {
   platform: NodeJS.Platform
 
   /**
+   * 界面语言。主进程是 system 的唯一解析方；渲染层拿 systemLocale 后
+   * 用同一个 resolveLanguage 在本地解析，保证两边一致。
+   */
+  i18n: {
+    locale(): Promise<LocaleInfo>
+  }
+
+  /**
    * 渲染进程的异常上报。
    *
    * 打包版没有 DevTools，渲染层的未捕获异常 / Promise 拒绝不写出来就永远
@@ -205,6 +219,11 @@ export interface WindowApi {
   codex: {
     /** 探测 CLI 是否安装、app-server 是否可用、当前登录的是哪个账号 */
     status(): Promise<CodexStatus>
+  }
+
+  dsh: {
+    /** 探测 DeepSeek Harness 是否安装、Node 是否兼容、DSH_HOME 在哪 */
+    status(): Promise<DshStatus>
   }
 
   /**
@@ -326,8 +345,8 @@ export interface WindowApi {
     /** IDE 渲染进程订阅「打开这个文件」；返回取消订阅函数 */
     onReveal(cb: (target: IdeTarget) => void): () => void
     listDir(cwd: string, rel: string): Promise<IdeEntry[]>
-    readFile(cwd: string, rel: string): Promise<IdeTextFile>
-    readImage(cwd: string, rel: string): Promise<IdeImage>
+    readFile(cwd: string, rel: string): Promise<IdeFsResult<IdeTextFile>>
+    readImage(cwd: string, rel: string): Promise<IdeFsResult<IdeImage>>
     searchCode(req: IdeSearchRequest): Promise<IdeSearchResult>
     /** 工作区全部替换；有未保存修改的文件由 dirtyRels 指定并跳过 */
     replaceInWorkspace(req: IdeReplaceRequest): Promise<IdeReplaceResult>

@@ -1,4 +1,5 @@
 import { IconMore, IconPanel } from './Icons'
+import { useI18n } from '../i18n'
 
 interface Props {
   title: string
@@ -20,6 +21,7 @@ export function ChatHeader({
   live,
   onTogglePanel
 }: Props): JSX.Element {
+  const { t } = useI18n()
   return (
     <header className="chathead">
       <div className="chathead__left">
@@ -31,7 +33,7 @@ export function ChatHeader({
           <button
             className={`chip chip--icon ${panelOpen ? 'is-on' : ''}`}
             onClick={onTogglePanel}
-            title={panelOpen ? '收起执行台' : '展开执行台'}
+            title={panelOpen ? t('chat.header.collapsePanel') : t('chat.header.expandPanel')}
             aria-pressed={panelOpen}
           >
             <IconPanel width={15} height={15} />

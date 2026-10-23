@@ -8,17 +8,26 @@ import {
   useRef,
   useState
 } from 'react'
+import type { PermissionMode } from '@shared/events'
 import type { SessionStatus } from '@shared/session'
-import type { ToolDetail } from '@shared/settings'
-import { toolFamily, type ToolFamily } from '@shared/tool'
-import type { ChatItem, SystemKey } from '../useChat'
+import { EFFORT_LABEL_KEY, type EffortLevel, type ToolDetail } from '@shared/settings'
+import { formatDuration, formatTimestamp, type MessageKey } from '@shared/i18n'
+import { toolFamily, type ToolFallback, type ToolFamily } from '@shared/tool'
+import {
+  waitingOnModel,
+  type ChannelLabel,
+  type ChatItem,
+  type SystemKey
+} from '../useChat'
 import { RichText } from './rich'
-import { fmtClock, fmtDuration, fmtTokens, totalTokens } from './format'
+import { fmtClock, fmtTokens, totalTokens } from './format'
 import type { TabKey } from './TabBar'
 import { IconChevronDown, IconChevronRight, IconOpenInIde } from './Icons'
 import { notify } from '../notice'
 import { baseName } from '@shared/path'
 import { parseIdeRefs, refRangeLabel, type ParsedIdeRef } from '../ideRef'
+import { MODE_LABEL_KEY } from '../constants'
+import { useI18n } from '../i18n'
 
 /** 离底部多近算"贴着底部"（像素） */
 const NEAR_BOTTOM = 48
@@ -43,6 +52,18 @@ const FAMILY_GLYPH: Record<ToolFamily, string> = {
   task: '☑',
   ask: '?',
   other: '◇'
+}
+
+/** 没有可读主题时的兜底文案 */
+const TOOL_FALLBACK_KEY: Record<ToolFallback, MessageKey> = {
+  command: 'tool.fallback.command',
+  file: 'tool.fallback.file',
+  search: 'tool.fallback.search',
+  webSearch: 'tool.fallback.webSearch',
+  webFetch: 'tool.fallback.webFetch',
+  question: 'tool.fallback.question',
+  task: 'tool.fallback.task',
+  todo: 'tool.fallback.todo'
 }
 
 /** 工具族 → 行尾那个小标签。other 用工具本名，MCP 那些才分得清 */
@@ -108,6 +129,8 @@ interface Props {
    * 带上这个数才能把占位文案说准。
    */
   agentsRunning: number
+  /** 当前等待的起点（Date.now()）。切走再切回来时占位行靠它续上计时 */
+  waitingSince?: number
   /** 换会话时用它复位滚动位置 */
   sessionKey: string
   /** 以下三项来自设置 → 通用 → 对话 */
@@ -123,12 +146,14 @@ export function Transcript({
   tab,
   status,
   agentsRunning,
+  waitingSince,
   sessionKey,
   showTimestamps,
   thinkingOpen,
   toolDetail,
   cwd
 }: Props): JSX.Element {
+  const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   /**
@@ -296,7 +321,7 @@ export function Transcript({
           {tab === 'trace' ? (
             <TraceView items={items} />
           ) : items.length === 0 ? (
-            <p className="empty">发一条消息开始 —— 渠道配好后这里就会出字。</p>
+            <p className="empty">{t('transcript.empty')}</p>
           ) : (
             /*
              * 一条事件一个节点。**不需要分组** —— 分组是气泡版才有的问题
@@ -310,7 +335,11 @@ export function Transcript({
                 <RowChunk key={i} items={c} tail={i >= chunks.length - 2} />
               ))}
               {waiting && (
-                <PendingRow connecting={status === 'starting'} agentsRunning={agentsRunning} />
+                <PendingRow
+                  connecting={status === 'starting'}
+                  agentsRunning={agentsRunning}
+                  since={waitingSince}
+                />
               )}
             </div>
           )}
@@ -318,9 +347,13 @@ export function Transcript({
       </div>
 
       {showJump && (
-        <button className="jump-bottom" onClick={scrollToBottom} title="回到底部">
+        <button
+          className="jump-bottom"
+          onClick={scrollToBottom}
+          title={t('transcript.jumpBottom')}
+        >
           <IconChevronDown width={14} height={14} />
-          回到底部
+          {t('transcript.jumpBottom')}
         </button>
       )}
       </div>
@@ -330,56 +363,34 @@ export function Transcript({
 
 /* ── 等模型开口时的占位 ─────────────────────────────────── */
 
-/**
- * 什么时候算"轮到模型了但还没吐字"。
- *
- * 判据是**最后一条是什么**：只要最后一条是"已经落定、且不该再往下长"的东西，
- * 就说明球在模型那边。反过来，正在流式的正文/思考、正在跑的工具、
- * 等人点同意的审批卡，都各自有活着的表现，不用再叠一个占位。
- */
-function waitingOnModel(last: ChatItem | undefined): boolean {
-  if (!last) return false
-  switch (last.kind) {
-    case 'user': // 刚发出去，第一个 token 还没回来
-    case 'turn': // 上一轮结束，这一轮还没开始吐
-      return true
-    case 'tool':
-      return last.status !== 'running' // 工具跑完了，等模型接着说
-    case 'permission':
-      return last.state !== 'pending' // 审批已答复，等模型接着跑
-    case 'question':
-      return last.state !== 'pending' // 提问已答复，等模型接着说
-    case 'text':
-    case 'thinking':
-      return !last.streaming // 这一段说完了，等下一段
-    default:
-      return false // 出错之类：不是在等模型
-  }
-}
-
 function PendingRow({
   connecting,
-  agentsRunning
+  agentsRunning,
+  since
 }: {
   connecting: boolean
   agentsRunning: number
+  /** 本次等待的起点（来自会话状态），切会话再回来时不会从 0 重来 */
+  since?: number
 }): JSX.Element {
+  const { t, tn } = useI18n()
   // 子代理跑着的时候，球不在模型那边 —— 说出来比笼统的「等待响应」准确
   const label = connecting
-    ? '正在连接 CLI…'
+    ? t('transcript.connecting')
     : agentsRunning === 1
-      ? '等待子代理完成…'
+      ? t('transcript.waitAgent')
       : agentsRunning > 1
-        ? `等待 ${agentsRunning} 个子代理完成…`
-        : '等待响应…'
+        ? tn('transcript.waitAgents', agentsRunning)
+        : t('transcript.waitResponse')
 
   /*
-   * 这段等待从占位行出现时算起，每秒跳一次。
-   * 用本地 state 而不是把时间传进来：占位行只在「真的在等」时挂载，
-   * 挂载时刻就是等待起点；工具跑完、模型再度安静时会自然重新计时。
+   * 起点由会话状态给出（`waitingSince`），不是占位行自己挂载的时刻 ——
+   * 切到别的会话再切回来时组件会重新挂载，但这段等待没结束，计时得接着走。
+   * 万一状态里还没有起点（理论上的首帧），退回到挂载时刻。
    */
-  const [startedAt] = useState(() => Date.now())
-  const [now, setNow] = useState(startedAt)
+  const mountedAt = useRef(Date.now()).current
+  const startedAt = since ?? mountedAt
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(t)
@@ -402,8 +413,8 @@ function PendingRow({
             只说我们确定的事实：请求发出去了，还没回来。
           */}
           <b className="pulse">{label}</b>
-          <span className="tl__waittime" title="已等待时间">
-            {fmtClock(now - startedAt)}
+          <span className="tl__waittime" title={t('transcript.waitedFor')}>
+            {fmtClock(Math.max(0, now - startedAt))}
           </span>
         </div>
       </div>
@@ -423,6 +434,7 @@ function PendingRow({
  */
 const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null {
   const { showTimestamps, toolDetail } = useContext(DisplayContext)
+  const { t, locale, text } = useI18n()
 
   switch (item.kind) {
     case 'user':
@@ -444,7 +456,9 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
               </div>
             )}
             <UserBubble text={item.text} />
-            {showTimestamps && item.at && <span className="tl__me-time">{item.at}</span>}
+            {showTimestamps && item.at && (
+              <span className="tl__me-time">{formatTimestamp(item.at, locale)}</span>
+            )}
           </div>
         </div>
       )
@@ -484,8 +498,8 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
       return (
         <div className="tl__row">
           <div className="tl__err">
-            <div className="tl__err-h">出错</div>
-            <pre className="selectable">{item.message}</pre>
+            <div className="tl__err-h">{t('transcript.error')}</div>
+            <pre className="selectable">{text(item.message)}</pre>
           </div>
         </div>
       )
@@ -578,6 +592,7 @@ const RowChunk = memo(
 /* ── 思考 ───────────────────────────────────────────────── */
 
 function ThinkingLine({ item }: { item: Extract<ChatItem, { kind: 'thinking' }> }): JSX.Element {
+  const { t } = useI18n()
   const { thinkingOpen } = useContext(DisplayContext)
   const [open, setOpen] = useState(thinkingOpen)
   const bodyRef = useRef<HTMLPreElement>(null)
@@ -608,7 +623,7 @@ function ThinkingLine({ item }: { item: Extract<ChatItem, { kind: 'thinking' }> 
         ) : (
           <IconChevronRight width={11} height={11} />
         )}
-        <b>{item.streaming ? '思考中…' : '思考'}</b>
+        <b>{item.streaming ? t('transcript.thinking') : t('transcript.thought')}</b>
         {!open && preview && <span className="tl__peek"> · {preview}</span>}
       </button>
       {open && (
@@ -634,6 +649,7 @@ function ThinkingLine({ item }: { item: Extract<ChatItem, { kind: 'thinking' }> 
  * 图片文件由 IDE 的图片查看器接手；右侧 chevron 才是展开详情。
  */
 function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.Element {
+  const { t } = useI18n()
   const { toolDetail, cwd } = useContext(DisplayContext)
   const [open, setOpen] = useState(false)
   const family = toolFamily(item.name)
@@ -644,7 +660,8 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
   /** 「精简」把目录和工具族标签收掉，只留图标 + 主题 + 统计 + 耗时 */
   const showMeta = toolDetail === 'full'
   const label = FAMILY_LABEL[family] || item.name.toUpperCase()
-  const time = item.status === 'running' ? '运行中' : item.ms !== undefined ? fmtMs(item.ms) : ''
+  const time =
+    item.status === 'running' ? t('transcript.running') : item.ms !== undefined ? fmtMs(item.ms) : ''
   const stat = item.stat
   const showStat = !!stat && (stat.added > 0 || stat.removed > 0)
   /** 文件类工具（Read / Write / Edit…）才有 path；点击去 IDE 里看 */
@@ -661,7 +678,13 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
       .then((r) => {
         if (!r.ok && r.message) notify(r.message)
       })
-      .catch((err) => notify(`无法打开 IDE：${err instanceof Error ? err.message : String(err)}`))
+      .catch((err) =>
+        notify(
+          t('transcript.openIdeFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        )
+      )
   }
 
   return (
@@ -681,19 +704,27 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
             className="tool__subject tool__subject--open"
             title={
               item.line
-                ? `在 IDE 中打开 ${item.path}:${item.line}`
-                : `在 IDE 中打开 ${item.path}`
+                ? t('transcript.openInIde', { path: item.path!, line: item.line! })
+                : t('transcript.openInIdeNoLine', { path: item.path! })
             }
             onClick={(e) => {
               e.stopPropagation()
               openInIde()
             }}
           >
-            <span className="tool__subjtext">{item.subject || item.summary || item.name}</span>
+            <span className="tool__subjtext">
+              {item.subject ||
+                item.summary ||
+                (item.fallback ? t(TOOL_FALLBACK_KEY[item.fallback]) : item.name)}
+            </span>
             <IconOpenInIde width={11} height={11} className="tool__ideico" />
           </button>
         ) : (
-          <span className="tool__subject">{item.subject || item.summary || item.name}</span>
+          <span className="tool__subject">
+            {item.subject ||
+              item.summary ||
+              (item.fallback ? t(TOOL_FALLBACK_KEY[item.fallback]) : item.name)}
+          </span>
         )}
         {stat && showStat && (
           <span className="tool__stat">
@@ -707,7 +738,7 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         {expandable && (
           <button
             className="tool__chev"
-            title={open ? '收起详情' : '展开详情'}
+            title={open ? t('transcript.collapseDetail') : t('transcript.expandDetail')}
             aria-expanded={open}
             onClick={(e) => {
               e.stopPropagation()
@@ -742,12 +773,12 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
  * 颜色是**跟着输入区那个 chip 走的**：思考深度紫、权限模式琥珀，
  * 一眼就知道刚才动的是哪个开关，不用读字。
  */
-const SYS_META: Record<SystemKey, { label: string; glyph: string; tone: string }> = {
-  effort: { label: '思考深度', glyph: '◈', tone: 'eff' },
-  permissionMode: { label: '权限模式', glyph: '◆', tone: 'perm' },
-  model: { label: '模型', glyph: '◇', tone: 'model' },
-  channel: { label: '渠道', glyph: '⇄', tone: 'chan' },
-  auth: { label: '凭据来源', glyph: '◎', tone: 'chan' }
+const SYS_META: Record<SystemKey, { labelKey: MessageKey; glyph: string; tone: string }> = {
+  effort: { labelKey: 'transcript.sys.effort', glyph: '◈', tone: 'eff' },
+  permissionMode: { labelKey: 'transcript.sys.permissionMode', glyph: '◆', tone: 'perm' },
+  model: { labelKey: 'transcript.sys.model', glyph: '◇', tone: 'model' },
+  channel: { labelKey: 'transcript.sys.channel', glyph: '⇄', tone: 'chan' },
+  auth: { labelKey: 'transcript.sys.auth', glyph: '◎', tone: 'chan' }
 }
 
 /**
@@ -762,31 +793,54 @@ const SYS_META: Record<SystemKey, { label: string; glyph: string; tone: string }
  * 此刻写"已切换完成"就是假话。
  */
 function SystemRow({ item }: { item: Extract<ChatItem, { kind: 'system' }> }): JSX.Element {
+  const { t } = useI18n()
   const m = SYS_META[item.key]
-  const full = `${m.label} ${item.from} → ${item.to}`
+  const renderValue = (v: string | ChannelLabel): string => {
+    switch (item.key) {
+      case 'model':
+        return (v as string) || t('chat.noModel')
+      case 'permissionMode':
+        return t(MODE_LABEL_KEY[v as PermissionMode])
+      case 'effort':
+        return t(EFFORT_LABEL_KEY[v as EffortLevel])
+      case 'channel':
+      case 'auth': {
+        const c = v as ChannelLabel
+        return c.kind === 'official'
+          ? t('auth.officialAccount')
+          : c.name || t('settings.channel.none')
+      }
+    }
+  }
+  const from = renderValue(item.from)
+  const to = renderValue(item.to)
+  const full = `${t(m.labelKey)} ${from} → ${to}`
   return (
     <div className="tl__row">
       <div className="tl__sys">
         <span className={`tl__pill is-${m.tone}`} title={full}>
           <span className="tl__pill-sym">{m.glyph}</span>
-          <span className="tl__pill-k">{m.label}</span>
+          <span className="tl__pill-k">{t(m.labelKey)}</span>
           <span className="tl__pill-v">
-            {item.from} → <b>{item.to}</b>
+            {from} → <b>{to}</b>
           </span>
         </span>
-        <span className="tl__sys-more">下一轮生效 · 上下文不丢</span>
+        <span className="tl__sys-more">{t('transcript.nextTurn')}</span>
       </div>
     </div>
   )
 }
 
 function TurnSep({ item }: { item: Extract<ChatItem, { kind: 'turn' }> }): JSX.Element {
-  const bits: string[] = ['已完成']
+  const { t, tn, locale } = useI18n()
+  const bits: string[] = [t('transcript.turnDone')]
   // 历史回放拿不到每轮耗时（jsonl 里没这个字段），此时就不显示
-  if (item.durationMs) bits.push(`用时 ${fmtDuration(item.durationMs)}`)
-  if (item.steps) bits.push(`${item.steps} 步`)
+  if (item.durationMs) {
+    bits.push(t('transcript.duration', { duration: formatDuration(item.durationMs, locale) }))
+  }
+  if (item.steps) bits.push(tn('count.steps', item.steps))
   if (item.usage) bits.push(`${fmtTokens(totalTokens(item.usage))} tok`)
-  if (item.at) bits.push(item.at)
+  if (item.at) bits.push(formatTimestamp(item.at, locale))
   return <div className="tl__sep">{bits.join(' · ')}</div>
 }
 
@@ -806,23 +860,31 @@ function PermissionTrace({
 }: {
   item: Extract<ChatItem, { kind: 'permission' }>
 }): JSX.Element {
+  const { t } = useI18n()
   const pending = item.state === 'pending'
-  const label = pending ? '等待许可' : item.state === 'allowed' ? '已允许' : '已拒绝'
+  const label = pending
+    ? t('transcript.permissionWaiting')
+    : item.state === 'allowed'
+      ? t('transcript.permissionAllowed')
+      : t('transcript.permissionDenied')
   const tone = pending ? 'perm' : item.state === 'allowed' ? 'ok' : 'deny'
   const what = item.summary ? `${item.tool} · ${item.summary}` : item.tool
 
   return (
     <div className="tl__row">
       <div className="tl__sys">
-        <span className={`tl__pill is-${tone}`} title={`审批 ${what} —— ${label}`}>
+        <span
+          className={`tl__pill is-${tone}`}
+          title={t('transcript.permissionTitle', { what, label })}
+        >
           <span className="tl__pill-sym">◆</span>
-          <span className="tl__pill-k">审批</span>
+          <span className="tl__pill-k">{t('transcript.permission')}</span>
           <span className="tl__pill-v">{what}</span>
           <b className="tl__pill-state">{label}</b>
         </span>
         {!pending && (
           <span className="tl__sys-more">
-            {item.remembered ? '本会话内不再询问该工具' : '仅此一次'}
+            {item.remembered ? t('transcript.remembered') : t('transcript.once')}
           </span>
         )}
       </div>
@@ -843,14 +905,22 @@ function QuestionTrace({
 }: {
   item: Extract<ChatItem, { kind: 'question' }>
 }): JSX.Element {
+  const { t } = useI18n()
   const pending = item.state === 'pending'
-  const label = pending ? '等待回答' : item.state === 'answered' ? '已答' : '已跳过'
+  const label = pending
+    ? t('transcript.questionWaiting')
+    : item.state === 'answered'
+      ? t('transcript.questionAnswered')
+      : t('transcript.questionSkipped')
   const tone = pending ? 'ask' : item.state === 'answered' ? 'ok' : 'deny'
   const first = item.questions[0]
-  const what = first ? first.header || first.question : '提问'
+  const what = first ? first.header || first.question : t('transcript.questionFallback')
   const detail = item.answers
     ? Object.entries(item.answers)
-        .map(([q, v]) => `${q} → ${Array.isArray(v) ? v.join('、') : v}`)
+        .map(
+          ([q, v]) =>
+            `${q} → ${Array.isArray(v) ? v.join(t('common.listSeparator')) : v}`
+        )
         .join(' · ')
     : ''
 
@@ -859,10 +929,10 @@ function QuestionTrace({
       <div className="tl__sys">
         <span
           className={`tl__pill is-${tone}`}
-          title={`提问 ${what} —— ${label}${detail ? `\n${detail}` : ''}`}
+          title={`${t('transcript.questionTitle', { what, label })}${detail ? `\n${detail}` : ''}`}
         >
           <span className="tl__pill-sym">?</span>
-          <span className="tl__pill-k">提问</span>
+          <span className="tl__pill-k">{t('transcript.question')}</span>
           <span className="tl__pill-v">{what}</span>
           <b className="tl__pill-state">{label}</b>
         </span>
@@ -875,9 +945,10 @@ function QuestionTrace({
 /* ── 轨迹页 ─────────────────────────────────────────────── */
 
 function TraceView({ items }: { items: ChatItem[] }): JSX.Element {
+  const { t } = useI18n()
   const tools = items.filter((m): m is Extract<ChatItem, { kind: 'tool' }> => m.kind === 'tool')
   if (tools.length === 0) {
-    return <p className="empty">本会话还没有工具调用。</p>
+    return <p className="empty">{t('transcript.traceEmpty')}</p>
   }
   return (
     <ol className="trace">

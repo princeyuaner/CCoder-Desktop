@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { VcsDiffData } from '@shared/vcs'
 import { diffStat, parseDiff, type DiffSide } from './diff'
+import { useI18n } from '../i18n'
 
 /**
  * 一次最多渲染多少行 diff。
@@ -26,6 +27,7 @@ function DiffCell({
 }
 
 export function VcsDiffView({ data }: { data: VcsDiffData }): JSX.Element {
+  const { t } = useI18n()
   const hunks = useMemo(() => parseDiff(data.diff), [data.diff])
   const stat = useMemo(() => diffStat(data.diff), [data.diff])
   const totalRows = useMemo(() => hunks.reduce((n, h) => n + h.rows.length, 0), [hunks])
@@ -51,26 +53,26 @@ export function VcsDiffView({ data }: { data: VcsDiffData }): JSX.Element {
   if (data.binary) {
     return (
       <div className="ide-binary">
-        <div className="ide-binary-t">二进制文件</div>
+        <div className="ide-binary-t">{t('diff.binary')}</div>
         <div className="ide-binary-s">
-          {data.repoKind === 'git' ? 'Git 不提供文本 diff。' : 'SVN 将文件标记为二进制类型。'}
+          {data.repoKind === 'git' ? t('diff.binaryGit') : t('diff.binarySvn')}
         </div>
       </div>
     )
   }
 
   if (data.propertyChange && hunks.length === 0) {
-    return <pre className="ide-vcs-propdiff">{data.diff || '只有属性变化'}</pre>
+    return <pre className="ide-vcs-propdiff">{data.diff || t('diff.propsOnly')}</pre>
   }
 
   if (!data.diff.trim()) {
     return (
       <div className="ide-binary">
-        <div className="ide-binary-t">{data.truncated ? '文件过大' : '没有差异'}</div>
+        <div className="ide-binary-t">
+          {data.truncated ? t('diff.tooLarge') : t('diff.noChanges')}
+        </div>
         <div className="ide-binary-s">
-          {data.truncated
-            ? '只读取了前 2 MB，无法生成完整 diff。'
-            : '这个文件在当前范围内没有可显示的改动。'}
+          {data.truncated ? t('diff.truncatedBody') : t('diff.noChangesBody')}
         </div>
       </div>
     )
@@ -84,21 +86,21 @@ export function VcsDiffView({ data }: { data: VcsDiffData }): JSX.Element {
 
   const label =
     data.source === 'staged'
-      ? '已暂存'
+      ? t('diff.staged')
       : data.source === 'head'
-        ? '与 HEAD 比较'
+        ? t('diff.head')
         : data.source === 'revision'
           ? data.revision
-            ? `提交 ${data.revision.slice(0, 8)}`
-            : '提交'
-          : '工作区更改'
+            ? t('diff.revision', { rev: data.revision.slice(0, 8) })
+            : t('diff.commit')
+          : t('diff.working')
 
   return (
     <div className="ide-diffwrap">
       <div className="ide-diffhead">
         <span>{label}</span>
-        {data.untracked && <em>未跟踪 · 整份新增</em>}
-        {data.truncated && <em>内容过大，已截断</em>}
+        {data.untracked && <em>{t('diff.untracked')}</em>}
+        {data.truncated && <em>{t('diff.truncated')}</em>}
         <span className="ide-spacer" />
         {stat.added > 0 && <b className="ide-add">+{stat.added}</b>}
         {stat.removed > 0 && <b className="ide-del">−{stat.removed}</b>}
@@ -142,10 +144,10 @@ export function VcsDiffView({ data }: { data: VcsDiffData }): JSX.Element {
         {totalRows > limit && (
           <div className="ide-diffmore">
             <span>
-              diff 较大，已显示前 {limit} 行（共 {totalRows} 行）
+              {t('diff.more', { limit, total: totalRows })}
             </span>
             <button type="button" onClick={() => setLimit((n) => n + PAGE_ROWS)}>
-              再显示 {PAGE_ROWS} 行
+              {t('diff.showMore', { n: PAGE_ROWS })}
             </button>
           </div>
         )}

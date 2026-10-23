@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { activeChannelOf, cliConfig, type CliId } from '@shared/settings'
 import type { ChatActiveInfo, IdeCodeRef } from '@shared/ide-chat'
 import { parseIdeRefs } from '../ideRef'
-import { MODE_LABEL } from '../constants'
+import { MODE_LABEL_KEY } from '../constants'
 import { useSettings } from '../useSettings'
+import { useI18n } from '../i18n'
 import {
   disposeNewChat,
   disposeStoredChat,
   useChat,
+  type ChannelLabel,
   type ChatItem
 } from '../useChat'
 import type { Active } from '../App'
@@ -44,6 +46,7 @@ export function MainPane({
   incomingRefs,
   onIncomingConsumed
 }: Props): JSX.Element {
+  const { t, text } = useI18n()
   const [tab, setTab] = useState<TabKey>('chat')
   /** 新会话用哪个 CLI。换 CLI 就是另一套 provider + 另一份会话记录，等于开新会话 */
   const [pickedCli, setPickedCli] = useState<CliId>('claude')
@@ -110,8 +113,11 @@ export function MainPane({
     setPanelPref(null)
   }, [cli, sessionKey])
   const cfg = cliConfig(settings, cli)
-  /** Claude 的官方登录模式：不挂渠道，模型用 officialModel 兜底 */
-  const official = cli === 'claude' && cfg.authMode === 'official'
+  /**
+   * 不挂渠道的模式：Claude 用官方 OAuth，dsh 用 DSH_HOME 里已有的 Harness 凭据。
+   * 两者都靠 officialModel 兜底。
+   */
+  const official = (cli === 'claude' || cli === 'dsh') && cfg.authMode === 'official'
   const activeCh = official ? null : activeChannelOf(settings, cli)
 
   /*
@@ -175,7 +181,9 @@ export function MainPane({
     const patch: Partial<typeof targetCfg> = {}
     if (sel.channelId) patch.activeChannelId = sel.channelId
     if (sel.official) patch.authMode = 'official'
-    else if (sel.channelId && sel.cli === 'claude') patch.authMode = 'channel'
+    else if (sel.channelId && (sel.cli === 'claude' || sel.cli === 'dsh')) {
+      patch.authMode = 'channel'
+    }
     if (sel.official && sel.model !== undefined) patch.officialModel = sel.model
 
     const persist =
@@ -207,19 +215,20 @@ export function MainPane({
         }
 
         // 同一条 CLI：渠道 / 模型都是启动参数，重开进程并 --resume 接回会话
-        // 留痕要的是名字，而主进程只认 id —— 两个名字在这里取好再传下去
-        const chanName = (cid: string | null): string =>
-          targetCfg.channels.find((c) => c.id === cid)?.name || '未选渠道'
+        // 留痕存的是结构化名字，翻译交给渲染时做
+        const chanLabel = (cid: string | null): ChannelLabel => ({
+          kind: 'channel',
+          name: targetCfg.channels.find((c) => c.id === cid)?.name || ''
+        })
+        const officialLabel: ChannelLabel = { kind: 'official' }
 
         if (sel.official) {
           // 已经在官方模式时只需要应用模型，别再留一条「官方账号 → 官方账号」
-          if (!official) {
-            chat.applyAuth(chanName(targetCfg.activeChannelId), '官方账号')
-          }
+          if (!official) chat.applyAuth(chanLabel(targetCfg.activeChannelId), officialLabel)
         } else if (sel.channelId) {
           chat.applyChannel(
-            official ? '官方账号' : chanName(targetCfg.activeChannelId),
-            chanName(sel.channelId)
+            official ? officialLabel : chanLabel(targetCfg.activeChannelId),
+            chanLabel(sel.channelId)
           )
         }
         if (sel.model) chat.applyModel(sel.model)
@@ -270,9 +279,9 @@ export function MainPane({
         ? firstText
           ? firstText.slice(0, 40)
           : firstUser.images?.length
-            ? '图片消息'
-            : '新会话'
-        : '新会话'
+            ? t('chat.title.imageMessage')
+            : t('chat.title.newSession')
+        : t('chat.title.newSession')
 
   /*
    * IDE 的「发送到聊天」要知道主窗口现在停在哪个工作区 / 哪条会话。
@@ -295,7 +304,7 @@ export function MainPane({
       <div className="chatcol">
         <ChatHeader
           title={title}
-          modeLabel={MODE_LABEL[chat.permissionMode] ?? '标准模式'}
+          modeLabel={t(MODE_LABEL_KEY[chat.permissionMode])}
           hasRunInfo={hasRunInfo}
           panelOpen={panelOpen}
           live={panelLive}
@@ -304,14 +313,18 @@ export function MainPane({
 
         {active.kind === 'stored' && (
           <div className="resume-bar" title={active.cwd}>
-            接着这条会话继续 · {active.cwd}
+            {t('chat.resumeBar', { cwd: active.cwd })}
           </div>
         )}
 
         {chat.notice && (
           <div className="notice">
-            <span>{chat.notice}</span>
-            <button className="iconbtn iconbtn--sm" onClick={chat.clearNotice} title="关闭">
+            <span>{text(chat.notice)}</span>
+            <button
+              className="iconbtn iconbtn--sm"
+              onClick={chat.clearNotice}
+              title={t('common.close')}
+            >
               ×
             </button>
           </div>
@@ -323,6 +336,8 @@ export function MainPane({
           tab={tab}
           status={chat.status}
           agentsRunning={agentsRunning}
+          // 等待占位的计时起点跟着会话状态走，切走再切回来能续上
+          waitingSince={chat.waitingSince}
           // 换会话时转写区的滚动位置要复位。带上 cli —— 换 CLI 也是换会话
           sessionKey={`${cli}\u0000${sessionKey}`}
           showTimestamps={settings.showTimestamps}

@@ -20,6 +20,8 @@ export type RunAgentStatus = ToolStatus | 'stopped'
 export interface RunTask {
   id: string
   subject: string
+  /** CLI 分配的任务 id；subject 为空时用来显示「任务 #N」 */
+  rawId?: string
   description?: string
   /** 进行中的动词形式，如「正在修改 src/auth/store.ts」 */
   activeForm?: string
@@ -50,12 +52,18 @@ export interface RunAgent {
    * 上限定在 REPORT_MAX，避免一条超大回执把会话状态撑爆。
    */
   report?: string
+  /** 报告被截断时的原始字符数；渲染层据此显示本地化提示 */
+  reportTruncatedChars?: number
   /** 失败 / 停止原因；和 result 分开，避免摘要被错误信息顶掉 */
   error?: string
+  /** error 为空时的兜底类型，渲染层按当前语言翻译 */
+  errorCode?: 'denied' | 'failed'
   /** CLI 回传的报告文件路径。只展示，不在这里读文件 */
   outputFile?: string
-  /** 实时活动：task_progress 的 summary / last_tool_name */
+  /** 实时活动：task_progress 的 summary */
   activity?: string
+  /** task_progress 最近一次工具名；activity 为空时显示「正在调用 X」 */
+  lastToolName?: string
   /** 后台启动（async_launched）；完成状态要等 task_notification */
   isBackground?: boolean
   /** CLI 回执里的完整统计 */
@@ -153,7 +161,7 @@ function todosOf(input: unknown): RawTodo[] | null {
     const t = obj(x) ?? {}
     const activeForm = str(t.activeForm)
     return {
-      content: str(t.content) || activeForm || `任务 ${i + 1}`,
+      content: str(t.content) || activeForm || '',
       status: str(t.status),
       activeForm: activeForm || undefined
     }
@@ -171,11 +179,13 @@ function stripHandback(content: string): string {
 /** 完整报告最多留这么多字符。正常 handback 一两万字符，够用且可控 */
 const REPORT_MAX = 20_000
 
-function reportOfContent(content: string): string | undefined {
+function reportOfContent(
+  content: string
+): { text: string; truncated?: number } | undefined {
   const s = content.replace(/\r\n/g, '\n').trim()
   if (!s) return undefined
-  if (s.length <= REPORT_MAX) return s
-  return `${s.slice(0, REPORT_MAX)}\n\n…（报告已截断，原文 ${s.length} 字符）`
+  if (s.length <= REPORT_MAX) return { text: s }
+  return { text: s.slice(0, REPORT_MAX), truncated: s.length }
 }
 
 /** 失败原因：压成一行，别让一屏堆栈把卡片撑爆 */
@@ -385,8 +395,10 @@ function applyAgentResult(
 
   const status = agentStatusOf(e.status, info)
   const ms = info.durationMs ?? (base.startedAt && live ? now - base.startedAt : undefined)
-  const result = info.summary || summaryOfContent(e.content)
+  const rawError = summaryOfContent(e.content)
+  const result = info.summary || rawError
   const failed = status === 'error' || status === 'denied'
+  const reportInfo = reportOfContent(e.content)
   const next: RunAgent = {
     ...base,
     type: info.agentType || base.type,
@@ -394,10 +406,10 @@ function applyAgentResult(
     status,
     ms,
     result,
-    report: reportOfContent(e.content) ?? base.report,
-    error: failed
-      ? clipError(summaryOfContent(e.content) || (status === 'denied' ? '权限被拒绝' : '子代理执行失败'))
-      : undefined,
+    report: reportInfo?.text ?? base.report,
+    reportTruncatedChars: reportInfo?.truncated ?? base.reportTruncatedChars,
+    error: failed ? clipError(rawError) : undefined,
+    errorCode: failed && !rawError ? (status === 'denied' ? 'denied' : 'failed') : undefined,
     isBackground: info.async ? true : base.isBackground,
     activity: undefined,
     info: mergeAgentInfo(base.info, info)
@@ -438,7 +450,7 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
 
         case 'TaskCreate': {
           const o = obj(e.input) ?? {}
-          const subject = str(o.subject) || str(o.description) || '新任务'
+          const subject = str(o.subject) || str(o.description)
           const tempId = `pending:${e.id}`
           const task: RunTask = {
             id: tempId,
@@ -477,7 +489,8 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
             tasks = [
               {
                 id,
-                subject: str(o.subject) || `任务 #${String(rawId)}`,
+                subject: str(o.subject),
+                rawId: String(rawId),
                 description: str(o.description) || undefined,
                 activeForm: str(o.activeForm) || undefined,
                 status: 'pending'
@@ -603,7 +616,7 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
         tool: 'Agent',
         taskId: e.taskId,
         type: e.agentType,
-        description: e.description || e.agentType || '子代理',
+        description: e.description || e.agentType || '',
         status: 'running',
         startedAt: live ? now : 0,
         isBackground: e.isBackground
@@ -628,10 +641,8 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
         type: e.agentType || prev.type,
         description: e.description || prev.description,
         ms: e.durationMs ?? prev.ms,
-        activity:
-          prev.status === 'running'
-            ? e.summary || (e.lastToolName ? `正在调用 ${e.lastToolName}` : prev.activity)
-            : prev.activity,
+        activity: prev.status === 'running' ? e.summary || prev.activity : prev.activity,
+        lastToolName: e.lastToolName || prev.lastToolName,
         info
       }
       return { ...state, agents }
@@ -696,7 +707,8 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
       const prev = state.agents[idx]
       const agents = state.agents.slice()
       // 完整报告进 report，卡片仍然只显示一行摘要 —— e.summary 可能是整份 handback
-      const report = reportOfContent(e.summary) ?? prev.report
+      const reportInfo = reportOfContent(e.summary)
+      const report = reportInfo?.text ?? prev.report
       const summary = summaryOfContent(e.summary) ?? prev.result
       const err =
         status === 'error' || status === 'stopped'
@@ -709,6 +721,7 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
         ms: e.durationMs ?? prev.ms,
         result: summary,
         report,
+        reportTruncatedChars: reportInfo?.truncated ?? prev.reportTruncatedChars,
         error: err,
         outputFile: e.outputFile || prev.outputFile,
         activity: undefined,

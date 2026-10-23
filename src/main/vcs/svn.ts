@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs'
+import { t } from '../i18n'
 import { readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import type {
@@ -254,7 +255,7 @@ export async function diffSvn(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
   const abs = absPath(repo, rel)
   const rev = req.source === 'revision' ? Number(req.revision) : NaN
   if (req.source === 'revision' && (!Number.isFinite(rev) || rev <= 0)) {
-    throw new VcsOpError('invalid-path', '缺少 revision')
+    throw new VcsOpError('invalid-path', t('vcsError.missingRevision'))
   }
 
   if (req.source === 'working' || req.source === 'head') {
@@ -328,7 +329,7 @@ export async function commitDetailSvn(
   id: string
 ): Promise<VcsCommitDetailData> {
   const rev = Number(id)
-  if (!Number.isFinite(rev) || rev <= 0) throw new VcsOpError('invalid-path', 'revision 不合法')
+  if (!Number.isFinite(rev) || rev <= 0) throw new VcsOpError('invalid-path', t('vcsError.revisionInvalid'))
 
   const [logR, sumR, diffR] = await Promise.all([
     runSvn(repo.root, ['log', '--xml', '-c', String(rev), '-v'], { timeoutMs: 20_000 }),
@@ -381,7 +382,7 @@ function mutation(paths: string[], conflicts?: string[]): VcsMutationData {
 
 function checked(repo: VcsRepo, paths: string[]): { rels: string[]; abs: string[] } {
   const rels = paths.map(normRel).filter(Boolean)
-  if (!rels.length) throw new VcsOpError('invalid-path', '没有选中文件')
+  if (!rels.length) throw new VcsOpError('invalid-path', t('vcsError.noFiles'))
   return { rels, abs: rels.map((p) => absPath(repo, p)) }
 }
 
@@ -416,7 +417,7 @@ export async function resolveSvn(repo: VcsRepo, req: VcsResolveRequest): Promise
       try {
         const text = await readFile(path, 'utf8')
         if (/^<{7}|^={7}|^>{7}/m.test(text)) {
-          throw new VcsOpError('conflict', '文件里还有冲突标记，请先在外侧编辑器里解决')
+          throw new VcsOpError('conflict', t('vcsError.conflictMarkers'))
         }
       } catch (err) {
         if (err instanceof VcsOpError) throw err
@@ -511,13 +512,13 @@ async function groupByWcRoot(
 }
 
 function wcLabel(repo: VcsRepo, root: string): string {
-  if (absKey(root) === absKey(repo.root)) return '主工作副本'
+  if (absKey(root) === absKey(repo.root)) return t('vcsError.mainWorkingCopy')
   return posix(relative(repo.root, root)) || root
 }
 
 export async function commitSvn(repo: VcsRepo, req: VcsCommitRequest): Promise<VcsCommitData> {
   const message = req.message.trim()
-  if (!message) throw new VcsOpError('unknown', '提交信息不能为空')
+  if (!message) throw new VcsOpError('unknown', t('vcsError.emptyMessage'))
   const { rels, abs } = checked(repo, req.paths ?? [])
   const groups = await groupByWcRoot(repo, abs)
   // 父工作副本先提交，外链按路径排序，失败时更容易判断进行到哪一步
@@ -542,7 +543,11 @@ export async function commitSvn(repo: VcsRepo, req: VcsCommitRequest): Promise<V
       if (done.length) {
         throw new VcsOpError(
           err.code,
-          `部分提交已完成（${done.join('、')}），${wcLabel(repo, group.root)} 提交失败：${err.message}`,
+          t('vcsError.partialCommit', {
+          done: done.join(t('vcsError.partialDone')),
+          label: wcLabel(repo, group.root),
+          error: err.message
+        }),
           err.detail
         )
       }
@@ -586,28 +591,28 @@ export async function updateSvn(
   if (r.code !== 0) throw mapCliError('svn', r)
   const status = await statusSvn(repo, { cwd: repo.root })
   return {
-    summary: rev ? `已更新到 r${rev}` : '已更新到最新版本',
+    summary: rev ? t('vcsError.updatedTo', { rev }) : t('vcsError.updatedLatest'),
     conflicts: status.files.filter((f) => f.conflict).map((f) => f.rel),
     revision: await svnHeadRevision(repo)
   }
 }
 
 export async function fetchSvn(): Promise<VcsSyncData> {
-  throw new VcsOpError('unsupported', 'SVN 使用「更新」获取最新版本')
+  throw new VcsOpError('unsupported', t('vcsError.svnUpdateLatest'))
 }
 
 export async function pullSvn(): Promise<VcsSyncData> {
-  throw new VcsOpError('unsupported', 'SVN 使用「更新」获取最新版本')
+  throw new VcsOpError('unsupported', t('vcsError.svnUpdateLatest'))
 }
 
 export async function pushSvn(): Promise<VcsSyncData> {
-  throw new VcsOpError('unsupported', 'SVN 没有单独的推送，提交即上传')
+  throw new VcsOpError('unsupported', t('vcsError.svnPushCommit'))
 }
 
 export async function unstageSvn(): Promise<VcsMutationData> {
-  throw new VcsOpError('unsupported', 'SVN 没有暂存区')
+  throw new VcsOpError('unsupported', t('vcsError.svnNoStage'))
 }
 
 export async function discardSvn(): Promise<VcsMutationData> {
-  throw new VcsOpError('unsupported', 'SVN 使用「还原」')
+  throw new VcsOpError('unsupported', t('vcsError.svnUseRevert'))
 }

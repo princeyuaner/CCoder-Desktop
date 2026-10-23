@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { UpdateInstallResult, UpdateState } from '@shared/update'
+import { tr } from './i18n'
 
 export interface UpdaterUi {
   state: UpdateState | null
@@ -39,7 +40,7 @@ export function useUpdater(): UpdaterUi {
 
   const install = useCallback(async (): Promise<UpdateInstallResult> => {
     if (!window.api?.updater) {
-      return { ok: false, message: '当前不在 Electron 中运行，无法安装更新' }
+      return { ok: false, message: tr('errors.notElectronUpdate') }
     }
     try {
       return await window.api.updater.install()

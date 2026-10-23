@@ -8,6 +8,7 @@ import { pathKey } from './path-key'
 import { windowBg } from './window-theme'
 import { logMain } from './crash-log'
 import { labelWindow } from './window-log'
+import { t } from './i18n'
 import { safeSend } from './safe-send'
 
 /**
@@ -165,7 +166,7 @@ function revealInWindow(win: BrowserWindow, target: IdeTarget): void {
  * 这个目录，不会顺着工具给的路径扩大到别处。
  */
 export function openFileInIde(cwd: string, file: string, line?: number): IdeOpenResult {
-  if (!cwd || !file.trim()) return { ok: false, message: '没有可打开的文件' }
+  if (!cwd || !file.trim()) return { ok: false, message: t('ideWindow.noFile') }
 
   const root = resolve(cwd)
   const abs = isAbsolute(file) ? resolve(file) : resolve(root, file)
@@ -177,9 +178,9 @@ export function openFileInIde(cwd: string, file: string, line?: number): IdeOpen
 
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
     try {
-      if (!statSync(abs).isFile()) return { ok: false, message: `打不开：${abs} 不是文件` }
+      if (!statSync(abs).isFile()) return { ok: false, message: t('ideWindow.notAFile', { path: abs }) }
     } catch {
-      return { ok: false, message: `文件不存在：${abs}` }
+      return { ok: false, message: t('ideWindow.missing', { path: abs }) }
     }
     openIdeWindow(dirname(abs), target(basename(abs)))
     return { ok: true }
@@ -313,12 +314,12 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
     const choice = dialog.showMessageBoxSync(win, {
       type: 'warning',
       noLink: true,
-      buttons: ['继续等待', '强制关闭'],
+      buttons: [t('main.dialog.keepWaiting'), t('main.dialog.forceClose')],
       defaultId: 1,
       cancelId: 0,
-      title: 'IDE 无响应',
-      message: 'IDE 窗口长时间没有响应。',
-      detail: '通常是正在渲染过大的文件或 diff。强制关闭会丢失未保存的修改。'
+      title: t('main.dialog.ideUnresponsiveTitle'),
+      message: t('main.dialog.ideUnresponsiveMessage'),
+      detail: t('main.dialog.ideUnresponsiveDetail')
     })
     if (choice === 1 && !win.isDestroyed()) win.destroy()
   })

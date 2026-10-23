@@ -1,4 +1,5 @@
 import type { IdeCodeRef } from '@shared/ide-chat'
+import { tr } from './i18n'
 
 /**
  * 代码引用在消息正文里的编码 / 解码。
@@ -73,7 +74,7 @@ export function formatIdeRef(ref: IdeCodeRef): string {
 export function composeIdeMessage(text: string, refs: IdeCodeRef[]): string {
   const t = text.trim()
   if (refs.length === 0) return t
-  const lead = t || '请参考以下 IDE 代码。'
+  const lead = t || tr('ide.ref.defaultLead')
   return `${lead}\n\n${refs.map(formatIdeRef).join('\n\n')}`
 }
 
@@ -112,8 +113,8 @@ export function parseIdeRefs(text: string): { text: string; refs: ParsedIdeRef[]
 
 /** 展示用：`L464–476` / `全文` */
 export function refRangeLabel(ref: { whole: boolean; lines: string }): string {
-  if (ref.whole) return '全文'
+  if (ref.whole) return tr('ide.ref.whole')
   const [a, b] = ref.lines.split('-')
-  if (!a) return '选区'
+  if (!a) return tr('ide.ref.selection')
   return a === b ? `L${a}` : `L${a}–${b}`
 }

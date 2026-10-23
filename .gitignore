@@ -2,6 +2,12 @@ node_modules/
 out/
 dist/
 release/
+# 打包时临时 TMP（%TEMP% 被安全软件锁住时绕开）
+.buildtmp/
+# 本地测试证书，不入库
+certs/
+# 临时诊断截图
+docs/mockups/_*
 # CodeGraph 本地索引（体积大且随机器变化，不入库）
 .codegraph/
 .idea/

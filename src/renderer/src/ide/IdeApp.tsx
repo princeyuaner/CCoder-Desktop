@@ -22,12 +22,14 @@ import type { FileMatch } from '@shared/workspace'
 import { baseName } from '@shared/path'
 import { IconFolder, IconSearch } from '../components/Icons'
 import { applyAppearance } from '../appearance'
+import { applyLanguageSetting } from '../i18n'
 import { diffStat } from './diff'
 import { highlight, toLines } from './highlight'
 import { buildIdeRef, MAX_REF_LINES } from './ref'
 import { SendToChat, type SendAnchor, type SendDraft } from './SendToChat'
 import { MonacoEditor, type EditorSelection } from './MonacoEditor'
 import { VcsWorkspace } from './VcsWorkspace'
+import { useI18n } from '../i18n'
 import { VcsDiffView } from './VcsDiffView'
 import { useVcsStatus } from './useVcsStatus'
 import '../styles/ide.css'
@@ -182,6 +184,7 @@ const P = {
 /* ── 窗口标题栏 ───────────────────────────────────────── */
 
 function IdeTitleBar({ cwd, onClose }: { cwd: string; onClose: () => void }): JSX.Element {
+  const { t } = useI18n()
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
@@ -196,17 +199,17 @@ function IdeTitleBar({ cwd, onClose }: { cwd: string; onClose: () => void }): JS
         <span>CCoder IDE</span>
         <span className="ide-divider" />
         <span className="ide-ws">{baseName(cwd)}</span>
-        <span className="ide-detach">独立窗口</span>
+        <span className="ide-detach">{t('ide.detach')}</span>
       </div>
       <div className="ide-wctl">
-        <button className="ide-wc" title="最小化" onClick={() => window.api?.minimize()}>
+        <button className="ide-wc" title={t('titlebar.minimize')} onClick={() => window.api?.minimize()}>
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
           </svg>
         </button>
         <button
           className="ide-wc"
-          title={maximized ? '还原' : '最大化'}
+          title={maximized ? t('titlebar.restore') : t('titlebar.maximize')}
           onClick={() => window.api?.toggleMaximize()}
         >
           {maximized ? (
@@ -220,7 +223,7 @@ function IdeTitleBar({ cwd, onClose }: { cwd: string; onClose: () => void }): JS
             </svg>
           )}
         </button>
-        <button className="ide-wc ide-wc--close" title="关闭" onClick={onClose}>
+        <button className="ide-wc ide-wc--close" title={t('titlebar.close')} onClick={onClose}>
           <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor">
             <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
           </svg>
@@ -233,6 +236,7 @@ function IdeTitleBar({ cwd, onClose }: { cwd: string; onClose: () => void }): JS
 /* ── 主组件 ───────────────────────────────────────────── */
 
 export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
+  const { t } = useI18n()
   const [view, setView] = useState<View>('files')
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
@@ -249,7 +253,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [jump, setJump] = useState<{ rel: string; line: number } | null>(null)
   /** 资源管理器当前选中的文件 / 文件夹 */
   const [treeTarget, setTreeTarget] = useState<TreeTarget>({ rel: '', kind: 'dir' })
-  /** 正在新建文件 / 文件夹时顶部的输入条 */
+  /** 正在{t('ide.newFile')} / 文件夹时顶部的输入条 */
   const [creating, setCreating] = useState<CreateState | null>(null)
   const [menu, setMenu] = useState<TreeMenuState | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
@@ -321,12 +325,18 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
       let disk: IdeTextFile
       try {
-        disk = await api.ide.readFile(cwd, rel)
-      } catch (err) {
+        const r = await api.ide.readFile(cwd, rel)
         if (relSeqRef.current.get(rel) !== seq) return
-        const message = err instanceof Error ? err.message : String(err)
-        // EPERM / EBUSY 等瞬态错误忽略，等下一次事件或窗口聚焦再试
-        if (/ENOENT|ENOTDIR|不是文件|不存在/.test(message)) markExternal(rel, 'deleted')
+        // 删除 / 变成非文件用结构化 code 判断，绝不匹配错误文案
+        if (!r.ok) {
+          if (r.code === 'missing' || r.code === 'not-file') {
+            markExternal(rel, 'deleted')
+          }
+          return
+        }
+        disk = r.data
+      } catch {
+        // IPC 层意外失败（窗口销毁等）：等下一次事件或窗口聚焦再试
         return
       }
       if (relSeqRef.current.get(rel) !== seq) return
@@ -363,12 +373,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     async (rel: string): Promise<void> => {
       if (!api?.ide) return
       try {
-        const img = await api.ide.readImage(cwd, rel)
-        setImageCache((m) => (rel in m ? { ...m, [rel]: img } : m))
+        const r = await api.ide.readImage(cwd, rel)
+        if (!r.ok) {
+          if (r.code === 'missing' || r.code === 'not-file') {
+            markExternal(rel, 'deleted')
+          }
+          return
+        }
+        setImageCache((m) => (rel in m ? { ...m, [rel]: r.data } : m))
         clearExternal(rel)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        if (/ENOENT|ENOTDIR|不存在/.test(message)) markExternal(rel, 'deleted')
+      } catch {
+        // IPC 层意外失败：等下一次事件再试
       }
     },
     [api, clearExternal, cwd, markExternal]
@@ -486,7 +501,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       setTreeVersion((v) => v + 1)
       void vcs.refresh()
       showFlash(
-        `替换完成：${r.totals.replacements} 处 · ${r.totals.filesChanged} 个文件`
+        t('ide.replaceDone', {
+          replacements: r.totals.replacements,
+          files: r.totals.filesChanged
+        })
       )
     },
     [dirtyRels, showFlash, vcs]
@@ -497,9 +515,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     document.title = `CCoder IDE — ${baseName(cwd)}`
   }, [cwd])
 
-  // 主窗口改主题/字号/缩放时，已经开着的 IDE 窗口也跟着变
+  // 主窗口改语言/主题/字号/缩放时，已经开着的 IDE 窗口也跟着变
   useEffect(() => {
-    const off = window.api?.settings.onChanged((s) => applyAppearance(s))
+    const off = window.api?.settings.onChanged((s) => {
+      applyLanguageSetting(s.language)
+      applyAppearance(s)
+    })
     return () => off?.()
   }, [])
 
@@ -550,19 +571,25 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       setLoadingKey(tab.key)
       try {
         if (tab.kind === 'file') {
-          const f = await api.ide.readFile(cwd, tab.rel)
-          setFileCache((m) => ({ ...m, [tab.rel]: f }))
-          setBaseText((m) => (tab.rel in m ? m : { ...m, [tab.rel]: f.text }))
+          const r = await api.ide.readFile(cwd, tab.rel)
+          if (!r.ok) throw new Error(r.message)
+          setFileCache((m) => ({ ...m, [tab.rel]: r.data }))
+          setBaseText((m) => (tab.rel in m ? m : { ...m, [tab.rel]: r.data.text }))
         } else if (tab.kind === 'image') {
-          const img = await api.ide.readImage(cwd, tab.rel)
-          setImageCache((m) => ({ ...m, [tab.rel]: img }))
+          const r = await api.ide.readImage(cwd, tab.rel)
+          if (!r.ok) throw new Error(r.message)
+          setImageCache((m) => ({ ...m, [tab.rel]: r.data }))
         } else {
           const r = await api.vcs.diff({ cwd, rel: tab.rel, source: 'head' })
           if (!r.ok) throw new Error(r.error.message)
           setDiffCache((m) => ({ ...m, [tab.rel]: r.data }))
         }
       } catch (err) {
-        setNotice(`打开失败：${err instanceof Error ? err.message : String(err)}`)
+        setNotice(
+          t('ide.openFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        )
         setTabs((list) => list.filter((t) => t.key !== tab.key))
         setActiveKey((cur) => (cur === tab.key ? null : cur))
       } finally {
@@ -644,11 +671,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       const file = fileCache[rel]
       if (!api?.ide || !file) return false
       if (file.binary) {
-        setNotice('二进制文件不能按文本保存')
+        setNotice(t('ide.binaryCannotSave'))
         return false
       }
       if (file.truncated) {
-        setNotice('文件超过 2 MB，当前只加载了前半部分，不能保存')
+        setNotice(t('ide.tooLargeCannotSave'))
         return false
       }
       // 磁盘上已删除的干净缓冲区也要走 saveFile，才能弹出现有的“重新创建”
@@ -669,12 +696,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         if (!r.ok) {
           if (r.code === 'conflict' && !force) {
             setDialog({
-              title: '文件已被外部修改',
-              message: `${rel} 在磁盘上的内容已经变了。覆盖会丢掉外部的修改。`,
+              title: t('ide.externalModifiedTitle'),
+              message: t('ide.externalModifiedMessage', { rel }),
               actions: [
-                { label: '取消', run: () => undefined },
+                { label: t('common.cancel'), run: () => undefined },
                 {
-                  label: '仍然覆盖',
+                  label: t('ide.overwrite'),
                   kind: 'danger',
                   run: async () => {
                     await saveDoc(rel, true)
@@ -684,12 +711,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             })
           } else if (r.code === 'missing' && !force) {
             setDialog({
-              title: '文件已被删除',
-              message: `${rel} 已经从磁盘上消失。要按编辑器里的内容重新创建吗？`,
+              title: t('ide.deletedTitle'),
+              message: t('ide.deletedMessage', { rel }),
               actions: [
-                { label: '取消', run: () => undefined },
+                { label: t('common.cancel'), run: () => undefined },
                 {
-                  label: '重新创建',
+                  label: t('ide.recreate'),
                   kind: 'primary',
                   run: async () => {
                     await saveDoc(rel, true)
@@ -698,18 +725,22 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               ]
             })
           } else {
-            setNotice(`保存失败：${r.message}`)
+            setNotice(t('ide.saveFailed', { error: r.message }))
           }
           return false
         }
         setFileCache((m) => ({ ...m, [rel]: r.data }))
         setBaseText((m) => ({ ...m, [rel]: r.data.text }))
         clearExternal(rel)
-        showFlash(`已保存 ${baseName(rel)}`)
+        showFlash(t('ide.saved', { name: baseName(rel) }))
         void vcs.refresh()
         return true
       } catch (err) {
-        setNotice(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+        setNotice(
+          t('ide.saveFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        )
         return false
       } finally {
         const left = (savingRelsRef.current.get(savingKey) ?? 1) - 1
@@ -751,14 +782,14 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     if (!api?.ide) return
     const r = await api.ide.createEntry({ cwd, rel, kind: c.kind })
     if (!r.ok) {
-      setNotice(`新建失败：${r.message}`)
+      setNotice(t('ide.createFailed', { error: r.message }))
       return
     }
     setCreating(null)
     setTreeTarget({ rel: r.data.entry.rel, kind: r.data.entry.kind })
     refresh()
     if (r.data.entry.kind === 'file') openFile(r.data.entry.rel)
-    showFlash(c.kind === 'dir' ? '文件夹已创建' : '文件已创建')
+    showFlash(c.kind === 'dir' ? t('ide.folderCreated') : t('ide.fileCreated'))
   }, [api, cwd, creating, openFile, refresh, showFlash])
 
   const applyRename = useCallback(
@@ -826,13 +857,13 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       if (!api?.ide) return
       const r = await api.ide.renameEntry({ cwd, rel: target.rel, to })
       if (!r.ok) {
-        setNotice(`重命名失败：${r.message}`)
+        setNotice(t('ide.renameFailed', { error: r.message }))
         return
       }
       applyRename(target.rel, r.data.entry.rel)
       setTreeTarget({ rel: r.data.entry.rel, kind: r.data.entry.kind })
       refresh()
-      showFlash('已重命名')
+      showFlash(t('ide.renamed'))
     },
     [api, applyRename, cwd, refresh, showFlash]
   )
@@ -882,27 +913,29 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         (t) => t.kind === 'file' && underPath(t.rel, target.rel)
       )
       const dirty = affected.filter((t) => t.kind === 'file' && isDirty(t.rel))
-      const what = target.kind === 'dir' ? '文件夹及其中的内容' : '文件'
+      const what =
+        target.kind === 'dir' ? t('ide.deleteDirWhat') : t('ide.deleteFileWhat')
       setDialog({
-        title: `删除${target.kind === 'dir' ? '文件夹' : '文件'}`,
+        title:
+          target.kind === 'dir' ? t('ide.deleteDirTitle') : t('ide.deleteFileTitle'),
         message:
-          `将从磁盘删除${what}「${target.rel}」，这个操作不能撤销。` +
-          (dirty.length ? ` 其中有 ${dirty.length} 个文件还没保存。` : ''),
+          t('ide.deleteMessage', { what, rel: target.rel }) +
+          (dirty.length ? t('ide.deleteDirtySuffix', { n: dirty.length }) : ''),
         actions: [
-          { label: '取消', run: () => undefined },
+          { label: t('common.cancel'), run: () => undefined },
           {
-            label: '删除',
+            label: t('ide.delete'),
             kind: 'danger',
             run: async () => {
               if (!api?.ide) return
               const r = await api.ide.deleteEntry({ cwd, rel: target.rel })
               if (!r.ok) {
-                setNotice(`删除失败：${r.message}`)
+                setNotice(t('ide.deleteFailed', { error: r.message }))
                 return
               }
               dropTabsUnder(target.rel)
               refresh()
-              showFlash('已删除')
+              showFlash(t('ide.deleted'))
             }
           }
         ]
@@ -919,13 +952,13 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         return
       }
       setDialog({
-        title: '还有未保存的修改',
-        message: `${tab.rel} 有未保存的修改。关闭前要保存吗？`,
+        title: t('ide.unsavedTitle'),
+        message: t('ide.unsavedFileMessage', { rel: tab.rel }),
         actions: [
-          { label: '取消', run: () => undefined },
-          { label: '不保存', kind: 'danger', run: () => closeTab(key) },
+          { label: t('common.cancel'), run: () => undefined },
+          { label: t('ide.dontSave'), kind: 'danger', run: () => closeTab(key) },
           {
-            label: '保存并关闭',
+            label: t('ide.saveAndClose'),
             kind: 'primary',
             run: async () => {
               if (await saveDoc(tab.rel)) closeTab(key)
@@ -943,17 +976,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       return
     }
     setDialog({
-      title: '还有未保存的修改',
-      message: `${dirtyCount} 个文件有未保存的修改。关闭前要全部保存吗？`,
+      title: t('ide.unsavedTitle'),
+      message: t('ide.unsavedMultiMessage', { n: dirtyCount }),
       actions: [
-        { label: '取消', run: () => undefined },
+        { label: t('common.cancel'), run: () => undefined },
         {
-          label: '不保存并关闭',
+          label: t('ide.dontSaveAndClose'),
           kind: 'danger',
           run: () => api?.ide?.confirmClose()
         },
         {
-          label: '全部保存并关闭',
+          label: t('ide.saveAllAndClose'),
           kind: 'primary',
           run: async () => {
             if (await saveAll()) api?.ide?.confirmClose()
@@ -993,10 +1026,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         e.preventDefault()
         const target = treeTarget
         setPrompt({
-          title: '重命名',
-          message: '输入新的工作区相对路径。',
+          title: t('ide.renameTitle'),
+          message: t('ide.renameMessage'),
           value: target.rel,
-          confirmLabel: '重命名',
+          confirmLabel: t('ide.rename'),
           run: (value) => renameTarget(target, value)
         })
       } else if (!typing && e.key === 'Delete' && treeTarget.rel) {
@@ -1019,7 +1052,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   const sendDraftFromFile = (file: IdeTextFile, anchor: SendAnchor | null): void => {
     if (file.binary) {
-      setNotice('二进制文件暂不支持发送到聊天')
+      setNotice(t('ide.binarySendUnsupported'))
       return
     }
     setSendDraft({ refs: [buildIdeRef(file, cwd, 'file', file.text)], anchor })
@@ -1053,18 +1086,22 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     }
     if (!api?.ide) return
     try {
-      const f = await api.ide.readFile(cwd, rel)
-      setFileCache((m) => ({ ...m, [rel]: f }))
-      setBaseText((m) => (rel in m ? m : { ...m, [rel]: f.text }))
-      sendDraftFromFile(f, anchor)
+      const r = await api.ide.readFile(cwd, rel)
+      if (!r.ok) {
+        setNotice(r.message)
+        return
+      }
+      setFileCache((m) => ({ ...m, [rel]: r.data }))
+      setBaseText((m) => (rel in m ? m : { ...m, [rel]: r.data.text }))
+      sendDraftFromFile(r.data, anchor)
     } catch (err) {
-      setNotice(`无法读取文件：${err instanceof Error ? err.message : String(err)}`)
+      setNotice(err instanceof Error ? err.message : String(err))
     }
   }
 
   const handleSent = (target: ChatTargetInfo): void => {
     setSendDraft(null)
-    showFlash(`已附加到聊天 · ${target.title}`)
+    showFlash(t('ide.attachedToChat', { title: target.title }))
   }
 
   const statusRight = (() => {
@@ -1072,22 +1109,22 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     if (activeTab.kind === 'file' && activeFile) {
       return (
         <>
-          {isDirty(activeTab.rel) && <span className="ide-dirtyhint">● 未保存</span>}
+          {isDirty(activeTab.rel) && <span className="ide-dirtyhint">{t('ide.unsavedDot')}</span>}
           {external[extKey(activeTab.rel)] && (
             <span className={`ide-exthint is-${external[extKey(activeTab.rel)]}`}>
               {external[extKey(activeTab.rel)] === 'deleted'
-                ? '文件已从磁盘删除'
-                : '磁盘已修改，未重载'}
+                ? t('ide.externalDeletedShort')
+                : t('ide.externalModifiedShort')}
             </span>
           )}
-          {savingRel === activeTab.rel && <span>保存中…</span>}
+          {savingRel === activeTab.rel && <span>{t('ide.saving')}</span>}
           {cursor?.rel === activeTab.rel && (
             <span>
-              行 {cursor.line}，列 {cursor.col}
+              {t('ide.cursor', { line: cursor.line, col: cursor.col })}
             </span>
           )}
           <span>{activeFile.language}</span>
-          <span>{activeFile.text.split('\n').length} 行</span>
+          <span>{t('ide.lines', { n: activeFile.text.split('\n').length })}</span>
           <span>{activeFile.eol === 'crlf' ? 'CRLF' : 'LF'}</span>
           <span>UTF-8</span>
         </>
@@ -1114,47 +1151,49 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       <div className="ide-toolbar">
         <button className="ide-quickbtn" onClick={() => setQuickOpen(true)}>
           <IconSearch width={14} height={14} />
-          <span>搜索文件、符号或命令…</span>
+          <span>{t('ide.searchPlaceholder')}</span>
           <kbd>Ctrl P</kbd>
         </button>
         <div className="ide-toolbar-right">
           <span
             className={`ide-branch ${vcs.status?.repo ? '' : 'is-off'}`}
-            title={vcs.status?.repo ? '当前分支 / 修订' : '工作区没有版本控制'}
+            title={vcs.status?.repo ? t('ide.branchTitle') : t('ide.noVcsTitle')}
           >
             <Ico d={P.git} />
             {vcs.status?.repo
               ? vcs.status.repo.kind === 'git'
-                ? vcs.status.repo.branch || '(无分支)'
+                ? vcs.status.repo.branch || t('ide.noBranch')
                 : vcs.status.repo.headShort
-              : '无版本控制'}
+              : t('ide.noVcs')}
           </span>
           {vcs.status && (
-            <span className="ide-changes" title="工作区变更数">
-              {vcs.status.counts.total} 个变更
+            <span className="ide-changes" title={t('ide.changesTitle')}>
+              {t('ide.changesCount', { n: vcs.status.counts.total })}
             </span>
           )}
-          <button className="ide-iconbtn" title="刷新文件树与版本控制状态" onClick={refresh}>
+          <button className="ide-iconbtn" title={t('ide.refresh')} onClick={refresh}>
             <Ico d={P.refresh} />
           </button>
           {dirtyCount > 0 ? (
             <button
               className="ide-savebtn"
-              title="保存当前文件（Ctrl+S）"
+              title={t('ide.saveTitle')}
               onClick={() => activeTab?.kind === 'file' && void saveDoc(activeTab.rel)}
             >
-              {savingRel ? '保存中…' : `保存 · ${dirtyCount}`}
+              {savingRel ? t('ide.saving') : t('ide.saveButton', { n: dirtyCount })}
             </button>
           ) : (
             <span
               className="ide-readonly"
               title={
                 activeFile && (activeFile.binary || activeFile.truncated)
-                  ? '二进制或超过 2 MB 的文件以只读方式预览'
-                  : '文件可直接编辑，Ctrl+S 保存'
+                  ? t('ide.readOnlyBannerBinary')
+                  : t('ide.editableBanner')
               }
             >
-              {activeFile && (activeFile.binary || activeFile.truncated) ? '只读' : '可编辑'}
+              {activeFile && (activeFile.binary || activeFile.truncated)
+                ? t('ide.readOnly')
+                : t('ide.editable')}
             </span>
           )}
         </div>
@@ -1162,15 +1201,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
       <div className="ide-body">
         <nav className="ide-activity">
-          <button className={`ide-act ${view === 'files' ? 'on' : ''}`} title="资源管理器" onClick={() => setView('files')}>
+          <button className={`ide-act ${view === 'files' ? 'on' : ''}`} title={t('ide.explorer')} onClick={() => setView('files')}>
             <Ico d={P.files} size={17} />
           </button>
-          <button className={`ide-act ${view === 'search' ? 'on' : ''}`} title="搜索代码（Ctrl+Shift+F）" onClick={() => setView('search')}>
+          <button className={`ide-act ${view === 'search' ? 'on' : ''}`} title={t('ide.searchCodeTitle')} onClick={() => setView('search')}>
             <Ico d={P.search} size={17} />
           </button>
           <button
             className={`ide-act ${view === 'vcs' ? 'on' : ''}`}
-            title="源代码管理（Git / SVN）"
+            title={t('ide.scmTitle')}
             onClick={() => setView('vcs')}
           >
             <Ico d={P.diff} size={17} />
@@ -1213,23 +1252,23 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           {view === 'files' && (
             <div className="ide-explorer">
               <div className="ide-side-head">
-                <span>资源管理器</span>
+                <span>{t('ide.explorer')}</span>
                 <div className="ide-side-actions">
                   <button
                     className="ide-iconbtn"
-                    title="新建文件"
+                    title={t('ide.newFile')}
                     onClick={() => startCreate('file')}
                   >
                     <Ico d={P.newFile} size={13} />
                   </button>
                   <button
                     className="ide-iconbtn"
-                    title="新建文件夹"
+                    title={t('ide.newFolder')}
                     onClick={() => startCreate('dir')}
                   >
                     <Ico d={P.newFolder} size={13} />
                   </button>
-                  <button className="ide-iconbtn" title="刷新" onClick={refresh}>
+                  <button className="ide-iconbtn" title={t('ide.refreshShort')} onClick={refresh}>
                     <Ico d={P.refresh} size={13} />
                   </button>
                 </div>
@@ -1247,7 +1286,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                     <input
                       autoFocus
                       value={creating.value}
-                      placeholder={creating.kind === 'dir' ? '文件夹名' : '文件名，如 index.ts'}
+                      placeholder={
+                        creating.kind === 'dir'
+                          ? t('ide.folderNamePlaceholder')
+                          : t('ide.fileNamePlaceholder')
+                      }
                       spellCheck={false}
                       onChange={(e) => setCreating({ ...creating, value: e.target.value })}
                       onKeyDown={(e) => {
@@ -1259,16 +1302,23 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                     />
                   </div>
                   <div className="ide-createfoot">
-                    <span>{creating.kind === 'dir' ? '新建文件夹' : '新建文件'} · Enter 确认 · Esc 取消</span>
+                    <span>
+                      {t('ide.createHint', {
+                        kind:
+                          creating.kind === 'dir'
+                            ? t('ide.newFolder')
+                            : t('ide.newFile')
+                      })}
+                    </span>
                     <button type="button" onClick={() => setCreating(null)}>
-                      取消
+                      {t('common.cancel')}
                     </button>
                     <button
                       type="submit"
                       className="is-primary"
                       disabled={!creating.value.trim()}
                     >
-                      创建
+                      {t('ide.create')}
                     </button>
                   </div>
                 </form>
@@ -1309,50 +1359,50 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
         <section className="ide-editor">
           <div className="ide-tabs">
-            {tabs.map((t) => (
+            {tabs.map((tab) => (
               <div
-                key={t.key}
-                className={`ide-tab ${t.key === activeKey ? 'on' : ''}`}
-                title={t.rel}
-                onClick={() => setActiveKey(t.key)}
+                key={tab.key}
+                className={`ide-tab ${tab.key === activeKey ? 'on' : ''}`}
+                title={tab.rel}
+                onClick={() => setActiveKey(tab.key)}
                 onAuxClick={(e) => {
-                  if (e.button === 1) requestCloseTab(t.key)
+                  if (e.button === 1) requestCloseTab(tab.key)
                 }}
               >
-                {t.kind === 'file' && isDirty(t.rel) ? (
-                  <span className="ide-tab-dirty" title="未保存" />
+                {tab.kind === 'file' && isDirty(tab.rel) ? (
+                  <span className="ide-tab-dirty" title={t('ide.unsavedDot')} />
                 ) : (
                   <Ico
-                    d={t.kind === 'image' ? P.image : t.kind === 'diff' ? P.diff : P.file}
+                    d={tab.kind === 'image' ? P.image : tab.kind === 'diff' ? P.diff : P.file}
                     size={12}
                   />
                 )}
-                <span className="ide-tab-title">{t.title}</span>
-                {external[extKey(t.rel)] && (
+                <span className="ide-tab-title">{tab.title}</span>
+                {external[extKey(tab.rel)] && (
                   <span
-                    className={`ide-tab-ext is-${external[extKey(t.rel)]}`}
+                    className={`ide-tab-ext is-${external[extKey(tab.rel)]}`}
                     title={
-                      external[extKey(t.rel)] === 'deleted'
-                        ? '文件已从磁盘删除；保存可重新创建'
-                        : '磁盘上的文件已被外部修改，编辑器内容未被覆盖'
+                      external[extKey(tab.rel)] === 'deleted'
+                        ? t('ide.deletedBanner')
+                        : t('ide.externalBanner')
                     }
                   >
-                    {external[extKey(t.rel)] === 'deleted' ? '×' : '!'}
+                    {external[extKey(tab.rel)] === 'deleted' ? '×' : '!'}
                   </span>
                 )}
                 <button
                   className="ide-tab-x"
-                  title="关闭"
+                  title={t('common.close')}
                   onClick={(e) => {
                     e.stopPropagation()
-                    requestCloseTab(t.key)
+                    requestCloseTab(tab.key)
                   }}
                 >
                   ×
                 </button>
               </div>
             ))}
-            {tabs.length === 0 && <div className="ide-tab-empty">没有打开的文件</div>}
+            {tabs.length === 0 && <div className="ide-tab-empty">{t('ide.noOpenFiles')}</div>}
           </div>
 
           {activeTab && (
@@ -1368,7 +1418,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               <span className="ide-crumb-right">
                 {activeTab.kind === 'file' && activeFile && (
                   <button className="ide-linkbtn" onClick={() => openDiff(activeTab.rel)}>
-                    与 HEAD 比较
+                    {t('diff.head')}
                   </button>
                 )}
                 {activeTab.kind === 'diff' && activeDiff && (() => {
@@ -1387,7 +1437,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           <div className="ide-content">
             {!activeTab && <EmptyState />}
             {activeTab && loadingKey === activeTab.key && (
-              <div className="ide-loading">正在读取 {activeTab.rel}…</div>
+              <div className="ide-loading">
+                {t('ide.loadingFile', { rel: activeTab.rel })}
+              </div>
             )}
             {activeTab && loadingKey !== activeTab.key && activeTab.kind === 'file' && activeFile && (
               activeFile.binary || activeFile.truncated ? (
@@ -1436,9 +1488,13 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             ? vcs.status.repo.kind === 'git'
               ? vcs.status.repo.branch || 'detached'
               : vcs.status.repo.headShort
-            : '无版本控制'}
+            : t('ide.noVcs')}
         </span>
-        {vcs.status && <span className="ide-status-changes">{vcs.status.counts.total} 变更</span>}
+        {vcs.status && (
+          <span className="ide-status-changes">
+            {t('ide.changesShort', { n: vcs.status.counts.total })}
+          </span>
+        )}
         <span className="ide-status-right">
           {view !== 'vcs' && activeTab && <span className="ide-status-rel">{activeTab.rel}</span>}
           {view !== 'vcs' && statusRight}
@@ -1464,7 +1520,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       {notice && (
         <div className="ide-toast">
           <span>{notice}</span>
-          <button className="ide-iconbtn" title="关闭" onClick={() => setNotice(null)}>
+          <button className="ide-iconbtn" title={t('common.close')} onClick={() => setNotice(null)}>
             ×
           </button>
         </div>
@@ -1482,10 +1538,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           onNewFolder={(target) => startCreate('dir', target)}
           onRename={(target) =>
             setPrompt({
-              title: '重命名',
-              message: '输入新的工作区相对路径。',
+              title: t('ide.renameTitle'),
+              message: t('ide.renameMessage'),
               value: target.rel,
-              confirmLabel: '重命名',
+              confirmLabel: t('ide.rename'),
               run: (value) => renameTarget(target, value)
             })
           }
@@ -1546,6 +1602,7 @@ function TreeDir({
   onMenu: (target: TreeTarget, e: ReactMouseEvent) => void
   onOpen: (rel: string, line?: number) => void
 }): JSX.Element {
+  const { t } = useI18n()
   const [open, setOpen] = useState(defaultOpen)
   const [entries, setEntries] = useState<IdeEntry[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -1600,17 +1657,17 @@ function TreeDir({
         <div>
           {entries === null && !failed && (
             <div className="ide-tempty" style={{ paddingLeft: 30 + depth * 12 }}>
-              读取中…
+              {t('ide.loading')}
             </div>
           )}
           {failed && (
             <div className="ide-tempty" style={{ paddingLeft: 30 + depth * 12 }}>
-              无法读取
+              {t('ide.unreadable')}
             </div>
           )}
           {entries?.length === 0 && (
             <div className="ide-tempty" style={{ paddingLeft: 30 + depth * 12 }}>
-              空目录
+              {t('ide.emptyDir')}
             </div>
           )}
           {entries?.map((e) =>
@@ -1730,6 +1787,7 @@ function SearchPanel({
   onReplaced: (r: IdeReplaceData) => void
   askConfirm: (state: DialogState) => void
 }): JSX.Element {
+  const { t, tn } = useI18n()
   const [q, setQ] = useState('')
   const [replacement, setReplacement] = useState('')
   const [showReplace, setShowReplace] = useState(false)
@@ -1792,7 +1850,7 @@ function SearchPanel({
           return
         }
         setResults(r.data.files)
-        setNote(r.data.truncated ? (r.data.note ?? '结果已截断') : null)
+        setNote(r.data.truncated ? (r.data.note ?? t('ide.resultTruncated')) : null)
         setSearched(true)
       } catch (err) {
         if (!cancelled) {
@@ -1821,7 +1879,7 @@ function SearchPanel({
     try {
       const api = window.api
       if (!api?.ide) {
-        setError('当前环境不支持工作区替换')
+        setError(t('ide.replaceUnsupported'))
         return
       }
       const r = await api.ide.replaceInWorkspace({
@@ -1837,25 +1895,42 @@ function SearchPanel({
       }
       const d = r.data
       if (d.aborted) {
-        setError(d.message ?? '替换已中止，未写入任何文件')
+        setError(d.message ?? t('ide.replaceAborted'))
         return
       }
 
-      const t = d.totals
-      const parts = [`${t.replacements} 处`, `${t.filesChanged} 个文件`]
-      if (t.filesSkippedDirty) parts.push(`跳过 ${t.filesSkippedDirty} 个未保存文件`)
-      if (t.filesConflicted) parts.push(`${t.filesConflicted} 个冲突`)
-      if (t.filesErrored) parts.push(`${t.filesErrored} 个失败`)
-      if (t.filesSkippedBinary || t.filesSkippedLarge) {
-        parts.push(`忽略 ${t.filesSkippedBinary + t.filesSkippedLarge} 个二进制/大文件`)
+      const totals = d.totals
+      const parts = [
+        t('ide.replaceCount', { n: totals.replacements }),
+        tn('count.files', totals.filesChanged)
+      ]
+      if (totals.filesSkippedDirty) {
+        parts.push(t('ide.replaceSkippedDirty', { n: totals.filesSkippedDirty }))
       }
-      setLastReplace(`已替换 ${parts.join(' · ')}`)
+      if (totals.filesConflicted) {
+        parts.push(t('ide.replaceConflicts', { n: totals.filesConflicted }))
+      }
+      if (totals.filesErrored) {
+        parts.push(t('ide.replaceErrors', { n: totals.filesErrored }))
+      }
+      if (totals.filesSkippedBinary || totals.filesSkippedLarge) {
+        parts.push(
+          t('ide.replaceIgnored', {
+            n: totals.filesSkippedBinary + totals.filesSkippedLarge
+          })
+        )
+      }
+      setLastReplace(t('ide.replaced', { summary: parts.join(' · ') }))
 
       onReplaced(d)
       // 重新搜索，让面板显示替换后的磁盘内容
       setRefreshTick((x) => x + 1)
     } catch (err) {
-      setError(`替换失败：${err instanceof Error ? err.message : String(err)}`)
+      setError(
+        t('ide.replaceFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      )
     } finally {
       setReplacing(false)
     }
@@ -1863,15 +1938,22 @@ function SearchPanel({
 
   const onReplaceAll = (): void => {
     if (!canReplace) return
-    const dirtyNote = dirtyRels.length ? `；${dirtyRels.length} 个未保存文件会跳过` : ''
-    const truncatedNote = note ? '；面板结果已截断，替换会重新扫描整个工作区' : ''
+    const dirtyNote = dirtyRels.length
+      ? t('ide.dirtySkipNote', { n: dirtyRels.length })
+      : ''
+    const truncatedNote = note ? t('ide.panelTruncatedNote') : ''
     askConfirm({
-      title: '在工作区中全部替换',
-      message: `将把 ${total} 处匹配替换为「${replacement || '空'}」，涉及 ${results.length} 个文件${dirtyNote}${truncatedNote}。这个操作不能撤销。`,
+      title: t('ide.replaceDialogTitle'),
+      message: t('ide.replaceDialogMessage', {
+        total,
+        replacement: replacement || '',
+        files: results.length,
+        notes: dirtyNote + truncatedNote
+      }),
       actions: [
-        { label: '取消', run: () => undefined },
+        { label: t('common.cancel'), run: () => undefined },
         {
-          label: '全部替换',
+          label: t('ide.replaceAll'),
           kind: 'danger',
           run: doReplace
         }
@@ -1882,14 +1964,14 @@ function SearchPanel({
   return (
     <div className="ide-searchview">
       <div className="ide-side-head">
-        <span>搜索</span>
+        <span>{t('ide.search')}</span>
       </div>
 
       <div className="ide-searchbox">
         <button
           className="ide-sreplace-toggle"
           aria-expanded={showReplace}
-          title={showReplace ? '收起替换' : '展开替换'}
+          title={showReplace ? t('ide.collapseReplace') : t('ide.expandReplace')}
           onClick={() => setShowReplace((v) => !v)}
         >
           <Ico d={showReplace ? P.down : P.chevron} size={11} />
@@ -1899,7 +1981,9 @@ function SearchPanel({
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder={regex ? '正则表达式…' : '在工作区中搜索…'}
+          placeholder={
+            regex ? t('ide.searchRegexPlaceholder') : t('ide.searchWorkspacePlaceholder')
+          }
           spellCheck={false}
           disabled={replacing}
         />
@@ -1911,7 +1995,9 @@ function SearchPanel({
           <input
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
-            placeholder={regex ? '替换为…（支持 $1 / $&）' : '替换为…'}
+            placeholder={
+              regex ? t('ide.replaceRegexPlaceholder') : t('ide.replacePlaceholder')
+            }
             spellCheck={false}
             disabled={replacing}
           />
@@ -1919,9 +2005,9 @@ function SearchPanel({
             className="ide-replaceall"
             disabled={!canReplace}
             onClick={onReplaceAll}
-            title="在工作区中全部替换"
+            title={t('ide.replaceDialogTitle')}
           >
-            {replacing ? <span className="ide-spin" /> : '全部替换'}
+            {replacing ? <span className="ide-spin" /> : t('ide.replaceAll')}
           </button>
         </div>
       )}
@@ -1930,7 +2016,7 @@ function SearchPanel({
         <button
           className={`ide-sopt ${caseSensitive ? 'is-on' : ''}`}
           aria-pressed={caseSensitive}
-          title="区分大小写"
+          title={t('ide.caseSensitive')}
           onClick={() => setCaseSensitive((v) => !v)}
         >
           Aa
@@ -1938,15 +2024,15 @@ function SearchPanel({
         <button
           className={`ide-sopt ${wholeWord ? 'is-on' : ''}`}
           aria-pressed={wholeWord}
-          title="全字匹配"
+          title={t('ide.wholeWord')}
           onClick={() => setWholeWord((v) => !v)}
         >
-          全字
+          {t('ide.wholeWordShort')}
         </button>
         <button
           className={`ide-sopt ${regex ? 'is-on' : ''}`}
           aria-pressed={regex}
-          title="使用正则表达式"
+          title={t('ide.regex')}
           onClick={() => setRegex((v) => !v)}
         >
           .*
@@ -1954,10 +2040,10 @@ function SearchPanel({
         <button
           className={`ide-sopt ${showFilters ? 'is-on' : ''}`}
           aria-pressed={showFilters}
-          title="包含 / 排除文件"
+          title={t('ide.filterTitle')}
           onClick={() => setShowFilters((v) => !v)}
         >
-          筛选
+          {t('ide.filter')}
         </button>
       </div>
 
@@ -1966,14 +2052,14 @@ function SearchPanel({
           <input
             value={includeText}
             onChange={(e) => setIncludeText(e.target.value)}
-            placeholder="包含：src/**/*.{ts,tsx}"
+            placeholder={t('ide.includePlaceholder')}
             spellCheck={false}
             disabled={replacing}
           />
           <input
             value={excludeText}
             onChange={(e) => setExcludeText(e.target.value)}
-            placeholder="排除：**/*.test.ts, dist/**"
+            placeholder={t('ide.excludePlaceholder')}
             spellCheck={false}
             disabled={replacing}
           />
@@ -1984,10 +2070,14 @@ function SearchPanel({
         {error
           ? error
           : searched
-            ? `${total} 个结果 · ${results.length} 个文件${note ? '（已截断）' : ''}`
+            ? t('ide.results', {
+                n: total,
+                files: results.length,
+                truncated: note ? t('ide.resultsTruncated') : ''
+              })
             : regex
-              ? '输入正则表达式'
-              : '输入至少 2 个字符'}
+              ? t('ide.enterRegex')
+              : t('ide.enterTwoChars')}
       </div>
       {note && !error && <div className="ide-searchnote">{note}</div>}
       {lastReplace && <div className="ide-searchsum is-done">{lastReplace}</div>}
@@ -2014,7 +2104,7 @@ function SearchPanel({
           </div>
         ))}
         {searched && results.length === 0 && !busy && !error && (
-          <div className="ide-emptyhint">没有找到匹配</div>
+          <div className="ide-emptyhint">{t('ide.noMatches')}</div>
         )}
       </div>
     </div>
@@ -2032,6 +2122,7 @@ function QuickOpen({
   onClose: () => void
   onOpen: (rel: string) => void
 }): JSX.Element {
+  const { t } = useI18n()
   const [q, setQ] = useState('')
   const [items, setItems] = useState<FileMatch[]>([])
   const [active, setActive] = useState(0)
@@ -2077,7 +2168,7 @@ function QuickOpen({
           <input
             ref={inputRef}
             value={q}
-            placeholder="按文件名搜索…"
+            placeholder={t('ide.quickOpenPlaceholder')}
             spellCheck={false}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
@@ -2111,12 +2202,12 @@ function QuickOpen({
               <span className="ide-qo-dir">{m.dir}</span>
             </button>
           ))}
-          {!busy && items.length === 0 && <div className="ide-emptyhint">没有匹配的文件</div>}
+          {!busy && items.length === 0 && <div className="ide-emptyhint">{t('ide.noMatchingFiles')}</div>}
         </div>
         <div className="ide-qo-foot">
-          <span>↑↓ 选择</span>
-          <span>Enter 打开</span>
-          <span>Esc 关闭</span>
+          <span>{t('ide.keySelect')}</span>
+          <span>{t('ide.keyOpen')}</span>
+          <span>{t('ide.keyClose')}</span>
         </div>
       </div>
     </div>
@@ -2143,6 +2234,7 @@ function TextViewer({
   onSendSelection: (sel: EditorSelection) => void
   onSendFile: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{
     x: number
@@ -2220,7 +2312,7 @@ function TextViewer({
   if (file.binary) {
     return (
       <div className="ide-binary">
-        <div className="ide-binary-t">二进制文件，暂不支持预览</div>
+        <div className="ide-binary-t">{t('ide.binaryPreviewUnsupported')}</div>
         <div className="ide-binary-s">{file.rel} · {fmtSize(file.size)}</div>
       </div>
     )
@@ -2229,7 +2321,7 @@ function TextViewer({
   return (
     <div className="ide-textwrap" ref={ref} onContextMenu={openMenu}>
       {file.truncated && (
-        <div className="ide-banner">文件超过 2 MB，只显示前半部分。</div>
+        <div className="ide-banner">{t('ide.fileTooLargeBanner')}</div>
       )}
       <div className="ide-code">
         {shown.map((toks, i) => {
@@ -2255,7 +2347,9 @@ function TextViewer({
         })}
       </div>
       {lines.length > 5000 && (
-        <div className="ide-banner">文件较长，仅显示前 5000 行（共 {lines.length} 行）。</div>
+        <div className="ide-banner">
+          {t('ide.fileLongBanner', { n: lines.length })}
+        </div>
       )}
       {menu && (
         <div
@@ -2284,7 +2378,7 @@ function TextViewer({
                     setMenu(null)
                   }}
                 >
-                  复制
+                  {t('ide.copy')}
                 </button>
                 <span className="ide-ctx-sep" />
               </>
@@ -2298,7 +2392,7 @@ function TextViewer({
                 }}
               >
                 <Ico d={P.plane} size={13} />
-                发送选区到聊天
+                {t('ide.sendSelection')}
               </button>
             )}
             <button
@@ -2308,7 +2402,7 @@ function TextViewer({
               }}
             >
               <Ico d={P.plane} size={13} />
-              发送文件到聊天
+              {t('ide.sendFileToChat')}
             </button>
           </div>
         </div>
@@ -2377,6 +2471,7 @@ function TreeMenu({
   onDelete: (target: TreeTarget) => void
   onSend: (target: TreeTarget) => void
 }): JSX.Element {
+  const { t } = useI18n()
   const target = state.target
   const dir: TreeTarget =
     target.kind === 'dir' ? target : { rel: dirOfRel(target.rel), kind: 'dir' }
@@ -2421,18 +2516,18 @@ function TreeMenu({
               }}
             >
               <Ico d={P.plane} size={13} />
-              发送到聊天
+              {t('ide.sendToChat')}
             </button>
             <span className="ide-ctx-sep" />
           </>
         )}
         <button onClick={() => onNewFile(dir)}>
           <Ico d={P.newFile} size={13} />
-          新建文件
+          {t('ide.newFile')}
         </button>
         <button onClick={() => onNewFolder(dir)}>
           <Ico d={P.newFolder} size={13} />
-          新建文件夹
+          {t('ide.newFolder')}
         </button>
         {target.rel && (
           <>
@@ -2444,7 +2539,7 @@ function TreeMenu({
               }}
             >
               <Ico d={P.rename} size={13} />
-              重命名
+              {t('ide.rename')}
               <kbd>F2</kbd>
             </button>
             <button
@@ -2455,7 +2550,7 @@ function TreeMenu({
               }}
             >
               <Ico d={P.trash} size={13} />
-              删除
+              {t('ide.delete')}
               <kbd>Del</kbd>
             </button>
           </>
@@ -2472,6 +2567,7 @@ function PromptDialog({
   state: PromptState
   onClose: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   const [value, setValue] = useState(state.value)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -2509,7 +2605,7 @@ function PromptDialog({
           }}
         />
         <div className="ide-dialog-actions">
-          <button onClick={onClose}>取消</button>
+          <button onClick={onClose}>{t('common.cancel')}</button>
           <button className="is-primary" disabled={!value.trim()} onClick={submit}>
             {state.confirmLabel}
           </button>
@@ -2564,15 +2660,16 @@ function ConfirmDialog({
 }
 
 function EmptyState(): JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="ide-empty">
       <div className="ide-empty-logo">C</div>
-      <div className="ide-empty-t">选择一个文件开始编辑</div>
+      <div className="ide-empty-t">{t('ide.emptyTitle')}</div>
       <div className="ide-empty-s">
-        <div><kbd>Ctrl P</kbd> 按文件名快速打开</div>
-        <div><kbd>Ctrl S</kbd> 保存当前文件</div>
-        <div><kbd>Ctrl Shift F</kbd> 在工作区中搜索代码</div>
-        <div>资源管理器里右键可新建、重命名和删除</div>
+        <div><kbd>Ctrl P</kbd> {t('ide.emptyQuickOpen')}</div>
+        <div><kbd>Ctrl S</kbd> {t('ide.emptySave')}</div>
+        <div><kbd>Ctrl Shift F</kbd> {t('ide.emptySearch')}</div>
+        <div>{t('ide.emptyContextMenu')}</div>
       </div>
     </div>
   )

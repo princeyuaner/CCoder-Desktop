@@ -13,6 +13,7 @@ import type {
 import { loadSettings, saveSettings } from './settings-store'
 import { testChannel } from './claude-runner'
 import { checkCodexStatus, testCodexChannel } from './codex-runner'
+import { checkDshStatus, testDshChannel } from './providers/dsh/adapter'
 import {
   cancelClaudeLogin,
   claudeLoginSnapshot,
@@ -30,8 +31,8 @@ import {
   createEntry,
   deleteEntry,
   listDir,
-  readImage,
-  readTextFile,
+  readImageResult,
+  readTextFileResult,
   renameEntry,
   replaceInWorkspace,
   saveTextFile,
@@ -91,6 +92,8 @@ import { installCrashHandlers, logFilePath, logMain } from './crash-log'
 import { labelOf, labelWindow } from './window-log'
 import { safeSend } from './safe-send'
 import type { RendererLogReport } from '../shared/log'
+import { resolveLanguage } from '../shared/i18n'
+import { applyLanguageSetting, initMainI18n, mainLocaleInfo, t } from './i18n'
 
 /*
  * 崩溃现场：主进程的 JS 异常、渲染进程 / GPU 进程消失都会写进
@@ -202,8 +205,10 @@ function registerWindowIpc(): void {
   ipcMain.handle(IPC.winIsMaximized, (e) => target(e)?.isMaximized() ?? false)
 }
 
-/** 把一份已经落盘的设置推给所有窗口（主题、底色、渲染层状态） */
+/** 把一份已经落盘的设置推给所有窗口（语言、主题、底色、渲染层状态） */
 function pushSettings(fresh: Settings): void {
+  // 语言先落到主进程：随后的原生对话框 / IPC 错误都用新语言
+  applyLanguageSetting(fresh.language)
   // 主题交给 Electron：原生控件、菜单、对话框跟着变，system 时继续跟系统走
   applyNativeTheme(fresh.theme)
   const bg = windowBg()
@@ -220,21 +225,28 @@ function pushSettings(fresh: Settings): void {
 function registerSettingsIpc(sessions: SessionManager): void {
   ipcMain.handle(IPC.settingsGet, (): Settings => loadSettings())
 
+  // 系统语言只由主进程解析；渲染层启动时拿一次，之后本地用同一个函数解析
+  ipcMain.handle(IPC.localeInfo, () => mainLocaleInfo())
+
   ipcMain.handle(IPC.settingsSave, (_e, incoming: Settings): Settings => {
     const before = loadSettings()
     saveSettings(incoming)
     const fresh = loadSettings()
+    // 先切语言再通知会话：settingsChanged 触发的提示要用新语言
+    applyLanguageSetting(fresh.language)
     // 凭据来源 / 官方默认模型是启动参数：让正在跑的会话在下一轮换进程
     sessions.settingsChanged(before, fresh)
     pushSettings(fresh)
     return fresh
   })
 
-  ipcMain.handle(IPC.channelTest, (_e, channel: Channel) =>
-    channel.kind === 'openai' ? testCodexChannel(channel) : testChannel(channel)
-  )
+  ipcMain.handle(IPC.channelTest, (_e, channel: Channel) => {
+    if (channel.kind === 'deepseek') return testDshChannel(channel)
+    return channel.kind === 'openai' ? testCodexChannel(channel) : testChannel(channel)
+  })
 
   ipcMain.handle(IPC.codexStatus, () => checkCodexStatus())
+  ipcMain.handle(IPC.dshStatus, () => checkDshStatus())
 
   // 会话存储归 CLI 所有：我们只读它写的，唯一的写操作是"删掉一整条"
   ipcMain.handle(IPC.sessionsList, () => listStoredSessions())
@@ -274,22 +286,22 @@ function registerWorkspaceIpc(): void {
    */
   ipcMain.handle(IPC.workspaceOpenSession, (e, cwd: unknown) => {
     if (!isIdeSender(e.sender.id)) {
-      return { ok: false, message: '只有 IDE 窗口可以请求打开会话' }
+      return { ok: false, message: t('main.ideOnlyOpenSession') }
     }
     if (typeof cwd !== 'string' || !cwd.trim()) {
-      return { ok: false, message: '路径不合法' }
+      return { ok: false, message: t('main.invalidPath') }
     }
     if (!isAbsolute(cwd)) {
-      return { ok: false, message: '路径必须是绝对路径' }
+      return { ok: false, message: t('main.absolutePathRequired') }
     }
 
     const abs = resolve(cwd)
     try {
       if (!existsSync(abs) || !statSync(abs).isDirectory()) {
-        return { ok: false, message: '目录不存在或不是目录' }
+        return { ok: false, message: t('main.dirMissing') }
       }
     } catch {
-      return { ok: false, message: '无法读取目录' }
+      return { ok: false, message: t('main.dirUnreadable') }
     }
 
     try {
@@ -316,22 +328,28 @@ function registerIdeIpc(): void {
   const allow = (e: Electron.IpcMainInvokeEvent, cwd: unknown): boolean =>
     typeof cwd === 'string' && authorizeVcsSender(e.sender.id, cwd)
   const denyRead = (): never => {
-    throw new Error('这个窗口不能访问该工作区')
+    throw new Error(t('main.workspaceForbidden'))
   }
+  /** 读文件的 handler 现在返回结构化结果，拒绝也要走同一条形状 */
+  const denyReadResult = (): { ok: false; code: 'forbidden'; message: string } => ({
+    ok: false,
+    code: 'forbidden',
+    message: t('main.workspaceForbidden')
+  })
   const denyWrite = (): { ok: false; code: 'forbidden'; message: string } => ({
     ok: false,
     code: 'forbidden',
-    message: '这个窗口不能修改该工作区'
+    message: t('main.workspaceWriteForbidden')
   })
 
   ipcMain.handle(IPC.ideListDir, (e, cwd: string, rel: string) =>
     allow(e, cwd) ? listDir(cwd, rel) : denyRead()
   )
   ipcMain.handle(IPC.ideReadFile, (e, cwd: string, rel: string) =>
-    allow(e, cwd) ? readTextFile(cwd, rel) : denyRead()
+    allow(e, cwd) ? readTextFileResult(cwd, rel) : denyReadResult()
   )
   ipcMain.handle(IPC.ideReadImage, (e, cwd: string, rel: string) =>
-    allow(e, cwd) ? readImage(cwd, rel) : denyRead()
+    allow(e, cwd) ? readImageResult(cwd, rel) : denyReadResult()
   )
   ipcMain.handle(IPC.ideSearchCode, (e, req: IdeSearchRequest) =>
     req && allow(e, req.cwd) ? searchCode(req) : denyRead()
@@ -363,7 +381,7 @@ function registerIdeIpc(): void {
 function registerVcsIpc(sessions: SessionManager): void {
   const deny = (): { ok: false; error: { code: 'forbidden'; message: string } } => ({
     ok: false,
-    error: { code: 'forbidden', message: '这个窗口不能操作该工作区' }
+    error: { code: 'forbidden', message: t('main.workspaceOpForbidden') }
   })
   const busy = (message: string): { ok: false; error: { code: 'busy'; message: string } } => ({
     ok: false,
@@ -432,8 +450,8 @@ function registerVcsIpc(sessions: SessionManager): void {
 
     // 目录被 IDE 窗口或活跃会话占着时，Windows 上删不干净，
     // 而且删完还会让它们的后续读写落到一个不存在的目录。
-    if (hasIdeWindowUnder(req.path)) return busy('请先关闭该工作树的 IDE 窗口')
-    if (sessions.hasLiveSessionIn(req.path)) return busy('该工作树下还有活跃会话，请先停止')
+    if (hasIdeWindowUnder(req.path)) return busy(t('main.closeIdeFirst'))
+    if (sessions.hasLiveSessionIn(req.path)) return busy(t('main.stopSessionsFirst'))
 
     const r = await vcs.worktreeRemove(req)
     if (r.ok) {
@@ -472,7 +490,7 @@ function registerChatBridgeIpc(): void {
 
   ipcMain.handle(IPC.ideSendRefs, (_e, payload: IdeSendPayload) => {
     if (!payload || !Array.isArray(payload.refs) || !payload.target) {
-      return { ok: false, message: '引用数据不完整' }
+      return { ok: false, message: t('main.refsIncomplete') }
     }
     return sendRefsToChat(payload)
   })
@@ -495,8 +513,8 @@ function registerSessionIpc(sessions: SessionManager): void {
   ipcMain.handle(IPC.sessionsPickDir, async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     const r = win
-      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: '打开工作区' })
-      : await dialog.showOpenDialog({ properties: ['openDirectory'], title: '打开工作区' })
+      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: t('main.dialog.openWorkspace') })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'], title: t('main.dialog.openWorkspace') })
     return r.canceled ? null : (r.filePaths[0] ?? null)
   })
 
@@ -527,8 +545,16 @@ function registerSessionIpc(sessions: SessionManager): void {
 }
 
 app.whenReady().then(() => {
+  // 建窗口前先定语言和主题：原生对话框 / IPC 返回值和首屏都要用
+  const initial = loadSettings()
+  const systemLocale = app.getSystemLocale?.() ?? app.getLocale()
+  initMainI18n({
+    systemLocale,
+    resolved: resolveLanguage(initial.language, systemLocale)
+  })
+
   // 建窗口前先定主题：窗口底色和原生控件都跟着它走，避免启动时闪一下另一套颜色
-  applyNativeTheme(loadSettings().theme)
+  applyNativeTheme(initial.theme)
   // 「跟随系统」时 Windows 切换深浅色，窗口底色也要跟着换（渲染层的 CSS 由 matchMedia 处理）
   nativeTheme.on('updated', () => {
     const bg = windowBg()

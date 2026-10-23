@@ -4,6 +4,7 @@ import type {
   ClaudeAuthStatus,
   ClaudeLoginPhase
 } from '@shared/claude'
+import { tr } from './i18n'
 
 export interface ClaudeAuthApi {
   status: ClaudeAuthStatus | null
@@ -49,7 +50,7 @@ export function useClaudeAuth(enabled: boolean): ClaudeAuthApi {
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!api?.claude) {
-      setError('当前不在 Electron 中运行，无法探测 Claude Code。')
+      setError(tr('errors.notElectronClaude'))
       return
     }
     setLoading(true)
@@ -110,7 +111,7 @@ export function useClaudeAuth(enabled: boolean): ClaudeAuthApi {
 
   const startLogin = useCallback(async (): Promise<void> => {
     if (!api?.claude) {
-      setError('当前不在 Electron 中运行，无法登录。')
+      setError(tr('errors.notElectronLogin'))
       return
     }
     setError(null)
@@ -122,7 +123,7 @@ export function useClaudeAuth(enabled: boolean): ClaudeAuthApi {
       const r = await api.claude.authLogin()
       if (!r.ok) {
         setPhase('idle')
-        setError(r.message ?? '无法开始登录')
+        setError(r.message ?? tr('errors.loginStartFailed'))
       }
     } catch (e) {
       setPhase('failed')
@@ -132,13 +133,13 @@ export function useClaudeAuth(enabled: boolean): ClaudeAuthApi {
 
   const submitCode = useCallback(
     async (code: string): Promise<ClaudeAuthResult> => {
-      if (!api?.claude) return { ok: false, message: '当前不在 Electron 中运行' }
+      if (!api?.claude) return { ok: false, message: tr('errors.notElectronShort') }
       const r = await api.claude.authSubmitCode(code)
       if (r.ok) {
         setError(null)
         setPhase('verifying')
       } else {
-        setError(r.message ?? '提交授权码失败')
+        setError(r.message ?? tr('errors.submitCodeFailed'))
       }
       return r
     },
@@ -152,12 +153,12 @@ export function useClaudeAuth(enabled: boolean): ClaudeAuthApi {
   }, [api])
 
   const logout = useCallback(async (): Promise<ClaudeAuthResult> => {
-    if (!api?.claude) return { ok: false, message: '当前不在 Electron 中运行' }
+    if (!api?.claude) return { ok: false, message: tr('errors.notElectronShort') }
     const r = await api.claude.authLogout()
     if (r.ok) {
       setMessage(r.message ?? null)
     } else {
-      setError(r.message ?? '退出登录失败')
+      setError(r.message ?? tr('errors.logoutFailed'))
     }
     await refresh()
     return r

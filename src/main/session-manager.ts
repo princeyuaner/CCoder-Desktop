@@ -23,8 +23,11 @@ import type {
 } from '../shared/session'
 import { isSameOrInside } from './path-key'
 import { logMain } from './crash-log'
+import { localizeText } from '../shared/i18n'
+import { mainLocale, msg, t } from './i18n'
 import { ClaudeProvider } from './providers/claude/adapter'
 import { CodexProvider } from './providers/codex/adapter'
+import { DshProvider } from './providers/dsh/adapter'
 import type { Provider, ProviderSession } from './providers/types'
 import { diffWorkspace, snapshotWorkspace, type WorkspaceSnapshot } from './workspace-snapshot'
 
@@ -86,7 +89,8 @@ export class SessionManager {
    */
   private providers: Partial<Record<CliId, Provider>> = {
     claude: new ClaudeProvider(),
-    codex: new CodexProvider()
+    codex: new CodexProvider(),
+    dsh: new DshProvider()
   }
 
   constructor(
@@ -110,9 +114,11 @@ export class SessionManager {
       permissionMode: o.permissionMode,
       model: o.model ?? '',
       effort: o.effort ?? DEFAULT_EFFORT,
-      // 只有 Claude 有官方登录；Codex 仍然按渠道走
-      authMode: cli === 'claude' ? cfg.authMode : 'channel',
-      officialModel: cli === 'claude' ? cfg.officialModel : '',
+      // Claude 的 official = 官方 OAuth；dsh 的 official = 用 DSH_HOME 里
+      // 已经配好的 Harness 凭据。Codex 仍然按渠道走。
+      authMode: cli === 'claude' || cli === 'dsh' ? cfg.authMode : 'channel',
+      officialModel:
+        cli === 'claude' || cli === 'dsh' ? cfg.officialModel : '',
       providerSessionId: o.resumeId ?? null,
       initialResumeId: o.resumeId ?? null,
       session: null,
@@ -131,17 +137,17 @@ export class SessionManager {
 
   send(sessionId: string, input: SessionSendInput): SessionSendResult {
     const s = this.live.get(sessionId)
-    if (!s) return { ok: false, message: '会话不存在' }
+    if (!s) return { ok: false, message: t('session.notFound') }
     // 图片-only 消息合法；文本和图片都空才拒绝
     if (!input.text.trim() && !(input.images?.length ?? 0)) {
-      return { ok: false, message: '空消息' }
+      return { ok: false, message: t('session.emptyMessage') }
     }
 
     const auth = this.authFor(s)
     if (!auth) {
       return {
         ok: false,
-        message: `还没有给 ${cliDef(s.cli).name} 配渠道 —— 请到「设置 → ${cliDef(s.cli).name}」新建一个`
+        message: t('session.noChannel', { cli: cliDef(s.cli).name })
       }
     }
 
@@ -158,8 +164,8 @@ export class SessionManager {
         ok: false,
         message:
           s.authMode === 'official'
-            ? 'CLI 启动失败，请确认 Claude Code 已登录官方账号（设置 → Claude Code）'
-            : `CLI 启动失败，请检查 ${cliDef(s.cli).name} 的渠道与可执行文件`
+            ? t('session.spawnFailedOfficial')
+            : t('session.spawnFailed', { cli: cliDef(s.cli).name })
       }
     }
 
@@ -249,19 +255,25 @@ export class SessionManager {
    * 切换来源时清掉本会话显式设过的模型 —— 旧来源的模型名放到新来源上未必存在。
    */
   settingsChanged(before: Settings, after: Settings): void {
-    const b = cliConfig(before, 'claude')
-    const a = cliConfig(after, 'claude')
-    const modeChanged = b.authMode !== a.authMode
-    const modelChanged = b.officialModel !== a.officialModel
-    if (!modeChanged && !modelChanged) return
+    // Claude 和 dsh 的凭据来源 / 默认模型都是启动参数；Codex 仍然靠渠道，
+    // 它的“登录”由 app-server 自己管。
+    for (const cli of ['claude', 'dsh'] as const) {
+      const b = cliConfig(before, cli)
+      const a = cliConfig(after, cli)
+      const modeChanged = b.authMode !== a.authMode
+      const modelChanged = b.officialModel !== a.officialModel
+      const channelChanged = b.activeChannelId !== a.activeChannelId
+      if (!modeChanged && !modelChanged && !channelChanged) continue
 
-    for (const s of this.live.values()) {
-      if (s.cli !== 'claude') continue
-      s.authMode = a.authMode
-      s.officialModel = a.officialModel
-      if (modeChanged) s.model = ''
-      s.needsRespawn = true
-      if (!s.busy) this.respawn(s)
+      for (const s of this.live.values()) {
+        if (s.cli !== cli) continue
+        s.authMode = a.authMode
+        s.officialModel = a.officialModel
+        // 旧来源的模型名放到新来源上未必存在，清掉让新来源自己决定
+        if (modeChanged) s.model = ''
+        s.needsRespawn = true
+        if (!s.busy) this.respawn(s)
+      }
     }
   }
 
@@ -366,7 +378,11 @@ export class SessionManager {
     if (!provider) {
       this.emitEvent({
         sessionId: s.id,
-        event: { t: 'error', message: `${cliDef(s.cli).name} 的适配器还没接入`, fatal: true }
+        event: {
+          t: 'error',
+          message: msg('session.adapterMissing', { cli: cliDef(s.cli).name }),
+          fatal: true
+        }
       })
       return false
     }
@@ -404,7 +420,11 @@ export class SessionManager {
       logMain('session.spawn-failed', { id: s.id, cli: s.cli, cwd: s.cwd, error: err })
       this.emitEvent({
         sessionId: s.id,
-        event: { t: 'error', message: `启动 CLI 失败：${String(err)}`, fatal: true }
+        event: {
+          t: 'error',
+          message: msg('session.spawnError', { detail: String(err) }),
+          fatal: true
+        }
       })
       return false
     }
@@ -436,17 +456,13 @@ export class SessionManager {
       }
     } else if (ev.t === 'tool_call') {
       s.toolCount += 1
-    } else if (
-      ev.t === 'error' &&
-      !ev.fatal &&
-      s.cli === 'claude' &&
-      s.authMode === 'official' &&
-      /not logged in|please run \/login|unauthorized|401|authentication/i.test(ev.message)
-    ) {
-      // CLI 把"未登录"放在 result 里、以 is_error 结束；补一句去哪修
-      ev = {
-        ...ev,
-        message: `${ev.message}\n提示：当前使用官方账号，请到「设置 → Claude Code」登录，或切换回 API 渠道。`
+    } else if (ev.t === 'error' && !ev.fatal && s.cli === 'claude' && s.authMode === 'official') {
+      // CLI 把"未登录"放在 result 里、以 is_error 结束；补一句去哪修。
+      // 先把 LocalizedText 解析成当前语言再匹配 —— 匹配的是外部原文。
+      const raw =
+        typeof ev.message === 'string' ? ev.message : localizeText(mainLocale(), ev.message)
+      if (/not logged in|please run \/login|unauthorized|401|authentication/i.test(raw)) {
+        ev = { ...ev, message: t('session.officialAuthHint', { detail: raw }) }
       }
     } else if (ev.t === 'turn_end') {
       // 步数只有管理器知道，在这里补齐
@@ -505,8 +521,8 @@ export class SessionManager {
           t: 'error',
           message:
             s.authMode === 'official'
-              ? '排队消息没能发出：请确认 Claude Code 已登录官方账号'
-              : `排队消息没能发出：${cliDef(s.cli).name} 没有可用渠道`,
+              ? msg('session.queuedAuthFailed')
+              : msg('session.queuedNoChannel', { cli: cliDef(s.cli).name }),
           fatal: false
         }
       })
@@ -551,13 +567,17 @@ export class SessionManager {
         s.cli === 'claude' &&
         s.authMode === 'official' &&
         /not logged in|unauthorized|401|authentication/i.test(stderr)
-          ? '\n提示：当前使用官方账号，请到「设置 → Claude Code」登录，或切换回 API 渠道。'
+          ? t('session.officialAuthHintSuffix')
           : ''
       this.emitEvent({
         sessionId: s.id,
         event: {
           t: 'error',
-          message: `CLI 退出码 ${code}${tail ? `\n${tail}` : ''}${authHint}`,
+          message: msg('session.exitCode', {
+            code,
+            detail: tail ? `\n${tail}` : '',
+            hint: authHint
+          }),
           fatal: true
         }
       })

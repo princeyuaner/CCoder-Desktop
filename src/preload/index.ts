@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { IPC, type WindowApi } from '../shared/ipc'
 import type { CodexStatus } from '../shared/codex'
+import type { DshStatus } from '../shared/dsh'
 import type {
   ClaudeAuthEvent,
   ClaudeAuthResult,
@@ -29,6 +30,7 @@ import type {
 import type { VcsApi } from '../shared/vcs'
 import type { UpdateInstallResult, UpdateState } from '../shared/update'
 import type { RendererLogReport } from '../shared/log'
+import type { LocaleInfo } from '../shared/i18n/locale'
 
 /**
  * IDE 窗口的「打开文件」推送。
@@ -85,6 +87,10 @@ const api: WindowApi = {
   },
   platform: process.platform,
 
+  i18n: {
+    locale: (): Promise<LocaleInfo> => ipcRenderer.invoke(IPC.localeInfo)
+  },
+
   log: {
     // 只发不收：主进程收到后直接落盘，渲染进程不需要回执
     report: (report: RendererLogReport): void => ipcRenderer.send(IPC.rendererLog, report)
@@ -103,6 +109,10 @@ const api: WindowApi = {
 
   codex: {
     status: (): Promise<CodexStatus> => ipcRenderer.invoke(IPC.codexStatus)
+  },
+
+  dsh: {
+    status: (): Promise<DshStatus> => ipcRenderer.invoke(IPC.dshStatus)
   },
 
   updater: {

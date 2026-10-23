@@ -1,5 +1,6 @@
 import type { AgentEvent, PermissionOption, Question } from '../../../shared/events'
 import { buildPreview } from '../permission-preview'
+import { msg, t } from '../../i18n'
 
 /**
  * 控制协议的解析。抽成纯函数是为了**测得动** ——
@@ -19,9 +20,9 @@ export type ControlOutcome =
 
 function permissionOptions(tool: string): PermissionOption[] {
   return [
-    { value: 'allow', label: '允许' },
-    { value: 'allow-always', label: `本会话总是允许 ${tool}` },
-    { value: 'deny', label: '拒绝', danger: true }
+    { value: 'allow', label: msg('permission.allowOption') },
+    { value: 'allow-always', label: msg('permission.allowAlwaysOption', { tool }) },
+    { value: 'deny', label: msg('permission.denyOption'), danger: true }
   ]
 }
 
@@ -58,7 +59,7 @@ export function normalizeQuestions(input: unknown): Question[] {
 
     out.push({
       question,
-      header: str(q.header).trim() || '问题',
+      header: str(q.header).trim() || t('preview.questionFallback'),
       options,
       multiSelect: q.multiSelect === true
     })

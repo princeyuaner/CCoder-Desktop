@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { t } from '../i18n'
 import type { VcsErrorCode } from '../../shared/vcs'
 
 /**
@@ -176,7 +177,7 @@ function exec(
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         finish(
           null,
-          new VcsOpError('no-cli', `找不到 ${bin} 命令，请确认已安装并加入 PATH`, String(err))
+          new VcsOpError('no-cli', t('vcsError.binNotFound', { bin }), String(err))
         )
       } else {
         finish(null, err)
@@ -185,9 +186,9 @@ function exec(
 
     child.on('close', (code) => {
       if (timedOut) {
-        finish(null, new VcsOpError('timeout', `${bin} 操作超时（${timeoutMs}ms）`))
+        finish(null, new VcsOpError('timeout', t('vcsError.timeout', { bin, ms: timeoutMs })))
       } else if (cancelled) {
-        finish(null, new VcsOpError('cancelled', '操作已取消'))
+        finish(null, new VcsOpError('cancelled', t('vcsError.cancelled')))
       } else {
         finish(code)
       }
@@ -236,23 +237,23 @@ export function mapCliError(kind: 'git' | 'svn', r: VcsExecResult): VcsOpError {
   const low = text.toLowerCase()
 
   if (/authentication|authorization|credential|permission denied|e170001|e215004/.test(low)) {
-    return new VcsOpError('auth-required', '需要先完成认证', text)
+    return new VcsOpError('auth-required', t('vcsError.auth'), text)
   }
   if (/index\.lock|e155004|working copy.*locked|is locked|locked working tree/.test(low)) {
-    return new VcsOpError('locked', '仓库正在被另一个进程占用', text)
+    return new VcsOpError('locked', t('vcsError.locked'), text)
   }
   if (/out of date|e160028|needs update|non-fast-forward|fetch first|rejected/.test(low)) {
     return new VcsOpError(
       kind === 'svn' ? 'needs-update' : 'not-fast-forward',
-      kind === 'svn' ? '工作副本不是最新，请先更新' : '远端有新的提交，请先拉取',
+      kind === 'svn' ? t('vcsError.outdated') : t('vcsError.remoteNewer'),
       text
     )
   }
   if (/conflict|unmerged|e155015|e155027/.test(low)) {
-    return new VcsOpError('conflict', '存在未解决的冲突', text)
+    return new VcsOpError('conflict', t('vcsError.conflictExists'), text)
   }
   if (/local changes|would be overwritten|please commit|dirty|contains modified or untracked files/.test(low)) {
-    return new VcsOpError('dirty', '工作区有未处理的改动', text)
+    return new VcsOpError('dirty', t('vcsError.dirty'), text)
   }
-  return new VcsOpError('unknown', text.split('\n').find((l) => l.trim()) || '操作失败', text)
+  return new VcsOpError('unknown', text.split('\n').find((l) => l.trim()) || t('vcsError.failed'), text)
 }

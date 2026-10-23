@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { IdeTextFile } from '@shared/ide'
 import { applyMonacoTheme, monaco, monacoLanguage } from './monaco-setup'
+import { useI18n } from '../i18n'
 
 export interface EditorSelection {
   startLine: number
@@ -87,6 +88,7 @@ export function MonacoEditor({
   onSendSelection: (sel: EditorSelection) => void
   onSendFile: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   const hostRef = useRef<EditorHost>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const modelsRef = useRef(new Map<string, monaco.editor.ITextModel>())
@@ -174,30 +176,7 @@ export function MonacoEditor({
     const p = editor.getPosition()
     if (p) propsRef.current.onCursor(p.lineNumber, p.column)
 
-    // 发送入口放在右键菜单里，不再占用工具栏 / 浮动条
-    const sendSelection = editor.addAction({
-      id: 'ccoder.sendSelection',
-      label: '发送选区到聊天',
-      precondition: 'editorHasSelection',
-      contextMenuGroupId: '9_cutcopypaste',
-      contextMenuOrder: 10,
-      run: (ed) => {
-        const host = hostRef.current
-        const sel = host ? selectionOf(ed, host) : null
-        if (sel) propsRef.current.onSendSelection(sel)
-      }
-    })
-    const sendFile = editor.addAction({
-      id: 'ccoder.sendFile',
-      label: '发送当前文件到聊天',
-      contextMenuGroupId: '9_cutcopypaste',
-      contextMenuOrder: 11,
-      run: () => propsRef.current.onSendFile()
-    })
-
     const disposables = [
-      sendSelection,
-      sendFile,
       editor.onDidChangeModelContent(() => {
         if (applyingRef.current) return
         propsRef.current.onChange(editor.getValue())
@@ -220,6 +199,38 @@ export function MonacoEditor({
       viewsRef.current.clear()
     }
   }, [ensureModel])
+
+  /*
+   * 右键菜单里的「发送到聊天」。单独一个 effect，依赖当前语言：
+   * 切换语言时先 dispose 旧 action，再按新语言注册，已打开的 IDE 窗口也能立即更新。
+   */
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    const sendSelection = editor.addAction({
+      id: 'ccoder.sendSelection',
+      label: t('ide.sendSelection'),
+      precondition: 'editorHasSelection',
+      contextMenuGroupId: '9_cutcopypaste',
+      contextMenuOrder: 10,
+      run: (ed) => {
+        const host = hostRef.current
+        const sel = host ? selectionOf(ed, host) : null
+        if (sel) propsRef.current.onSendSelection(sel)
+      }
+    })
+    const sendFile = editor.addAction({
+      id: 'ccoder.sendFile',
+      label: t('ide.sendFile'),
+      contextMenuGroupId: '9_cutcopypaste',
+      contextMenuOrder: 11,
+      run: () => propsRef.current.onSendFile()
+    })
+    return () => {
+      sendSelection.dispose()
+      sendFile.dispose()
+    }
+  }, [t])
 
   // 切文件：保存/恢复视图状态，换成对应的 model
   useEffect(() => {

@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
+import { t } from '../../i18n'
 import { existsSync } from 'node:fs'
 import type { EffortLevel } from '../../../shared/settings'
 import type { PermissionDecision, QuestionAnswer, SessionSendInput } from '../../../shared/session'
@@ -171,7 +172,9 @@ class ClaudeSession implements ProviderSession {
         if (this.done) return
         this.o.onEvent({
           t: 'error',
-          message: `解析 CLI 输出失败：${e instanceof Error ? e.message : String(e)}`,
+          message: t('claudeAdapter.parseFailed', {
+            detail: e instanceof Error ? e.message : String(e)
+          }),
           fatal: false
         })
       }
@@ -208,7 +211,7 @@ class ClaudeSession implements ProviderSession {
     const response =
       decision.behavior === 'allow'
         ? { behavior: 'allow' }
-        : { behavior: 'deny', message: decision.message ?? '用户拒绝了这次操作' }
+        : { behavior: 'deny', message: decision.message ?? t('permission.userDenied') }
 
     this.write({
       type: 'control_response',
@@ -231,7 +234,7 @@ class ClaudeSession implements ProviderSession {
     this.questionInputs.delete(requestId)
 
     const response = answer.skipped
-      ? { behavior: 'deny' as const, message: '用户跳过了这次提问' }
+      ? { behavior: 'deny' as const, message: t('permission.userSkipped') }
       : {
           behavior: 'allow' as const,
           updatedInput: {

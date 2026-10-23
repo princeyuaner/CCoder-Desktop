@@ -11,6 +11,7 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
 import type { AgentEvent, Usage } from '../../../shared/events'
 import type { StoredSession } from '../../../shared/session'
+import { t } from '../../i18n'
 
 /**
  * 读 Codex 自己的 rollout 记录。
@@ -296,7 +297,7 @@ export function listCodexSessionFiles(): CodexSessionFile[] {
       session: {
         id,
         cwd: head.cwd,
-        title: head.title || '(无标题)',
+        title: head.title || t('codexHistory.untitled'),
         createdAt: head.createdAt || st.birthtimeMs || st.mtimeMs,
         updatedAt: st.mtimeMs,
         cli: 'codex'
@@ -374,7 +375,7 @@ function normalizeToolCall(payload: Record<string, unknown>): {
   if (name === 'web_search') {
     return { id, name: 'WebSearch', input: { query: str(args.query) } }
   }
-  return { id, name: name || '工具', input: args }
+  return { id, name: name || t('codexHistory.tool'), input: args }
 }
 
 function normalizeCustomCall(payload: Record<string, unknown>): {
@@ -397,7 +398,7 @@ function normalizeCustomCall(payload: Record<string, unknown>): {
       input = raw
     }
   }
-  return { id, name: name || '工具', input }
+  return { id, name: name || t('codexHistory.tool'), input }
 }
 
 function firstPatchPath(patch: string): string {

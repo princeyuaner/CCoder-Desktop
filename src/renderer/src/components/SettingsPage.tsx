@@ -7,16 +7,17 @@ import {
   cliDef,
   DEFAULT_MONO_FONT,
   DEFAULT_UI_FONT,
-  EFFORT_HINT,
-  EFFORT_LABEL,
+  EFFORT_HINT_KEY,
+  EFFORT_LABEL_KEY,
   effortLevelsFor,
+  LANGUAGE_LABEL_KEY,
   MONO_FONT_PRESETS,
   newChannel,
-  PROTOCOL_LABEL,
-  SEND_KEY_LABEL,
+  PROTOCOL_LABEL_KEY,
+  SEND_KEY_LABEL_KEY,
   THEME_GROUPS,
-  THEME_LABEL,
-  TOOL_DETAIL_LABEL,
+  THEME_LABEL_KEY,
+  TOOL_DETAIL_LABEL_KEY,
   UI_FONT_PRESETS,
   UI_ZOOM_LEVELS,
   type Channel,
@@ -28,20 +29,25 @@ import {
   type ThemeMode,
   type ToolDetail
 } from '@shared/settings'
-import { MODE_HINT, MODE_LABEL, PERMISSION_MODES } from '../constants'
+import { MODE_HINT_KEY, MODE_LABEL_KEY, PERMISSION_MODES } from '../constants'
+import { LANGUAGES, resolveLanguage, type LanguageSetting } from '@shared/i18n'
 import { applyAppearance } from '../appearance'
+import { applyLanguageSetting, getSystemLocale, useI18n } from '../i18n'
 import { useSettings } from '../useSettings'
 import { useCodexStatus } from '../useCodexStatus'
 import { useClaudeAuth } from '../useClaudeAuth'
+import { useDshStatus } from '../useDshStatus'
 import { ChannelForm } from './ChannelForm'
 import { ClaudeAuthPanel } from './ClaudeAuthPanel'
 import { CodexStatusPanel } from './CodexStatusPanel'
+import { DshStatusPanel } from './DshStatusPanel'
 import { IconChevronLeft, IconPlus } from './Icons'
 
 /** 设置页的两类页面：某个 CLI 的渠道配置，或与 CLI 无关的系统设置 */
 type Page = { kind: 'cli'; id: CliId } | { kind: 'general' } | { kind: 'permissions' }
 
 export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
+  const { t } = useI18n()
   const { settings, loading, save, test } = useSettings()
   const [page, setPage] = useState<Page>({ kind: 'cli', id: CLIS[0].id })
   /**
@@ -51,6 +57,8 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
   const codexStatus = useCodexStatus(page.kind === 'cli' && page.id === 'codex')
   /** Claude 的官方登录状态。同样只在停在 Claude 页时探测。 */
   const claudeAuth = useClaudeAuth(page.kind === 'cli' && page.id === 'claude')
+  /** DeepSeek Harness 的安装 / Node / DSH_HOME 状态 */
+  const dshStatus = useDshStatus(page.kind === 'cli' && page.id === 'dsh')
   /** 退出登录前提醒用：当前有多少条会话在跑 */
   const [runningSessions, setRunningSessions] = useState(0)
 
@@ -90,9 +98,11 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
     }
   }, [page])
 
-  /** 外观设置（主题/缩放/字号/字体）改一下预览一下，和落盘无关，立刻生效 */
+  /** 外观和语言改一下预览一下，和落盘无关，立刻生效 */
   useEffect(() => {
-    if (draft) applyAppearance(draft)
+    if (!draft) return
+    applyLanguageSetting(draft.language)
+    applyAppearance(draft)
   }, [draft])
 
   /** 已保存的那份，用来判断有没有改动、以及离开时要不要兜底落盘 */
@@ -123,6 +133,8 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
         setDraft((cur) => (cur && JSON.stringify(cur) === JSON.stringify(next) ? fresh : cur))
         setSaveState('saved')
       } catch {
+        // 保存失败：语言预览回滚到已保存的那份，别让界面停在一个没落盘的语言上
+        applyLanguageSetting(savedRef.current.language)
         setSaveState('error')
       }
     },
@@ -163,9 +175,13 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
       const pending = draftRef.current
       const unsaved = !!pending && JSON.stringify(pending) !== JSON.stringify(savedRef.current)
       if (pending && unsaved) {
-        void saveRef.current(pending)
+        applyLanguageSetting(pending.language)
+        void saveRef.current(pending).catch(() => {
+          applyLanguageSetting(savedRef.current.language)
+        })
         applyAppearance(pending)
       } else {
+        applyLanguageSetting(savedRef.current.language)
         applyAppearance(savedRef.current)
       }
     }
@@ -183,7 +199,7 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
     setResult(null)
   }, [cliId, selectedId])
 
-  if (!draft) return <main className="mainpane settings">加载中…</main>
+  if (!draft) return <main className="mainpane settings">{t('settings.loading')}</main>
 
   /** 当前字体是不是预设之一；不是就展开自定义输入框 */
   const uiFontIsCustom =
@@ -206,14 +222,14 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
   const addChannel = (): void => {
     if (!cliId) return
     // 协议由所属 CLI 决定：在 Codex 下新建的渠道天生就是 OpenAI 协议
-    const c = newChannel(cliDef(cliId).protocol)
+    const c = newChannel(cliDef(cliId).protocol, t('settings.channel.newName'))
     const cur = cliConfig(draft, cliId)
     // 第一个渠道自动设为当前，省一次点击；Claude 下新建渠道也意味着
     // 用户想用渠道模式，顺手切回去
     patchCli(cliId, {
       channels: [...cur.channels, c],
       activeChannelId: cur.activeChannelId ?? c.id,
-      ...(cliId === 'claude' && cur.channels.length === 0
+      ...((cliId === 'claude' || cliId === 'dsh') && cur.channels.length === 0
         ? { authMode: 'channel' as const }
         : {})
     })
@@ -225,7 +241,9 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
     if (!cliId) return
     patchCli(cliId, {
       activeChannelId: id,
-      ...(cliId === 'claude' ? { authMode: 'channel' as const } : {})
+      ...(cliId === 'claude' || cliId === 'dsh'
+        ? { authMode: 'channel' as const }
+        : {})
     })
   }
 
@@ -256,24 +274,24 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
       <header className="settings__head">
         <button className="btn btn--ghost" onClick={onBack}>
           <IconChevronLeft width={14} height={14} />
-          返回
+          {t('common.back')}
         </button>
-        <h1 className="settings__title">设置</h1>
+        <h1 className="settings__title">{t('settings.title')}</h1>
         <div className="settings__head-right">
           {saveState === 'error' ? (
             <>
-              <span className="saved-flash saved-flash--error">保存失败</span>
+              <span className="saved-flash saved-flash--error">{t('settings.save.failed')}</span>
               <button className="btn btn--ghost" onClick={() => void doAutoSave(draft)}>
-                重试
+                {t('common.retry')}
               </button>
             </>
           ) : (
             <span className={`saved-flash ${saveState === 'saved' ? '' : 'is-busy'}`}>
               {saveState === 'saving'
-                ? '保存中…'
+                ? t('settings.save.saving')
                 : saveState === 'saved'
-                  ? '已自动保存'
-                  : '修改后自动保存'}
+                  ? t('settings.save.saved')
+                  : t('settings.save.auto')}
             </span>
           )}
         </div>
@@ -281,15 +299,15 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
 
       <div className="settings__body">
         <nav className="settings__nav">
-          <div className="settings__navgroup">系统</div>
+          <div className="settings__navgroup">{t('settings.nav.system')}</div>
           <NavItem active={page.kind === 'general'} onClick={() => setPage({ kind: 'general' })}>
-            通用
+            {t('settings.nav.general')}
           </NavItem>
           <NavItem active={page.kind === 'permissions'} onClick={() => setPage({ kind: 'permissions' })}>
-            权限
+            {t('settings.nav.permissions')}
           </NavItem>
 
-          <div className="settings__navgroup">CLI</div>
+          <div className="settings__navgroup">{t('settings.nav.cli')}</div>
           {CLIS.map((d) => (
             <NavItem
               key={d.id}
@@ -297,7 +315,9 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
               onClick={() => setPage({ kind: 'cli', id: d.id })}
             >
               {d.name}
-              {!d.ready && <span className="settings__navtag">未接入</span>}
+              {!d.ready && (
+                <span className="settings__navtag">{t('settings.nav.notReady')}</span>
+              )}
             </NavItem>
           ))}
         </nav>
@@ -326,11 +346,25 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                 />
               )}
 
+              {page.id === 'dsh' && (
+                <DshStatusPanel
+                  status={dshStatus.status}
+                  loading={dshStatus.loading}
+                  error={dshStatus.error}
+                  onRefresh={() => void dshStatus.refresh()}
+                  authMode={cfg.authMode}
+                  onAuthMode={(m) => patchCli('dsh', { authMode: m })}
+                  officialModel={cfg.officialModel}
+                  onOfficialModel={(v) => patchCli('dsh', { officialModel: v })}
+                  hasChannelKey={!!activeCfgChannel?.authToken.trim()}
+                />
+              )}
+
               <div className="clipane">
                 <div className="clipane__main">
                   <h2 className="clipane__title">{cliDef(page.id).name}</h2>
                   <p className="clipane__hint">
-                    {PROTOCOL_LABEL[cliDef(page.id).protocol]}端点 · 渠道与其它 CLI 各自独立
+                    {t('settings.cli.endpoint', { protocol: t(PROTOCOL_LABEL_KEY[cliDef(page.id).protocol]) })}
                   </p>
                 </div>
                 <label className="switch">
@@ -339,44 +373,43 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                     checked={cfg.enabled}
                     onChange={(e) => patchCli(page.id, { enabled: e.target.checked })}
                   />
-                  <span>{cfg.enabled ? '已启用' : '已停用'}</span>
+                  <span>{cfg.enabled ? t('common.enabled') : t('common.disabled')}</span>
                 </label>
               </div>
 
               {!cliDef(page.id).ready && (
-                <p className="clipane__todo">
-                  这个 CLI 的适配器还没接入。渠道可以先配好存着 —— 接上就能直接用，不用重填。
-                </p>
+                <p className="clipane__todo">{t('settings.cli.notReadyBody')}</p>
               )}
 
               {page.id === 'codex' && (
-                <p className="section-lead">
-                  Codex 只接受 <strong>OpenAI 兼容端点</strong>的 Responses API。
-                  0.163 起上游已移除 Chat Completions wire；Anthropic 兼容渠道请使用
-                  Claude Code。
-                </p>
+                <p className="section-lead">{t('settings.codex.lead')}</p>
               )}
 
-              {page.id === 'claude' && cfg.authMode === 'official' ? (
+              {(page.id === 'claude' || page.id === 'dsh') && cfg.authMode === 'official' ? (
                 <p className="section-lead">
-                  当前使用官方登录，下面的渠道不会生效；配置会保留，点上方「API 渠道」
-                  或启用某个渠道即可切回。
+                  {page.id === 'dsh'
+                    ? t('settings.dsh.officialLead')
+                    : t('settings.claude.officialLead')}
                 </p>
               ) : (
                 <>
               <section className="chlist">
                 <div className="chlist__head">
-                  <span>渠道</span>
+                  <span>{t('settings.channels')}</span>
                   <button className="btn btn--ghost" onClick={addChannel}>
                     <IconPlus width={13} height={13} />
-                    新建渠道
+                    {t('settings.channel.new')}
                   </button>
                 </div>
 
                 {cfg.channels.length === 0 && (
                   <p className="empty">
-                    还没有渠道。新建一个，填入 Base URL、密钥和模型名即可开始
-                    {page.id === 'claude' ? '；也可以直接使用上方的官方登录。' : '。'}
+                    {t('settings.channel.empty')}
+                    {page.id === 'claude'
+                      ? t('settings.channel.emptyClaude')
+                      : page.id === 'dsh'
+                        ? t('settings.channel.emptyDsh')
+                        : '.'}
                   </p>
                 )}
 
@@ -386,17 +419,17 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                     className={`chlist__item ${c.id === selectedId ? 'is-active' : ''}`}
                   >
                     <button className="chlist__main" onClick={() => setPicked(c.id)}>
-                      <span className="chlist__name">{c.name || '未命名渠道'}</span>
-                      <span className="chlist__meta">{c.baseUrl || '未填 Base URL'}</span>
+                      <span className="chlist__name">{c.name || t('settings.channel.unnamed')}</span>
+                      <span className="chlist__meta">{c.baseUrl || t('settings.channel.noBaseUrl')}</span>
                     </button>
                     {c.id === cfg.activeChannelId && cfg.authMode === 'channel' ? (
-                      <span className="badge badge--ok">使用中</span>
+                      <span className="badge badge--ok">{t('settings.channel.inUse')}</span>
                     ) : (
                       <button
                         className="btn btn--ghost btn--xs"
                         onClick={() => activateChannel(c.id)}
                       >
-                        启用
+                        {t('settings.channel.activate')}
                       </button>
                     )}
                   </div>
@@ -409,7 +442,8 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                   channel={selected}
                   active={
                     selected.id === cfg.activeChannelId &&
-                    (page.id !== 'claude' || cfg.authMode === 'channel')
+                    ((page.id !== 'claude' && page.id !== 'dsh') ||
+                      cfg.authMode === 'channel')
                   }
                   testing={testing}
                   result={result}
@@ -425,9 +459,9 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
               {/* 加条分隔线：上面紧挨着渠道表单的「测试连接 / 删除渠道」按钮行，
                   不隔一下会被当成那排按钮的一部分 */}
               <section className="chform chform--sep">
-                <h2 className="chform__title">思考深度</h2>
+                <h2 className="chform__title">{t('settings.cli.effortTitle')}</h2>
                 <div className="field">
-                  <label className="field__label">新会话默认</label>
+                  <label className="field__label">{t('settings.cli.effortDefault')}</label>
                   <div className="field__body">
                     <div className="effpick">
                       {effortLevelsFor(page.id).map((l) => (
@@ -436,23 +470,19 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                           className={`effpick__it ${l === cfg.effort ? 'is-on' : ''}`}
                           onClick={() => patchCli(page.id, { effort: l })}
                         >
-                          <span className="effpick__n">{EFFORT_LABEL[l]}</span>
+                          <span className="effpick__n">{t(EFFORT_LABEL_KEY[l])}</span>
                           <span className="effpick__e">{l}</span>
                         </button>
                       ))}
                     </div>
                     <p className="field__hint">
-                      {EFFORT_HINT[cfg.effort]}
-                      {page.id === 'codex' ? (
-                        <>
-                          对应 Codex 的 <code>reasoning effort</code>。
-                        </>
-                      ) : (
-                        <>
-                          对应 CLI 的 <code>--effort</code>。
-                        </>
-                      )}
-                      会话里还能单独改，只影响那一条会话。
+                      {t(EFFORT_HINT_KEY[cfg.effort])}
+                      {page.id === 'codex'
+                        ? t('settings.cli.effortCodex')
+                        : page.id === 'dsh'
+                          ? t('settings.cli.effortDsh')
+                          : t('settings.cli.effortClaude')}
+                      {t('settings.cli.effortNote')}
                     </p>
                   </div>
                 </div>
@@ -463,28 +493,61 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
           {page.kind === 'general' && (
             <>
               <section className="chform">
-                <h2 className="chform__title">工作区</h2>
+                <h2 className="chform__title">{t('settings.language.section')}</h2>
                 <div className="field">
-                  <label className="field__label">默认工作目录</label>
+                  <label className="field__label">{t('settings.language.label')}</label>
                   <div className="field__body">
-                    <input
+                    <select
                       className="input"
-                      placeholder="留空 = 沿用上次打开的目录"
-                      value={draft.defaultCwd}
-                      onChange={(e) => patch({ defaultCwd: e.target.value })}
-                    />
+                      value={draft.language}
+                      onChange={(e) =>
+                        patch({ language: e.target.value as LanguageSetting })
+                      }
+                    >
+                      {LANGUAGES.map((l) => (
+                        <option key={l} value={l}>
+                          {t(LANGUAGE_LABEL_KEY[l])}
+                        </option>
+                      ))}
+                    </select>
                     <p className="field__hint">
-                      新会话默认在哪个项目目录里启动（决定会话归属哪个工作区）
+                      {draft.language === 'system'
+                        ? t('language.systemCurrent', {
+                            language: t(
+                              LANGUAGE_LABEL_KEY[
+                                resolveLanguage(draft.language, getSystemLocale())
+                              ]
+                            )
+                          })
+                        : t('settings.language.hint')}
                     </p>
                   </div>
                 </div>
               </section>
 
               <section className="chform chform--sep">
-                <h2 className="chform__title">外观</h2>
+                <h2 className="chform__title">{t('settings.workspace')}</h2>
+                <div className="field">
+                  <label className="field__label">{t('settings.general.defaultCwd')}</label>
+                  <div className="field__body">
+                    <input
+                      className="input"
+                      placeholder={t('settings.general.defaultCwdPlaceholder')}
+                      value={draft.defaultCwd}
+                      onChange={(e) => patch({ defaultCwd: e.target.value })}
+                    />
+                    <p className="field__hint">
+                      {t('settings.general.defaultCwdHint')}
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="chform chform--sep">
+                <h2 className="chform__title">{t('settings.appearance')}</h2>
 
                 <div className="field">
-                  <label className="field__label">主题</label>
+                  <label className="field__label">{t('settings.theme.label')}</label>
                   <div className="field__body">
                     <select
                       className="input"
@@ -492,23 +555,23 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                       onChange={(e) => patch({ theme: e.target.value as ThemeMode })}
                     >
                       {THEME_GROUPS.map((g) => (
-                        <optgroup key={g.label} label={g.label}>
-                          {g.themes.map((t) => (
-                            <option key={t} value={t}>
-                              {THEME_LABEL[t]}
+                        <optgroup key={g.labelKey} label={t(g.labelKey)}>
+                          {g.themes.map((theme) => (
+                            <option key={theme} value={theme}>
+                              {t(THEME_LABEL_KEY[theme])}
                             </option>
                           ))}
                         </optgroup>
                       ))}
                     </select>
                     <p className="field__hint">
-                      主题只换配色，布局不变。「跟随系统」会随 Windows 的深浅色模式在深色 / 浅色之间切换。
+                      {t('settings.theme.hint')}
                     </p>
                   </div>
                 </div>
 
                 <div className="field">
-                  <label className="field__label">界面缩放</label>
+                  <label className="field__label">{t('settings.zoom')}</label>
                   <div className="field__body">
                     <select
                       className="input"
@@ -522,13 +585,13 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                       ))}
                     </select>
                     <p className="field__hint">
-                      缩放整个界面（含侧栏与设置页）。100% 为标准，觉得字小可以先调这个。
+                      {t('settings.zoomHint')}
                     </p>
                   </div>
                 </div>
 
                 <div className="field">
-                  <label className="field__label">对话字号</label>
+                  <label className="field__label">{t('settings.chatFontSize')}</label>
                   <div className="field__body">
                     <select
                       className="input"
@@ -542,13 +605,13 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                       ))}
                     </select>
                     <p className="field__hint">
-                      影响对话正文、输入框和 Markdown；代码块会跟着小一档。
+                      {t('settings.chatFontSizeHint')}
                     </p>
                   </div>
                 </div>
 
                 <div className="field">
-                  <label className="field__label">界面字体</label>
+                  <label className="field__label">{t('settings.uiFont')}</label>
                   <div className="field__body">
                     <select
                       className="input"
@@ -564,16 +627,16 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                     >
                       {UI_FONT_PRESETS.map((p) => (
                         <option key={p.value} value={p.value}>
-                          {p.label}
+                          {t(p.labelKey)}
                         </option>
                       ))}
-                      <option value="__custom__">自定义…</option>
+                      <option value="__custom__">{t('settings.custom')}</option>
                     </select>
                     {uiFontIsCustom && (
                       <input
                         className="input field__sub"
                         value={draft.uiFont}
-                        placeholder="CSS font-family，例如：My Font, Microsoft YaHei, sans-serif"
+                        placeholder={t('settings.uiFontPlaceholder')}
                         onChange={(e) => patch({ uiFont: e.target.value })}
                         onBlur={() => {
                           if (!draft.uiFont.trim()) patch({ uiFont: DEFAULT_UI_FONT })
@@ -581,13 +644,13 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                       />
                     )}
                     <p className="field__hint">
-                      选「自定义」可以直接填字体名或多个字体；没装的字体会自动回落到后面的备选。
+                      {t('settings.uiFontHint')}
                     </p>
                   </div>
                 </div>
 
                 <div className="field">
-                  <label className="field__label">等宽字体</label>
+                  <label className="field__label">{t('settings.monoFont')}</label>
                   <div className="field__body">
                     <select
                       className="input"
@@ -603,32 +666,32 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                     >
                       {MONO_FONT_PRESETS.map((p) => (
                         <option key={p.value} value={p.value}>
-                          {p.label}
+                          {t(p.labelKey)}
                         </option>
                       ))}
-                      <option value="__custom__">自定义…</option>
+                      <option value="__custom__">{t('settings.custom')}</option>
                     </select>
                     {monoFontIsCustom && (
                       <input
                         className="input field__sub"
                         value={draft.monoFont}
-                        placeholder="CSS font-family，例如：Fira Code, Consolas, monospace"
+                        placeholder={t('settings.monoFontPlaceholder')}
                         onChange={(e) => patch({ monoFont: e.target.value })}
                         onBlur={() => {
                           if (!draft.monoFont.trim()) patch({ monoFont: DEFAULT_MONO_FONT })
                         }}
                       />
                     )}
-                    <p className="field__hint">代码块、路径、工具输出用的字体。</p>
+                    <p className="field__hint">{t('settings.monoFontHint')}</p>
                   </div>
                 </div>
               </section>
 
               <section className="chform chform--sep">
-                <h2 className="chform__title">对话</h2>
+                <h2 className="chform__title">{t('settings.chat')}</h2>
 
                 <div className="field">
-                  <label className="field__label">显示消息时间</label>
+                  <label className="field__label">{t('settings.showTimestamps')}</label>
                   <div className="field__body">
                     <label className="switch">
                       <input
@@ -636,14 +699,14 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                         checked={draft.showTimestamps}
                         onChange={(e) => patch({ showTimestamps: e.target.checked })}
                       />
-                      <span>{draft.showTimestamps ? '显示' : '隐藏'}</span>
+                      <span>{draft.showTimestamps ? t('settings.showTimestamps.on') : t('settings.showTimestamps.off')}</span>
                     </label>
-                    <p className="field__hint">在你自己发的每条消息下方显示发送时间。</p>
+                    <p className="field__hint">{t('settings.showTimestampsHint')}</p>
                   </div>
                 </div>
 
                 <div className="field">
-                  <label className="field__label">思考过程</label>
+                  <label className="field__label">{t('settings.thinking')}</label>
                   <div className="field__body">
                     <label className="switch">
                       <input
@@ -651,54 +714,54 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                         checked={draft.thinkingOpen}
                         onChange={(e) => patch({ thinkingOpen: e.target.checked })}
                       />
-                      <span>{draft.thinkingOpen ? '默认展开' : '默认折叠'}</span>
+                      <span>{draft.thinkingOpen ? t('settings.thinking.expand') : t('settings.thinking.collapse')}</span>
                     </label>
                     <p className="field__hint">
-                      折叠时只显示一行摘要；展开后仍可逐条手动收起。
+                      {t('settings.thinkingHint')}
                     </p>
                   </div>
                 </div>
 
                 <div className="field">
-                  <label className="field__label">工具调用</label>
+                  <label className="field__label">{t('settings.toolDetail')}</label>
                   <div className="field__body">
                     <select
                       className="input"
                       value={draft.toolDetail}
                       onChange={(e) => patch({ toolDetail: e.target.value as ToolDetail })}
                     >
-                      {(Object.keys(TOOL_DETAIL_LABEL) as ToolDetail[]).map((d) => (
+                      {(Object.keys(TOOL_DETAIL_LABEL_KEY) as ToolDetail[]).map((d) => (
                         <option key={d} value={d}>
-                          {TOOL_DETAIL_LABEL[d]}
+                          {t(TOOL_DETAIL_LABEL_KEY[d])}
                         </option>
                       ))}
                     </select>
                     <p className="field__hint">
-                      「隐藏」只影响对话页；工具调用在「轨迹」页仍然完整可见。
+                      {t('settings.toolDetailHint')}
                     </p>
                   </div>
                 </div>
               </section>
 
               <section className="chform chform--sep">
-                <h2 className="chform__title">输入</h2>
+                <h2 className="chform__title">{t('settings.input')}</h2>
 
                 <div className="field">
-                  <label className="field__label">发送快捷键</label>
+                  <label className="field__label">{t('settings.sendKey')}</label>
                   <div className="field__body">
                     <select
                       className="input"
                       value={draft.sendKey}
                       onChange={(e) => patch({ sendKey: e.target.value as SendKey })}
                     >
-                      {(Object.keys(SEND_KEY_LABEL) as SendKey[]).map((k) => (
+                      {(Object.keys(SEND_KEY_LABEL_KEY) as SendKey[]).map((k) => (
                         <option key={k} value={k}>
-                          {SEND_KEY_LABEL[k]}
+                          {t(SEND_KEY_LABEL_KEY[k])}
                         </option>
                       ))}
                     </select>
                     <p className="field__hint">
-                      中文输入法组合期间按 Enter 不会误发送（输入法自身的候选确认不受影响）。
+                      {t('settings.sendKeyHint')}
                     </p>
                   </div>
                 </div>
@@ -708,9 +771,9 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
 
           {page.kind === 'permissions' && (
             <section className="chform">
-              <h2 className="chform__title">权限</h2>
+              <h2 className="chform__title">{t('settings.permissions')}</h2>
               <div className="field">
-                <label className="field__label">新会话默认权限模式</label>
+                <label className="field__label">{t('settings.permissionDefault')}</label>
                 <div className="field__body">
                   <select
                     className="input"
@@ -719,7 +782,7 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                   >
                     {PERMISSION_MODES.map((m) => (
                       <option key={m} value={m}>
-                        {MODE_LABEL[m]} —— {MODE_HINT[m]}
+                        {t(MODE_LABEL_KEY[m])} —— {t(MODE_HINT_KEY[m])}
                       </option>
                     ))}
                   </select>

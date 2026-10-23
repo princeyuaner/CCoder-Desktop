@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { t } from './i18n'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -240,7 +241,7 @@ export class CodexRpc {
       } catch {
         // 收尾解析失败不改变退出事实
       }
-      this.failAll(new Error(`Codex app-server 已退出（${code ?? 'signal'}）`))
+      this.failAll(new Error(t('codexRunner.exited', { code: code ?? 'signal' })))
       if (!this.closed) {
         this.closed = true
         o.onExit?.(code, stripAnsi(this.stderr))
@@ -291,7 +292,7 @@ export class CodexRpc {
     if (method && id !== undefined && id !== null) {
       const rid = id as string | number
       if (this.serverRequestHandler) this.serverRequestHandler(rid, method, params)
-      else this.respondError(rid, -32601, `不支持的请求：${method}`)
+      else this.respondError(rid, -32601, t('codexRunner.unsupported', { method }))
       return
     }
 
@@ -318,12 +319,12 @@ export class CodexRpc {
     params: unknown,
     timeoutMs = 30_000
   ): Promise<T> {
-    if (this.closed) return Promise.reject(new Error('Codex app-server 已退出'))
+    if (this.closed) return Promise.reject(new Error(t('codexRunner.exited', { code: 'signal' })))
     const id = ++this.seq
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(String(id))
-        reject(new Error(`Codex 请求超时：${method}`))
+        reject(new Error(t('codexRunner.timeout', { method })))
       }, timeoutMs)
       this.pending.set(String(id), {
         resolve: (v) => resolve(v as T),
@@ -366,7 +367,7 @@ export class CodexRpc {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.failAll(new Error('Codex app-server 已关闭'))
+    this.failAll(new Error(t('codexRunner.closed')))
     try {
       this.child.stdin?.end()
     } catch {
@@ -409,7 +410,7 @@ function readVersion(timeoutMs = 8000): Promise<VersionResult> {
       if (done) return
       done = true
       killCodexTree(child)
-      resolve({ ok: false, version: '', error: 'codex --version 超时' })
+      resolve({ ok: false, version: '', error: t('codexTest.versionTimeout') })
     }, timeoutMs)
     child.stdout?.on('data', (d: Buffer) => (out += d.toString()))
     child.stderr?.on('data', (d: Buffer) => (err += d.toString()))
@@ -427,7 +428,7 @@ function readVersion(timeoutMs = 8000): Promise<VersionResult> {
       resolve({
         ok: code === 0,
         version: text.split('\n')[0] ?? '',
-        error: code === 0 ? '' : text || `退出码 ${code}`
+        error: code === 0 ? '' : text || t('codexTest.exitCode', { code: code ?? 'signal' })
       })
     })
   })
@@ -479,7 +480,7 @@ export async function checkCodexStatus(): Promise<CodexStatus> {
       path,
       version: '',
       appServerOk: false,
-      error: v.error || '未找到 codex 可执行文件',
+      error: v.error || t('codexTest.binNotFound'),
       account: null,
       permissionProfiles: [],
       checkedAt
@@ -538,7 +539,7 @@ export async function testCodexChannel(ch: Channel): Promise<ChannelTestResult> 
   const started = Date.now()
   const model = ch.model.trim()
   if (!model) {
-    return { ok: false, message: '还没有填模型名', latencyMs: 0 }
+    return { ok: false, message: t('codexTest.noModel'), latencyMs: 0 }
   }
 
   const rpc = new CodexRpc({ channel: ch, cwd: homedir() })
@@ -583,7 +584,7 @@ export async function testCodexChannel(ch: Channel): Promise<ChannelTestResult> 
     } else if (method === 'item/permissions/requestApproval') {
       rpc.respond(id, { permissions: {}, scope: 'turn' })
     } else {
-      rpc.respondError(id, -32601, `测试模式不支持：${method}`)
+      rpc.respondError(id, -32601, t('codexTest.unsupported', { method }))
     }
   })
 
@@ -609,7 +610,7 @@ export async function testCodexChannel(ch: Channel): Promise<ChannelTestResult> 
       doneReject = reject
     })
     const timer = setTimeout(
-      () => doneReject(new Error('60 秒内没有收到 turn/completed')),
+      () => doneReject(new Error(t('codexTest.noTurnCompleted'))),
       60_000
     )
     timer.unref()
@@ -643,13 +644,13 @@ export async function testCodexChannel(ch: Channel): Promise<ChannelTestResult> 
     if (!reply) {
       return {
         ok: false,
-        message: note || '端点已响应，但模型没有返回文本',
+        message: note || t('codexTest.noText'),
         latencyMs
       }
     }
     return {
       ok: true,
-      message: `Codex app-server 正常 · ${model} 回复：${reply}`,
+      message: t('codexTest.ok', { model, reply }),
       latencyMs
     }
   } catch (e) {
@@ -661,9 +662,7 @@ export async function testCodexChannel(ch: Channel): Promise<ChannelTestResult> 
       /failed to load configuration/i.test(`${detail}\n${configWarning}\n${stderr}`) ||
       /invalid configuration/i.test(`${configWarning}\n${stderr}`)
     const hint = configBroken
-      ? '\n\n提示：Codex 读不了 $CODEX_HOME/config.toml（默认 ~/.codex/config.toml）。' +
-        '常见原因是里面引用的文件不存在，例如 model_catalog_json 指向的 models.json 已被删掉。' +
-        '配置无效时 Codex 会回退到默认值，连接测试必然失败；修好配置再重试。'
+      ? t('codexTest.configHint')
       : ''
     return {
       ok: false,

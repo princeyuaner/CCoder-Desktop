@@ -1,10 +1,10 @@
 # CCoder Desktop
 
-把 **Claude Code** 和 **Codex CLI** 装进一个桌面窗口：多会话并行、独立 IDE 窗口、Git / SVN 面板、执行台与自动更新。
+把 **Claude Code**、**Codex CLI** 和 **DeepSeek Harness** 装进一个桌面窗口：多会话并行、独立 IDE 窗口、Git / SVN 面板、执行台与自动更新。
 
 [下载安装包](https://github.com/princeyuaner/CCoder-Desktop/releases) · [问题反馈](https://github.com/princeyuaner/CCoder-Desktop/issues)
 
-> 本项目是第三方桌面客户端，不是 Anthropic / OpenAI 官方产品。使用前需要自行安装并登录对应的 CLI。
+> 本项目是第三方桌面客户端，不是 Anthropic / OpenAI / DeepSeek 官方产品。使用前需要自行安装并登录对应的 CLI。
 
 ---
 
@@ -32,7 +32,7 @@
 
 ![设置页](docs/screenshots/settings.png)
 
-Claude Code 与 Codex CLI 各自维护渠道、模型和凭据，互不影响。
+Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭据，互不影响。
 
 > 截图中的会话、模型、渠道和示例项目均为演示数据。
 
@@ -42,9 +42,9 @@ Claude Code 与 Codex CLI 各自维护渠道、模型和凭据，互不影响。
 
 ### 会话
 
-- **双 CLI 并行**：Claude Code（Anthropic 协议）与 Codex CLI（OpenAI 协议）可同时使用，渠道、模型、凭据完全独立。
+- **三 CLI 并行**：Claude Code（Anthropic 协议）、Codex CLI（OpenAI 协议）与 DeepSeek Harness（ACP）可同时使用，渠道、模型、凭据完全独立。
 - **多工作区 / 多会话**：每个工作区可以同时挂多条会话，后台继续跑，侧栏增量更新状态。
-- **复用 CLI 的会话存储**：直接读取 `~/.claude/projects` 等 CLI 自己的记录，终端里跑的 `claude` 和界面里看到的是同一份历史，不需要二次导入。
+- **复用 CLI 的会话存储**：直接读取 `~/.claude/projects`、`~/.codex/sessions`、`~/.dsh/sessions` 等 CLI 自己的记录，终端里跑的 CLI 和界面里看到的是同一份历史，不需要二次导入。
 - **续接历史会话**：打开旧会话后可以继续对话，CLI 侧使用 `--resume` 接回上下文。
 - **权限与提问**：权限审批、`AskUserQuestion` 在界面里直接答复；支持标准 / 接受编辑 / 自动 / 计划 / 免询问 / 绕过等模式。
 
@@ -76,6 +76,7 @@ Claude Code 与 Codex CLI 各自维护渠道、模型和凭据，互不影响。
 
 ### 外观与体验
 
+- **界面语言**：中文 / English / 跟随系统，默认跟随系统；切换后立即生效，已打开的 IDE 窗口也会同步，无需重启。
 - 9 套配色（深色、午夜蓝、森林绿、雾紫、咖啡棕、苔原、高对比、浅色、暖纸）+ 跟随系统。
 - 界面缩放、聊天字号、UI / 等宽字体、发送键、时间戳、思考块默认展开、工具详情粒度。
 - 无边框自绘标题栏；主窗口和 IDE 窗口共享主题与底色。
@@ -121,6 +122,7 @@ npm run dev
 ```bash
 npm run typecheck
 npm run build
+npm run verify:dsh   # 不花钱的 ACP 协议自检（隔离的 DSH_HOME，不需要 API Key）
 ```
 
 ### 打包
@@ -145,8 +147,9 @@ npm run package
 
 - **Claude Code**：查找 `%APPDATA%\npm`、`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\claude` 和 `PATH` 里的 `claude.cmd` / `claude.exe`。可以用 `CLAUDE_BIN` 指定绝对路径。
 - **Codex CLI**：查找 `%APPDATA%\npm`、`%LOCALAPPDATA%\Programs\codex`、`%LOCALAPPDATA%\codex\bin`、`%USERPROFILE%\.codex\bin`、`%ProgramFiles%\codex` 和 `PATH`。可以用 `CODEX_BIN` 指定绝对路径。
+- **DeepSeek Harness**：`npm i -g @deepseek-ai/dsh` 后自动解析 npm 全局包里的 `lib/bin.js`，用**系统 Node 24+** 以 `--profile acp` 启动（Electron 内置的 Node 20 不支持 `import.meta.main`，会静默退出）。可以用 `DSH_BIN` / `NODE_BIN` 指定路径，用 `DSH_HOME` 指定数据目录（默认优先复用 `~/.dsh`）。
 
-Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进命令行。
+Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进命令行。dsh 不经过 shell，直接用 node 拉起 `bin.js`。
 
 ---
 
@@ -155,7 +158,8 @@ Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进�
 设置页按 CLI 分组：
 
 - **渠道**：Base URL、密钥、模型、small/fast 模型、额外环境变量。Claude 只接受 Anthropic 兼容端点，Codex 只接受 OpenAI 兼容端点。
-- **官方登录**：Claude Code 可以直接使用 CLI 自己的 OAuth 登录（设置里会显示登录状态、账号和凭据类型）。
+- **官方登录**：Claude Code 可以直接使用 CLI 自己的 OAuth 登录（设置里会显示登录状态、账号和凭据类型）。DeepSeek Harness 默认使用 `~/.dsh` 里已经配好的 Harness 凭据，也可以切到「API 渠道」手动填 `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`。
+- **Harness 模型 / 思考深度**：通过 ACP 的 `session/set_config_option` 下发，模型目录由 dsh 自己返回，不在应用里硬编码。
 - **权限模式**：标准、接受编辑、自动、计划、免询问、绕过。
 - **思考深度**：低 / 中 / 高 / 极高 / 最高，对应 CLI 的 `--effort`；会话里还可以单独覆盖。
 
@@ -166,7 +170,7 @@ Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进�
 | 设置 | `%APPDATA%\ccoder-desktop\settings.json` |
 | 密钥 | 同上；优先用 Electron `safeStorage`（Windows DPAPI）加密，加密不可用时降级为明文并在 `v` 字段标记 |
 | IDE 窗口位置 | `%APPDATA%\ccoder-desktop\ide-windows.json` |
-| 会话记录 | CLI 自己维护（如 `~/.claude/projects/<cwd>/<session-id>.jsonl`） |
+| 会话记录 | CLI 自己维护（如 `~/.claude/projects/<cwd>/<session-id>.jsonl`、`~/.codex/sessions/`、`~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd`） |
 | 日志 | `%APPDATA%\ccoder-desktop\logs\main.log` |
 | 原生崩溃 dump | `%APPDATA%\ccoder-desktop\Crashpad` |
 
@@ -253,6 +257,7 @@ src/
     providers/
       claude/              Claude Code 适配（stream-json、历史回放、登录）
       codex/               Codex app-server 适配与历史
+      dsh/                 DeepSeek Harness 适配（ACP、zstd 历史回放、安装探测）
     ide-window.ts          独立 IDE 窗口与窗口鉴权
     ide-fs.ts / ide-watch.ts  文件读写、路径越界检查、目录监听
     vcs/                   Git / SVN 后端
@@ -297,6 +302,8 @@ src/
 - 安装包未做代码签名，Windows SmartScreen 可能提示「未知发布者」。
 - 历史会话回放受 CLI 记录内容限制：旧记录里没有每轮耗时 / 输出 token，界面会显示 `0 tok` 或只显示「已完成」。
 - 便携版不支持自动更新。
+- Monaco 编辑器自带的下拉菜单 / 查找控件仍为英文；应用自己的 IDE 外壳、搜索面板和提示已跟随界面语言。
+- 只提供简体中文；`zh-TW` 等繁体系统语言会回落到简体中文。
 
 ---
 

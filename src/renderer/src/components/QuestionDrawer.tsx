@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { Question } from '@shared/events'
+import type { MessageKey } from '@shared/i18n'
 import type { QuestionAnswer } from '@shared/session'
 import type { ChatItem } from '../useChat'
+import { useI18n } from '../i18n'
 
 type QuestionItem = Extract<ChatItem, { kind: 'question' }>
 
@@ -25,6 +27,7 @@ export function QuestionDrawer({
   pendingCount: number
   onAnswer: (requestId: string, answer: QuestionAnswer) => void
 }): JSX.Element {
+  const { t, tn } = useI18n()
   const [index, setIndex] = useState(0)
   /** 每题选中的结构化选项 label；多选是数组 */
   const [picked, setPicked] = useState<Record<number, string[]>>({})
@@ -34,7 +37,8 @@ export function QuestionDrawer({
   const [otherOpen, setOtherOpen] = useState<Record<number, boolean>>({})
   /** 键盘高亮行：0..options.length（最后一个是「其他」） */
   const [active, setActive] = useState(0)
-  const [hint, setHint] = useState<string | null>(null)
+  /** 存 key 而不是文案：切换语言时已经显示出来的提示也要跟着变 */
+  const [hint, setHint] = useState<MessageKey | null>(null)
 
   const rootRef = useRef<HTMLDivElement>(null)
   const otherRef = useRef<HTMLInputElement>(null)
@@ -107,7 +111,7 @@ export function QuestionDrawer({
 
   const advance = (): void => {
     if (!hasAnswer) {
-      setHint('先选一个答案，或在「其他」里输入')
+      setHint('question.hint.choose')
       return
     }
     setHint(null)
@@ -122,7 +126,7 @@ export function QuestionDrawer({
       const v = valueOf(i)
       if (v === null) {
         setIndex(i)
-        setHint('还有问题没回答')
+        setHint('question.hint.missing')
         return
       }
       answers[item.questions[i].question] = v
@@ -214,13 +218,17 @@ export function QuestionDrawer({
       ref={rootRef}
       tabIndex={-1}
       role="group"
-      aria-label={`模型在问：${q.question}`}
+      aria-label={t('question.aria', { question: q.question })}
       onKeyDown={onKeyDown}
     >
       <div className="qdrawer__h">
-        <span className="qdrawer__badge">模型在问你</span>
-        <span className="qdrawer__t">回答后我会继续</span>
-        {pendingCount > 1 && <span className="qdrawer__queue">还有 {pendingCount - 1} 组</span>}
+        <span className="qdrawer__badge">{t('question.badge')}</span>
+        <span className="qdrawer__t">{t('question.title')}</span>
+        {pendingCount > 1 && (
+          <span className="qdrawer__queue">
+            {tn('question.queue', pendingCount - 1)}
+          </span>
+        )}
         <span className="qdrawer__n">
           {index + 1}/{total}
         </span>
@@ -229,9 +237,9 @@ export function QuestionDrawer({
       <div className="qdrawer__b">
         <div className="qdrawer__meta">
           <span className="qdrawer__chip">{q.header}</span>
-          {q.multiSelect && <span className="qdrawer__multi">可多选</span>}
+          {q.multiSelect && <span className="qdrawer__multi">{t('question.multi')}</span>}
           <span className="qdrawer__count">
-            第 {index + 1} 题，共 {total} 题
+            {t('question.progress', { index: index + 1, total })}
           </span>
         </div>
 
@@ -288,7 +296,7 @@ export function QuestionDrawer({
                   ref={otherRef}
                   className="qopt__input"
                   value={otherHere}
-                  placeholder="输入你的答案…"
+                  placeholder={t('question.otherPlaceholder')}
                   onChange={(e) => {
                     const v = e.target.value
                     setOther((prev) => ({ ...prev, [index]: v }))
@@ -297,18 +305,25 @@ export function QuestionDrawer({
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
-                <span className="qopt__t qopt__t--other">其他…</span>
+                <span className="qopt__t qopt__t--other">{t('question.other')}</span>
               )}
             </span>
           </div>
         </div>
 
-        {hint && <div className="qdrawer__hint">{hint}</div>}
+        {hint && <div className="qdrawer__hint">{t(hint)}</div>}
       </div>
 
       <div className="qdrawer__f">
         <span className="qdrawer__keys">
-          ↑↓ 选择 · ⏎ 选定 · {q.multiSelect ? '空格 多选 · ' : ''}Esc 跳过
+          {[
+            t('question.key.updown'),
+            t('question.key.enter'),
+            q.multiSelect ? t('question.key.space') : '',
+            t('question.key.esc')
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </span>
         {index > 0 && (
           <button
@@ -318,14 +333,14 @@ export function QuestionDrawer({
               setIndex(index - 1)
             }}
           >
-            上一题
+            {t('question.prev')}
           </button>
         )}
         <button className="qbtn" onClick={skip}>
-          跳过
+          {t('question.skip')}
         </button>
         <button className="qbtn qbtn--primary" disabled={!hasAnswer} onClick={advance}>
-          {isLast ? '提交' : '下一题'}
+          {isLast ? t('question.submit') : t('question.next')}
           <span className="kbd">⏎</span>
         </button>
       </div>

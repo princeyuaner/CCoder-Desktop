@@ -23,20 +23,6 @@ const byCreated = (a: StoredSession, b: StoredSession): number =>
 const byRecent = (a: StoredSession, b: StoredSession): number =>
   b.updatedAt - a.updatedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id)
 
-/** 相对时间：刚刚 / N分钟 / N小时 / N天 / 日期 */
-export function relTime(ms: number): string {
-  const diff = Date.now() - ms
-  const min = Math.floor(diff / 60_000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min}分钟`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}小时`
-  const day = Math.floor(hr / 24)
-  if (day < 30) return `${day}天`
-  const d = new Date(ms)
-  return `${d.getMonth() + 1}月${d.getDate()}日`
-}
-
 /** 两次自动刷新之间至少隔这么久 —— 连着跑几轮时别把列表反复拉一遍 */
 const THROTTLE_MS = 800
 
@@ -49,11 +35,18 @@ const THROTTLE_MS = 800
  * 第一次发送之后 CLI 会异步写盘：拿到 CLI 的 session id 就开始盯着索引，
  * 出现即停，机灵点的话用户还没等到这一轮结束就能在侧栏看到它。
  */
-export function useSessions(): {
+export function useSessions(activeId: string | null): {
   workspaces: WorkspaceView[]
   loading: boolean
   /** 正在跑的会话 —— 键是 **CLI 自己的 session id**，就是会话行的 id */
   running: Set<string>
+  /**
+   * 刚跑完一轮、但用户还没打开看过的会话。
+   *
+   * 侧栏会把这些行的最右侧写成「已完成」；一旦这一行成为当前会话
+   * （activeId 指到它），标记就清掉 —— 结果已经在眼前了。
+   */
+  completed: ReadonlySet<string>
   /**
    * 后台卡在审批上的会话 —— 键同样是 CLI 的 session id。
    *
@@ -69,6 +62,7 @@ export function useSessions(): {
   const [sessions, setSessions] = useState<StoredSession[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState<Set<string>>(() => new Set())
+  const [completed, setCompleted] = useState<ReadonlySet<string>>(() => new Set())
   const [pending, setPending] = useState<ReadonlyMap<string, PendingApproval>>(() => new Map())
   // 默认按创建时间：运行中的会话写盘不会改变行序
   const [sort, setSort] = useState<SessionSort>('created')
@@ -79,6 +73,15 @@ export function useSessions(): {
   /** 正在等索引出现的 CLI session id → 重试计时器 */
   const watching = useRef(new Set<string>())
   const watchTimers = useRef<number[]>([])
+  /**
+   * running 的同步镜像。
+   *
+   * status 事件里要判断「这一条刚从跑变成空闲」，而 setRunning 是异步的 ——
+   * 光看 state 拿不到上一条的值。初始值由下面那次 `session.running()` 播种。
+   */
+  const runningRef = useRef<Set<string>>(new Set())
+  /** 用户此刻正在看的会话；它跑完时不该再挂「已完成」 */
+  const activeRef = useRef<string | null>(activeId)
 
   const refresh = useCallback(async (): Promise<StoredSession[]> => {
     if (!window.api?.sessions) {
@@ -192,6 +195,24 @@ export function useSessions(): {
   }, [refreshSoon])
 
   /**
+   * 打开一条会话就把它的「已完成」标记收掉。
+   *
+   * 用户点开这一行 = 已经看到结果了，角标没有再留着的理由。
+   * activeId 在设置页期间是 null（那边把对话整个盖住），所以从设置页
+   * 切回来时这条 effect 也会触发，正好把期间攒下的标记清掉。
+   */
+  useEffect(() => {
+    activeRef.current = activeId
+    if (!activeId) return
+    setCompleted((prev) => {
+      if (!prev.has(activeId)) return prev
+      const next = new Set(prev)
+      next.delete(activeId)
+      return next
+    })
+  }, [activeId])
+
+  /**
    * 「哪条会话在跑」。
    *
    * 侧栏要拿它给那一行显示运行中的图标动效，而侧栏只认 CLI 的 session id，
@@ -208,7 +229,9 @@ export function useSessions(): {
     void api.session
       .running()
       .then((ids) => {
-        if (alive) setRunning(new Set(ids))
+        if (!alive) return
+        runningRef.current = new Set(ids)
+        setRunning(new Set(ids))
       })
       .catch(() => undefined)
 
@@ -216,6 +239,11 @@ export function useSessions(): {
       const id = p.providerSessionId
       if (!id) return
       const isRunning = p.status === 'starting' || p.status === 'running'
+      // 先同步更新镜像，下面才知道这一条是不是「刚从跑变成空闲」
+      const wasRunning = runningRef.current.has(id)
+      if (isRunning) runningRef.current.add(id)
+      else runningRef.current.delete(id)
+
       setRunning((prev) => {
         // 状态没变就别换引用 —— 这条事件每轮都会来几次，白重建 Set 会让整个侧栏重渲染
         if (isRunning === prev.has(id)) return prev
@@ -224,6 +252,31 @@ export function useSessions(): {
         else next.delete(id)
         return next
       })
+
+      if (isRunning) {
+        // 又开始跑了：上一轮留下的「已完成」作废
+        setCompleted((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        return
+      }
+
+      /*
+       * 一轮跑完了。只认 idle：
+       * - exited 是用户主动停掉/删掉的，不是「完成」；
+       * - 正看着的那条也不标 —— 结果就在眼前，没必要再点一次收角标。
+       */
+      if (p.status === 'idle' && wasRunning && id !== activeRef.current) {
+        setCompleted((prev) => {
+          if (prev.has(id)) return prev
+          const next = new Set(prev)
+          next.add(id)
+          return next
+        })
+      }
     })
 
     return () => {
@@ -271,5 +324,5 @@ export function useSessions(): {
     return out
   }, [sessions, sort])
 
-  return { workspaces, loading, running, pending, sort, toggleSort, refresh }
+  return { workspaces, loading, running, completed, pending, sort, toggleSort, refresh }
 }

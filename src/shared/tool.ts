@@ -18,10 +18,28 @@ export interface ToolStat {
 /** 工具族 —— 只用来决定图标、颜色和那个小标签，不参与业务逻辑 */
 export type ToolFamily = 'bash' | 'read' | 'edit' | 'write' | 'search' | 'task' | 'ask' | 'other'
 
+/**
+ * 工具没有可读主题时的兜底类型。
+ *
+ * 不在主进程里烤成中文：工具卡可能在切换语言后还留着，兜底词必须
+ * 由渲染层按当前语言解析。
+ */
+export type ToolFallback =
+  | 'command'
+  | 'file'
+  | 'search'
+  | 'webSearch'
+  | 'webFetch'
+  | 'question'
+  | 'task'
+  | 'todo'
+
 export interface ToolDisplay {
   family: ToolFamily
   /** 折叠行上的主题 */
   subject: string
+  /** subject 为空时，渲染层用这个类型取兜底文案 */
+  fallback?: ToolFallback
   /** 文件工具的父目录（已缩短） */
   dir?: string
   /** 文件工具的完整路径 —— 只用于 title */
@@ -192,10 +210,12 @@ export function toolDisplay(name: string, input: unknown): ToolDisplay {
   switch (name) {
     case 'Bash': {
       const command = pick('command')
+      const subject = pick('description') || firstLine(command)
       return {
         family,
         // 主题 = 模型写的 description；没有才退回命令首行
-        subject: pick('description') || firstLine(command) || '执行命令',
+        subject,
+        fallback: subject ? undefined : 'command',
         command
       }
     }
@@ -226,9 +246,11 @@ export function toolDisplay(name: string, input: unknown): ToolDisplay {
         // tool_result 到达后会被精确值覆盖（见 reduce）
         stat = s.added || s.removed ? s : undefined
       }
+      const subject = baseName(path) || path
       return {
         family,
-        subject: baseName(path) || path || '文件',
+        subject,
+        fallback: subject ? undefined : 'file',
         dir: shortDir(dirName(path)) || undefined,
         path: path || undefined,
         stat
@@ -238,14 +260,24 @@ export function toolDisplay(name: string, input: unknown): ToolDisplay {
     case 'Grep':
     case 'Glob': {
       const dir = shortDir(pick('path'))
-      return { family, subject: pick('pattern') || '搜索', dir: dir || undefined }
+      const subject = pick('pattern')
+      return {
+        family,
+        subject,
+        fallback: subject ? undefined : 'search',
+        dir: dir || undefined
+      }
     }
 
-    case 'WebSearch':
-      return { family, subject: pick('query') || '搜索网页' }
+    case 'WebSearch': {
+      const subject = pick('query')
+      return { family, subject, fallback: subject ? undefined : 'webSearch' }
+    }
 
-    case 'WebFetch':
-      return { family, subject: pick('url') || '抓取网页' }
+    case 'WebFetch': {
+      const subject = pick('url')
+      return { family, subject, fallback: subject ? undefined : 'webFetch' }
+    }
 
     case 'AskUserQuestion': {
       const qs = Array.isArray(o.questions) ? o.questions : []
@@ -254,20 +286,19 @@ export function toolDisplay(name: string, input: unknown): ToolDisplay {
         (typeof first.question === 'string' && first.question) ||
         (typeof first.header === 'string' && first.header) ||
         ''
-      return { family, subject: q || '向你提问' }
+      return { family, subject: q, fallback: q ? undefined : 'question' }
     }
 
     case 'Task':
     case 'Agent':
     case 'TaskCreate':
-    case 'TaskUpdate':
-      return {
-        family,
-        subject: pick('subject') || pick('description') || pick('taskId') || '任务'
-      }
+    case 'TaskUpdate': {
+      const subject = pick('subject') || pick('description')
+      return { family, subject, fallback: subject ? undefined : 'task' }
+    }
 
     case 'TodoWrite':
-      return { family, subject: '更新任务清单' }
+      return { family, subject: '', fallback: 'todo' }
 
     default: {
       const first = Object.values(o).find((v) => typeof v === 'string')

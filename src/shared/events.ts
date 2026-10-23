@@ -8,6 +8,7 @@
 
 import type { ToolStat } from './tool'
 import type { ImageAttachment } from './attachment'
+import type { LocalizedText } from './i18n'
 
 export type PermissionMode =
   | 'standard'
@@ -121,8 +122,8 @@ export interface DiffLine {
  */
 export interface PermissionPreview {
   kind: 'diff' | 'command' | 'text'
-  /** 卡片标题，如「编辑 app.py」 */
-  title: string
+  /** 卡片标题，如「编辑 app.py」。主进程给 key，渲染层按当前语言解析。 */
+  title: LocalizedText
   /** 涉及的绝对路径（diff 时） */
   path?: string
   /** diff 内容 */
@@ -133,7 +134,7 @@ export interface PermissionPreview {
    * 副标题。**两种含义，看 kind**：diff 时是改动统计（`+2 −1`），
    * 命令时是风险提醒（`删除文件且不可恢复`）。
    */
-  note?: string
+  note?: LocalizedText
   /**
    * 这条操作有真实风险（命中 RISKY 表）。
    *
@@ -146,7 +147,7 @@ export interface PermissionPreview {
 
 export interface PermissionOption {
   value: string
-  label: string
+  label: LocalizedText
   danger?: boolean
 }
 
@@ -348,4 +349,4 @@ export type AgentEvent =
       /** 本轮的步数，状态栏「1 轮 2 步」里的「2 步」 */
       steps: number
     }
-  | { t: 'error'; message: string; fatal: boolean }
+  | { t: 'error'; message: LocalizedText; fatal: boolean }

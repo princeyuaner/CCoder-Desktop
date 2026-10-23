@@ -1,15 +1,14 @@
 import type { Usage } from '@shared/events'
+import { formatDuration, type ResolvedLocale } from '@shared/i18n'
 
 export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
-/** 7 秒 / 1 分 12 秒 */
-export function fmtDuration(ms: number): string {
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s} 秒`
-  return `${Math.floor(s / 60)} 分 ${s % 60} 秒`
+/** 7 秒 / 1 分 12 秒（英文 7s / 1m 12s） */
+export function fmtDuration(ms: number, locale: ResolvedLocale): string {
+  return formatDuration(ms, locale)
 }
 
 /** 毫秒 → 「01:12」；超过一小时给「1:02:03」。等宽数字，跳秒时宽度不变 */

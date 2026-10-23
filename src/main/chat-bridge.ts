@@ -9,6 +9,7 @@ import type {
 import { sameCwd } from '../shared/settings'
 import { listStoredSessions } from './session-store'
 import { safeSend } from './safe-send'
+import { t } from './i18n'
 
 /**
  * IDE → 聊天的中转站。
@@ -53,7 +54,7 @@ export function listChatTargets(cwd: string): ChatTargetInfo[] {
       kind: 'active',
       id: active.id,
       cwd,
-      title: active.title || '新会话',
+      title: active.title || t('chat.title.newSession'),
       cli: active.cli,
       isNew: active.isNew
     })
@@ -77,7 +78,7 @@ export function listChatTargets(cwd: string): ChatTargetInfo[] {
         kind: 'session',
         id: s.id,
         cwd: s.cwd,
-        title: s.title || '(无标题)',
+        title: s.title || t('codexHistory.untitled'),
         cli: s.cli,
         isNew: false,
         updatedAt: s.updatedAt
@@ -90,7 +91,7 @@ export function listChatTargets(cwd: string): ChatTargetInfo[] {
       kind: 'new',
       id: null,
       cwd,
-      title: '新会话',
+      title: t('chat.title.newSession'),
       cli: 'claude',
       isNew: true
     })
@@ -102,7 +103,7 @@ export function listChatTargets(cwd: string): ChatTargetInfo[] {
 /** 把引用投递给主窗口。是否切会话由主窗口渲染进程处理。 */
 export function sendRefsToChat(payload: IdeSendPayload): IdeSendResult {
   if (!mainWin || mainWin.isDestroyed()) {
-    return { ok: false, message: '聊天窗口没有打开' }
+    return { ok: false, message: t('chatBridge.windowClosed') }
   }
   safeSend(mainWin, IPC.chatAttachRefs, payload)
   return { ok: true }
@@ -116,7 +117,7 @@ export function sendRefsToChat(payload: IdeSendPayload): IdeSendResult {
  */
 export function openSessionInChat(cwd: string): { ok: boolean; message?: string } {
   if (!mainWin || mainWin.isDestroyed()) {
-    return { ok: false, message: '聊天窗口没有打开' }
+    return { ok: false, message: t('chatBridge.windowClosed') }
   }
   if (mainWin.isMinimized()) mainWin.restore()
   mainWin.show()

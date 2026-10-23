@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { t } from './i18n'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { channelToEnv } from './channel-env'
@@ -124,6 +125,17 @@ export function spawnClaude(
     // 指向本地探针，请求依旧打到 ~/.claude/settings.json 里的网关）。
     // 加上之后宿主注入的渠道环境才是权威，CLI 不再用全局配置覆盖它。
     env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+
+    /*
+     * 渠道里跑的非 Claude 模型默认拿不到任务清单工具。
+     *
+     * CLI 2.1.303 的 TaskCreate / TaskUpdate / TaskList / TaskGet 都有
+     * `isEnabled()` 门禁：模型名不在 Claude 白名单里时，只有宿主显式
+     * opt-in 才会把工具放进工具表（`CLAUDE_CODE_ENABLE_TODO_TOOLS`，
+     * 实测 1 / true 都认）。不设这一条，模型只能把计划写进正文，
+     * 右侧执行台的「任务」区永远是空的 —— 面板本身没有 bug。
+     */
+    env.CLAUDE_CODE_ENABLE_TODO_TOOLS = '1'
   }
   return spawnClaudeBin(args, { env, cwd: opts.cwd })
 }
@@ -242,20 +254,20 @@ export async function testChannel(channel: Channel): Promise<ChannelTestResult> 
   const latencyMs = Date.now() - started
 
   if (r.timedOut) {
-    return { ok: false, message: `超时（60 秒无响应）${r.stderr ? `\n${r.stderr}` : ''}`, latencyMs }
+    return { ok: false, message: t('claudeTest.timeout') + (r.stderr ? `\n${r.stderr}` : ''), latencyMs }
   }
   if (!r.json) {
     return {
       ok: false,
       message: [
-        `没有拿到可解析的输出（退出码 ${r.code}）。`,
-        `stdout: ${r.stdout.slice(0, 400) || '(空)'}`,
-        `stderr: ${r.stderr.slice(0, 400) || '(空)'}`
+        t('claudeTest.noOutput', { code: r.code ?? 'signal' }),
+        `stdout: ${r.stdout.slice(0, 400) || t('claudeTest.empty')}`,
+        `stderr: ${r.stderr.slice(0, 400) || t('claudeTest.empty')}`
       ].join('\n'),
       latencyMs
     }
   }
   const result = typeof r.json.result === 'string' ? r.json.result : ''
-  if (r.json.is_error === true) return { ok: false, message: result || '未知错误', latencyMs }
-  return { ok: true, message: result || '连接正常', latencyMs }
+  if (r.json.is_error === true) return { ok: false, message: result || t('claudeTest.unknownError'), latencyMs }
+  return { ok: true, message: result || t('claudeTest.ok'), latencyMs }
 }

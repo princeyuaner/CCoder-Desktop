@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { useI18n } from '../i18n'
 
 /**
  * 一个通用的确认弹窗，用在**不可逆**的操作上（现在只有"删除会话"）。
@@ -23,6 +24,7 @@ export function ConfirmModal({
   onConfirm: () => void
   onCancel: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   const dlgRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -62,7 +64,8 @@ export function ConfirmModal({
         <div className="modal__f">
           <span className="modal__sp" />
           <button className="btn btn--primary" onClick={onCancel}>
-            取消<span className="kbd">Esc</span>
+            {t('common.cancel')}
+            <span className="kbd">Esc</span>
           </button>
           <button className="btn btn--danger" onClick={onConfirm}>
             {confirmLabel}

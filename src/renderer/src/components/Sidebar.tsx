@@ -1,11 +1,14 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import type { StoredSession } from '@shared/session'
 import { cliDef, type CliId } from '@shared/settings'
-import { relTime, type SessionSort, type WorkspaceView } from '../useSessions'
+import { formatRelativeTime } from '@shared/i18n'
+import { useI18n, type I18nApi } from '../i18n'
+import type { SessionSort, WorkspaceView } from '../useSessions'
 import type { PendingApproval } from '../pending-approvals'
 import {
   IconClaudeCode,
   IconClock,
+  IconDeepSeek,
   IconFolder,
   IconFolderPlus,
   IconGear,
@@ -19,11 +22,30 @@ import {
 /** 折叠时露出几个会话，其余收进「展开其余 N 个会话」 */
 const COLLAPSED_COUNT = 5
 
+/** 把待审批请求拼成跑马灯 / tooltip 里的一句话（按当前语言） */
+function describeApproval(approval: PendingApproval, i18n: I18nApi): string {
+  const { t, text } = i18n
+  if (approval.kind === 'question') {
+    return approval.text || t('permission.questionFallback')
+  }
+  const what = approval.command
+    ? t('permission.allowRun', { command: approval.command })
+    : approval.title
+      ? t('permission.allowTitle', { title: text(approval.title) })
+      : t('permission.allowCommand')
+  return approval.danger ? `${t('permission.dangerPrefix')} · ${what}` : what
+}
+
 interface SidebarProps {
   workspaces: WorkspaceView[]
   loading: boolean
   /** 正在跑的会话（CLI 的 session id）—— 这些行的图标会跳 */
   running: Set<string>
+  /**
+   * 刚跑完一轮、还没被打开看过的会话（CLI 的 session id）。
+   * 点开这一行后标记会清掉，所以「已完成」不是常驻状态。
+   */
+  completed: ReadonlySet<string>
   /**
    * 卡在审批上的后台会话（CLI 的 session id）。
    * 当前会话不在里面显示跑马灯 —— 它的审批面板就在主区里。
@@ -50,6 +72,7 @@ export function Sidebar({
   workspaces,
   loading,
   running,
+  completed,
   pending,
   sort,
   onToggleSort,
@@ -63,49 +86,50 @@ export function Sidebar({
   onRefresh,
   onOpenSettings
 }: SidebarProps): JSX.Element {
+  const { t } = useI18n()
   return (
     <aside className="sidebar">
       <nav className="sidebar__nav">
         <button className="navitem">
           <IconPlugin width={15} height={15} />
-          <span>插件</span>
+          <span>{t('nav.plugins')}</span>
         </button>
         <button className="navitem">
           <IconClock width={15} height={15} />
-          <span>自动化任务</span>
+          <span>{t('nav.automation')}</span>
         </button>
       </nav>
 
       <div className="sidebar__section-head">
-        <span className="sidebar__section-title">工作区</span>
+        <span className="sidebar__section-title">{t('sidebar.workspace')}</span>
         <div className="sidebar__section-tools">
-          <button className="iconbtn" title="搜索">
+          <button className="iconbtn" title={t('sidebar.search')}>
             <IconSearch width={14} height={14} />
           </button>
           <button
             className="iconbtn"
-            title={
-              sort === 'created'
-                ? '排序：创建时间（点击改为最近活动）'
-                : '排序：最近活动（点击改为创建时间）'
-            }
+            title={sort === 'created' ? t('sidebar.sortCreated') : t('sidebar.sortActive')}
             onClick={onToggleSort}
           >
             <IconSort width={14} height={14} />
           </button>
-          <button className="iconbtn" title="打开一个工作区（选目录）" onClick={onPickWorkspace}>
+          <button
+            className="iconbtn"
+            title={t('sidebar.pickWorkspace')}
+            onClick={onPickWorkspace}
+          >
             <IconFolderPlus width={14} height={14} />
           </button>
         </div>
       </div>
 
       <div className="sidebar__scroll">
-        {loading && <p className="sidebar__hint">正在读取会话…</p>}
+        {loading && <p className="sidebar__hint">{t('sidebar.loading')}</p>}
         {!loading && workspaces.length === 0 && (
           <p className="sidebar__hint">
-            还没有打开的工作区。
+            {t('sidebar.empty')}
             <br />
-            点右上角的文件夹图标选一个目录 —— 里面已有的会话会一起列出来。
+            {t('sidebar.emptyHint')}
           </p>
         )}
         {workspaces.map((ws) => (
@@ -113,6 +137,7 @@ export function Sidebar({
             key={ws.cwd}
             ws={ws}
             running={running}
+            completed={completed}
             pending={pending}
             activeId={activeId}
             onSelect={onSelect}
@@ -127,7 +152,7 @@ export function Sidebar({
 
       <button className="sidebar__settings" onClick={onOpenSettings}>
         <IconGear width={15} height={15} />
-        <span>设置</span>
+        <span>{t('sidebar.settings')}</span>
       </button>
     </aside>
   )
@@ -136,6 +161,7 @@ export function Sidebar({
 function WorkspaceGroup({
   ws,
   running,
+  completed,
   pending,
   activeId,
   onSelect,
@@ -147,6 +173,7 @@ function WorkspaceGroup({
 }: {
   ws: WorkspaceView
   running: Set<string>
+  completed: ReadonlySet<string>
   pending: ReadonlyMap<string, PendingApproval>
   activeId: string | null
   onSelect: (s: StoredSession) => void
@@ -156,6 +183,7 @@ function WorkspaceGroup({
   onDeleteSession: (s: StoredSession) => void
   onRefresh: () => void
 }): JSX.Element {
+  const { t, tn } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const hidden = Math.max(0, ws.sessions.length - COLLAPSED_COUNT)
   /**
@@ -178,7 +206,7 @@ function WorkspaceGroup({
       <div className="wsgroup__head" title={ws.cwd}>
         <button
           className="wsgroup__iconbtn"
-          title="打开内置 IDE（独立窗口）"
+          title={t('sidebar.openIde')}
           onClick={() => onOpenIde(ws.cwd)}
         >
           <IconFolder width={15} height={15} className="wsgroup__icon" />
@@ -187,21 +215,21 @@ function WorkspaceGroup({
         {groupPending > 0 && (
           <span
             className="wsgroup__pending"
-            title={`${groupPending} 个会话卡在审批上`}
+            title={tn('sidebar.pendingCount', groupPending)}
           />
         )}
         <span className="wsgroup__count">{ws.sessions.length}</span>
         <span className="wsgroup__acts">
           <button
             className="wsact"
-            title={`在 ${ws.cwd} 下开新会话`}
+            title={t('sidebar.newSessionHere', { cwd: ws.cwd })}
             onClick={() => onNewSession(ws.cwd)}
           >
             <IconPlus width={13} height={13} />
           </button>
           <button
             className="wsact wsact--del"
-            title="关闭工作区（只是从列表里收起来，不删文件）"
+            title={t('sidebar.closeWorkspace')}
             onClick={() => onCloseWorkspace(ws.cwd)}
           >
             ×
@@ -215,6 +243,7 @@ function WorkspaceGroup({
           s={s}
           active={s.id === activeId}
           running={running.has(s.id)}
+          done={completed.has(s.id)}
           approval={pending.get(s.id)}
           onSelect={() => {
             onSelect(s)
@@ -226,7 +255,7 @@ function WorkspaceGroup({
 
       {hidden > 0 && !forceOpen && (
         <button className="wsgroup__expand" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? '收起会话' : `展开其余 ${hidden} 个会话`}
+          {expanded ? t('sidebar.collapseSessions') : tn('sidebar.expandSessions', hidden)}
         </button>
       )}
     </div>
@@ -238,6 +267,7 @@ function SessionRow({
   s,
   active,
   running,
+  done,
   approval,
   onSelect,
   onDelete
@@ -245,17 +275,26 @@ function SessionRow({
   s: StoredSession
   active: boolean
   running: boolean
+  /** 刚跑完、用户还没点开看过 */
+  done: boolean
   /** 这条会话正在等的审批；没有就是 undefined */
   approval?: PendingApproval
   onSelect: () => void
   onDelete: () => void
 }): JSX.Element {
+  const i18n = useI18n()
+  const { t, locale } = i18n
   /*
    * 当前会话不挂跑马灯：审批面板已经在主区，重复提醒是噪音。
    * 点开这一行后它立刻变成 active，提醒自然收起。
    */
   const waiting = approval !== undefined && !active
-  const label = waiting ? (approval.kind === 'question' ? '待回答' : '待审批') : ''
+  const label = waiting
+    ? approval.kind === 'question'
+      ? t('sidebar.pendingQuestion')
+      : t('sidebar.pendingApproval')
+    : ''
+  const detail = waiting ? describeApproval(approval, i18n) : ''
 
   return (
     <div className={`session ${active ? 'is-active' : ''} ${waiting ? 'is-pending' : ''}`}>
@@ -263,7 +302,7 @@ function SessionRow({
         className="session__main"
         onClick={onSelect}
         title={`${s.title}\n${s.cwd}\n${cliDef(s.cli).name}${
-          waiting ? `\n${label}：${approval.text}` : ''
+          waiting ? `\n${label}: ${detail}` : ''
         }`}
       >
         {/*
@@ -272,12 +311,12 @@ function SessionRow({
         */}
         <CliMark cli={s.cli} running={running && !waiting} />
         {waiting ? (
-          <PendingTitle text={`${label} · ${approval.text}`} />
+          <PendingTitle text={`${label} · ${detail}`} />
         ) : (
           <span className="session__title">{s.title}</span>
         )}
         {waiting ? (
-          <span className="session__pending-tag" title={`${label}：${approval.text}`}>
+          <span className="session__pending-tag" title={`${label}: ${detail}`}>
             <i />
             {label}
           </span>
@@ -286,13 +325,22 @@ function SessionRow({
             在跑的时候，右下角不再显示「刚刚」—— 那个数字只说明最后写入有多近，
             跟"现在还在不在干活"是两回事。换成状态字，跟左侧图标的跳动互相印证；
             动效被系统「减少动态效果」关掉时，这行字就是唯一的状态来源。
+            跑完一轮但还没被点开时写「已完成」，点开这一行就清掉。
           */
-          <span className={`session__time ${running ? 'session__time--running' : ''}`}>
-            {running ? '运行中' : relTime(s.updatedAt)}
+          <span
+            className={`session__time ${
+              running ? 'session__time--running' : done ? 'session__time--done' : ''
+            }`}
+          >
+            {running
+              ? t('sidebar.running')
+              : done
+                ? t('sidebar.done')
+                : formatRelativeTime(s.updatedAt, locale, 'short')}
           </span>
         )}
       </button>
-      <button className="session__del" title="删除这条会话（不可恢复）" onClick={onDelete}>
+      <button className="session__del" title={t('sidebar.deleteSession')} onClick={onDelete}>
         ×
       </button>
     </div>
@@ -362,12 +410,19 @@ function PendingTitle({ text }: { text: string }): JSX.Element {
  * 跟"哪条在干活"是两件事，后台子代理跑着的时候更要分得开。
  */
 function CliMark({ cli, running }: { cli: CliId; running: boolean }): JSX.Element {
+  const { t } = useI18n()
   return (
     <span
       className={`session__cli session__cli--${cli} ${running ? 'is-running' : ''}`}
-      title={running ? `${cliDef(cli).name} · 运行中` : cliDef(cli).name}
+      title={running ? t('sidebar.cliRunning', { cli: cliDef(cli).name }) : cliDef(cli).name}
     >
-      {cli === 'claude' ? <IconClaudeCode /> : <IconOpenAI />}
+      {cli === 'claude' ? (
+        <IconClaudeCode />
+      ) : cli === 'codex' ? (
+        <IconOpenAI />
+      ) : (
+        <IconDeepSeek />
+      )}
     </span>
   )
 }

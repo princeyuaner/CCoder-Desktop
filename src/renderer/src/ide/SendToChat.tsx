@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChatTargetInfo, IdeCodeRef } from '@shared/ide-chat'
 import type { IdeTextFile } from '@shared/ide'
 import { buildIdeRef, MAX_REF_LINES } from './ref'
+import { formatRelativeTime } from '@shared/i18n'
+import { useI18n } from '../i18n'
 
 /**
  * 从 IDE 把代码 / 文件送进聊天输入框前的确认层。
@@ -38,22 +40,15 @@ function preview(code: string): string {
   return lines.length > 3 ? `${lines.slice(0, 3).join('\n')}\n…` : lines.join('\n')
 }
 
-function relTime(ms: number): string {
-  const min = Math.floor((Date.now() - ms) / 60_000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr} 小时前`
-  return `${Math.floor(hr / 24)} 天前`
-}
-
-function metaOf(t: ChatTargetInfo): string {
-  if (t.kind === 'active') return '当前会话'
-  if (t.isNew) return '新会话'
-  return t.updatedAt ? relTime(t.updatedAt) : '同工作区'
-}
-
 export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element {
+  const { t, locale } = useI18n()
+  const metaOf = (target: ChatTargetInfo): string => {
+    if (target.kind === 'active') return t('send.current')
+    if (target.isNew) return t('send.newSession')
+    return target.updatedAt
+      ? formatRelativeTime(target.updatedAt, locale, 'ago')
+      : t('send.sameWorkspace')
+  }
   const [targets, setTargets] = useState<ChatTargetInfo[]>([])
   const [target, setTarget] = useState<ChatTargetInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -69,7 +64,7 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
     const p = window.api?.chat?.targets(cwd)
     if (!p) {
       setLoading(false)
-      setError('当前环境不支持发送到聊天')
+      setError(t('send.unsupported'))
       return
     }
     p.then((list) => {
@@ -78,7 +73,7 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
       setTarget(list[0] ?? null)
     })
       .catch((err) => {
-        if (alive) setError(err instanceof Error ? err.message : '无法获取聊天目标')
+        if (alive) setError(err instanceof Error ? err.message : t('send.targetFailed'))
       })
       .finally(() => {
         if (alive) setLoading(false)
@@ -111,17 +106,17 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
     try {
       const api = window.api?.chat
       if (!api) {
-        setError('当前环境不支持发送到聊天')
+        setError(t('send.unsupported'))
         return
       }
       const r = await api.sendRefs({ target, refs: refsToSend })
       if (!r.ok) {
-        setError(r.message ?? '发送失败')
+        setError(r.message ?? t('errors.sendFailed'))
         return
       }
       onSent(target)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '发送失败')
+      setError(err instanceof Error ? err.message : t('errors.sendFailed'))
     } finally {
       setBusy(false)
     }
@@ -160,13 +155,13 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
   return (
     <div className="ide-sendpop" style={{ left, top, width: W }} ref={popRef}>
       <div className="ide-sendpop__head">
-        <span className="ide-sendpop__title">发送到聊天</span>
+        <span className="ide-sendpop__title">{t('send.title')}</span>
         <span className="ide-sendpop__esc">Esc</span>
       </div>
 
       <div className="ide-sendpop__sec">
-        <div className="ide-sendpop__label">目标会话</div>
-        {loading && <div className="ide-sendpop__muted">正在获取会话…</div>}
+        <div className="ide-sendpop__label">{t('send.target')}</div>
+        {loading && <div className="ide-sendpop__muted">{t('send.loading')}</div>}
         {!loading && target && (
           <>
             <button
@@ -203,18 +198,21 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
           </>
         )}
         {!loading && !target && !error && (
-          <div className="ide-sendpop__muted">这个工作区还没有可用的聊天</div>
+          <div className="ide-sendpop__muted">{t('send.noTarget')}</div>
         )}
       </div>
 
       {draft.oversized && oversizedActions ? (
         <div className="ide-sendpop__sec">
           <div className="ide-sendpop__warn">
-            选区有 {oversizedActions.total} 行，超过 {MAX_REF_LINES} 行上限
+            {t('send.oversized', {
+              n: oversizedActions.total,
+              max: MAX_REF_LINES
+            })}
           </div>
           <div className="ide-sendpop__note">
-            选择一种发送方式：只发前 {MAX_REF_LINES} 行，或改为整份文件。
-            {draft.oversized.file.truncated && '（文件超过 2 MB，只能读取到前半部分）'}
+            {t('send.oversizedNote', { max: MAX_REF_LINES })}
+            {draft.oversized.file.truncated && t('send.truncatedFile')}
           </div>
         </div>
       ) : (
@@ -226,7 +224,7 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
                 <span className="ide-refpreview__name">{r.name}</span>
                 <span className="ide-refpreview__range">
                   {r.kind === 'file'
-                    ? `全文 · ${r.totalLines} 行`
+                    ? t('send.wholeLines', { n: r.totalLines })
                     : r.startLine === r.endLine
                       ? `L${r.startLine}`
                       : `L${r.startLine}–${r.endLine}`}
@@ -236,7 +234,7 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
                 {r.rel}
               </div>
               {r.truncated && (
-                <div className="ide-sendpop__note">文件超过 2 MB，只发送读取到的部分。</div>
+                <div className="ide-sendpop__note">{t('send.fileTooLarge')}</div>
               )}
               {r.kind === 'selection' && <pre className="ide-refpreview__code">{preview(r.code)}</pre>}
             </div>
@@ -249,31 +247,31 @@ export function SendToChat({ cwd, draft, onClose, onSent }: Props): JSX.Element 
       <div className="ide-sendpop__foot">
         {draft.oversized && oversizedActions ? (
           <>
-            <span className="ide-sendpop__hint">放进输入框，补充说明后再发送</span>
+            <span className="ide-sendpop__hint">{t('send.hintOversized')}</span>
             <button
               className="ide-sendpop__ghost"
               disabled={!target || busy}
               onClick={() => void send([oversizedActions.whole])}
             >
-              整份文件
+              {t('send.wholeFile')}
             </button>
             <button
               className="ide-sendpop__send"
               disabled={!target || busy}
               onClick={() => void send([oversizedActions.clipped])}
             >
-              前 {MAX_REF_LINES} 行
+              {t('send.firstLines', { n: MAX_REF_LINES })}
             </button>
           </>
         ) : (
           <>
-            <span className="ide-sendpop__hint">代码会随消息一起发给模型</span>
+            <span className="ide-sendpop__hint">{t('send.hint')}</span>
             <button
               className="ide-sendpop__send"
               disabled={!target || busy || draft.refs.length === 0}
               onClick={() => void send(draft.refs)}
             >
-              {busy ? '发送中…' : '发送'}
+              {busy ? t('send.sending') : t('send.send')}
             </button>
           </>
         )}

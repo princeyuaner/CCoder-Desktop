@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import type { MessageKey } from '@shared/i18n'
 import type { RunAgent, RunAgentStatus } from '../run-state'
+import { useI18n } from '../i18n'
 import { fmtDuration, fmtTokens } from './format'
 import { IconCopy } from './Icons'
 import { RichText } from './rich'
@@ -12,12 +14,12 @@ import { RichText } from './rich'
  * 报告可能是 Markdown，所以直接复用对话的 RichText，而不是塞进 <pre>。
  */
 
-const STATUS_LABEL: Record<RunAgentStatus, string> = {
-  running: '运行中',
-  ok: '完成',
-  error: '失败',
-  stopped: '已停止',
-  denied: '已拒绝'
+const STATUS_LABEL_KEY: Record<RunAgentStatus, MessageKey> = {
+  running: 'agentState.running',
+  ok: 'agentState.done',
+  error: 'agentState.failed',
+  stopped: 'agentState.stopped',
+  denied: 'agentState.denied'
 }
 
 function stateClass(status: RunAgentStatus): string {
@@ -34,6 +36,7 @@ export function AgentReportModal({
   agent: RunAgent
   onClose: () => void
 }): JSX.Element {
+  const { t, tn, locale } = useI18n()
   const dlgRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
 
@@ -53,10 +56,12 @@ export function AgentReportModal({
 
   const copyText = agent.report || agent.result || agent.error || ''
   const isBackground = agent.isBackground === true || agent.info?.async === true
-  const meta: string[] = [isBackground ? '后台运行' : '前台']
-  if (agent.ms != null) meta.push(fmtDuration(agent.ms))
+  const meta: string[] = [
+    isBackground ? t('report.background') : t('report.foreground')
+  ]
+  if (agent.ms != null) meta.push(fmtDuration(agent.ms, locale))
   if (agent.info?.totalTokens) meta.push(`${fmtTokens(agent.info.totalTokens)} tok`)
-  if (agent.info?.toolUseCount) meta.push(`${agent.info.toolUseCount} 次工具`)
+  if (agent.info?.toolUseCount) meta.push(tn('count.tools', agent.info.toolUseCount))
   if (agent.info?.model) meta.push(agent.info.model)
   if (agent.taskId) meta.push(`task ${agent.taskId}`)
 
@@ -80,11 +85,11 @@ export function AgentReportModal({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={`子代理报告：${agent.description}`}
+        aria-label={t('report.aria', { description: agent.description })}
       >
         <div className="modal__h">
           <span className={`modal__badge report__badge ${stateClass(agent.status)}`}>
-            {STATUS_LABEL[agent.status]}
+            {t(STATUS_LABEL_KEY[agent.status])}
           </span>
           <span className="modal__t" title={agent.description}>
             {agent.description}
@@ -99,28 +104,38 @@ export function AgentReportModal({
             ))}
           </div>
 
-          {agent.error && <div className="report__err">{agent.error}</div>}
+          {(agent.error || agent.errorCode) && (
+            <div className="report__err">
+              {agent.error ||
+                t(agent.errorCode === 'denied' ? 'agentError.denied' : 'agentError.failed')}
+            </div>
+          )}
 
           {agent.report ? (
             <div className="report__body">
               <RichText text={agent.report} />
+              {agent.reportTruncatedChars != null && (
+                <p className="report__note">
+                  {t('report.truncated', { n: agent.reportTruncatedChars })}
+                </p>
+              )}
             </div>
           ) : (
             <div className="report__empty">
               {agent.result ? (
                 <>
                   <div className="selectable">{agent.result}</div>
-                  <p className="report__note">仅保留摘要，CLI 没有回传完整正文。</p>
+                  <p className="report__note">{t('report.summaryOnly')}</p>
                 </>
               ) : (
-                <p className="report__note">这条子代理没有返回可查看的报告。</p>
+                <p className="report__note">{t('report.empty')}</p>
               )}
             </div>
           )}
 
           {agent.outputFile && (
             <div className="report__file" title={agent.outputFile}>
-              报告文件：{agent.outputFile}
+              {t('report.file', { path: agent.outputFile })}
             </div>
           )}
         </div>
@@ -128,11 +143,12 @@ export function AgentReportModal({
         <div className="modal__f">
           <button className="btn report__cp" onClick={copy} disabled={!copyText}>
             <IconCopy width={13} height={13} />
-            {copied ? '已复制' : '复制报告'}
+            {copied ? t('report.copied') : t('report.copy')}
           </button>
           <span className="modal__sp" />
           <button className="btn btn--primary" onClick={onClose}>
-            关闭<span className="kbd">Esc</span>
+            {t('common.close')}
+            <span className="kbd">Esc</span>
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CodexStatus } from '@shared/codex'
+import { useI18n } from '../i18n'
 
 interface Props {
   status: CodexStatus | null
@@ -23,6 +24,7 @@ export function CodexStatusPanel({
   onRefresh,
   hasChannelKey
 }: Props): JSX.Element {
+  const { t } = useI18n()
   if (loading && !status) {
     return (
       <div className="statuscard statuscard--muted">
@@ -30,8 +32,8 @@ export function CodexStatusPanel({
           <span className="spinner" />
         </div>
         <div className="statuscard__main">
-          <div className="statuscard__title">正在检测 Codex CLI…</div>
-          <div className="statuscard__meta">检查可执行文件、app-server 与账号状态</div>
+          <div className="statuscard__title">{t('codex.checking')}</div>
+          <div className="statuscard__meta">{t('codex.checkingMeta')}</div>
         </div>
       </div>
     )
@@ -42,12 +44,12 @@ export function CodexStatusPanel({
       <div className="statuscard statuscard--bad">
         <div className="statuscard__icon">!</div>
         <div className="statuscard__main">
-          <div className="statuscard__title">检测失败</div>
+          <div className="statuscard__title">{t('codex.failed')}</div>
           <div className="statuscard__meta">{error}</div>
         </div>
         <div className="statuscard__actions">
           <button className="btn btn--ghost btn--xs" onClick={onRefresh}>
-            重新检测
+            {t('codex.recheck')}
           </button>
         </div>
       </div>
@@ -67,25 +69,25 @@ export function CodexStatusPanel({
           <div className="statuscard__title">
             Codex CLI{' '}
             <span className={`badge ${installed ? 'badge--ok' : 'badge--bad'}`}>
-              {installed ? '已安装' : '未安装'}
+              {installed ? t('codex.installed') : t('codex.notInstalled')}
             </span>
           </div>
           <div className="statuscard__meta">
             {installed ? (
               <>
-                <code>{status?.version || '版本未知'}</code>
+                <code>{status?.version || t('codex.versionUnknown')}</code>
                 {' · '}
                 <span className="statuscard__path">{status?.path}</span>
                 {' · '}
-                {appServerOk ? 'app-server 正常' : 'app-server 无法启动'}
+                {appServerOk ? t('codex.appServerOk') : t('codex.appServerBad')}
               </>
             ) : (
               <>
-                没有找到 <code>codex</code>。按下方步骤安装后即可使用。
+                {t('codex.notInstalledHint')}
                 {status?.path && (
                   <>
                     {' '}
-                    尝试过：<span className="statuscard__path">{status.path}</span>
+                    {t('codex.tried')}<span className="statuscard__path">{status.path}</span>
                   </>
                 )}
               </>
@@ -101,7 +103,7 @@ export function CodexStatusPanel({
             onClick={onRefresh}
             disabled={loading}
           >
-            {loading ? '检测中…' : '重新检测'}
+            {loading ? t('codex.detecting') : t('codex.recheck')}
           </button>
         </div>
       </div>
@@ -122,6 +124,7 @@ function AccountCard({
   status: CodexStatus | null
   hasChannelKey: boolean
 }): JSX.Element {
+  const { t } = useI18n()
   if (hasChannelKey) {
     return (
       <div className="statuscard">
@@ -130,10 +133,10 @@ function AccountCard({
         </div>
         <div className="statuscard__main">
           <div className="statuscard__title">
-            渠道凭据 <span className="badge badge--ok">已配置</span>
+            {t('codex.channelKey')} <span className="badge badge--ok">{t('codex.channelKeyConfigured')}</span>
           </div>
           <div className="statuscard__meta">
-            当前渠道填了 API Key，请求走这个端点，不需要 ChatGPT 登录。
+            {t('codex.channelKeyBody')}
           </div>
         </div>
       </div>
@@ -149,12 +152,12 @@ function AccountCard({
         </div>
         <div className="statuscard__main">
           <div className="statuscard__title">
-            账号 <span className="badge badge--ok">已登录</span>
+            {t('codex.account')} <span className="badge badge--ok">{t('auth.loggedIn')}</span>
           </div>
           <div className="statuscard__meta">
             ChatGPT{acc.plan ? ` ${acc.plan}` : ''}
             {acc.email ? ` · ${acc.email}` : ''}
-            {' · 与 Codex CLI / 插件共享 CODEX_HOME'}
+            {t('codex.sharedHome')}
           </div>
         </div>
       </div>
@@ -169,9 +172,9 @@ function AccountCard({
         </div>
         <div className="statuscard__main">
           <div className="statuscard__title">
-            账号 <span className="badge badge--ok">API Key</span>
+            {t('codex.account')} <span className="badge badge--ok">API Key</span>
           </div>
-          <div className="statuscard__meta">Codex 已保存 API Key；渠道里的凭据优先。</div>
+          <div className="statuscard__meta">{t('codex.apiKeyBody')}</div>
         </div>
       </div>
     )
@@ -184,11 +187,10 @@ function AccountCard({
       </div>
       <div className="statuscard__main">
         <div className="statuscard__title">
-          账号 <span className="badge">未登录</span>
+          {t('codex.account')} <span className="badge">{t('codex.notLoggedIn')}</span>
         </div>
         <div className="statuscard__meta">
-          在终端运行 <code>codex login</code>，然后新建一个渠道（Base URL 与 Key
-          可留空，只填模型名）；也可以直接在渠道里填 API Key。
+          {t('codex.loginHint')}
         </div>
       </div>
       <div className="statuscard__actions">
@@ -196,7 +198,7 @@ function AccountCard({
           className="btn btn--ghost btn--xs"
           onClick={() => void copyText('codex login')}
         >
-          复制登录命令
+          {t('codex.copyLogin')}
         </button>
       </div>
     </div>
@@ -223,6 +225,7 @@ const INSTALL: Record<OsKey, { label: string; command: string }> = {
 const NPM_COMMAND = 'npm install -g @openai/codex'
 
 function InstallGuide(): JSX.Element {
+  const { t } = useI18n()
   const platform =
     typeof window !== 'undefined' && window.api?.platform ? window.api.platform : 'win32'
   const [os, setOs] = useState<OsKey>(
@@ -238,10 +241,9 @@ function InstallGuide(): JSX.Element {
 
   return (
     <section className="installguide">
-      <h2 className="installguide__title">安装 Codex CLI</h2>
+      <h2 className="installguide__title">{t('codex.installTitle')}</h2>
       <p className="installguide__lead">
-        安装完成后点上面的「重新检测」，不需要重启 CCoder。Codex 的登录与历史都放在
-        <code>CODEX_HOME</code> 里，和终端里跑的 <code>codex</code> 共享。
+        {t('codex.installBody')}
       </p>
 
       <div className="ostabs" role="tablist">
@@ -266,12 +268,12 @@ function InstallGuide(): JSX.Element {
           className="btn btn--ghost btn--xs"
           onClick={() => void copy(INSTALL[os].command, 'install')}
         >
-          {copied === 'install' ? '已复制' : '复制'}
+          {copied === 'install' ? t('codex.copied') : t('codex.copy')}
         </button>
       </div>
 
       <div className="installguide__alt">
-        <span>或者用 npm：</span>
+        <span>{t('codex.orNpm')}</span>
         <div className="cmdbox cmdbox--inline">
           <code className="cmdbox__line">{NPM_COMMAND}</code>
           <button
@@ -279,17 +281,16 @@ function InstallGuide(): JSX.Element {
             className="btn btn--ghost btn--xs"
             onClick={() => void copy(NPM_COMMAND, 'npm')}
           >
-            {copied === 'npm' ? '已复制' : '复制'}
+            {copied === 'npm' ? t('codex.copied') : t('codex.copy')}
           </button>
         </div>
       </div>
 
       <ol className="installguide__steps">
-        <li>运行上面的安装命令，确认终端里 <code>codex --version</code> 能输出版本号。</li>
-        <li>点「重新检测」。检测到已安装后，这里会显示版本和 app-server 状态。</li>
+        <li>{t('codex.step1')}</li>
+        <li>{t('codex.step2')}</li>
         <li>
-          登录：终端运行 <code>codex login</code>，然后新建渠道并填模型名（Base URL /
-          Key 可留空）；也可以直接填 OpenAI 兼容的 Base URL 和 API Key。
+          {t('codex.loginStep')}
         </li>
       </ol>
     </section>

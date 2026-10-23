@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CodexStatus } from '@shared/codex'
+import { tr } from './i18n'
 
 export interface CodexStatusApi {
   status: CodexStatus | null
@@ -22,7 +23,7 @@ export function useCodexStatus(enabled: boolean): CodexStatusApi {
   const refresh = useCallback(async (): Promise<void> => {
     const api = typeof window !== 'undefined' ? window.api : undefined
     if (!api?.codex) {
-      setError('当前不在 Electron 中运行，无法探测 Codex。')
+      setError(tr('errors.notElectronCodex'))
       return
     }
     setLoading(true)

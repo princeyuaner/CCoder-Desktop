@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CliAuthMode } from '@shared/settings'
 import type { ClaudeAuthApi } from '../useClaudeAuth'
+import { useI18n } from '../i18n'
 
 const INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code'
 
@@ -29,6 +30,7 @@ export function ClaudeAuthPanel({
   onAuthMode,
   onOfficialModel
 }: Props): JSX.Element {
+  const { t } = useI18n()
   const [code, setCode] = useState('')
   const [showLog, setShowLog] = useState(false)
   const [confirmLogout, setConfirmLogout] = useState(false)
@@ -63,8 +65,8 @@ export function ClaudeAuthPanel({
           <span className="spinner" />
         </div>
         <div className="statuscard__main">
-          <div className="statuscard__title">正在检测 Claude Code…</div>
-          <div className="statuscard__meta">检查可执行文件与官方登录状态</div>
+          <div className="statuscard__title">{t('auth.checking')}</div>
+          <div className="statuscard__meta">{t('auth.checkingMeta')}</div>
         </div>
       </div>
     )
@@ -73,12 +75,12 @@ export function ClaudeAuthPanel({
       <div className="statuscard statuscard--bad">
         <div className="statuscard__icon">!</div>
         <div className="statuscard__main">
-          <div className="statuscard__title">检测失败</div>
+          <div className="statuscard__title">{t('auth.failed')}</div>
           <div className="statuscard__meta">{auth.error}</div>
         </div>
         <div className="statuscard__actions">
           <button className="btn btn--ghost btn--xs" onClick={() => void auth.refresh()}>
-            重新检测
+            {t('auth.recheck')}
           </button>
         </div>
       </div>
@@ -89,15 +91,15 @@ export function ClaudeAuthPanel({
         <div className="statuscard__icon statuscard__icon--bad">!</div>
         <div className="statuscard__main">
           <div className="statuscard__title">
-            Claude Code <span className="badge badge--bad">未安装</span>
+            Claude Code <span className="badge badge--bad">{t('auth.notInstalled')}</span>
           </div>
           <div className="statuscard__meta">
-            没有找到 <code>claude</code>。安装后即可使用官方登录：
+            {t('auth.notInstalledHint')}
             <code className="authcmd">{INSTALL_COMMAND}</code>
             {status?.path && (
               <>
                 {' '}
-                尝试过：<span className="statuscard__path">{status.path}</span>
+                {t('auth.tried')}<span className="statuscard__path">{status.path}</span>
               </>
             )}
           </div>
@@ -107,10 +109,10 @@ export function ClaudeAuthPanel({
             className="btn btn--ghost btn--xs"
             onClick={() => void copy(INSTALL_COMMAND, 'install')}
           >
-            {copied === 'install' ? '已复制' : '复制安装命令'}
+            {copied === 'install' ? t('auth.copied') : t('auth.copyInstall')}
           </button>
           <button className="btn btn--ghost btn--xs" onClick={() => void auth.refresh()}>
-            重新检测
+            {t('auth.recheck')}
           </button>
         </div>
       </div>
@@ -123,10 +125,10 @@ export function ClaudeAuthPanel({
         </div>
         <div className="statuscard__main">
           <div className="statuscard__title">
-            Claude Code <span className="badge badge--ok">已安装</span>
+            Claude Code <span className="badge badge--ok">{t('auth.installed')}</span>
           </div>
           <div className="statuscard__meta">
-            <code>{status.version || '版本未知'}</code>
+            <code>{status.version || t('auth.versionUnknown')}</code>
             {' · '}
             <span className="statuscard__path">{status.path}</span>
           </div>
@@ -138,7 +140,7 @@ export function ClaudeAuthPanel({
             onClick={() => void auth.refresh()}
             disabled={auth.loading}
           >
-            {auth.loading ? '检测中…' : '重新检测'}
+            {auth.loading ? t('auth.detecting') : t('auth.recheck')}
           </button>
         </div>
       </div>
@@ -165,17 +167,17 @@ export function ClaudeAuthPanel({
           </div>
           <div className="statuscard__main">
             <div className="statuscard__title">
-              官方账号{' '}
+              {t('auth.officialAccount')}{' '}
               {loggedIn ? (
-                <span className="badge badge--ok">已登录</span>
+                <span className="badge badge--ok">{t('auth.loggedIn')}</span>
               ) : (
-                <span className="badge">未登录</span>
+                <span className="badge">{t('auth.notLoggedIn')}</span>
               )}
             </div>
             <div className="statuscard__meta">
               {loggedIn
-                ? identity || '已通过 Claude Code CLI 登录'
-                : '使用官方账号需要先在 Claude Code 里登录；也可以继续使用 API 渠道。'}
+                ? identity || t('auth.loggedInVia')
+                : t('auth.officialNeedsLogin')}
               {loggedIn && method && (
                 <>
                   {' · '}
@@ -185,7 +187,7 @@ export function ClaudeAuthPanel({
             </div>
             {authMode === 'official' && !loggedIn && (
               <p className="authwarn">
-                当前是「官方登录」模式，但还没登录 —— 新建会话的请求可能会失败。
+                {t('auth.officialModeNotLoggedIn')}
               </p>
             )}
             {auth.error && <p className="authwarn">{auth.error}</p>}
@@ -201,13 +203,13 @@ export function ClaudeAuthPanel({
                       void auth.logout()
                     }}
                   >
-                    确认退出
+                    {t('auth.confirmLogout')}
                   </button>
                   <button
                     className="btn btn--ghost btn--xs"
                     onClick={() => setConfirmLogout(false)}
                   >
-                    取消
+                    {t('auth.cancel')}
                   </button>
                 </>
               ) : (
@@ -219,7 +221,7 @@ export function ClaudeAuthPanel({
                   }}
                   disabled={auth.busy}
                 >
-                  退出登录
+                  {t('auth.logout')}
                 </button>
               )
             ) : (
@@ -228,7 +230,7 @@ export function ClaudeAuthPanel({
                 onClick={() => void auth.startLogin()}
                 disabled={auth.busy}
               >
-                {auth.busy ? '登录中…' : '登录官方账号'}
+                {auth.busy ? t('auth.loggingIn') : t('auth.login')}
               </button>
             )}
           </div>
@@ -237,8 +239,7 @@ export function ClaudeAuthPanel({
 
       {confirmLogout && runningSessions > 0 && (
         <p className="authwarn authwarn--block">
-          当前有 {runningSessions} 条会话在运行。退出登录不会停止它们，但它们的下一轮
-          请求可能因为凭据失效而失败。
+          {t('auth.runningWarning', { n: runningSessions })}
         </p>
       )}
 
@@ -247,15 +248,15 @@ export function ClaudeAuthPanel({
         <section className="authflow">
           <div className="authflow__head">
             <span className={`authflow__state is-${auth.phase}`}>
-              {auth.phase === 'starting' && '正在启动登录…'}
-              {auth.phase === 'waiting' && '等待授权码'}
-              {auth.phase === 'verifying' && '正在验证授权码…'}
-              {auth.phase === 'failed' && '登录失败'}
-              {auth.phase === 'cancelled' && '已取消'}
+              {auth.phase === 'starting' && t('auth.phase.starting')}
+              {auth.phase === 'waiting' && t('auth.phase.waiting')}
+              {auth.phase === 'verifying' && t('auth.phase.verifying')}
+              {auth.phase === 'failed' && t('auth.phase.failed')}
+              {auth.phase === 'cancelled' && t('auth.phase.cancelled')}
             </span>
             {auth.busy && (
               <button className="btn btn--ghost btn--xs" onClick={() => void auth.cancelLogin()}>
-                取消登录
+                {t('auth.cancelLogin')}
               </button>
             )}
           </div>
@@ -264,7 +265,7 @@ export function ClaudeAuthPanel({
 
           {auth.url && (
             <div className="authurlrow">
-              <span className="authurlrow__label">授权链接</span>
+              <span className="authurlrow__label">{t('auth.urlLabel')}</span>
               <code className="authurl" title={auth.url}>
                 {auth.url}
               </code>
@@ -273,13 +274,13 @@ export function ClaudeAuthPanel({
                   className="btn btn--ghost btn--xs"
                   onClick={() => void copy(auth.url ?? '', 'url')}
                 >
-                  {copied === 'url' ? '已复制' : '复制链接'}
+                  {copied === 'url' ? t('auth.copied') : t('auth.copyUrl')}
                 </button>
                 <button
                   className="btn btn--ghost btn--xs"
                   onClick={() => window.open(auth.url ?? '', '_blank')}
                 >
-                  打开浏览器
+                  {t('auth.openBrowser')}
                 </button>
               </div>
             </div>
@@ -289,7 +290,7 @@ export function ClaudeAuthPanel({
             <div className="authcoderow">
               <input
                 className="input"
-                placeholder="把浏览器里显示的授权码粘贴到这里"
+                placeholder={t('auth.codePlaceholder')}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 onKeyDown={(e) => {
@@ -302,19 +303,19 @@ export function ClaudeAuthPanel({
                 onClick={() => void submit()}
                 disabled={!code.trim() || auth.phase === 'verifying'}
               >
-                提交授权码
+                {t('auth.submitCode')}
               </button>
             </div>
           )}
 
           <p className="authnote">
-            授权码只用于本次登录，不会写入设置文件；登录由 Claude Code CLI 自己完成。
+            {t('auth.codeNote')}
           </p>
 
           {auth.output && (
             <div className="authlogwrap">
               <button className="authlogtoggle" onClick={() => setShowLog((v) => !v)}>
-                {showLog ? '收起 CLI 输出' : '查看 CLI 输出'}
+                {showLog ? t('auth.hideLog') : t('auth.showLog')}
               </button>
               {showLog && <pre className="authlog">{auth.output}</pre>}
             </div>
@@ -324,42 +325,39 @@ export function ClaudeAuthPanel({
 
       {/* ── 凭据来源 ─────────────────────────────────── */}
       <section className="chform chform--sep">
-        <h2 className="chform__title">凭据来源</h2>
+        <h2 className="chform__title">{t('auth.sourceTitle')}</h2>
         <div className="authpick">
           <button
             className={`authpick__it ${authMode === 'official' ? 'is-on' : ''}`}
             onClick={() => onAuthMode('official')}
           >
-            <span className="authpick__t">官方登录</span>
+            <span className="authpick__t">{t('auth.officialTitle')}</span>
             <span className="authpick__d">
-              用 CLI 保存的 OAuth 凭据；不注入渠道变量，也不加载
-              ~/.claude/settings.json 里的用户级配置（避免全局中转 env 覆盖登录）。
+              {t('auth.officialBody')}
             </span>
           </button>
           <button
             className={`authpick__it ${authMode === 'channel' ? 'is-on' : ''}`}
             onClick={() => onAuthMode('channel')}
           >
-            <span className="authpick__t">API 渠道</span>
-            <span className="authpick__d">用下方渠道的 Base URL 与密钥（中转端点也走这里）。</span>
+            <span className="authpick__t">{t('auth.channelTitle')}</span>
+            <span className="authpick__d">{t('auth.channelBody')}</span>
           </button>
         </div>
 
         {authMode === 'official' && (
           <div className="field">
-            <label className="field__label">默认模型</label>
+            <label className="field__label">{t('auth.officialModel')}</label>
             <div className="field__body">
               <input
                 className="input"
-                placeholder="留空 = 由 CLI 决定"
+                placeholder={t('auth.officialModelPlaceholder')}
                 value={officialModel}
                 onChange={(e) => onOfficialModel(e.target.value)}
                 spellCheck={false}
               />
               <p className="field__hint">
-                官方登录模式下新会话使用的模型，如 <code>sonnet</code> / <code>opus</code> /{' '}
-                <code>haiku</code>；留空则用 CLI 的默认模型。渠道配置会保留，切回 API
-                渠道即可继续使用。
+                {t('auth.officialModelHint')}
               </p>
             </div>
           </div>

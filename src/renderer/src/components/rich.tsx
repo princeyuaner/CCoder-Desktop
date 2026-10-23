@@ -10,6 +10,7 @@
  * 行内：`code`、**粗体**、*斜体*、[链接](url)。
  */
 import { useMemo, useState, type ReactNode } from 'react'
+import { useI18n } from '../i18n'
 
 /* ── 行内 ───────────────────────────────────────────────── */
 
@@ -292,6 +293,7 @@ function codeNodes(code: string, lang: string): ReactNode[] {
 /* ── 渲染 ───────────────────────────────────────────────── */
 
 function CodeCard({ lang, code }: { lang: string; code: string }): JSX.Element {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
 
   const copy = (): void => {
@@ -308,7 +310,7 @@ function CodeCard({ lang, code }: { lang: string; code: string }): JSX.Element {
     <div className="codebox">
       <span className="codebox__lang">{lang || 'text'}</span>
       <button className="codebox__cp" onClick={copy}>
-        {copied ? '已复制' : '复制'}
+        {copied ? t('common.copied') : t('common.copy')}
       </button>
       <pre className="code">{codeNodes(code, lang)}</pre>
     </div>

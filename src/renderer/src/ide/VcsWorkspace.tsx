@@ -14,6 +14,8 @@ import type {
   VcsWorktreeListData
 } from '@shared/vcs'
 import { VcsDiffView } from './VcsDiffView'
+import { formatRelativeTime } from '@shared/i18n'
+import { getLocale, tr, useI18n } from '../i18n'
 
 const P = {
   branch: 'M4 4.9v6.2M12 6.5c0 2.8-2.6 3.1-4.5 3.6',
@@ -53,20 +55,13 @@ function errorOf(err: unknown): string {
 function when(iso: string): string {
   const t = Date.parse(iso)
   if (!Number.isFinite(t)) return iso
-  const diff = Date.now() - t
-  const min = Math.floor(diff / 60_000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr} 小时前`
-  const d = new Date(t)
-  return `${d.getMonth() + 1}月${d.getDate()}日`
+  return formatRelativeTime(t, getLocale(), 'ago')
 }
 
 function statusLabel(f: VcsFile): string {
-  if (f.conflict) return '冲突'
-  if (f.untracked) return '未跟踪'
-  if (f.propertyChange) return '属性'
+  if (f.conflict) return tr('vcs.status.conflict')
+  if (f.untracked) return tr('vcs.status.untracked')
+  if (f.propertyChange) return tr('vcs.status.property')
   return f.status
 }
 
@@ -142,6 +137,7 @@ export function VcsWorkspace({
   onNotice,
   onOpenFile
 }: Props): JSX.Element {
+  const { t, tn } = useI18n()
   const [tab, setTab] = useState<Tab>('changes')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [active, setActive] = useState<Active | null>(null)
@@ -198,23 +194,28 @@ export function VcsWorkspace({
       return [
         {
           key: 'staged',
-          title: '暂存的更改',
+          title: t('vcs.group.staged'),
           source: 'staged' as VcsDiffSource,
           files: fs.filter((f) => f.staged && !f.conflict)
         },
         {
           key: 'changes',
-          title: '更改',
+          title: t('vcs.group.changes'),
           source: 'working' as VcsDiffSource,
           files: fs.filter((f) => f.unstaged && !f.untracked && !f.conflict)
         },
         {
           key: 'untracked',
-          title: '未跟踪',
+          title: t('vcs.group.untracked'),
           source: 'working' as VcsDiffSource,
           files: fs.filter((f) => f.untracked && !f.conflict)
         },
-        { key: 'conflicts', title: '冲突', source: 'working' as VcsDiffSource, files: fs.filter((f) => f.conflict) }
+        {
+          key: 'conflicts',
+          title: t('vcs.group.conflicts'),
+          source: 'working' as VcsDiffSource,
+          files: fs.filter((f) => f.conflict)
+        }
       ].filter((g) => g.files.length > 0)
     }
     // 外链是独立的工作副本：单独成组，提交时会分别写进它们自己的仓库
@@ -227,26 +228,31 @@ export function VcsWorkspace({
     return [
       {
         key: 'changes',
-        title: '待提交',
+        title: t('vcs.group.commit'),
         source: 'working' as VcsDiffSource,
         files: fs.filter((f) => !f.external && !f.untracked && !f.conflict)
       },
       {
         key: 'untracked',
-        title: '未纳入版本控制',
+        title: t('vcs.group.notVersioned'),
         source: 'working' as VcsDiffSource,
         files: fs.filter((f) => !f.external && f.untracked && !f.conflict)
       },
       ...externalRoots.map((root) => ({
         key: `external:${root}`,
-        title: `外链 · ${baseName(root)}`,
-        note: '独立工作副本',
+        title: t('vcs.group.external', { name: baseName(root) }),
+        note: t('vcs.group.externalNote'),
         source: 'working' as VcsDiffSource,
         files: fs.filter((f) => f.external && (f.externalRoot || '') === root && !f.conflict)
       })),
-      { key: 'conflicts', title: '冲突', source: 'working' as VcsDiffSource, files: fs.filter((f) => f.conflict) }
+      {
+        key: 'conflicts',
+        title: t('vcs.group.conflicts'),
+        source: 'working' as VcsDiffSource,
+        files: fs.filter((f) => f.conflict)
+      }
     ].filter((g) => g.files.length > 0)
-  }, [status])
+  }, [status, t])
 
   const activeFile = status?.files.find((f) => f.rel === active?.rel) ?? null
   const stagedCount = status?.files.filter((f) => f.staged && !f.conflict).length ?? 0
@@ -434,13 +440,13 @@ export function VcsWorkspace({
         const r = await fn(id)
         if (!r.ok) {
           if (r.error.code === 'cancelled') {
-            onNotice('操作已取消')
+            onNotice(t('vcs.notice.cancelled'))
             return false
           }
           setOpError(r.error)
           return false
         }
-        onNotice(describe ? describe(r.data) : `${label}成功`)
+        onNotice(describe ? describe(r.data) : t('vcs.notice.success', { label }))
         onMutated(filesChanged)
         onRefresh()
         if (tab === 'history') void loadLog(true)
@@ -452,27 +458,35 @@ export function VcsWorkspace({
         setOp(null)
       }
     },
-    [op, onNotice, onMutated, onRefresh, tab, loadLog]
+    [op, onNotice, onMutated, onRefresh, tab, loadLog, t]
   )
 
   const doStage = (paths: string[]): Promise<boolean> =>
-    run('暂存', false, (id) => window.api!.vcs.stage({ cwd, opId: id, paths }))
+    run(t('vcs.op.stage'), false, (id) =>
+      window.api!.vcs.stage({ cwd, opId: id, paths })
+    )
 
   const doUnstage = (paths: string[]): Promise<boolean> =>
-    run('取消暂存', false, (id) => window.api!.vcs.unstage({ cwd, opId: id, paths }))
+    run(t('vcs.op.unstage'), false, (id) =>
+      window.api!.vcs.unstage({ cwd, opId: id, paths })
+    )
 
   const doResolve = (paths: string[], side: 'ours' | 'theirs' | 'working'): Promise<boolean> =>
-    run('解决冲突', false, (id) => window.api!.vcs.resolve({ cwd, opId: id, paths, side }))
+    run(t('vcs.op.resolve'), false, (id) =>
+      window.api!.vcs.resolve({ cwd, opId: id, paths, side })
+    )
 
   const doDiscard = (paths: string[], includeUntracked = false): void => {
     setConfirm({
-      title: includeUntracked ? '删除未跟踪文件？' : '还原这些改动？',
+      title: includeUntracked
+        ? t('vcs.confirm.untrackedTitle')
+        : t('vcs.confirm.discardTitle'),
       body: includeUntracked
-        ? '文件会从磁盘上删除，这一步不可撤销。'
-        : '工作区里的改动会被丢弃，回到 HEAD 的内容。',
-      label: includeUntracked ? '删除' : '还原',
+        ? t('vcs.confirm.untrackedBody')
+        : t('vcs.confirm.discardBody'),
+      label: includeUntracked ? t('vcs.confirm.delete') : t('vcs.confirm.revert'),
       action: async () => {
-        await run('还原', false, (id) =>
+        await run(t('vcs.op.revert'), false, (id) =>
           window.api!.vcs.discard({ cwd, opId: id, paths, includeUntracked })
         )
       }
@@ -481,11 +495,13 @@ export function VcsWorkspace({
 
   const doRevert = (paths: string[]): void => {
     setConfirm({
-      title: '还原这些改动？',
-      body: 'SVN 工作副本里的本地改动会被丢弃，这一步不可撤销。',
-      label: '还原',
+      title: t('vcs.confirm.discardTitle'),
+      body: t('vcs.confirm.svnDiscardBody'),
+      label: t('vcs.confirm.revert'),
       action: async () => {
-        await run('还原', false, (id) => window.api!.vcs.revert({ cwd, opId: id, paths }))
+        await run(t('vcs.op.revert'), false, (id) =>
+          window.api!.vcs.revert({ cwd, opId: id, paths })
+        )
       }
     })
   }
@@ -493,7 +509,7 @@ export function VcsWorkspace({
   const doCommit = async (): Promise<void> => {
     if (!canCommit) return
     const ok = await run(
-      '提交',
+      t('vcs.op.commit'),
       false,
       (id) =>
         window.api!.vcs.commit({
@@ -504,7 +520,7 @@ export function VcsWorkspace({
         }),
       true,
       // SVN 含外链时会分成多次提交，把每个工作副本的 revision 都显示出来
-      (d) => (d.shortId ? `提交成功 ${d.shortId}` : '提交成功')
+      (d) => (d.shortId ? t('vcs.commit.success', { id: d.shortId }) : t('vcs.commit.successNoId'))
     )
     if (ok) {
       setMessage('')
@@ -514,15 +530,17 @@ export function VcsWorkspace({
   }
 
   const doFetch = (): Promise<boolean> =>
-    run('获取远端', true, (id) => window.api!.vcs.fetch({ cwd, opId: id }), false)
+    run(t('vcs.op.fetch'), true, (id) => window.api!.vcs.fetch({ cwd, opId: id }), false)
   const doPull = (): Promise<boolean> =>
-    run('拉取', true, (id) => window.api!.vcs.pull({ cwd, opId: id, strategy: 'ff-only' }))
+    run(t('vcs.op.pull'), true, (id) =>
+      window.api!.vcs.pull({ cwd, opId: id, strategy: 'ff-only' })
+    )
   const doPush = (): Promise<boolean> =>
-    run('推送', true, (id) =>
+    run(t('vcs.op.push'), true, (id) =>
       window.api!.vcs.push({ cwd, opId: id, setUpstream: !repo?.upstream })
     )
   const doUpdate = (): Promise<boolean> =>
-    run('更新', true, (id) => window.api!.vcs.update({ cwd, opId: id }))
+    run(t('vcs.op.update'), true, (id) => window.api!.vcs.update({ cwd, opId: id }))
 
   const cancel = (): void => {
     if (!op) return
@@ -571,12 +589,12 @@ export function VcsWorkspace({
     try {
       const r = await fn(id)
       if (!r.ok) {
-        if (r.error.code === 'cancelled') onNotice('操作已取消')
+        if (r.error.code === 'cancelled') onNotice(t('vcs.notice.cancelled'))
         else setOpError(r.error)
         return r
       }
       setTrees(r.data)
-      if (successNotice) onNotice(`${label}成功`)
+      if (successNotice) onNotice(t('vcs.notice.success', { label }))
       return r
     } catch (err) {
       setOpError({ code: 'unknown', message: errorOf(err) })
@@ -610,7 +628,7 @@ export function VcsWorkspace({
     const branch = form.branch.trim()
     const path = form.path.trim()
     if (!branch || !path) return
-    const r = await runTree('创建工作树', (id) =>
+    const r = await runTree(t('vcs.op.createWorktree'), (id) =>
       window.api!.vcs.worktreeAdd({
         cwd,
         opId: id,
@@ -627,13 +645,15 @@ export function VcsWorkspace({
 
   const confirmRemoveTree = (w: VcsWorktree, force = false): void => {
     setConfirm({
-      title: force ? '强制删除工作树？' : '删除工作树？',
+      title: force
+        ? t('vcs.worktree.forceRemoveTitle')
+        : t('vcs.worktree.removeTitle'),
       body: force
-        ? `未提交的改动和未跟踪文件会被丢弃：${w.path}。分支 ${w.branch ?? ''} 会保留。`
-        : `将删除目录 ${w.path}。有未提交改动时会再要求确认一次；分支会保留。`,
-      label: force ? '强制删除' : '删除',
+        ? t('vcs.worktree.forceRemoveBody', { path: w.path, branch: w.branch ?? '' })
+        : t('vcs.worktree.removeBody', { path: w.path }),
+      label: force ? t('vcs.worktree.forceDelete') : t('vcs.confirm.delete'),
       action: async () => {
-        const r = await runTree('删除工作树', (id) =>
+        const r = await runTree(t('vcs.op.removeWorktree'), (id) =>
           window.api!.vcs.worktreeRemove({ cwd, opId: id, path: w.path, force })
         )
         if (!r) return
@@ -653,17 +673,17 @@ export function VcsWorkspace({
   const doPruneTrees = (): void => {
     if (!prunableCount) return
     setConfirm({
-      title: '清理失效的工作树记录？',
-      body: `会移除 ${prunableCount} 条指向不存在目录的注册信息。不会删除任何现有文件；已锁定的记录会保留。`,
-      label: '清理',
+      title: t('vcs.worktree.pruneTitle'),
+      body: t('vcs.worktree.pruneBody', { n: prunableCount }),
+      label: t('vcs.worktree.prune'),
       action: async () => {
         const r = await runTree(
-          '清理工作树',
+          t('vcs.op.pruneWorktrees'),
           (id) => window.api!.vcs.worktreePrune({ cwd, opId: id }),
           false
         )
         if (!r?.ok) return
-        onNotice(`已清理 ${r.data.pruned} 条失效记录`)
+        onNotice(t('vcs.worktree.pruned', { n: r.data.pruned }))
       }
     })
   }
@@ -671,10 +691,10 @@ export function VcsWorkspace({
   const openSessionInWorktree = async (path: string): Promise<void> => {
     const r = await window.api!.workspace.openSession(path)
     if (!r.ok) {
-      setOpError({ code: 'unknown', message: r.message || '打开会话失败' })
+      setOpError({ code: 'unknown', message: r.message || t('vcs.openSessionFailed') })
       return
     }
-    onNotice('已切换到新会话')
+    onNotice(t('vcs.switchedSession'))
   }
 
   const openFile = (f: VcsFile, source: VcsDiffSource): void => {
@@ -694,7 +714,7 @@ export function VcsWorkspace({
   /* ── 渲染 ───────────────────────────────────────────── */
 
   if (loading && !detect && !status) {
-    return <div className="ide-vcs-fill">正在检测版本控制…</div>
+    return <div className="ide-vcs-fill">{t('vcs.detecting')}</div>
   }
 
   if (error) {
@@ -704,7 +724,7 @@ export function VcsWorkspace({
           <Ico d={P.warning} size={16} />
           <span>{error}</span>
           <button className="ide-vcs-link" onClick={onRefresh}>
-            重试
+            {t('common.retry')}
           </button>
         </div>
       </div>
@@ -717,15 +737,15 @@ export function VcsWorkspace({
       <div className="ide-vcs-fill">
         <div className="ide-vcs-empty">
           <div className="ide-vcs-empty-t">
-            {noCli ? '没有找到 git / svn 命令' : '这个工作区不是版本控制仓库'}
+            {noCli ? t('vcs.noCli') : t('vcs.notRepo')}
           </div>
           <div className="ide-vcs-empty-s">
             {noCli
-              ? '请先安装 Git 或 SVN，并确认命令已加入 PATH。'
-              : '在工作区里初始化 Git 仓库或检出一份 SVN 工作副本后，这里会自动出现。'}
+              ? t('vcs.noCliHint')
+              : t('vcs.notRepoHint')}
           </div>
           <button className="ide-vcs-btn" onClick={onRefresh}>
-            重新检测
+            {t('vcs.redetect')}
           </button>
         </div>
       </div>
@@ -733,7 +753,7 @@ export function VcsWorkspace({
   }
 
   if (!status) {
-    return <div className="ide-vcs-fill">正在读取版本控制状态…</div>
+    return <div className="ide-vcs-fill">{t('vcs.loadingStatus')}</div>
   }
 
   return (
@@ -741,7 +761,7 @@ export function VcsWorkspace({
       <header className="ide-vcs-head">
         <div className="ide-vcs-title">
           <Ico d={P.branch} size={15} />
-          <b>源代码管理</b>
+          <b>{t('vcs.sourceControl')}</b>
           <span className={`ide-vcs-kind is-${status.repo.kind}`}>
             {status.repo.kind === 'git' ? 'Git' : 'SVN'}
           </span>
@@ -762,17 +782,17 @@ export function VcsWorkspace({
           {status.repo.kind === 'git' ? (
             <>
               <button className="ide-vcs-btn" disabled={!!op} onClick={() => void doFetch()}>
-                获取
+                {t('vcs.fetch')}
               </button>
               <button className="ide-vcs-btn" disabled={!!op} onClick={() => void doPull()}>
-                拉取
+                {t('vcs.pull')}
               </button>
               <button
                 className="ide-vcs-btn is-primary"
                 disabled={!!op}
                 onClick={() => void doPush()}
               >
-                {status.repo.upstream ? '推送' : '发布'}
+                {status.repo.upstream ? t('vcs.push') : t('vcs.publish')}
               </button>
             </>
           ) : (
@@ -781,12 +801,12 @@ export function VcsWorkspace({
               disabled={!!op}
               onClick={() => void doUpdate()}
             >
-              更新
+              {t('vcs.update')}
             </button>
           )}
           <button
             className="ide-iconbtn"
-            title="刷新"
+            title={t('vcs.refresh')}
             disabled={!!op}
             onClick={() => {
               onRefresh()
@@ -800,37 +820,40 @@ export function VcsWorkspace({
 
       <div className="ide-vcs-tabs">
         <button className={tab === 'changes' ? 'on' : ''} onClick={() => setTab('changes')}>
-          更改 <span>{status.counts.total}</span>
+          {t('vcs.changes')} <span>{status.counts.total}</span>
         </button>
         <button className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>
-          历史
+          {t('vcs.history')}
         </button>
         <button className={tab === 'repo' ? 'on' : ''} onClick={() => setTab('repo')}>
-          仓库
+          {t('vcs.repo')}
         </button>
         {isGit && (
           <button
             className={tab === 'worktrees' ? 'on' : ''}
             onClick={() => setTab('worktrees')}
           >
-            工作树
+            {t('vcs.worktrees')}
           </button>
         )}
         <span className="ide-spacer" />
         {op ? (
           <span className="ide-vcs-busy">
-            <i className="ide-spin" /> {op.label}中…
+            <i className="ide-spin" /> {t('vcs.opRunning', { label: op.label })}
             {op.network && (
               <button className="ide-vcs-link" onClick={cancel}>
-                取消
+                {t('common.cancel')}
               </button>
             )}
           </span>
         ) : (
           <span className="ide-vcs-meta">
             {status.repo.kind === 'git'
-              ? `${status.counts.staged} 暂存 · ${status.counts.unstaged} 更改`
-              : `${status.counts.total} 个文件`}
+              ? t('vcs.counts.staged', {
+                  staged: status.counts.staged,
+                  unstaged: status.counts.unstaged
+                })
+              : tn('count.files', status.counts.total)}
           </span>
         )}
       </div>
@@ -841,17 +864,15 @@ export function VcsWorkspace({
           <span>{opError.message}</span>
           {opError.detail && <code title={opError.detail}>{opError.detail.split('\n')[0]}</code>}
           <button className="ide-vcs-link" onClick={() => setOpError(null)}>
-            关闭
+            {t('common.close')}
           </button>
         </div>
       )}
 
       {status.repo.workspacePrefix && (
         <div className="ide-vcs-banner is-note">
-          当前工作区是仓库 <b>{status.repo.root}</b> 的子目录；
-          {status.repo.kind === 'git'
-            ? 'Git 提交会作用于整个暂存区，可能包含工作区外的已暂存文件。'
-            : 'SVN 提交只包含当前勾选的文件。'}
+          {t('vcs.subdir', { root: status.repo.root })}
+          {status.repo.kind === 'git' ? t('vcs.subdirGit') : t('vcs.subdirSvn')}
         </div>
       )}
 
@@ -861,13 +882,19 @@ export function VcsWorkspace({
             <>
               <div className="ide-vcs-msg">
                 <div className="ide-vcs-msgh">
-                  <span>提交信息</span>
-                  <span>{isGit ? `${stagedCount} 个已暂存` : `${selectedCount} 个已选择`}</span>
+                  <span>{t('vcs.commitMessage')}</span>
+                  <span>
+                    {isGit
+                      ? t('vcs.stagedCount', { n: stagedCount })
+                      : t('vcs.selectedCount', { n: selectedCount })}
+                  </span>
                 </div>
                 <textarea
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder={isGit ? '描述这次改动…' : '描述这次提交…'}
+                  placeholder={
+                    isGit ? t('vcs.commitPlaceholderGit') : t('vcs.commitPlaceholderSvn')
+                  }
                   spellCheck={false}
                 />
                 <div className="ide-vcs-msgf">
@@ -878,7 +905,7 @@ export function VcsWorkspace({
                         checked={amend}
                         onChange={(e) => setAmend(e.target.checked)}
                       />
-                      修正上次提交
+                      {t('vcs.amend')}
                     </label>
                   )}
                   {!isGit && (
@@ -892,11 +919,11 @@ export function VcsWorkspace({
                         )
                       }
                     >
-                      {selectedCount === selectable.length ? '全不选' : '全选'}
+                      {selectedCount === selectable.length ? t('vcs.selectNone') : t('vcs.selectAll')}
                     </button>
                   )}
                   <span className="ide-spacer" />
-                  <span>{commitCount} 个文件</span>
+                  <span>{tn('count.files', commitCount)}</span>
                 </div>
               </div>
               <button
@@ -904,25 +931,27 @@ export function VcsWorkspace({
                 disabled={!canCommit}
                 title={
                   conflictCount > 0
-                    ? '先解决冲突'
+                    ? t('vcs.precondition.conflicts')
                     : !message.trim()
-                      ? '先填写提交信息'
+                      ? t('vcs.precondition.message')
                       : commitCount === 0
                         ? isGit
-                          ? '先暂存文件'
-                          : '先选择文件'
+                          ? t('vcs.precondition.stage')
+                          : t('vcs.precondition.select')
                         : externalSelected > 0
-                          ? `${externalSelected} 个外链文件会提交到它们各自的工作副本，产生单独的 revision`
+                          ? t('vcs.externalSelected', { n: externalSelected })
                           : ''
                 }
                 onClick={() => void doCommit()}
               >
                 <Ico d={P.check} size={13} />
-                {op?.label === '提交' ? '提交中…' : `提交 ${commitCount} 个文件`}
+                {op?.label === t('vcs.op.commit')
+                  ? t('vcs.committing')
+                  : t('vcs.commitFiles', { n: commitCount })}
               </button>
               <div className="ide-vcs-groups">
                 {groups.length === 0 && (
-                  <div className="ide-vcs-clean">工作区没有未提交的改动。</div>
+                  <div className="ide-vcs-clean">{t('vcs.clean')}</div>
                 )}
                 {groups.map((g) => (
                   <div className="ide-vcs-group" key={g.key}>
@@ -933,7 +962,7 @@ export function VcsWorkspace({
                       {g.note && (
                         <span
                           className="ide-vcs-gnote"
-                          title="svn:externals 工作副本，提交会写入它自己的仓库"
+                          title={t('vcs.externalTitle')}
                         >
                           {g.note}
                         </span>
@@ -943,7 +972,7 @@ export function VcsWorkspace({
                         (status.repo.kind === 'svn' && g.files.some((f) => f.untracked))) && (
                         <button
                           className="ide-vcs-mini"
-                          title="全部暂存 / 添加"
+                          title={t('vcs.stageAll')}
                           onClick={() =>
                             void doStage(
                               g.files
@@ -996,25 +1025,25 @@ export function VcsWorkspace({
           {tab === 'worktrees' && (
             <div className="ide-vcs-wtlist">
               <div className="ide-vcs-sidehead">
-                <span>工作树</span>
+                <span>{t('vcs.worktrees')}</span>
                 <button
                   className="ide-vcs-mini is-primary"
                   disabled={!!op || !trees}
                   onClick={openCreate}
                 >
-                  新建
+                  {t('vcs.new')}
                 </button>
                 <button
                   className="ide-vcs-mini"
                   disabled={!!op || prunableCount === 0}
-                  title="移除指向不存在目录的注册信息"
+                  title={t('vcs.worktree.pruneTitle')}
                   onClick={doPruneTrees}
                 >
-                  清理失效
+                  {t('vcs.prune')}
                 </button>
                 <button
                   className="ide-iconbtn"
-                  title="刷新"
+                  title={t('vcs.refresh')}
                   disabled={treesLoading}
                   onClick={() => void loadTrees()}
                 >
@@ -1025,7 +1054,7 @@ export function VcsWorkspace({
               {treesError && <div className="ide-vcs-inline-error">{treesError}</div>}
               {treesLoading && !trees && (
                 <div className="ide-vcs-loadingrow">
-                  <i className="ide-spin" /> 读取中…
+                  <i className="ide-spin" /> {t('ide.loading')}
                 </div>
               )}
 
@@ -1040,10 +1069,10 @@ export function VcsWorkspace({
                     {w.branch || (w.detached ? 'detached' : '(bare)')}
                   </span>
                   <span className="ide-vcs-wttags">
-                    {w.main && <i className="ide-vcs-wttag is-main">主</i>}
-                    {w.current && <i className="ide-vcs-wttag is-current">当前</i>}
-                    {!w.exists && <i className="ide-vcs-wttag is-missing">缺失</i>}
-                    {w.locked && <i className="ide-vcs-wttag is-locked">锁定</i>}
+                    {w.main && <i className="ide-vcs-wttag is-main">{t('vcs.tag.main')}</i>}
+                    {w.current && <i className="ide-vcs-wttag is-current">{t('vcs.tag.current')}</i>}
+                    {!w.exists && <i className="ide-vcs-wttag is-missing">{t('vcs.tag.missing')}</i>}
+                    {w.locked && <i className="ide-vcs-wttag is-locked">{t('vcs.tag.locked')}</i>}
                     {w.bare && <i className="ide-vcs-wttag">bare</i>}
                   </span>
                   <span className="ide-vcs-wtpath">{w.path}</span>
@@ -1051,7 +1080,7 @@ export function VcsWorkspace({
               ))}
 
               {!treesLoading && trees && trees.worktrees.length === 0 && (
-                <div className="ide-vcs-clean">没有工作树记录。</div>
+                <div className="ide-vcs-clean">{t('vcs.noWorktrees')}</div>
               )}
             </div>
           )}
@@ -1090,9 +1119,9 @@ export function VcsWorkspace({
           )}
           {tab === 'repo' && (
             <div className="ide-vcs-repohelp">
-              <div className="ide-vcs-empty-t">版本控制信息</div>
+              <div className="ide-vcs-empty-t">{t('vcs.infoTitle')}</div>
               <p>
-                这里是仓库级信息。切换分支 / 修订版本的操作暂未开放；改动、提交和同步都在「更改」页完成。
+                {t('vcs.infoBody')}
               </p>
             </div>
           )}
@@ -1101,24 +1130,24 @@ export function VcsWorkspace({
             (selectedTree ? (
               <div className="ide-vcs-wtdetail">
                 <div className="ide-vcs-sidehead">
-                  <span>工作树详情</span>
+                  <span>{t('vcs.worktreeDetail')}</span>
                 </div>
                 <dl className="ide-vcs-dl">
                   <div className="ide-vcs-dlrow">
-                    <dt>分支</dt>
+                    <dt>{t('vcs.branch')}</dt>
                     <dd>{selectedTree.branch || (selectedTree.detached ? 'detached' : '(bare)')}</dd>
                   </div>
                   <div className="ide-vcs-dlrow">
                     <dt>HEAD</dt>
-                    <dd>{selectedTree.headShort || '(空)'}</dd>
+                    <dd>{selectedTree.headShort || t('vcs.emptyHead')}</dd>
                   </div>
                   <div className="ide-vcs-dlrow">
-                    <dt>目录</dt>
+                    <dt>{t('vcs.directory')}</dt>
                     <dd title={selectedTree.path}>{selectedTree.path}</dd>
                   </div>
                   {selectedTree.lockReason && (
                     <div className="ide-vcs-dlrow">
-                      <dt>锁定原因</dt>
+                      <dt>{t('vcs.lockReason')}</dt>
                       <dd>{selectedTree.lockReason}</dd>
                     </div>
                   )}
@@ -1131,13 +1160,13 @@ export function VcsWorkspace({
                         className="ide-vcs-btn"
                         onClick={() => void window.api?.ide?.open(selectedTree.path)}
                       >
-                        打开 IDE
+                        {t('vcs.openIde')}
                       </button>
                       <button
                         className="ide-vcs-btn is-primary"
                         onClick={() => void openSessionInWorktree(selectedTree.path)}
                       >
-                        新会话
+                        {t('vcs.newSession')}
                       </button>
                     </>
                   )}
@@ -1150,29 +1179,29 @@ export function VcsWorkspace({
                         disabled={!!op}
                         onClick={() => confirmRemoveTree(selectedTree)}
                       >
-                        删除
+                        {t('vcs.delete')}
                       </button>
                     )}
                 </div>
 
                 {!selectedTree.exists && (
                   <p className="ide-vcs-note">
-                    目录已不存在。用「清理失效」移除这条注册；分支会保留。
+                    {t('vcs.worktreeMissing')}
                   </p>
                 )}
                 {selectedTree.locked && (
                   <p className="ide-vcs-note">
-                    工作树已锁定，删除前先在外部执行 <code>git worktree unlock</code>。
+                    {t('vcs.worktreeLocked')}
                   </p>
                 )}
                 <p className="ide-vcs-note">
-                  删除工作树不会删除分支；主工作树和当前工作树不能删。
+                  {t('vcs.worktreeDeleteNote')}
                 </p>
               </div>
             ) : (
               <div className="ide-vcs-empty">
-                <div className="ide-vcs-empty-t">选择一个工作树</div>
-                <div className="ide-vcs-empty-s">查看分支、目录和可用操作。</div>
+                <div className="ide-vcs-empty-t">{t('vcs.selectWorktree')}</div>
+                <div className="ide-vcs-empty-s">{t('vcs.selectWorktreeHint')}</div>
               </div>
             ))}
         </main>
@@ -1181,11 +1210,11 @@ export function VcsWorkspace({
       {createOpen && (
         <div className="ide-vcs-scrim" onClick={() => setCreateOpen(false)}>
           <div className="ide-vcs-confirm is-wide" onClick={(e) => e.stopPropagation()}>
-            <div className="ide-vcs-confirm-t">新建工作树</div>
+            <div className="ide-vcs-confirm-t">{t('vcs.createWorktree')}</div>
             <div className="ide-vcs-confirm-b">
               <div className="ide-vcs-form">
                 <label>
-                  新分支
+                  {t('vcs.newBranch')}
                   <input
                     value={form.branch}
                     onChange={(e) => onBranchChange(e.target.value)}
@@ -1195,7 +1224,7 @@ export function VcsWorkspace({
                   />
                 </label>
                 <label>
-                  基于分支 / 提交
+                  {t('vcs.baseBranch')}
                   <input
                     value={form.base}
                     onChange={(e) => setForm((prev) => ({ ...prev, base: e.target.value }))}
@@ -1203,7 +1232,7 @@ export function VcsWorkspace({
                   />
                 </label>
                 <label>
-                  工作树位置
+                  {t('vcs.worktreeLocation')}
                   <input
                     value={form.path}
                     onChange={(e) => {
@@ -1214,14 +1243,15 @@ export function VcsWorkspace({
                   />
                 </label>
                 <div className="ide-vcs-formhint">
-                  默认创建在 {trees?.defaultRoot || '(主工作树同级)'} 下；目录必须是绝对路径，
-                  且不能位于现有工作树内部。删除工作树不会删除分支。
+                  {t('vcs.worktreeLocationHint', {
+                    root: trees?.defaultRoot || ''
+                  })}
                 </div>
               </div>
             </div>
             <div className="ide-vcs-confirm-f">
               <button className="ide-vcs-btn" onClick={() => setCreateOpen(false)}>
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 className="ide-vcs-btn is-primary"
@@ -1232,10 +1262,10 @@ export function VcsWorkspace({
                   !looksAbsolute(form.path) ||
                   !status.repo.head
                 }
-                title={!status.repo.head ? '仓库还没有提交，无法创建工作树' : ''}
+                title={!status.repo.head ? t('vcs.noCommitsCannotWorktree') : ''}
                 onClick={() => void doCreateTree()}
               >
-                创建
+                {t('vcs.create')}
               </button>
             </div>
           </div>
@@ -1249,7 +1279,7 @@ export function VcsWorkspace({
             <div className="ide-vcs-confirm-b">{confirm.body}</div>
             <div className="ide-vcs-confirm-f">
               <button className="ide-vcs-btn" onClick={() => setConfirm(null)}>
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 className="ide-vcs-btn is-danger"
@@ -1296,11 +1326,12 @@ function VcsRow({
   onRevert: () => void
   onResolve: (side: 'ours' | 'theirs' | 'working') => void
 }): JSX.Element {
+  const { t } = useI18n()
   return (
     <div
       className={`ide-vcs-row ${active ? 'is-active' : ''} ${file.conflict ? 'is-conflict' : ''}`}
       onClick={onOpen}
-      title={file.external ? `${file.rel}（外链工作副本）` : file.rel}
+      title={file.external ? t('vcs.fileExternal', { rel: file.rel }) : file.rel}
     >
       {kind === 'svn' &&
       !file.untracked &&
@@ -1313,7 +1344,7 @@ function VcsRow({
           checked={checked}
           onClick={(e) => e.stopPropagation()}
           onChange={onCheck}
-          aria-label={`选择 ${file.name}`}
+          aria-label={t('vcs.selectFile', { name: file.name })}
         />
       ) : (
         <span className="ide-vcs-cbspace" />
@@ -1331,44 +1362,44 @@ function VcsRow({
         </span>
       )}
       {file.lock && (
-        <span className="ide-vcs-lock" title={`锁定：${file.lock}`}>
+        <span className="ide-vcs-lock" title={t('vcs.lockedBy', { lock: file.lock })}>
           <Ico d={P.lock} size={10} />
         </span>
       )}
       <span className="ide-vcs-rowacts" onClick={(e) => e.stopPropagation()}>
         {file.conflict ? (
           <>
-            <button className="ide-vcs-mini" title="采用我的" onClick={() => onResolve('ours')}>
-              我的
+            <button className="ide-vcs-mini" title={t('vcs.resolve.ours')} onClick={() => onResolve('ours')}>
+              {t('vcs.resolve.oursShort')}
             </button>
-            <button className="ide-vcs-mini" title="采用对方" onClick={() => onResolve('theirs')}>
-              对方
+            <button className="ide-vcs-mini" title={t('vcs.resolve.theirs')} onClick={() => onResolve('theirs')}>
+              {t('vcs.resolve.theirsShort')}
             </button>
-            <button className="ide-vcs-mini" title="标记为已解决" onClick={() => onResolve('working')}>
-              已解决
+            <button className="ide-vcs-mini" title={t('vcs.resolve.working')} onClick={() => onResolve('working')}>
+              {t('vcs.resolve.resolvedShort')}
             </button>
           </>
         ) : kind === 'git' ? (
           file.staged && !file.untracked ? (
-            <button className="ide-vcs-mini" title="取消暂存" onClick={onUnstage}>
-              取消暂存
+            <button className="ide-vcs-mini" title={t('vcs.op.unstage')} onClick={onUnstage}>
+              {t('vcs.op.unstage')}
             </button>
           ) : (
             <>
-              <button className="ide-vcs-mini" title="暂存" onClick={onStage}>
-                暂存
+              <button className="ide-vcs-mini" title={t('vcs.op.stage')} onClick={onStage}>
+                {t('vcs.op.stage')}
               </button>
-              <button className="ide-vcs-mini is-danger" title="还原" onClick={onDiscard}>
+              <button className="ide-vcs-mini is-danger" title={t('vcs.op.revert')} onClick={onDiscard}>
                 <Ico d={P.undo} size={10} />
               </button>
             </>
           )
         ) : file.untracked ? (
-          <button className="ide-vcs-mini" title="添加到版本控制" onClick={onStage}>
-            添加
+          <button className="ide-vcs-mini" title={t('vcs.addToVcs')} onClick={onStage}>
+            {t('vcs.add')}
           </button>
         ) : (
-          <button className="ide-vcs-mini is-danger" title="还原" onClick={onRevert}>
+          <button className="ide-vcs-mini is-danger" title={t('vcs.op.revert')} onClick={onRevert}>
             <Ico d={P.undo} size={10} />
           </button>
         )}
@@ -1398,11 +1429,12 @@ function HistoryList({
   onMore: () => void
   onRefresh: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   return (
     <div className="ide-vcs-history">
       <div className="ide-vcs-sidehead">
-        <span>历史</span>
-        <button className="ide-iconbtn" title="刷新" onClick={onRefresh}>
+        <span>{t('vcs.history')}</span>
+        <button className="ide-iconbtn" title={t('vcs.refresh')} onClick={onRefresh}>
           <Ico d={P.refresh} size={12} />
         </button>
       </div>
@@ -1416,7 +1448,7 @@ function HistoryList({
         >
           <span className="ide-vcs-logid">{e.shortId}</span>
           <span className="ide-vcs-logmain">
-            <span className="ide-vcs-logsub">{e.subject || '(无提交信息)'}</span>
+            <span className="ide-vcs-logsub">{e.subject || t('vcs.noCommitMessage')}</span>
             <span className="ide-vcs-logmeta">
               {e.author} · {when(e.date)}
             </span>
@@ -1424,12 +1456,12 @@ function HistoryList({
         </button>
       ))}
       {!loading && entries.length === 0 && !error && (
-        <div className="ide-vcs-clean">还没有提交记录。</div>
+        <div className="ide-vcs-clean">{t('vcs.historyEmpty')}</div>
       )}
-      {loading && <div className="ide-vcs-loadingrow"><i className="ide-spin" /> 读取中…</div>}
+      {loading && <div className="ide-vcs-loadingrow"><i className="ide-spin" /> {t('ide.loading')}</div>}
       {hasMore && !loading && (
         <button className="ide-vcs-more" onClick={onMore}>
-          加载更多
+          {t('vcs.loadMore')}
         </button>
       )}
     </div>
@@ -1439,27 +1471,34 @@ function HistoryList({
 /* ── 仓库信息 ─────────────────────────────────────────── */
 
 function RepoInfo({ repo }: { repo: VcsRepo }): JSX.Element {
+  const { t } = useI18n()
   const rows: Array<[string, string]> = [
-    ['类型', repo.kind === 'git' ? 'Git 仓库' : 'SVN 工作副本'],
-    [repo.kind === 'git' ? '分支' : '修订', repo.kind === 'git' ? repo.branch : repo.headShort],
+    [t('vcs.repoType'), repo.kind === 'git' ? t('vcs.repoGit') : t('vcs.repoSvn')],
+    [
+      repo.kind === 'git' ? t('vcs.repoBranch') : t('vcs.repoRevision'),
+      repo.kind === 'git' ? repo.branch : repo.headShort
+    ],
     ...(repo.kind === 'git'
       ? ([
-          ['上游', repo.upstream || '(未设置)'],
-          ['远端', repo.remote || '(未设置)'],
-          ['提交', repo.headShort || '(空仓库)']
+          [t('vcs.repoUpstream'), repo.upstream || t('vcs.repoNotSet')],
+          [t('vcs.repoRemote'), repo.remote || t('vcs.repoNotSet')],
+          [t('vcs.repoCommit'), repo.headShort || t('vcs.repoEmpty')]
         ] as Array<[string, string]>)
       : ([
-          ['URL', repo.url || '(未知)'],
-          ['仓库根', repo.repositoryRoot || '(未知)'],
-          ['修订', repo.headShort]
+          [t('vcs.repoUrl'), repo.url || t('vcs.repoUnknown')],
+          [t('vcs.repoRoot'), repo.repositoryRoot || t('vcs.repoUnknown')],
+          [t('vcs.repoRevision'), repo.headShort]
         ] as Array<[string, string]>)),
-    ['仓库根', repo.root],
-    ['工作区前缀', repo.workspacePrefix || '(工作区就是仓库根)']
+    [t('vcs.repoRoot'), repo.root],
+    [
+      t('vcs.repoWorkspacePrefix'),
+      repo.workspacePrefix || t('vcs.repoWorkspaceIsRoot')
+    ]
   ]
   return (
     <div className="ide-vcs-repo">
       <div className="ide-vcs-sidehead">
-        <span>仓库</span>
+        <span>{t('vcs.repo')}</span>
       </div>
       <dl className="ide-vcs-dl">
         {rows.map(([k, v]) => (
@@ -1471,7 +1510,7 @@ function RepoInfo({ repo }: { repo: VcsRepo }): JSX.Element {
       </dl>
       {repo.kind === 'svn' && (
         <p className="ide-vcs-note">
-          SVN 没有统一的分支目录约定，这一版只展示当前工作副本信息，不提供自动切换分支。
+          {t('vcs.svnNoBranches')}
         </p>
       )}
     </div>
@@ -1507,11 +1546,12 @@ function ChangesDiff({
   onDiscard: () => void
   onResolve: (side: 'ours' | 'theirs' | 'working') => void
 }): JSX.Element {
+  const { t } = useI18n()
   if (!file) {
     return (
       <div className="ide-vcs-empty">
-        <div className="ide-vcs-empty-t">选择左侧文件查看差异</div>
-        <div className="ide-vcs-empty-s">点击文件行可以查看工作区或暂存区的 diff。</div>
+        <div className="ide-vcs-empty-t">{t('vcs.selectFileForDiff')}</div>
+        <div className="ide-vcs-empty-s">{t('vcs.selectFileForDiffHint')}</div>
       </div>
     )
   }
@@ -1529,47 +1569,47 @@ function ChangesDiff({
         <span className="ide-spacer" />
         {file.conflict ? (
           <>
-            <button className="ide-vcs-mini" onClick={() => onResolve('ours')}>我的</button>
-            <button className="ide-vcs-mini" onClick={() => onResolve('theirs')}>对方</button>
-            <button className="ide-vcs-mini" onClick={() => onResolve('working')}>已解决</button>
+            <button className="ide-vcs-mini" onClick={() => onResolve('ours')}>{t('vcs.resolve.oursShort')}</button>
+            <button className="ide-vcs-mini" onClick={() => onResolve('theirs')}>{t('vcs.resolve.theirsShort')}</button>
+            <button className="ide-vcs-mini" onClick={() => onResolve('working')}>{t('vcs.resolve.resolvedShort')}</button>
           </>
         ) : repo.kind === 'git' ? (
           source === 'staged' ? (
-            <button className="ide-vcs-mini" onClick={onUnstage}>取消暂存</button>
+            <button className="ide-vcs-mini" onClick={onUnstage}>{t('vcs.op.unstage')}</button>
           ) : (
             <>
-              <button className="ide-vcs-mini" onClick={onStage}>暂存</button>
-              <button className="ide-vcs-mini is-danger" onClick={onDiscard}>还原</button>
+              <button className="ide-vcs-mini" onClick={onStage}>{t('vcs.op.stage')}</button>
+              <button className="ide-vcs-mini is-danger" onClick={onDiscard}>{t('vcs.op.revert')}</button>
             </>
           )
         ) : file.untracked ? (
-          <button className="ide-vcs-mini" onClick={onStage}>添加</button>
+          <button className="ide-vcs-mini" onClick={onStage}>{t('vcs.add')}</button>
         ) : (
-          <button className="ide-vcs-mini is-danger" onClick={onDiscard}>还原</button>
+          <button className="ide-vcs-mini is-danger" onClick={onDiscard}>{t('vcs.op.revert')}</button>
         )}
         <button className="ide-vcs-mini" onClick={onOpen}>
-          <Ico d={P.external} size={10} /> 打开
+          <Ico d={P.external} size={10} /> {t('vcs.open')}
         </button>
       </div>
       {file.conflict && (
         <div className="ide-vcs-banner is-error">
           <Ico d={P.warning} size={12} />
-          这个文件有冲突。IDE 目前不能编辑文件，请用「我的 / 对方」快速处理，或在外侧编辑器里解决后点「已解决」。
+          {t('vcs.conflictNote')}
         </div>
       )}
       <div className="ide-vcs-diffbody">
         {loading ? (
-          <div className="ide-vcs-loadingrow"><i className="ide-spin" /> 正在读取 diff…</div>
+          <div className="ide-vcs-loadingrow"><i className="ide-spin" /> {t('vcs.readingDiff')}</div>
         ) : error ? (
           <div className="ide-vcs-errorbox">
             <Ico d={P.warning} size={14} />
             <span>{error}</span>
-            <button className="ide-vcs-link" onClick={onRetry}>重试</button>
+            <button className="ide-vcs-link" onClick={onRetry}>{t('common.retry')}</button>
           </div>
         ) : diff ? (
           <VcsDiffView data={diff} />
         ) : (
-          <div className="ide-vcs-empty-s">没有可显示的差异。</div>
+          <div className="ide-vcs-empty-s">{t('vcs.noDiff')}</div>
         )}
       </div>
     </div>
@@ -1591,23 +1631,24 @@ function CommitDetail({
   error: string | null
   onRetry: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   if (loading) {
-    return <div className="ide-vcs-loadingrow"><i className="ide-spin" /> 正在读取提交…</div>
+    return <div className="ide-vcs-loadingrow"><i className="ide-spin" /> {t('vcs.readingCommit')}</div>
   }
   if (error) {
     return (
       <div className="ide-vcs-errorbox">
         <Ico d={P.warning} size={14} />
         <span>{error}</span>
-        <button className="ide-vcs-link" onClick={onRetry}>重试</button>
+        <button className="ide-vcs-link" onClick={onRetry}>{t('common.retry')}</button>
       </div>
     )
   }
   if (!detail) {
     return (
       <div className="ide-vcs-empty">
-        <div className="ide-vcs-empty-t">选择一条历史记录</div>
-        <div className="ide-vcs-empty-s">点击左侧提交可以查看提交信息和完整 diff。</div>
+        <div className="ide-vcs-empty-t">{t('vcs.selectCommit')}</div>
+        <div className="ide-vcs-empty-s">{t('vcs.selectCommitHint')}</div>
       </div>
     )
   }
@@ -1628,13 +1669,15 @@ function CommitDetail({
     <div className="ide-vcs-commitdetail">
       <div className="ide-vcs-cdhead">
         <span className={`ide-vcs-kind is-${kind}`}>{entry.shortId}</span>
-        <b>{entry.subject || '(无提交信息)'}</b>
+        <b>{entry.subject || t('vcs.noCommitMessage')}</b>
         <span className="ide-spacer" />
         <span className="ide-vcs-meta">
           {entry.author} · {when(entry.date)}
         </span>
       </div>
-      <pre className="ide-vcs-cdmsg">{entry.message || '(无提交信息)'}</pre>
+      <pre className="ide-vcs-cdmsg">
+        {entry.message || t('vcs.noCommitMessage')}
+      </pre>
       {detail.files.length > 0 && (
         <div className="ide-vcs-cdfiles">
           {detail.files.map((f) => (
@@ -1651,7 +1694,7 @@ function CommitDetail({
         {detail.diff.trim() ? (
           <VcsDiffView data={diffData} />
         ) : (
-          <div className="ide-vcs-empty-s">这个提交没有可显示的文本 diff。</div>
+          <div className="ide-vcs-empty-s">{t('vcs.commitNoDiff')}</div>
         )}
       </div>
     </div>

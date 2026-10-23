@@ -42,6 +42,13 @@ export interface ProviderSessionOptions {
   /** 思考深度。'medium' 是 CLI 默认档，等价于不传 */
   effort: EffortLevel
   addDirs: string[]
+  /**
+   * DeepSeek Harness 的 home。只有 dsh 适配器会读，其他 provider 忽略。
+   *
+   * dsh 不接受隐式的 `~/.dsh`，必须显式给一个目录；不传时 adapter 会用
+   * 应用自己的 `userData/../dsh-home`（见 dsh/runner.ts 的 ensureDshHome）。
+   */
+  dshHome?: string
   /** 接着哪条已有会话跑；null 表示全新 */
   resumeId: string | null
   onEvent: (e: AgentEvent) => void

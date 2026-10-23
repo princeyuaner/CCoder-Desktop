@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
+import { t } from '../i18n'
 import { mkdir, readFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type {
@@ -253,7 +254,7 @@ export async function diffGit(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
   const full = rootRel(repo, rel)
   const revision = req.source === 'revision' ? checkRevision('git', req.revision) : undefined
   if (req.source === 'revision' && !revision) {
-    throw new VcsOpError('invalid-path', '缺少 commit')
+    throw new VcsOpError('invalid-path', t('vcsError.missingCommit'))
   }
 
   if (req.source === 'working' || req.source === 'head') {
@@ -358,7 +359,7 @@ export async function commitDetailGit(
   id: string
 ): Promise<VcsCommitDetailData> {
   const rev = checkRevision('git', id)
-  if (!rev) throw new VcsOpError('invalid-path', '缺少 commit')
+  if (!rev) throw new VcsOpError('invalid-path', t('vcsError.missingCommit'))
 
   const metaR = await runGit(repo.root, ['show', '-s', '--no-color', `--format=${FORMAT_META}`, rev], {
     timeoutMs: 15_000
@@ -429,7 +430,7 @@ function mutation(paths: string[], conflicts?: string[]): VcsMutationData {
 
 async function checkedPaths(repo: VcsRepo, paths: string[]): Promise<{ rels: string[]; fulls: string[] }> {
   const rels = paths.map(normRel).filter(Boolean)
-  if (!rels.length) throw new VcsOpError('invalid-path', '没有选中文件')
+  if (!rels.length) throw new VcsOpError('invalid-path', t('vcsError.noFiles'))
   return { rels, fulls: rels.map((p) => rootRel(repo, p)) }
 }
 
@@ -495,7 +496,7 @@ export async function resolveGit(repo: VcsRepo, req: VcsResolveRequest): Promise
       try {
         const buf = await readFile(absPath(repo, rels[i]), 'utf8')
         if (/^<{7}|^={7}|^>{7}/m.test(buf)) {
-          throw new VcsOpError('conflict', '文件里还有冲突标记，请先在外部编辑器里解决')
+          throw new VcsOpError('conflict', t('vcsError.conflictMarkers'))
         }
       } catch (err) {
         if (err instanceof VcsOpError) throw err
@@ -516,7 +517,7 @@ export async function resolveGit(repo: VcsRepo, req: VcsResolveRequest): Promise
 
 export async function commitGit(repo: VcsRepo, req: VcsCommitRequest): Promise<VcsCommitData> {
   const message = req.message.trim()
-  if (!message) throw new VcsOpError('unknown', '提交信息不能为空')
+  if (!message) throw new VcsOpError('unknown', t('vcsError.emptyMessage'))
   const args = ['commit', '-F', '-']
   if (req.amend) args.push('--amend')
   const r = await runGit(repo.root, args, {
@@ -540,13 +541,13 @@ export async function commitGit(repo: VcsRepo, req: VcsCommitRequest): Promise<V
 }
 
 export async function fetchGit(repo: VcsRepo, signal?: AbortSignal): Promise<VcsSyncData> {
-  if (!repo.remote) throw new VcsOpError('unknown', '没有配置远端仓库')
+  if (!repo.remote) throw new VcsOpError('unknown', t('vcsError.noRemote'))
   const r = await runGit(repo.root, ['fetch', repo.remote, '--prune'], {
     timeoutMs: 300_000,
     signal
   })
   if (r.code !== 0) throw mapCliError('git', r)
-  return { summary: '已获取最新引用' }
+  return { summary: t('vcsError.fetched') }
 }
 
 export async function pullGit(
@@ -554,7 +555,7 @@ export async function pullGit(
   _req: VcsPullRequest,
   signal?: AbortSignal
 ): Promise<VcsSyncData> {
-  if (!repo.remote) throw new VcsOpError('unknown', '没有配置远端仓库')
+  if (!repo.remote) throw new VcsOpError('unknown', t('vcsError.noRemote'))
   const args = repo.upstream
     ? ['pull', '--ff-only']
     : ['pull', '--ff-only', repo.remote, repo.branch]
@@ -562,7 +563,7 @@ export async function pullGit(
   if (r.code !== 0) throw mapCliError('git', r)
   const status = await statusGit(repo, { cwd: repo.root })
   return {
-    summary: '已拉取最新提交',
+    summary: t('vcsError.pulled'),
     conflicts: status.files.filter((f) => f.conflict).map((f) => f.rel),
     ahead: status.repo.ahead,
     behind: status.repo.behind
@@ -574,19 +575,19 @@ export async function pushGit(
   req: VcsPushRequest,
   signal?: AbortSignal
 ): Promise<VcsSyncData> {
-  if (repo.detached) throw new VcsOpError('unknown', '当前是 detached HEAD，不能推送')
-  if (!repo.remote) throw new VcsOpError('unknown', '没有配置远端仓库')
+  if (repo.detached) throw new VcsOpError('unknown', t('vcsError.detachedPush'))
+  if (!repo.remote) throw new VcsOpError('unknown', t('vcsError.noRemote'))
   const args =
     req.setUpstream || !repo.upstream
       ? ['push', '--set-upstream', repo.remote, repo.branch]
       : ['push']
   const r = await runGit(repo.root, args, { timeoutMs: 300_000, signal })
   if (r.code !== 0) throw mapCliError('git', r)
-  return { summary: '已推送', remote: 'origin', branch: repo.branch }
+  return { summary: t('vcsError.pushed'), remote: 'origin', branch: repo.branch }
 }
 
 export async function updateGit(): Promise<VcsSyncData> {
-  throw new VcsOpError('unsupported', 'Git 使用 pull 更新')
+  throw new VcsOpError('unsupported', t('vcsError.gitUsePull'))
 }
 
 /* ── Worktree ─────────────────────────────────────────── */
@@ -660,7 +661,7 @@ async function listWorktreesGit(
   if (r.code !== 0) throw mapCliError('git', r)
 
   const records = parseWorktreePorcelain(r.stdout)
-  if (!records.length) throw new VcsOpError('unknown', 'git 没有返回任何工作树')
+  if (!records.length) throw new VcsOpError('unknown', t('vcsError.noWorktrees'))
 
   const cwdKey = pathKey(req.cwd || repo.root)
   const worktrees: VcsWorktree[] = records.map((rec, index) => {
@@ -699,17 +700,17 @@ export async function worktreeListGit(
 
 function absoluteTarget(raw: unknown): string {
   if (typeof raw !== 'string' || !raw.trim()) {
-    throw new VcsOpError('invalid-path', '请输入工作树目录')
+    throw new VcsOpError('invalid-path', t('vcsError.worktreePathRequired'))
   }
   if (!isAbsolute(raw)) {
-    throw new VcsOpError('invalid-path', '工作树目录必须是绝对路径', raw)
+    throw new VcsOpError('invalid-path', t('vcsError.worktreePathAbsolute'), raw)
   }
   if (raw.includes('\0') || /[\r\n]/.test(raw)) {
-    throw new VcsOpError('invalid-path', '路径不合法', raw)
+    throw new VcsOpError('invalid-path', t('vcsError.pathInvalid'), raw)
   }
   const abs = resolve(raw)
   if (abs === resolve('/') || /^[A-Za-z]:[\\/]?$/.test(abs)) {
-    throw new VcsOpError('invalid-path', '不能把磁盘根目录作为工作树', abs)
+    throw new VcsOpError('invalid-path', t('vcsError.worktreePathRoot'), abs)
   }
   return abs
 }
@@ -717,30 +718,30 @@ function absoluteTarget(raw: unknown): string {
 function assertTargetFree(target: string, worktrees: VcsWorktree[]): void {
   for (const w of worktrees) {
     if (isSameOrInside(target, w.path)) {
-      throw new VcsOpError('invalid-path', '目标目录不能位于已有工作树内部', target)
+      throw new VcsOpError('invalid-path', t('vcsError.worktreeInside'), target)
     }
     if (isSameOrInside(w.path, target)) {
-      throw new VcsOpError('invalid-path', '目标目录不能包含已有工作树', target)
+      throw new VcsOpError('invalid-path', t('vcsError.worktreeContains'), target)
     }
   }
 
   if (!existsSync(target)) return
   if (!dirExists(target)) {
-    throw new VcsOpError('invalid-path', '目标路径已存在且不是目录', target)
+    throw new VcsOpError('invalid-path', t('vcsError.targetIsFile'), target)
   }
   try {
     if (readdirSync(target).length > 0) {
-      throw new VcsOpError('invalid-path', '目标目录已存在且非空', target)
+      throw new VcsOpError('invalid-path', t('vcsError.worktreeExists'), target)
     }
   } catch (err) {
     if (err instanceof VcsOpError) throw err
-    throw new VcsOpError('invalid-path', '无法读取目标目录', target)
+    throw new VcsOpError('invalid-path', t('vcsError.targetUnreadable'), target)
   }
 }
 
 function checkBranchName(raw: unknown): string {
   const name = typeof raw === 'string' ? raw.trim() : ''
-  if (!name) throw new VcsOpError('invalid-path', '请输入分支名')
+  if (!name) throw new VcsOpError('invalid-path', t('vcsError.branchRequired'))
   if (
     name.startsWith('-') ||
     name.endsWith('/') ||
@@ -748,7 +749,7 @@ function checkBranchName(raw: unknown): string {
     name.includes('..') ||
     /[\s\0~^:?*\[\\]/.test(name)
   ) {
-    throw new VcsOpError('invalid-path', '分支名不合法', name)
+    throw new VcsOpError('invalid-path', t('vcsError.branchInvalid'), name)
   }
   return name
 }
@@ -762,13 +763,13 @@ function checkBranchName(raw: unknown): string {
 async function resolveWorktreeBase(repo: VcsRepo, base: string | undefined): Promise<string> {
   const value = (base ?? '').trim() || (repo.detached ? repo.head : repo.branch) || 'HEAD'
   if (value.startsWith('-') || /[\s\0]/.test(value)) {
-    throw new VcsOpError('invalid-path', '起点不合法', value)
+    throw new VcsOpError('invalid-path', t('vcsError.baseInvalidShort'), value)
   }
   const check = await runGit(repo.root, ['rev-parse', '--verify', '--end-of-options', `${value}^{commit}`], {
     timeoutMs: 10_000
   })
   if (check.code !== 0) {
-    throw new VcsOpError('invalid-path', '起点不存在或不是一次提交', value)
+    throw new VcsOpError('invalid-path', t('vcsError.baseInvalid'), value)
   }
   return value
 }
@@ -777,7 +778,7 @@ async function ensureParent(target: string): Promise<void> {
   try {
     await mkdir(dirname(target), { recursive: true })
   } catch (err) {
-    throw new VcsOpError('invalid-path', '无法创建目标目录的父目录', String(err))
+    throw new VcsOpError('invalid-path', t('vcsError.parentCreate'), String(err))
   }
 }
 
@@ -789,13 +790,13 @@ function mapWorktreeError(r: VcsExecResult): VcsOpError {
   const low = text.toLowerCase()
 
   if (/already checked out at|a branch named .* already exists/.test(low)) {
-    return new VcsOpError('branch-in-use', '分支已存在或已在其他工作树检出', text)
+    return new VcsOpError('branch-in-use', t('vcsError.branchCheckedOut'), text)
   }
   if (/already exists|not an empty directory/.test(low)) {
-    return new VcsOpError('invalid-path', '目标目录已存在且非空', text)
+    return new VcsOpError('invalid-path', t('vcsError.worktreeExists'), text)
   }
   if (/contains modified or untracked files/.test(low)) {
-    return new VcsOpError('dirty', '工作树里有未提交的改动', text)
+    return new VcsOpError('dirty', t('vcsError.worktreeDirty'), text)
   }
   return generic
 }
@@ -833,13 +834,13 @@ export async function worktreeRemoveGit(
   const targetKey = pathKey(target)
   const rec = before.worktrees.find((w) => pathKey(w.path) === targetKey)
 
-  if (!rec) throw new VcsOpError('invalid-path', '没有这个工作树的记录', target)
-  if (rec.main) throw new VcsOpError('invalid-path', '不能删除主工作树', target)
+  if (!rec) throw new VcsOpError('invalid-path', t('vcsError.worktreeNotFound'), target)
+  if (rec.main) throw new VcsOpError('invalid-path', t('vcsError.worktreeMain'), target)
   if (isSameOrInside(req.cwd, rec.path)) {
-    throw new VcsOpError('invalid-path', '不能删除当前工作树', target)
+    throw new VcsOpError('invalid-path', t('vcsError.worktreeCurrent'), target)
   }
   if (!rec.exists) {
-    throw new VcsOpError('invalid-path', '目录已不存在，请使用「清理失效」', target)
+    throw new VcsOpError('invalid-path', t('vcsError.worktreeMissing'), target)
   }
 
   const args = ['worktree', 'remove']

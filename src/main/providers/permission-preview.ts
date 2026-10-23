@@ -1,6 +1,8 @@
 import { readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import type { MessageKey } from '../../shared/i18n'
 import type { DiffLine, PermissionPreview } from '../../shared/events'
+import { msg } from '../i18n'
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 /** LCS 的 DP 表是 O(n·m)；超过这个规模就退回粗粒度展示，别把内存吃光 */
@@ -118,15 +120,15 @@ function applyTool(tool: string, input: Record<string, unknown>, before: string)
 }
 
 /** 明显会伤到机器或不可逆的命令，给个提醒 */
-const RISKY: { re: RegExp; note: string }[] = [
-  { re: /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/, note: '删除文件且不可恢复' },
-  { re: /\bsudo\b/, note: '以管理员权限执行' },
-  { re: /\bgit\s+push\b.*(--force|-f)\b/, note: '强制推送，会覆盖远端历史' },
-  { re: /\bgit\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f)/, note: '丢弃未提交的改动' },
-  { re: /(curl|wget)[^|]*\|\s*(ba)?sh\b/, note: '把网络内容直接交给 shell 执行' },
-  { re: />\s*\/dev\/(sd|nvme|disk)/, note: '直接写块设备' },
-  { re: /\bchmod\s+-R\s+777\b/, note: '递归放开全部权限' },
-  { re: /\b(shutdown|reboot|mkfs)\b/, note: '影响整台机器' }
+const RISKY: { re: RegExp; noteKey: MessageKey }[] = [
+  { re: /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/, noteKey: 'preview.risk.rm' },
+  { re: /\bsudo\b/, noteKey: 'preview.risk.sudo' },
+  { re: /\bgit\s+push\b.*(--force|-f)\b/, noteKey: 'preview.risk.forcePush' },
+  { re: /\bgit\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f)/, noteKey: 'preview.risk.discard' },
+  { re: /(curl|wget)[^|]*\|\s*(ba)?sh\b/, noteKey: 'preview.risk.pipeShell' },
+  { re: />\s*\/dev\/(sd|nvme|disk)/, noteKey: 'preview.risk.blockDevice' },
+  { re: /\bchmod\s+-R\s+777\b/, noteKey: 'preview.risk.chmod' },
+  { re: /\b(shutdown|reboot|mkfs)\b/, noteKey: 'preview.risk.machine' }
 ]
 
 export function buildPreview(tool: string, input: unknown, cwd: string): PermissionPreview {
@@ -147,7 +149,7 @@ export function buildPreview(tool: string, input: unknown, cwd: string): Permiss
       const removed = lines.filter((l) => l.kind === 'del').length
       return {
         kind: 'diff',
-        title: `编辑 ${rawPath}`,
+        title: msg('preview.edit', { path: rawPath }),
         path: abs,
         lines,
         note: `+${added} −${removed}`
@@ -158,19 +160,19 @@ export function buildPreview(tool: string, input: unknown, cwd: string): Permiss
       const lines = after.split('\n').slice(0, 200).map((text) => ({ kind: 'add' as const, text }))
       return {
         kind: 'diff',
-        title: `新建 ${rawPath}`,
+        title: msg('preview.create', { path: rawPath }),
         path: abs,
         lines,
-        note: `${after.split('\n').length} 行`
+        note: msg('preview.lines', { n: after.split('\n').length })
       }
     }
 
     // 应用不上（old_string 找不到，或文件读不到）：退化成原样展示参数
     return {
       kind: 'text',
-      title: `改动 ${rawPath}`,
+      title: msg('preview.modify', { path: rawPath }),
       path: abs,
-      note: '无法读取原文件，只能展示参数'
+      note: msg('preview.cannotRead')
     }
   }
 
@@ -180,14 +182,14 @@ export function buildPreview(tool: string, input: unknown, cwd: string): Permiss
     const hit = RISKY.find((r) => r.re.test(command))
     return {
       kind: 'command',
-      title: '执行命令',
+      title: msg('preview.runCommand'),
       command,
-      note: hit?.note,
+      note: hit ? msg(hit.noteKey) : undefined,
       // 界面靠这个字段决定"要不要摘掉回车的快捷放行"，别让它从 note 反推
       danger: !!hit
     }
   }
 
   // 3) 其它工具 —— 参数原样给出
-  return { kind: 'text', title: `使用 ${tool}` }
+  return { kind: 'text', title: msg('preview.useTool', { tool }) }
 }

@@ -14,8 +14,8 @@ import type { PermissionMode, Usage } from '@shared/events'
 import {
   CLIS,
   cliDef,
-  EFFORT_HINT,
-  EFFORT_LABEL,
+  EFFORT_HINT_KEY,
+  EFFORT_LABEL_KEY,
   effortLevelsFor,
   emptyCliConfig,
   type Channel,
@@ -24,13 +24,15 @@ import {
   type EffortLevel,
   type SendKey
 } from '@shared/settings'
+import type { MessageKey } from '@shared/i18n'
 import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
 import type { SessionSendInput } from '@shared/session'
 import type { QueuedMessage, SendMeta } from '../useChat'
 import type { FileMatch } from '@shared/workspace'
 import { composeIdeMessage } from '../ideRef'
-import { MODE_HINT, MODE_LABEL, PERMISSION_MODES } from '../constants'
+import { MODE_HINT_KEY, MODE_LABEL_KEY, PERMISSION_MODES } from '../constants'
+import { useI18n } from '../i18n'
 import { baseName } from '@shared/path'
 import type { ChangedFile } from '../changedFiles'
 import { ChangedFiles } from './ChangedFiles'
@@ -40,6 +42,7 @@ import {
   IconBrain,
   IconChevronDown,
   IconClaudeCode,
+  IconDeepSeek,
   IconOpenAI,
   IconPlus,
   IconSend
@@ -195,6 +198,7 @@ export function Composer({
   incomingRefs,
   onIncomingConsumed
 }: Props): JSX.Element {
+  const { t, tn } = useI18n()
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   /** IDE 发来的代码引用：发送前和图片一样挂在输入框上方 */
@@ -211,7 +215,8 @@ export function Composer({
 
   const curCfg = cliConfigs[cli] ?? emptyCliConfig(cli)
   /** Claude 的官方登录模式：不显示渠道名，显示「官方账号」 */
-  const official = cli === 'claude' && curCfg.authMode === 'official'
+  const official =
+    (cli === 'claude' || cli === 'dsh') && curCfg.authMode === 'official'
   /** 胶囊里要显示渠道名。没选渠道时也要占位，免得只看到一个模型名又不知道走的哪儿 */
   const channel = official
     ? null
@@ -237,18 +242,33 @@ export function Composer({
   /**
    * 上下文胶囊。
    *
-   * 上限从模型名里读（`[1m]` / `-200k`，Claude 默认 200k）；读不出来就只
-   * 显示已用 token，不画环 —— 猜一个上限会把百分比算成假数。
+   * 百分比优先用 provider 上报的值：dsh / codex 会把 CLI 的真实窗口一起报上来，
+   * 模型名里没有 `[1m]` / `-200k` 标记时也能画环。Claude 不发这个字段，退回按
+   * 模型名推断（读不出来就只显示已用 token —— 猜一个上限会把百分比算成假数）。
    */
   const ctxUsed = usage?.contextTokens && usage.contextTokens > 0 ? usage.contextTokens : null
   const ctxLimit = contextWindowOf(model)
-  const ctxPct = contextPercent(ctxUsed ?? undefined, ctxLimit)
+  const ctxReportedPct =
+    usage?.contextPercent != null && usage.contextPercent > 0
+      ? Math.min(100, usage.contextPercent)
+      : null
+  const ctxPct = ctxReportedPct ?? contextPercent(ctxUsed ?? undefined, ctxLimit)
   const ctxTitle =
     ctxUsed == null
       ? ''
       : ctxLimit == null
-        ? `上下文已用 ${fmtTokens(ctxUsed)} · 上限未知`
-        : `上下文已用 ${fmtTokens(ctxUsed)} / ${fmtTokens(ctxLimit)}（${ctxPct}%）· 剩余 ${fmtTokens(Math.max(0, ctxLimit - ctxUsed))}`
+        ? ctxReportedPct != null
+          ? t('composer.ctx.usedPctUnknown', {
+              used: fmtTokens(ctxUsed),
+              pct: ctxReportedPct
+            })
+          : t('composer.ctx.usedUnknown', { used: fmtTokens(ctxUsed) })
+        : t('composer.ctx.used', {
+            used: fmtTokens(ctxUsed),
+            limit: fmtTokens(ctxLimit),
+            pct: ctxPct ?? 0,
+            left: fmtTokens(Math.max(0, ctxLimit - ctxUsed))
+          })
 
   /** 状态色与文案。70% / 90% 两档跟胶囊小环保持一致 */
   const ctxLevel =
@@ -256,11 +276,11 @@ export function Composer({
   const ctxTone = ctxLevel === 'danger' ? ' is-danger' : ctxLevel === 'warn' ? ' is-warn' : ''
   const ctxStateLabel =
     ctxLevel === 'danger'
-      ? '接近上限'
+      ? t('composer.ctx.nearLimit')
       : ctxLevel === 'warn'
-        ? '偏高'
+        ? t('composer.ctx.high')
         : ctxLevel === 'ok'
-          ? '充裕'
+          ? t('composer.ctx.plenty')
           : null
 
   /**
@@ -272,10 +292,10 @@ export function Composer({
   const ctxUsage = usage?.contextUsage
   const ctxParts = ctxUsage
     ? [
-        { key: 'cache', label: '缓存读取', value: ctxUsage.cacheReadTokens },
-        { key: 'input', label: '输入', value: ctxUsage.inputTokens },
-        { key: 'write', label: '缓存写入', value: ctxUsage.cacheCreationTokens },
-        { key: 'out', label: '输出', value: ctxUsage.outputTokens }
+        { key: 'cache', labelKey: 'composer.ctx.cacheRead' as MessageKey, value: ctxUsage.cacheReadTokens },
+        { key: 'input', labelKey: 'composer.ctx.input' as MessageKey, value: ctxUsage.inputTokens },
+        { key: 'write', labelKey: 'composer.ctx.cacheWrite' as MessageKey, value: ctxUsage.cacheCreationTokens },
+        { key: 'out', labelKey: 'composer.ctx.output' as MessageKey, value: ctxUsage.outputTokens }
       ]
     : null
   const ctxPartSum = ctxParts?.reduce((n, p) => n + p.value, 0) ?? 0
@@ -292,8 +312,8 @@ export function Composer({
   const mentionSeq = useRef(0)
 
   const commandItems = useMemo(
-    () => (command ? filterCommands(command.query) : []),
-    [command]
+    () => (command ? filterCommands(command.query, t) : []),
+    [command, t]
   )
 
   /**
@@ -467,7 +487,7 @@ export function Composer({
   /** 执行 / 指令。能本地做的本地做，需要 CLI 的才发出去 */
   const runCommand = (c: SlashCommand): void => {
     if (c.disabled) {
-      showToast(`${c.name} 暂未接入`)
+      showToast(t('composer.toast.notReady', { name: c.name }))
       return
     }
     setCommand(null)
@@ -477,7 +497,7 @@ export function Composer({
       case 'clear':
         setRefs([])
         onClearConversation()
-        showToast('已清空当前对话')
+        showToast(t('composer.toast.cleared'))
         break
       case 'compact':
         onSend({ text: c.name })
@@ -493,7 +513,13 @@ export function Composer({
         break
       case 'status':
         showToast(
-          `模型 ${model || '未选'} · 权限 ${MODE_LABEL[permissionMode]} · 思考 ${EFFORT_LABEL[effort]} · ${turns} 轮 ${steps} 步`
+          t('composer.status', {
+            model: model || t('composer.status.noModel'),
+            mode: t(MODE_LABEL_KEY[permissionMode]),
+            effort: t(EFFORT_LABEL_KEY[effort]),
+            turns,
+            steps
+          })
         )
         break
       case 'help':
@@ -724,18 +750,18 @@ export function Composer({
           {queue.length > 0 && (
             <div className={`composer__queue ${queuePaused ? 'is-paused' : ''}`}>
               <div className="composer__queue-head">
-                <span className="composer__queue-title">待发送</span>
+                <span className="composer__queue-title">{t('composer.queue.title')}</span>
                 <b className="composer__queue-count">{queue.length}</b>
                 <span className="composer__queue-hint">
-                  {queuePaused ? '已暂停' : '本轮结束后按顺序自动发送'}
+                  {queuePaused ? t('composer.queue.paused') : t('composer.queue.hint')}
                 </span>
                 {queuePaused ? (
                   <button className="composer__queue-action is-resume" onClick={onResumeQueue}>
-                    继续发送
+                    {t('composer.queue.resume')}
                   </button>
                 ) : (
                   <button className="composer__queue-action" onClick={onClearQueue}>
-                    全部撤回
+                    {t('composer.queue.clear')}
                   </button>
                 )}
               </div>
@@ -746,23 +772,27 @@ export function Composer({
                     {q.draft.replace(/\s+/g, ' ').trim()}
                   </span>
                   {q.refs.length > 0 && (
-                    <span className="composer__queue-meta">引用 {q.refs.length}</span>
+                    <span className="composer__queue-meta">
+                      {tn('composer.queue.refs', q.refs.length)}
+                    </span>
                   )}
                   {(q.images?.length ?? 0) > 0 && (
-                    <span className="composer__queue-meta">图片 {q.images?.length}</span>
+                    <span className="composer__queue-meta">
+                      {tn('composer.queue.images', q.images?.length ?? 0)}
+                    </span>
                   )}
                   <span className="composer__queue-acts">
                     {queue.length > 1 && (
                       <>
                         <button
-                          title="上移"
+                          title={t('composer.queue.up')}
                           disabled={i === 0}
                           onClick={() => onMoveQueued(q.id, -1)}
                         >
                           ↑
                         </button>
                         <button
-                          title="下移"
+                          title={t('composer.queue.down')}
                           disabled={i === queue.length - 1}
                           onClick={() => onMoveQueued(q.id, 1)}
                         >
@@ -770,11 +800,11 @@ export function Composer({
                         </button>
                       </>
                     )}
-                    <button onClick={() => editQueued(q)}>编辑</button>
+                    <button onClick={() => editQueued(q)}>{t('composer.queue.edit')}</button>
                     <button
                       className="is-del"
-                      title="撤回这条"
-                      aria-label="撤回这条排队消息"
+                      title={t('composer.queue.remove')}
+                      aria-label={t('composer.queue.removeAria')}
                       onClick={() => onRemoveQueued(q.id)}
                     >
                       ×
@@ -796,17 +826,17 @@ export function Composer({
                     </span>
                     <span className="composer__ref-range">
                       {r.kind === 'file'
-                        ? `全文 · ${r.totalLines} 行${r.truncated ? ' · 已截断' : ''}`
+                        ? `${tn('composer.ref.whole', r.totalLines)}${r.truncated ? ` · ${t('composer.ref.truncated')}` : ''}`
                         : r.startLine === r.endLine
                           ? `L${r.startLine}`
                           : `L${r.startLine}–${r.endLine}`}
                     </span>
-                    <span className="composer__ref-tag">来自 IDE</span>
+                    <span className="composer__ref-tag">{t('composer.ref.fromIde')}</span>
                     <button
                       className="composer__ref-x"
                       onClick={() => removeRef(r.id)}
-                      title="移除引用"
-                      aria-label={`移除 ${r.name} 引用`}
+                      title={t('composer.ref.remove')}
+                      aria-label={t('composer.ref.removeAria', { name: r.name })}
                     >
                       ×
                     </button>
@@ -833,15 +863,15 @@ export function Composer({
                 <button
                   className="composer__attach-x"
                   onClick={() => removeImage(a.id)}
-                  title="移除图片"
-                  aria-label={`移除 ${a.name}`}
+                  title={t('composer.attach.remove')}
+                  aria-label={t('composer.attach.removeAria', { name: a.name })}
                 >
                   ×
                 </button>
               </div>
             ))}
             {attachments.length < MAX_IMAGES && (
-              <span className="composer__attach-hint">可继续粘贴</span>
+              <span className="composer__attach-hint">{t('composer.attach.hint')}</span>
             )}
           </div>
         )}
@@ -849,7 +879,9 @@ export function Composer({
           ref={inputRef}
           className="composer__input selectable"
           rows={1}
-          placeholder={locked ? '先回答上面的问题，再继续发消息…' : '发消息或创建任务，/ 调用指令，@ 文件或对话'}
+          placeholder={
+            locked ? t('composer.placeholder.locked') : t('composer.placeholder.normal')
+          }
           value={text}
           disabled={locked}
           onChange={onChange}
@@ -871,7 +903,7 @@ export function Composer({
           />
           <button
             className="iconbtn"
-            title="添加图片"
+            title={t('composer.addImage')}
             onClick={() => fileRef.current?.click()}
           >
             <IconPlus width={16} height={16} />
@@ -896,16 +928,22 @@ export function Composer({
                 <span className={`chip__cli chip__cli--${cli}`}>
                   {cli === 'claude' ? (
                     <IconClaudeCode width={14} height={14} />
-                  ) : (
+                  ) : cli === 'codex' ? (
                     <IconOpenAI width={14} height={14} />
+                  ) : (
+                    <IconDeepSeek width={14} height={14} />
                   )}
                 </span>
                 <span className="chip__channel">
-                  {official ? '官方账号' : channel?.name?.trim() || '未选渠道'}
+                  {official
+                    ? cli === 'dsh'
+                      ? t('auth.harnessCredentials')
+                      : t('auth.officialAccount')
+                    : channel?.name?.trim() || t('settings.channel.none')}
                 </span>
                 <span className="chip__sep">·</span>
                 <span className="chip__model">
-                  {model || (official ? 'CLI 默认' : '未选模型')}
+                  {model || (official ? t('composer.cliDefault') : t('chat.noModel'))}
                 </span>
               </>
             }
@@ -931,7 +969,7 @@ export function Composer({
                 type="button"
                 className={`ctxchip${ctxTone}${ctxOpen ? ' is-open' : ''}`}
                 title={ctxOpen ? undefined : ctxTitle}
-                aria-label={ctxTitle || '上下文用量'}
+                aria-label={ctxTitle || t('composer.ctx.aria')}
                 aria-haspopup="dialog"
                 aria-expanded={ctxOpen}
                 onClick={() => {
@@ -969,10 +1007,14 @@ export function Composer({
               </button>
 
               {ctxOpen && (
-                <div className="ctxpop" role="dialog" aria-label="上下文用量">
+                <div
+                  className="ctxpop"
+                  role="dialog"
+                  aria-label={t('composer.ctx.aria')}
+                >
                   <div className="ctxpop__head">
-                    <span className="ctxpop__title">上下文用量</span>
-                    <span className="ctxpop__scope">最近一次请求</span>
+                    <span className="ctxpop__title">{t('composer.ctx.title')}</span>
+                    <span className="ctxpop__scope">{t('composer.ctx.recentRequest')}</span>
                     {ctxStateLabel && (
                       <span className={`ctxpop__state is-${ctxLevel}`}>{ctxStateLabel}</span>
                     )}
@@ -1011,14 +1053,11 @@ export function Composer({
                         {ctxLimit != null && <span> / {fmtTokens(ctxLimit)}</span>}
                       </span>
                       <span className="ctxpop__sub">
-                        {ctxLimit != null ? (
-                          <>
-                            剩余 <b>{fmtTokens(Math.max(0, ctxLimit - ctxUsed))}</b> ·
-                            上限按模型名推断
-                          </>
-                        ) : (
-                          '上限未知 · 只显示已用与构成'
-                        )}
+                        {ctxLimit != null
+                          ? t('composer.ctx.remaining', {
+                              tokens: fmtTokens(Math.max(0, ctxLimit - ctxUsed))
+                            })
+                          : t('composer.ctx.limitUnknown')}
                       </span>
                     </span>
                   </div>
@@ -1026,8 +1065,8 @@ export function Composer({
                   {ctxParts && ctxPartSum > 0 && (
                     <div className="ctxpop__sec">
                       <div className="ctxpop__sec-h">
-                        <span>本轮上下文构成</span>
-                        <b>合计 {fmtTokens(ctxPartSum)}</b>
+                        <span>{t('composer.ctx.breakdown')}</span>
+                        <b>{t('composer.ctx.total', { tokens: fmtTokens(ctxPartSum) })}</b>
                       </div>
                       <div className="ctxpop__stack" aria-hidden="true">
                         {ctxParts.map((p) =>
@@ -1044,7 +1083,7 @@ export function Composer({
                         {ctxParts.map((p) => (
                           <div className="ctxpop__lg" key={p.key}>
                             <i className={`ctxseg--${p.key}`} />
-                            <span>{p.label}</span>
+                            <span>{t(p.labelKey)}</span>
                             <span className="v">{fmtTokens(p.value)}</span>
                             <span className="p">{ctxSharePct(p.value)}%</span>
                           </div>
@@ -1057,14 +1096,14 @@ export function Composer({
                     <div className="ctxpop__alert">
                       <span>⚠</span>
                       <span>
-                        上下文接近上限，建议先用 <code>/compact</code> 压缩，再继续下一轮。
+                        {t('composer.ctx.nearAlertPrefix')}
+                        <code>/compact</code>
+                        {t('composer.ctx.nearAlertSuffix')}
                       </span>
                     </div>
                   )}
 
-                  <div className="ctxpop__foot">
-                    点击外部或按 Esc 关闭 · 压缩后数字会随下一轮更新
-                  </div>
+                  <div className="ctxpop__foot">{t('composer.ctx.foot')}</div>
                 </div>
               )}
             </span>
@@ -1088,7 +1127,7 @@ export function Composer({
                 <span className="chip__icon">
                   <IconBrain width={15} height={15} />
                 </span>
-                <span>{EFFORT_LABEL[effort]}</span>
+                <span>{t(EFFORT_LABEL_KEY[effort])}</span>
               </>
             }
           >
@@ -1119,13 +1158,13 @@ export function Composer({
             label={
               <>
                 <span className={`chip__dot ${running ? 'is-busy' : ''}`} />
-                <span>{MODE_LABEL[permissionMode]}</span>
+                <span>{t(MODE_LABEL_KEY[permissionMode])}</span>
               </>
             }
           >
             {(close) => (
               <>
-                <div className="picker__head">权限模式</div>
+                <div className="picker__head">{t('composer.mode')}</div>
                 {PERMISSION_MODES.map((m) => (
                   <button
                     key={m}
@@ -1135,8 +1174,8 @@ export function Composer({
                       close()
                     }}
                   >
-                    <span className="picker__item-name">{MODE_LABEL[m]}</span>
-                    <span className="picker__item-hint">{MODE_HINT[m]}</span>
+                    <span className="picker__item-name">{t(MODE_LABEL_KEY[m])}</span>
+                    <span className="picker__item-hint">{t(MODE_HINT_KEY[m])}</span>
                   </button>
                 ))}
               </>
@@ -1147,20 +1186,24 @@ export function Composer({
             <>
               {/* 运行中：主按钮仍是停止；有内容时旁边多一个「加入队列」 */}
               {canSend && (
-                <button className="queueadd" title="本轮结束后自动发送" onClick={submit}>
+                <button
+                  className="queueadd"
+                  title={t('composer.queueaddHint')}
+                  onClick={submit}
+                >
                   <span>↵</span>
-                  <span>加入队列</span>
+                  <span>{t('composer.queueadd')}</span>
                   {queue.length > 0 && <b>{queue.length}</b>}
                 </button>
               )}
-              <button className="send is-stop" title="停止" onClick={onInterrupt}>
+              <button className="send is-stop" title={t('composer.stop')} onClick={onInterrupt}>
                 <span className="send__stop" />
               </button>
             </>
           ) : (
             <button
               className={`send ${canSend ? 'is-ready' : ''}`}
-              title="发送"
+              title={t('composer.send')}
               disabled={!canSend}
               onClick={submit}
             >
@@ -1266,6 +1309,7 @@ function EffortPicker({
   /** 选定了。外面负责把弹层收起来 */
   onPick: (l: EffortLevel) => void
 }): JSX.Element {
+  const { t } = useI18n()
   /** 拖拽中的临时值；松手前不往外发 */
   const [drag, setDrag] = useState<EffortLevel | null>(null)
   const dragging = useRef(false)
@@ -1285,7 +1329,7 @@ function EffortPicker({
 
   return (
     <div className="epick">
-      <div className="picker__head">思考深度</div>
+      <div className="picker__head">{t('composer.effort')}</div>
 
       <div
         className="erail"
@@ -1327,23 +1371,23 @@ function EffortPicker({
             className={l === value ? 'is-on' : ''}
             onClick={() => onPick(l)}
           >
-            {EFFORT_LABEL[l]}
+            {t(EFFORT_LABEL_KEY[l])}
           </button>
         ))}
       </div>
 
       <div className="elvl">
         <div className="elvl__t">
-          {EFFORT_LABEL[shown]} <em>{shown}</em>
+          {t(EFFORT_LABEL_KEY[shown])} <em>{shown}</em>
         </div>
-        <div className="elvl__d">{EFFORT_HINT[shown]}</div>
+        <div className="elvl__d">{t(EFFORT_HINT_KEY[shown])}</div>
       </div>
 
       {/* 只是相对量感，不是真实数字 —— 别在这里写 token 数 */}
       <div className="emeter">
-        <span>更快</span>
+        <span>{t('composer.effort.faster')}</span>
         <i style={{ ['--pct' as string]: `${effortPct(idx, levels.length)}%` }} />
-        <span>更慢 / 更贵</span>
+        <span>{t('composer.effort.slower')}</span>
       </div>
     </div>
   )
@@ -1389,6 +1433,7 @@ function ModelPicker({
   onSelect: (sel: ModelSelection) => void
   close: () => void
 }): JSX.Element {
+  const { t } = useI18n()
   /** 自定义模型名的输入。留空 —— 用当前模型预填会和上面的列表项长得一模一样 */
   /** 点了别的 CLI、正等着确认的那一套选择 */
   const [confirm, setConfirm] = useState<ModelSelection | null>(null)
@@ -1402,7 +1447,8 @@ function ModelPicker({
   /** 右两列现在展开的是哪套配置：悬停的优先，没悬停就回到当前 CLI */
   const viewCli = hoverCli ?? cli
   const viewCfg = cliConfigs[viewCli] ?? emptyCliConfig(viewCli)
-  const officialActive = viewCli === 'claude' && viewCfg.authMode === 'official'
+  const officialActive =
+    (viewCli === 'claude' || viewCli === 'dsh') && viewCfg.authMode === 'official'
   /** 这个 CLI 自己当前在用的渠道；官方模式下没有渠道 */
   const inUseChannelId = officialActive
     ? null
@@ -1415,7 +1461,8 @@ function ModelPicker({
   const ch = viewCfg.channels.find((c) => c.id === shownChannelId) ?? null
   /** 模型列现在展开的是官方账号（悬停预览也算） */
   const officialShown =
-    viewCli === 'claude' && (hoverOfficial || (officialActive && !hoverChannel))
+    (viewCli === 'claude' || viewCli === 'dsh') &&
+    (hoverOfficial || (officialActive && !hoverChannel))
   /** 模型列现在显示的就是这条会话在用的模型，才配打勾 */
   const modelInUse =
     viewCli === cli &&
@@ -1456,9 +1503,9 @@ function ModelPicker({
     commit({ cli: viewCli, channelId: c.id })
   }
 
-  /** 点「官方账号」：切回官方登录，模型沿用设置里的默认值 */
+  /** 点「官方账号 / Harness 凭据」：切回无渠道模式，模型沿用设置里的默认值 */
   const pickOfficial = (): void => {
-    if (commit({ cli: 'claude', official: true })) close()
+    if (commit({ cli: viewCli, official: true })) close()
   }
 
   /**
@@ -1467,7 +1514,7 @@ function ModelPicker({
    */
   const pickModel = (m: string): void => {
     if (officialShown) {
-      if (commit({ cli: 'claude', official: true, model: m })) close()
+      if (commit({ cli: viewCli, official: true, model: m })) close()
       return
     }
     const channelId =
@@ -1480,11 +1527,14 @@ function ModelPicker({
     new Set([ch?.model ?? '', ...(ch?.models ?? [])].map((s) => s.trim()).filter(Boolean))
   )
 
-  /** 官方登录的模型列：设置里的默认模型 + 几个常用别名 */
+  /** 无渠道模式的模型列：设置里的默认模型 + 几个常用别名 */
   const officialModel = (viewCfg.officialModel ?? '').trim()
   const officialOptions = [
-    { value: officialModel, label: officialModel || '默认（CLI 决定）' },
-    ...['sonnet', 'opus', 'haiku']
+    { value: officialModel, label: officialModel || t('composer.picker.default') },
+    ...(viewCli === 'dsh'
+      ? ['deepseek-v4-flash', 'deepseek-v4-pro']
+      : ['sonnet', 'opus', 'haiku']
+    )
       .filter((m) => m !== officialModel)
       .map((m) => ({ value: m, label: m }))
   ]
@@ -1502,9 +1552,10 @@ function ModelPicker({
     CLIS.length,
     ...CLIS.map((c) => {
       const chans = cliConfigs[c.id]?.channels ?? []
-      let rows = chans.length + (c.id === 'claude' ? 1 : 0)
+      const officialRow = c.id === 'claude' || c.id === 'dsh' ? 1 : 0
+      let rows = chans.length + officialRow
       for (const chn of chans) rows = Math.max(rows, modelRowCount(chn))
-      return c.id === 'claude' ? Math.max(rows, OFFICIAL_MODEL_ROWS) : rows
+      return officialRow ? Math.max(rows, OFFICIAL_MODEL_ROWS) : rows
     })
   )
   const colsHeight = Math.min(
@@ -1531,7 +1582,7 @@ function ModelPicker({
                 if (!c.ready) return
                 setHoverCli(c.id)
                 setHoverChannel(null)
-                // 官方行只在 Claude 这一列；换到别的 CLI 时别把上次的预览带过去
+                // 官方 / Harness 凭据行只在 Claude / dsh 这一列；换到别的 CLI 时别把预览带过去
                 setHoverOfficial(false)
               }}
               onClick={() => pickCli(c.id)}
@@ -1539,12 +1590,16 @@ function ModelPicker({
               <span className={`mpick__ico mpick__ico--${c.id}`}>
                 {c.id === 'claude' ? (
                   <IconClaudeCode width={15} height={15} />
-                ) : (
+                ) : c.id === 'codex' ? (
                   <IconOpenAI width={15} height={15} />
+                ) : (
+                  <IconDeepSeek width={15} height={15} />
                 )}
               </span>
               <span className="mpick__name">{c.name}</span>
-              {!c.ready && <span className="mpick__sub">未接入</span>}
+              {!c.ready && (
+                <span className="mpick__sub">{t('settings.nav.notReady')}</span>
+              )}
               <span className="mpick__tick">{c.id === cli ? '✓' : ''}</span>
             </button>
           ))}
@@ -1552,10 +1607,11 @@ function ModelPicker({
 
         <div className="mpick__col">
           <div className="mpick__h">
-            渠道 <span className="mpick__hctx">· {cliDef(viewCli).name}</span>
+            {t('composer.picker.channel')}{' '}
+            <span className="mpick__hctx">· {cliDef(viewCli).name}</span>
           </div>
 
-          {viewCli === 'claude' && (
+          {(viewCli === 'claude' || viewCli === 'dsh') && (
             <button
               className={`mpick__it ${
                 viewCli === cli && officialActive ? 'is-on' : ''
@@ -1568,10 +1624,18 @@ function ModelPicker({
               }}
               onClick={pickOfficial}
             >
-              <span className="mpick__ico mpick__ico--claude">
-                <IconClaudeCode width={15} height={15} />
+              <span className={`mpick__ico mpick__ico--${viewCli}`}>
+                {viewCli === 'claude' ? (
+                  <IconClaudeCode width={15} height={15} />
+                ) : (
+                  <IconDeepSeek width={15} height={15} />
+                )}
               </span>
-              <span className="mpick__name">Claude 官方账号</span>
+              <span className="mpick__name">
+                {viewCli === 'claude'
+                  ? t('composer.picker.official')
+                  : t('composer.picker.officialDsh')}
+              </span>
               <span className="mpick__tick">
                 {viewCli === cli && officialActive ? '✓' : ''}
               </span>
@@ -1581,8 +1645,10 @@ function ModelPicker({
           {viewCfg.channels.length === 0 && !officialActive && (
             <p className="mpick__empty">
               {viewCli === 'claude'
-                ? '没有 API 渠道；仍可使用官方账号。'
-                : '这个 CLI 还没配渠道，去设置里加一个。'}
+                ? t('composer.picker.noChannelClaude')
+                : viewCli === 'dsh'
+                  ? t('composer.picker.noChannelDsh')
+                  : t('composer.picker.noChannel')}
             </p>
           )}
           {viewCfg.channels.map((c) => {
@@ -1615,9 +1681,12 @@ function ModelPicker({
 
         <div className="mpick__col mpick__col--models">
           <div className="mpick__h">
-            模型{' '}
+            {t('composer.picker.model')}{' '}
             <span className="mpick__hctx">
-              · {officialShown ? '官方账号' : ch?.name ?? '未选渠道'}
+              ·{' '}
+              {officialShown
+                ? t('auth.officialAccount')
+                : ch?.name ?? t('settings.channel.none')}
             </span>
           </div>
           {officialShown
@@ -1630,7 +1699,9 @@ function ModelPicker({
                   onClick={() => pickModel(o.value)}
                 >
                   <span className="mpick__name mpick__name--mono">{o.label}</span>
-                  {i === 0 && <span className="mpick__pill">默认</span>}
+                  {i === 0 && (
+                    <span className="mpick__pill">{t('composer.picker.defaultPill')}</span>
+                  )}
                   <span className="mpick__tick">
                     {modelInUse && o.value === officialModel ? '✓' : ''}
                   </span>
@@ -1643,26 +1714,27 @@ function ModelPicker({
                   onClick={() => pickModel(m)}
                 >
                   <span className="mpick__name mpick__name--mono">{m}</span>
-                  {i === 0 && <span className="mpick__pill">默认</span>}
+                  {i === 0 && (
+                    <span className="mpick__pill">{t('composer.picker.defaultPill')}</span>
+                  )}
                   <span className="mpick__tick">{modelInUse && m === model ? '✓' : ''}</span>
                 </button>
               ))}
           {!officialShown && options.length === 0 && (
-            <p className="mpick__empty">渠道里没填模型名。</p>
+            <p className="mpick__empty">{t('composer.picker.emptyModels')}</p>
           )}
         </div>
       </div>
 
       {confirm ? (
         <div className="mpick__warn">
-          <div className="mpick__warn-t">换到 {cliDef(confirm.cli).name} 会开一条新会话</div>
-          <p className="mpick__warn-d">
-            换 CLI 不是换启动参数 —— 它用的是另一套会话记录，当前这段对话带不过去。
-            换模型和渠道都会 <code>--resume</code> 接回原会话，只有换 CLI 会断。
-          </p>
+          <div className="mpick__warn-t">
+            {t('composer.picker.warnTitle', { cli: cliDef(confirm.cli).name })}
+          </div>
+          <p className="mpick__warn-d">{t('composer.picker.warnBody')}</p>
           <div className="mpick__warn-b">
             <button className="mbtn" onClick={() => setConfirm(null)}>
-              取消
+              {t('common.cancel')}
             </button>
             <button
               className="mbtn mbtn--danger"
@@ -1674,7 +1746,7 @@ function ModelPicker({
                 if (sel.model) close()
               }}
             >
-              换过去，开新会话
+              {t('composer.picker.switch')}
             </button>
           </div>
         </div>
@@ -1682,8 +1754,11 @@ function ModelPicker({
         <p className="mpick__note">
           <span className="mpick__note-ico">i</span>
           <span>
-            <b>换模型 / 渠道</b> 会换进程并用 <code>--resume</code> 接回当前会话，上下文不丢；
-            <b>换 CLI</b> 是另一套会话记录，会新开一条。
+            <b>{t('composer.picker.noteModel')}</b>
+            {t('composer.picker.noteModelBody')}
+            <code>--resume</code>
+            <b>{t('composer.picker.noteCli')}</b>
+            {t('composer.picker.noteCliBody')}
           </span>
         </p>
       )}

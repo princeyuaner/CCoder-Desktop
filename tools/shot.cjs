@@ -51,6 +51,14 @@ const DEMO = {
       enabled: false,
       activeChannelId: 'demo-x1',
       channels: [ch('demo-x1', 'OpenAI 中转', 'https://api.openai.com/v1', 'gpt-5-codex', 'token')]
+    },
+    dsh: {
+      enabled: true,
+      activeChannelId: null,
+      channels: [],
+      effort: 'medium',
+      authMode: 'official',
+      officialModel: 'deepseek-v4-flash'
     }
   }
 }
@@ -67,6 +75,24 @@ ipcMain.handle('channel:test', () => ({
   message: 'pong',
   latencyMs: 412
 }))
+ipcMain.handle('codex:status', () => ({
+  installed: false,
+  path: 'codex',
+  version: '',
+  appServerOk: false,
+  account: null,
+  permissionProfiles: [],
+  checkedAt: Date.now()
+}))
+ipcMain.handle('dsh:status', () => ({
+  installed: true,
+  path: 'C:\\Users\\CY\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js',
+  node: 'C:\\Program Files\\nodejs\\node.exe',
+  nodeOk: true,
+  version: '0.2.1-rc.2',
+  home: 'C:\\Users\\CY\\.dsh',
+  checkedAt: Date.now()
+}))
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
@@ -81,6 +107,23 @@ app.whenReady().then(async () => {
     }
   })
 
+  // 调试用：把渲染层最早期的异常连同 stack 打出来，否则只看到压缩后的报错行号
+  win.webContents.on('did-start-loading', () => {
+    win.webContents
+      .executeJavaScript(`
+        window.addEventListener('error', (e) => {
+          console.log('EARLY_ERR', e.message, e.filename, e.lineno, e.colno, '\\n' + (e.error && e.error.stack))
+        })
+        window.addEventListener('unhandledrejection', (e) => {
+          console.log('EARLY_REJ', '\\n' + ((e.reason && e.reason.stack) || e.reason))
+        })
+      `)
+      .catch(() => {})
+  })
+  win.webContents.on('console-message', (_e, _level, message) => {
+    if (/EARLY_|TypeError|Uncaught/.test(message)) console.log('[renderer]', message)
+  })
+
   await win.loadFile(path.join(__dirname, '..', 'out', 'renderer', 'index.html'))
   await new Promise((r) => setTimeout(r, 1200))
 
@@ -90,6 +133,17 @@ app.whenReady().then(async () => {
     )
     if (!hit) console.log('[warn] 没找到选择器:', sel)
     await new Promise((r) => setTimeout(r, 700))
+  }
+
+  if (process.env.SHOT_DEBUG) {
+    const info = await win.webContents.executeJavaScript(`(() => ({
+      url: location.href,
+      nav: !!document.querySelector('.settings__nav'),
+      settingsTitle: document.querySelector('.settings__title')?.textContent || '',
+      mainClass: document.querySelector('main')?.className || '',
+      cliNav: [...document.querySelectorAll('.settings__navitem')].map((b) => b.textContent)
+    }))()`)
+    console.log('DEBUG', JSON.stringify(info))
   }
 
   if (process.env.SHOT_AUTOSAVE) {

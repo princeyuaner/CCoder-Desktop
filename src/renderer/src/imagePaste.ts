@@ -1,4 +1,5 @@
 import type { ImageAttachment } from '@shared/attachment'
+import { tr } from './i18n'
 
 /**
  * 剪贴板 / 文件选择里的图片 → 可直接随消息发送的附件。
@@ -22,7 +23,7 @@ function newId(): string {
 function nameFor(file: File, index: number, mediaType: string): string {
   if (file.name && file.name.trim()) return file.name
   const ext = mediaType === 'image/jpeg' ? 'jpg' : mediaType.split('/')[1] || 'png'
-  return `粘贴的截图 ${index + 1}.${ext}`
+  return `${tr('attachment.pastedScreenshot', { n: index + 1 })}.${ext}`
 }
 
 function toAttachment(

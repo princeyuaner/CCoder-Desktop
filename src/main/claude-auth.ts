@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { t } from './i18n'
 import { homedir } from 'node:os'
 import type { ChildProcess } from 'node:child_process'
 import {
@@ -219,9 +220,9 @@ export async function probeClaudeAuth(): Promise<ClaudeAuthStatus> {
   const failure =
     !raw && (st.timedOut || st.error || st.code !== 0 || st.stderr.trim() || out.trim())
       ? [
-          st.timedOut ? '读取登录状态超时' : '',
+          st.timedOut ? t('claudeAuth.probeTimeout') : '',
           st.error ?? '',
-          st.code !== 0 ? `退出码 ${st.code}` : '',
+          st.code !== 0 ? t('claudeAuth.exitCode', { code: st.code ?? 'signal' }) : '',
           st.stderr.trim().slice(-400),
           out.trim().slice(-400)
         ]
@@ -346,20 +347,20 @@ async function finishLogin(
       emit({
         t: 'phase',
         phase: 'failed',
-        message: '登录命令已结束，但没有检测到登录状态。请重试，或检查浏览器里是否完成授权。'
+        message: t('claudeAuth.noLoginDetected')
       })
     }
   }
 }
 
 export function startClaudeLogin(): ClaudeAuthResult {
-  if (disposed) return { ok: false, message: '应用正在退出' }
-  if (login) return { ok: false, message: '登录流程已经进行中' }
-  if (logoutRunning) return { ok: false, message: '正在退出登录，请稍候' }
+  if (disposed) return { ok: false, message: t('claudeAuth.appQuitting') }
+  if (login) return { ok: false, message: t('claudeAuth.loginInProgress') }
+  if (logoutRunning) return { ok: false, message: t('claudeAuth.logoutInProgress') }
 
   const path = resolveClaudeBin()
   if (!existsSync(path)) {
-    return { ok: false, message: '没有找到 claude 可执行文件，请先安装 Claude Code' }
+    return { ok: false, message: t('claudeAuth.cliMissing') }
   }
 
   let child: ChildProcess
@@ -371,7 +372,7 @@ export function startClaudeLogin(): ClaudeAuthResult {
       cwd: homedir()
     })
   } catch (err) {
-    return { ok: false, message: `无法启动登录命令：${String(err)}` }
+    return { ok: false, message: t('claudeAuth.spawnFailed', { detail: String(err) }) }
   }
 
   const state: LoginState = {
@@ -384,7 +385,7 @@ export function startClaudeLogin(): ClaudeAuthResult {
     exited: false,
     done: false,
     timer: setTimeout(() => {
-      void finishLogin('failed', '登录超时（10 分钟），请重试')
+      void finishLogin('failed', t('claudeAuth.loginTimeout'))
     }, LOGIN_TIMEOUT_MS),
     submitTimer: null,
     pollTimer: setInterval(() => {
@@ -408,7 +409,7 @@ export function startClaudeLogin(): ClaudeAuthResult {
     if (code === 0) {
       void finishLogin('success')
     } else {
-      void finishLogin('failed', `登录命令退出码 ${code}`)
+      void finishLogin('failed', t('claudeAuth.loginExit', { code: code ?? 'signal' }))
     }
   })
 
@@ -442,22 +443,22 @@ async function pollLoginStatus(): Promise<void> {
 
 export function submitClaudeLoginCode(code: string): ClaudeAuthResult {
   const cur = login
-  if (!cur || cur.done) return { ok: false, message: '当前没有进行中的登录流程' }
+  if (!cur || cur.done) return { ok: false, message: t('claudeAuth.noLoginFlow') }
   const raw = typeof code === 'string' ? code : ''
-  if (!raw.trim()) return { ok: false, message: '授权码为空' }
-  if (raw.length > 8192) return { ok: false, message: '授权码过长' }
+  if (!raw.trim()) return { ok: false, message: t('claudeAuth.codeEmpty') }
+  if (raw.length > 8192) return { ok: false, message: t('claudeAuth.codeTooLong') }
 
   // 复制来的授权码可能带换行/空格；CLI 只认一整串
   const normalized = raw.replace(/\s+/g, '')
   try {
     cur.child.stdin?.write(`${normalized}\n`)
   } catch {
-    return { ok: false, message: '登录进程已经结束，请重新发起登录' }
+    return { ok: false, message: t('claudeAuth.loginProcessEnded') }
   }
 
   if (!cur.submitTimer) {
     cur.submitTimer = setTimeout(() => {
-      void finishLogin('failed', '授权码校验超时，请重新登录')
+      void finishLogin('failed', t('claudeAuth.codeTimeout'))
     }, SUBMIT_TIMEOUT_MS)
   }
   setPhase('verifying')
@@ -477,8 +478,8 @@ export function cancelClaudeLogin(): ClaudeAuthResult {
 }
 
 export async function logoutClaude(): Promise<ClaudeAuthResult> {
-  if (login) return { ok: false, message: '请先取消当前登录流程' }
-  if (logoutRunning) return { ok: false, message: '正在退出登录，请稍候' }
+  if (login) return { ok: false, message: t('claudeAuth.cancelFirst') }
+  if (logoutRunning) return { ok: false, message: t('claudeAuth.logoutInProgress') }
 
   logoutRunning = true
   try {
@@ -487,18 +488,18 @@ export async function logoutClaude(): Promise<ClaudeAuthResult> {
     emit({ t: 'status', status })
 
     if (!status.loggedIn) {
-      return { ok: true, message: r.code === 0 ? undefined : '已经处于未登录状态' }
+      return { ok: true, message: r.code === 0 ? undefined : t('claudeAuth.alreadyLoggedOut') }
     }
     return {
       ok: false,
       message: [
-        r.timedOut ? '退出登录超时' : '',
+        r.timedOut ? t('claudeAuth.logoutTimeout') : '',
         r.error ?? '',
-        r.code !== 0 ? `退出码 ${r.code}` : '',
+        r.code !== 0 ? t('claudeAuth.exitCode', { code: r.code ?? 'signal' }) : '',
         stripAnsi(r.stderr).trim().slice(-400)
       ]
         .filter(Boolean)
-        .join('\n') || '退出登录失败'
+        .join('\n') || t('claudeAuth.logoutFailed')
     }
   } finally {
     logoutRunning = false

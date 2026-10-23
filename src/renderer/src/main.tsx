@@ -3,11 +3,13 @@ import './report-errors'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { defaultSettings, type Settings } from '@shared/settings'
+import { resolveLanguage, type LocaleInfo } from '@shared/i18n'
 import './styles/tokens.css'
 import './styles/global.css'
 import { App } from './App'
 import { IdeApp } from './ide/IdeApp'
 import { applyAppearance } from './appearance'
+import { initRendererI18n } from './i18n'
 
 const el = document.getElementById('root')
 if (!el) throw new Error('#root not found')
@@ -20,13 +22,22 @@ if (!el) throw new Error('#root not found')
  */
 async function boot(): Promise<void> {
   let settings: Settings = defaultSettings()
-  if (window.api) {
-    try {
-      settings = await window.api.settings.get()
-    } catch {
-      // 用默认外观继续
-    }
+  let localeInfo: LocaleInfo = {
+    systemLocale: navigator.language,
+    resolved: resolveLanguage('system', navigator.language)
   }
+
+  if (window.api) {
+    // 两件事都要在首帧之前完成，否则会先闪一帧中文 / 默认外观
+    const [s, i] = await Promise.all([
+      window.api.settings.get().catch(() => defaultSettings()),
+      window.api.i18n.locale().catch(() => localeInfo)
+    ])
+    settings = s
+    localeInfo = i
+  }
+
+  initRendererI18n(localeInfo)
   applyAppearance(settings)
   const params = new URLSearchParams(location.search)
   const isIde = params.get('view') === 'ide'

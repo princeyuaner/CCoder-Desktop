@@ -13,6 +13,7 @@ import type { PermissionDecision, QuestionAnswer, SessionSendInput } from '../..
 import { CodexRpc, initializeCodex, resolveCodexBin } from '../../codex-runner'
 import type { Provider, ProviderSession, ProviderSessionOptions } from '../types'
 import { buildPreview } from '../permission-preview'
+import { msg, t } from '../../i18n'
 
 type Obj = Record<string, unknown>
 
@@ -54,16 +55,16 @@ function normalizeMode(v: string): PermissionMode {
 
 function permissionOptions(tool: string, allowAlways = true): PermissionOption[] {
   return [
-    { value: 'allow', label: '允许' },
+    { value: 'allow', label: msg('permission.allowOption') },
     ...(allowAlways
-      ? [{ value: 'allow-always', label: `本会话总是允许 ${tool}` }]
+      ? [{ value: 'allow-always', label: msg('permission.allowAlwaysOption', { tool }) }]
       : []),
-    { value: 'deny', label: '拒绝', danger: true }
+    { value: 'deny', label: msg('permission.denyOption'), danger: true }
   ]
 }
 
 function clip(s: string, max = 20_000): string {
-  return s.length > max ? `${s.slice(0, max)}\n…（输出已截断）` : s
+  return s.length > max ? `${s.slice(0, max)}\n${t('codex.outputTruncated')}` : s
 }
 
 /* ── 文件 diff ───────────────────────────────────────────── */
@@ -118,7 +119,7 @@ function absPath(cwd: string, p: string): string {
 
 function previewForChanges(changes: FileChange[], cwd: string): PermissionPreview {
   if (changes.length === 0) {
-    return { kind: 'text', title: '修改文件', note: 'Codex 没有给出具体文件' }
+    return { kind: 'text', title: msg('codexAdapter.editFile'), note: msg('codexAdapter.noSpecificFile') }
   }
 
   const lines: DiffLine[] = []
@@ -139,8 +140,8 @@ function previewForChanges(changes: FileChange[], cwd: string): PermissionPrevie
     kind: 'diff',
     title:
       changes.length === 1
-        ? `修改 ${basename(first.path)}`
-        : `修改 ${changes.length} 个文件`,
+        ? t('codexAdapter.editOne', { name: basename(first.path) })
+        : t('codexAdapter.editMany', { n: changes.length }),
     path: absPath(cwd, first.path),
     lines,
     note: `+${added} −${removed}`
@@ -294,7 +295,7 @@ class CodexSession implements ProviderSession {
         } catch (e) {
           this.o.onEvent({
             t: 'error',
-            message: `无法恢复 Codex 会话（${String(e)}），已开始一条新会话`,
+            message: t('codexAdapter.restoreFailed', { detail: String(e) }),
             fatal: false
           })
           res = await this.rpc.request<Obj>('thread/start', this.threadParams(), 30_000)
@@ -325,7 +326,9 @@ class CodexSession implements ProviderSession {
       const stderr = this.rpc.stderrText.trim()
       this.o.onEvent({
         t: 'error',
-        message: `Codex 启动失败：${String(e)}${stderr ? `\n${stderr.slice(-600)}` : ''}`,
+        message: t('codexAdapter.startFailed', {
+        detail: String(e) + (stderr ? `\n${stderr.slice(-600)}` : '')
+      }),
         fatal: true
       })
       this.rpc.dispose()
@@ -389,7 +392,7 @@ class CodexSession implements ProviderSession {
         this.currentTurnId = null
       }
     } catch (e) {
-      this.o.onEvent({ t: 'error', message: `Codex 发送失败：${String(e)}`, fatal: false })
+      this.o.onEvent({ t: 'error', message: t('codexAdapter.sendFailed', { detail: String(e) }), fatal: false })
       this.o.onEvent({
         t: 'turn_end',
         durationMs: Date.now() - this.turnStart,
@@ -539,8 +542,8 @@ class CodexSession implements ProviderSession {
         input: { permissions: requested, reason: str(params.reason) },
         preview: {
           kind: 'text',
-          title: 'Codex 申请额外权限',
-          note: str(params.reason) || (paths.length ? paths.join('\n') : '在沙箱外执行或写入')
+          title: msg('codexAdapter.extraPermission'),
+          note: str(params.reason) || (paths.length ? paths.join('\n') : t('codexAdapter.sandboxWrite'))
         },
         // 额外权限不做「本会话总是允许」：一次授权可能覆盖工作区外的读写，
         // 每次都让用户看一眼更稳。
@@ -569,7 +572,7 @@ class CodexSession implements ProviderSession {
         this.questionOrder.push(question)
         questions.push({
           question,
-          header: str(q.header) || '问题',
+          header: str(q.header) || t('codexAdapter.question'),
           options,
           // Codex 的这个协议没有 multiSelect 字段；答案本身是数组，
           // 但一次只能选一个。
@@ -599,7 +602,7 @@ class CodexSession implements ProviderSession {
 
     // 未支持的服务端请求：回错误，避免 Codex 卡住
     this.serverRequestIds.delete(rid)
-    this.rpc.respondError(id, -32601, `CCoder 暂不支持：${method}`)
+    this.rpc.respondError(id, -32601, t('codexAdapter.unsupported', { method }))
   }
 
   /* ── 通知 ── */
@@ -658,7 +661,7 @@ class CodexSession implements ProviderSession {
         // 可重试的错误（Reconnecting… 1/5）不往转写区丢 —— 一轮里可能来五条，
         // 真正失败时 turn/completed 会带最终原因。
         if (p.willRetry === true) return
-        const message = str(obj(p.error).message) || 'Codex 报告了一个错误'
+        const message = str(obj(p.error).message) || t('codexAdapter.reportedError')
         this.o.onEvent({ t: 'error', message, fatal: false })
         return
       }
@@ -763,7 +766,7 @@ class CodexSession implements ProviderSession {
         t: 'tool_result',
         id,
         status: toolStatus,
-        content: clip(output || (code !== null ? `退出码 ${code}` : ''))
+        content: clip(output || (code !== null ? t('codexTest.exitCode', { code }) : ''))
       })
       return
     }
@@ -841,7 +844,7 @@ class CodexSession implements ProviderSession {
     if (status === 'failed') {
       this.o.onEvent({
         t: 'error',
-        message: str(error.message) || 'Codex 这一轮执行失败',
+        message: str(error.message) || t('codexAdapter.turnFailed'),
         fatal: false
       })
     }

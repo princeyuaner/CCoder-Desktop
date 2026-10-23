@@ -4,6 +4,7 @@ import type { ProgressInfo, UpdateInfo } from 'electron-updater'
 import { IPC } from '../shared/ipc'
 import type { UpdateInstallResult, UpdateState } from '../shared/update'
 import { logMain } from './crash-log'
+import { t } from './i18n'
 
 /**
  * 启动后等一会儿再检查：别和窗口首屏、会话列表抢网络。
@@ -217,11 +218,11 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
   async function install(): Promise<UpdateInstallResult> {
     if (state.phase !== 'downloaded') {
       logMain('updater.install.rejected', { reason: 'not-downloaded', phase: state.phase })
-      return { ok: false, message: '更新还没下载完成' }
+      return { ok: false, message: t('updater.notDownloaded') }
     }
     if (opts.hasBusySessions()) {
       logMain('updater.install.rejected', { reason: 'busy' })
-      return { ok: false, message: '有会话正在运行，请等这一轮结束后再安装更新' }
+      return { ok: false, message: t('updater.busySessions') }
     }
     logMain('updater.install', { version: state.version })
     opts.beforeInstall()

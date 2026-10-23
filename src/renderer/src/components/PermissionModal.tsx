@@ -1,6 +1,26 @@
 import { useEffect, useRef } from 'react'
-import type { PermissionPreview } from '@shared/events'
 import type { ChatItem } from '../useChat'
+import { useI18n } from '../i18n'
+
+/** 把模板里的 `{slot}` 换成加粗的值，保留前面的动词和后面的问句 */
+function Fill({
+  template,
+  slot,
+  value
+}: {
+  template: string
+  slot: string
+  value: string
+}): JSX.Element {
+  const [before, after = ''] = template.split(`{${slot}}`)
+  return (
+    <>
+      {before}
+      <b>{value}</b>
+      {after}
+    </>
+  )
+}
 
 /**
  * 审批弹窗（居中模态 + 遮罩）。
@@ -24,6 +44,7 @@ export function PermissionModal({
   pendingCount: number
   onRespond: (requestId: string, allow: boolean, always: boolean) => void
 }): JSX.Element {
+  const { t, text } = useI18n()
   const { preview } = item
   const dangerous = !!preview.danger
   const dlgRef = useRef<HTMLDivElement>(null)
@@ -67,7 +88,13 @@ export function PermissionModal({
   const allow = item.options.filter((o) => o.value === 'allow')
   const rest = item.options.filter((o) => !['deny', 'allow-always', 'allow'].includes(o.value))
 
-  const tail = ASK_TAIL[preview.kind]
+  const askTemplate = t(
+    preview.kind === 'diff'
+      ? 'permission.ask.diff'
+      : preview.kind === 'command'
+        ? 'permission.ask.command'
+        : 'permission.ask.text'
+  )
 
   return (
     <div className="modal">
@@ -79,13 +106,15 @@ export function PermissionModal({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={preview.title}
+        aria-label={text(preview.title)}
       >
         <div className="modal__h">
-          <span className="modal__badge">等待你的许可</span>
-          <span className="modal__t">{preview.title}</span>
+          <span className="modal__badge">{t('permission.waiting')}</span>
+          <span className="modal__t">{text(preview.title)}</span>
           {/* 危险时 note 挪到下面的警示条里，别在标题栏重复一遍 */}
-          {preview.note && !dangerous && <span className="modal__note">{preview.note}</span>}
+          {preview.note && !dangerous && (
+            <span className="modal__note">{text(preview.note)}</span>
+          )}
           {pendingCount > 1 && <span className="modal__q">1/{pendingCount}</span>}
         </div>
 
@@ -93,7 +122,11 @@ export function PermissionModal({
           <div className="modal__warn">
             <span className="modal__warn-g">⚠</span>
             <span>
-              这条命令会<b>{preview.note}</b>。回车快捷放行已停用，确认无误再点。
+              <Fill
+                template={t('permission.dangerWarning')}
+                slot="note"
+                value={preview.note ? text(preview.note) : ''}
+              />
             </span>
           </div>
         )}
@@ -121,8 +154,7 @@ export function PermissionModal({
           )}
 
           <p className="modal__ask">
-            模型要执行 <b>{item.tool}</b>
-            {tail}，放行吗？
+            <Fill template={askTemplate} slot="tool" value={item.tool} />
           </p>
         </div>
 
@@ -133,7 +165,7 @@ export function PermissionModal({
               className="btn btn--danger"
               onClick={() => onRespond(item.id, false, false)}
             >
-              {o.label}
+              {text(o.label)}
               <span className="kbd">Esc</span>
             </button>
           ))}
@@ -142,7 +174,7 @@ export function PermissionModal({
 
           {rest.map((o) => (
             <button key={o.value} className="btn" onClick={() => onRespond(item.id, true, false)}>
-              {o.label}
+              {text(o.label)}
             </button>
           ))}
 
@@ -152,7 +184,7 @@ export function PermissionModal({
               className="btn"
               onClick={() => onRespond(item.id, true, true)}
             >
-              {o.label}
+              {text(o.label)}
             </button>
           ))}
 
@@ -162,7 +194,7 @@ export function PermissionModal({
               className="btn btn--primary"
               onClick={() => onRespond(item.id, true, false)}
             >
-              {o.label}
+              {text(o.label)}
               {!dangerous && <span className="kbd">⏎</span>}
             </button>
           ))}
@@ -170,11 +202,4 @@ export function PermissionModal({
       </div>
     </div>
   )
-}
-
-/** 「模型要执行 X ____，放行吗？」中间那截 —— 说清这一步到底要干什么 */
-const ASK_TAIL: Record<PermissionPreview['kind'], string> = {
-  diff: '改这个文件',
-  command: '跑这条命令',
-  text: ''
 }

@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import { t } from '../i18n'
 import { isAbsolute, relative, resolve } from 'node:path'
 import type { VcsRepo } from '../../shared/vcs'
 import { VcsOpError } from './exec'
@@ -11,11 +12,11 @@ export function posix(p: string): string {
 export function normRel(rel: string): string {
   const raw = typeof rel === 'string' ? rel : ''
   if (!raw || raw.includes('\0') || /[\r\n]/.test(raw)) {
-    throw new VcsOpError('invalid-path', '文件路径不合法')
+    throw new VcsOpError('invalid-path', t('vcsError.pathInvalid'))
   }
   const p = posix(raw).replace(/^\/+|\/+$/g, '')
   if (isAbsolute(raw) || p.split('/').some((seg) => seg === '..')) {
-    throw new VcsOpError('invalid-path', '文件路径不在工作区内', raw)
+    throw new VcsOpError('invalid-path', t('vcsError.pathOutside'), raw)
   }
   return p
 }
@@ -59,13 +60,13 @@ export function dirOf(rel: string): string {
 export function checkRevision(kind: 'git' | 'svn', value: string | undefined): string | undefined {
   if (value === undefined || value === '') return undefined
   if (kind === 'svn') {
-    if (!/^\d{1,12}$/.test(value)) throw new VcsOpError('invalid-path', 'revision 不合法')
+    if (!/^\d{1,12}$/.test(value)) throw new VcsOpError('invalid-path', t('vcsError.revisionInvalid'))
     return value
   }
   if (/^(HEAD|FETCH_HEAD)([~^]\d*)?$/.test(value) || /^[0-9a-fA-F]{4,64}$/.test(value)) {
     return value
   }
-  throw new VcsOpError('invalid-path', 'commit 不合法')
+  throw new VcsOpError('invalid-path', t('vcsError.commitInvalid'))
 }
 
 export function countDiff(diff: string): { added: number; removed: number } {
@@ -87,7 +88,7 @@ export async function assertRealInside(root: string, abs: string): Promise<void>
   const [rootReal, real] = await Promise.all([realpath(resolve(root)), realpath(abs)])
   const r = relative(rootReal, real)
   if (r.startsWith('..') || isAbsolute(r)) {
-    throw new VcsOpError('invalid-path', '路径不在仓库内', abs)
+    throw new VcsOpError('invalid-path', t('vcsError.pathNotInRepo'), abs)
   }
 }
 
@@ -95,7 +96,7 @@ export async function assertRealInside(root: string, abs: string): Promise<void>
 export function assertInside(root: string, abs: string): string {
   const r = relative(resolve(root), resolve(abs))
   if (!r || r.startsWith('..') || isAbsolute(r)) {
-    throw new VcsOpError('invalid-path', '路径不在仓库内', abs)
+    throw new VcsOpError('invalid-path', t('vcsError.pathNotInRepo'), abs)
   }
   return abs
 }

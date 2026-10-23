@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import type { MessageKey } from '@shared/i18n'
 import type { RunAgent, RunState, RunTask } from '../run-state'
+import { useI18n } from '../i18n'
 import { fmtClock, fmtTokens } from './format'
 import { IconChevronRight } from './Icons'
 import { AgentReportModal } from './AgentReportModal'
@@ -35,6 +37,7 @@ export function RunPanel({
   onCollapse,
   onOpenTrace
 }: Props): JSX.Element | null {
+  const { t, tn } = useI18n()
   const now = useNow(live)
   const [reportId, setReportId] = useState<string | null>(null)
 
@@ -54,12 +57,14 @@ export function RunPanel({
 
   const bits: string[] = []
   if (run.tasks.length) {
-    bits.push(`${done} 完成`)
-    if (active) bits.push(`${active} 进行中`)
+    bits.push(t('runpanel.summary.done', { n: done }))
+    if (active) bits.push(t('runpanel.summary.active', { n: active }))
   }
   if (run.agents.length) {
-    bits.push(`子代理 ${agentsDone}/${run.agents.length}`)
-    if (agentsActive) bits.push(`${agentsActive} 运行中`)
+    bits.push(
+      t('runpanel.summary.agents', { done: agentsDone, total: run.agents.length })
+    )
+    if (agentsActive) bits.push(t('runpanel.summary.agentsActive', { n: agentsActive }))
   }
 
   return (
@@ -67,28 +72,42 @@ export function RunPanel({
     <aside className="runpanel">
       <div className="runpanel__head">
         <div className="runpanel__top">
-          <span className="runpanel__title">执行台</span>
+          <span className="runpanel__title">{t('runpanel.title')}</span>
           <span className={`runpanel__state ${live ? 'is-live' : 'is-done'}`}>
             {live ? <i /> : <b>✓</b>}
-            {elapsed != null ? fmtClock(elapsed) : live ? '运行中' : '已完成'}
+            {elapsed != null
+              ? fmtClock(elapsed)
+              : live
+                ? t('runpanel.running')
+                : t('runpanel.done')}
           </span>
           {running && (
             <button
               className="runpanel__stop"
               onClick={onInterrupt}
-              title="中断本轮；已在后台运行的子代理可能不会随之停止"
+              title={t('runpanel.interruptHint')}
             >
-              ■ 中断
+              ■ {t('runpanel.interrupt')}
             </button>
           )}
-          <button className="runpanel__collapse" onClick={onCollapse} title="收起执行台">
+          <button
+            className="runpanel__collapse"
+            onClick={onCollapse}
+            title={t('runpanel.collapse')}
+          >
             <IconChevronRight width={14} height={14} />
           </button>
         </div>
         {bits.length > 0 && <div className="runpanel__sub">{bits.join(' · ')}</div>}
 
         {run.tasks.length > 0 && (
-          <div className="runpanel__strip" title={`${done} / ${run.tasks.length} 个任务完成`}>
+          <div
+            className="runpanel__strip"
+            title={tn('runpanel.tasksDone', run.tasks.length, {
+              done,
+              total: run.tasks.length
+            })}
+          >
             {run.tasks.map((t) => (
               <i
                 key={t.id}
@@ -113,14 +132,20 @@ export function RunPanel({
         {run.tasks.length > 0 && (
           <section className="rsec">
             <div className="rsec__h">
-              <span className="rsec__t">任务</span>
+              <span className="rsec__t">{t('runpanel.tasks')}</span>
               <span className="rsec__n">
                 {done} / {run.tasks.length}
               </span>
             </div>
             <div className="rsec__list">
-              {run.tasks.map((t) => (
-                <TaskRow key={t.id} task={t} now={now} live={live} />
+              {run.tasks.map((task, index) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  index={index}
+                  now={now}
+                  live={live}
+                />
               ))}
             </div>
           </section>
@@ -129,7 +154,7 @@ export function RunPanel({
         {run.agents.length > 0 && (
           <section className="rsec">
             <div className="rsec__h">
-              <span className="rsec__t">子代理</span>
+              <span className="rsec__t">{t('runpanel.agents')}</span>
               <span className="rsec__n">
                 {agentsDone} / {run.agents.length}
               </span>
@@ -144,7 +169,7 @@ export function RunPanel({
       </div>
 
       <div className="runpanel__foot">
-        <span>{run.steps} 步</span>
+        <span>{tn('count.steps', run.steps)}</span>
         {run.added > 0 || run.removed > 0 ? (
           <>
             <span>·</span>
@@ -155,7 +180,7 @@ export function RunPanel({
           </>
         ) : null}
         <button className="runpanel__link" onClick={onOpenTrace}>
-          查看轨迹 →
+          {t('runpanel.viewTrace')}
         </button>
       </div>
     </aside>
@@ -168,17 +193,33 @@ export function RunPanel({
 
 /* ── 任务 ─────────────────────────────────────────────────── */
 
-function TaskRow({ task, now, live }: { task: RunTask; now: number; live: boolean }): JSX.Element {
+function TaskRow({
+  task,
+  index,
+  now,
+  live
+}: {
+  task: RunTask
+  index: number
+  now: number
+  live: boolean
+}): JSX.Element {
+  const { t } = useI18n()
   const ms = taskMs(task, now, live)
+  const subject =
+    task.subject ||
+    (task.rawId
+      ? t('run.taskWithId', { id: task.rawId })
+      : t('run.taskNumbered', { n: index + 1 }))
   return (
     <div className={`rtask is-${task.status === 'in_progress' ? 'run' : task.status === 'completed' ? 'done' : 'todo'}`}>
       <span className="rtask__box">{task.status === 'completed' ? '✓' : ''}</span>
       <div className="rtask__main">
-        <div className="rtask__text">{task.subject}</div>
+        <div className="rtask__text">{subject}</div>
         {task.status === 'in_progress' && (
           <div className="rtask__form">
             <i />
-            {task.activeForm || '进行中'}
+            {task.activeForm || t('runpanel.inProgress')}
           </div>
         )}
       </div>
@@ -197,12 +238,20 @@ function taskMs(task: RunTask, now: number, live: boolean): number | undefined {
 
 /* ── 子代理 ───────────────────────────────────────────────── */
 
-function agentTone(type: string): { tone: string; glyph: string; label: string } {
+function agentTone(type: string): {
+  tone: string
+  glyph: string
+  labelKey: MessageKey
+} {
   const t = type.toLowerCase()
-  if (t.includes('explore')) return { tone: 'explore', glyph: '✦', label: '代码库检索' }
-  if (t.includes('plan')) return { tone: 'plan', glyph: '◇', label: '方案评估' }
-  if (t.includes('general')) return { tone: 'general', glyph: '◈', label: '子代理' }
-  return { tone: 'other', glyph: '◇', label: '子代理' }
+  if (t.includes('explore')) {
+    return { tone: 'explore', glyph: '✦', labelKey: 'agentType.explore' }
+  }
+  if (t.includes('plan')) return { tone: 'plan', glyph: '◇', labelKey: 'agentType.plan' }
+  if (t.includes('general')) {
+    return { tone: 'general', glyph: '◈', labelKey: 'agentType.subagent' }
+  }
+  return { tone: 'other', glyph: '◇', labelKey: 'agentType.subagent' }
 }
 
 function AgentCard({
@@ -214,24 +263,31 @@ function AgentCard({
   now: number
   onOpenReport: (id: string) => void
 }): JSX.Element {
-  const { tone, glyph, label } = agentTone(agent.type)
+  const { t, tn } = useI18n()
+  const { tone, glyph, labelKey } = agentTone(agent.type)
   const running = agent.status === 'running'
   const stopped = agent.status === 'stopped'
   const failed = agent.status === 'error' || agent.status === 'denied'
   const isBackground = agent.isBackground === true || agent.info?.async === true
   const stateText = running
-    ? '运行中'
+    ? t('agentState.running')
     : stopped
-      ? '已停止'
+      ? t('agentState.stopped')
       : failed
         ? agent.status === 'denied'
-          ? '已拒绝'
-          : '失败'
-        : '完成'
+          ? t('agentState.denied')
+          : t('agentState.failed')
+        : t('agentState.done')
   const ms = agent.ms ?? (running && agent.startedAt ? now - agent.startedAt : undefined)
-  const stats = agentStats(agent)
+  const stats = agentStats(agent, tn)
   /** 失败/停止时优先给原因；摘要仍然留在 result 里 */
-  const detail = failed || stopped ? agent.error || agent.result : agent.result
+  const detail =
+    failed || stopped
+      ? agent.error ||
+        (agent.errorCode
+          ? t(agent.errorCode === 'denied' ? 'agentError.denied' : 'agentError.failed')
+          : agent.result)
+      : agent.result
   /** 结果和描述一模一样时只显示一次 —— 后台任务尤其容易这样 */
   const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase()
   const showResult = !!detail && norm(detail) !== norm(agent.description)
@@ -246,10 +302,12 @@ function AgentCard({
         <div className="ragent__id">
           <div className="ragent__name">
             {agent.type}
-            <span>{label}</span>
-            {isBackground && <em className="ragent__bg">后台</em>}
+            <span>{t(labelKey)}</span>
+            {isBackground && <em className="ragent__bg">{t('runpanel.background')}</em>}
           </div>
-          <div className="ragent__desc">{agent.description}</div>
+          <div className="ragent__desc">
+            {agent.description || t('agentType.subagent')}
+          </div>
         </div>
         <span
           className={`ragent__state ${
@@ -263,7 +321,10 @@ function AgentCard({
       {running ? (
         <div className="ragent__live" title={agent.activity}>
           <span className="ragent__spin">◌</span>
-          {agent.activity || '子代理运行中，等待返回…'}
+          {agent.activity ||
+            (agent.lastToolName
+              ? t('run.callingTool', { tool: agent.lastToolName })
+              : t('runpanel.agentRunning'))}
         </div>
       ) : (
         showResult && (
@@ -277,7 +338,7 @@ function AgentCard({
           data-report-id={agent.id}
           onClick={() => onOpenReport(agent.id)}
         >
-          查看完整报告 →
+          {t('runpanel.viewReport')}
         </button>
       )}
 
@@ -293,16 +354,21 @@ function AgentCard({
   )
 }
 
-function agentStats(agent: RunAgent): string[] {
+function agentStats(
+  agent: RunAgent,
+  tn: (key: MessageKey, count: number) => string
+): string[] {
   const s = agent.info?.toolStats
   const bits: string[] = []
   if (s) {
-    if (s.readCount) bits.push(`${s.readCount} 次读取`)
-    if (s.searchCount) bits.push(`${s.searchCount} 次搜索`)
-    if (s.bashCount) bits.push(`${s.bashCount} 次命令`)
-    if (s.editFileCount) bits.push(`${s.editFileCount} 次编辑`)
+    if (s.readCount) bits.push(tn('agentStats.reads', s.readCount))
+    if (s.searchCount) bits.push(tn('agentStats.searches', s.searchCount))
+    if (s.bashCount) bits.push(tn('agentStats.commands', s.bashCount))
+    if (s.editFileCount) bits.push(tn('agentStats.edits', s.editFileCount))
   }
-  if (bits.length === 0 && agent.info?.toolUseCount) bits.push(`${agent.info.toolUseCount} 次工具`)
+  if (bits.length === 0 && agent.info?.toolUseCount) {
+    bits.push(tn('count.tools', agent.info.toolUseCount))
+  }
   if (agent.info?.totalTokens) bits.push(`${fmtTokens(agent.info.totalTokens)} tok`)
   return bits.slice(0, 3)
 }

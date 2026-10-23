@@ -13,6 +13,7 @@ import { useSessions, type WorkspaceView } from './useSessions'
 import { useSettings } from './useSettings'
 import { useUpdater } from './useUpdater'
 import { applyAppearance } from './appearance'
+import { applyLanguageSetting, useI18n } from './i18n'
 import { onNotice } from './notice'
 import type { ChatActiveInfo, IdeCodeRef, IdeSendPayload } from '@shared/ide-chat'
 import './styles/shell.css'
@@ -41,6 +42,7 @@ export type Active =
   | { kind: 'stored'; id: string; cwd: string; title: string; cli: CliId }
 
 export function App(): JSX.Element {
+  const { t } = useI18n()
   const [view, setView] = useState<View>('chat')
   const [active, setActive] = useState<Active>({ kind: 'new', n: 0 })
   /**
@@ -49,20 +51,29 @@ export function App(): JSX.Element {
    * 新会话 controller，被错误地复用。
    */
   const newSeq = useRef(0)
+  /**
+   * 侧栏眼里「用户正在看的是哪条会话」。
+   *
+   * 只有对话真的露出来时才算：设置页会把对话整个盖住，这时候连当前
+   * 会话也应该在侧栏挂「已完成」提醒（和审批提醒的规则一致）。
+   */
+  const activeStoredId = view === 'chat' && active.kind === 'stored' ? active.id : null
   const {
     workspaces,
     loading,
     running,
+    completed,
     pending: pendingApprovals,
     sort,
     toggleSort,
     refresh
-  } = useSessions()
+  } = useSessions(activeStoredId)
   const { settings, save } = useSettings()
   const updater = useUpdater()
 
-  // 设置落盘（或启动时读完）后立刻应用主题 / 缩放 / 字体
+  // 设置落盘（或启动时读完）后立刻应用语言 / 主题 / 缩放 / 字体
   useEffect(() => {
+    applyLanguageSetting(settings.language)
     applyAppearance(settings)
   }, [settings])
   /** 等着确认删除的那条会话。null = 没在删 */
@@ -175,7 +186,9 @@ export function App(): JSX.Element {
 
     const r = await window.api?.sessions.delete(s.cwd, s.id)
     if (r && !r.ok) {
-      setNotice(`删除失败：${r.message ?? '未知原因'}`)
+      setNotice(
+        t('errors.deleteFailed', { error: r.message ?? t('errors.unknownReason') })
+      )
       return
     }
     // 主进程已经按 provider id 停过进程了；渲染进程这边的 controller（可能在
@@ -264,10 +277,11 @@ export function App(): JSX.Element {
           workspaces={visible}
           loading={loading}
           running={running}
+          completed={completed}
           pending={pendingApprovals}
           sort={sort}
           onToggleSort={toggleSort}
-          activeId={view === 'chat' && active.kind === 'stored' ? active.id : null}
+          activeId={activeStoredId}
           onSelect={openStored}
           onNewSession={newSession}
           onCloseWorkspace={closeWorkspace}
@@ -297,7 +311,11 @@ export function App(): JSX.Element {
       {notice && (
         <div className="notice notice--float">
           <span>{notice}</span>
-          <button className="iconbtn iconbtn--sm" onClick={() => setNotice(null)} title="关闭">
+          <button
+            className="iconbtn iconbtn--sm"
+            onClick={() => setNotice(null)}
+            title={t('common.close')}
+          >
             ×
           </button>
         </div>
@@ -311,9 +329,9 @@ export function App(): JSX.Element {
 
       {pendingDelete && (
         <ConfirmModal
-          title="删除这条会话？"
-          badge="不可恢复"
-          confirmLabel="删除"
+          title={t('chat.delete.title')}
+          badge={t('chat.delete.badge')}
+          confirmLabel={t('chat.delete.confirm')}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => void confirmDelete()}
         >
@@ -322,9 +340,7 @@ export function App(): JSX.Element {
             <div className="delinfo__path">
               {pendingDelete.cwd} · {pendingDelete.id.slice(0, 8)}
             </div>
-            <p className="delinfo__warn">
-              会删掉 CLI 写的那份记录文件（含全部对话与工具调用）。这一步没法撤销。
-            </p>
+            <p className="delinfo__warn">{t('chat.delete.body')}</p>
           </div>
         </ConfirmModal>
       )}

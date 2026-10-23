@@ -31,6 +31,7 @@ import type {
   VcsWorktreePruneRequest,
   VcsWorktreeRemoveRequest
 } from '../../shared/vcs'
+import { t } from '../i18n'
 import { detectVcs, invalidateDetect } from './detect'
 import { VcsOpError } from './exec'
 import * as git from './git'
@@ -63,8 +64,8 @@ async function repoOf(cwd: string): Promise<VcsRepo> {
   throw new VcsOpError(
     d.reason === 'no-cli' ? 'no-cli' : 'no-repo',
     d.reason === 'no-cli'
-      ? '没有找到 git / svn 命令'
-      : '这个工作区不是 Git 仓库或 SVN 工作副本'
+      ? t('vcsError.noCommand')
+      : t('vcsError.notRepo')
   )
 }
 
@@ -137,7 +138,7 @@ export async function commitDetail(
 }
 
 export async function stage(req: VcsPathsRequest): Promise<VcsResult<VcsMutationData>> {
-  return write(req.cwd, { opId: req.opId, label: '添加文件' }, async () => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.stage') }, async () => {
     const repo = await repoOf(req.cwd)
     if (repo.kind === 'git') return git.stageGit(repo, req)
     return svn.stageSvn(repo, req)
@@ -145,71 +146,71 @@ export async function stage(req: VcsPathsRequest): Promise<VcsResult<VcsMutation
 }
 
 export async function unstage(req: VcsPathsRequest): Promise<VcsResult<VcsMutationData>> {
-  return write(req.cwd, { opId: req.opId, label: '取消暂存' }, async () => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.unstage') }, async () => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有暂存区')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoStage'))
     return git.unstageGit(repo, req)
   })
 }
 
 export async function discard(req: VcsDiscardRequest): Promise<VcsResult<VcsMutationData>> {
-  return write(req.cwd, { opId: req.opId, label: '还原改动' }, async () => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.revert') }, async () => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 使用「还原」')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnUseRevert'))
     return git.discardGit(repo, req)
   })
 }
 
 export async function revert(req: VcsRevertRequest): Promise<VcsResult<VcsMutationData>> {
-  return write(req.cwd, { opId: req.opId, label: '还原改动' }, async () => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.revert') }, async () => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'svn') throw new VcsOpError('unsupported', 'Git 使用「还原」或暂时保留')
+    if (repo.kind !== 'svn') throw new VcsOpError('unsupported', t('vcsError.gitUseRevert'))
     return svn.revertSvn(repo, req)
   })
 }
 
 export async function resolve(req: VcsResolveRequest): Promise<VcsResult<VcsMutationData>> {
-  return write(req.cwd, { opId: req.opId, label: '解决冲突' }, async () => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.resolve') }, async () => {
     const repo = await repoOf(req.cwd)
     return repo.kind === 'git' ? git.resolveGit(repo, req) : svn.resolveSvn(repo, req)
   })
 }
 
 export async function commit(req: VcsCommitRequest): Promise<VcsResult<VcsCommitData>> {
-  return write(req.cwd, { opId: req.opId, label: '提交' }, async () => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.commit') }, async () => {
     const repo = await repoOf(req.cwd)
     return repo.kind === 'git' ? git.commitGit(repo, req) : svn.commitSvn(repo, req)
   })
 }
 
 export async function fetch(req: VcsRequestBase): Promise<VcsResult<VcsSyncData>> {
-  return write(req.cwd, { opId: req.opId, label: '获取远端', network: true }, async (signal) => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.fetch'), network: true }, async (signal) => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 使用「更新」')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnUseUpdate'))
     return git.fetchGit(repo, signal)
   })
 }
 
 export async function pull(req: VcsPullRequest): Promise<VcsResult<VcsSyncData>> {
-  return write(req.cwd, { opId: req.opId, label: '拉取', network: true }, async (signal) => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.pull'), network: true }, async (signal) => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 使用「更新」')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnUseUpdate'))
     return git.pullGit(repo, req, signal)
   })
 }
 
 export async function push(req: VcsPushRequest): Promise<VcsResult<VcsSyncData>> {
-  return write(req.cwd, { opId: req.opId, label: '推送', network: true }, async (signal) => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.push'), network: true }, async (signal) => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有单独的推送')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoPush'))
     return git.pushGit(repo, req, signal)
   })
 }
 
 export async function update(req: VcsUpdateRequest): Promise<VcsResult<VcsSyncData>> {
-  return write(req.cwd, { opId: req.opId, label: '更新', network: true }, async (signal) => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.update'), network: true }, async (signal) => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'svn') throw new VcsOpError('unsupported', 'Git 使用「拉取」')
+    if (repo.kind !== 'svn') throw new VcsOpError('unsupported', t('vcsError.gitUsePull'))
     return svn.updateSvn(repo, req, signal)
   })
 }
@@ -221,7 +222,7 @@ export async function worktreeList(
 ): Promise<VcsResult<VcsWorktreeListData>> {
   return read(async () => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoWorktree'))
     return git.worktreeListGit(repo, req)
   })
 }
@@ -229,9 +230,9 @@ export async function worktreeList(
 export async function worktreeAdd(
   req: VcsWorktreeAddRequest
 ): Promise<VcsResult<VcsWorktreeListData>> {
-  return write(req.cwd, { opId: req.opId, label: '新建工作树' }, async (signal) => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.createWorktree') }, async (signal) => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoWorktree'))
     return git.worktreeAddGit(repo, req, signal)
   })
 }
@@ -239,9 +240,9 @@ export async function worktreeAdd(
 export async function worktreeRemove(
   req: VcsWorktreeRemoveRequest
 ): Promise<VcsResult<VcsWorktreeListData>> {
-  return write(req.cwd, { opId: req.opId, label: '删除工作树' }, async (signal) => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.removeWorktree') }, async (signal) => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoWorktree'))
     return git.worktreeRemoveGit(repo, req, signal)
   })
 }
@@ -249,9 +250,9 @@ export async function worktreeRemove(
 export async function worktreePrune(
   req: VcsWorktreePruneRequest
 ): Promise<VcsResult<VcsWorktreePruneData>> {
-  return write(req.cwd, { opId: req.opId, label: '清理工作树' }, async (signal) => {
+  return write(req.cwd, { opId: req.opId, label: t('vcs.op.pruneWorktrees') }, async (signal) => {
     const repo = await repoOf(req.cwd)
-    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoWorktree'))
     return git.worktreePruneGit(repo, req, signal)
   })
 }

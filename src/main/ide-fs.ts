@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs'
+import { t } from './i18n'
 import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path'
 import type {
   IdeCreateRequest,
@@ -152,7 +153,7 @@ function resolveInside(cwd: string, rel: string): string {
   const root = resolve(cwd)
   const abs = resolve(root, normRel(rel) || '.')
   const r = relative(root, abs)
-  if (r.startsWith('..') || isAbsolute(r)) throw new Error('路径不在工作区内')
+  if (r.startsWith('..') || isAbsolute(r)) throw new Error(t('ideError.pathOutside'))
   return abs
 }
 
@@ -162,7 +163,7 @@ async function realInside(cwd: string, rel: string): Promise<string> {
   const abs = resolveInside(cwd, rel)
   const real = await fs.realpath(abs)
   const r = relative(rootReal, real)
-  if (r.startsWith('..') || isAbsolute(r)) throw new Error('路径不在工作区内')
+  if (r.startsWith('..') || isAbsolute(r)) throw new Error(t('ideError.pathOutside'))
   return real
 }
 
@@ -195,14 +196,14 @@ function toFailure(err: unknown): IdeFsResult<never> {
   if (err instanceof SearchPatternError) return failure(err.code, err.message)
   switch (errorCode(err)) {
     case 'EEXIST':
-      return failure('exists', '同名文件或文件夹已经存在')
+      return failure('exists', t('ideError.exists'))
     case 'ENOENT':
-      return failure('missing', '文件或文件夹不存在')
+      return failure('missing', t('ideError.missing'))
     case 'EACCES':
     case 'EPERM':
-      return failure('forbidden', '没有权限修改这个路径')
+      return failure('forbidden', t('ideError.forbidden'))
     case 'ENOSPC':
-      return failure('too-large', '磁盘空间不足')
+      return failure('too-large', t('ideError.diskFull'))
     default:
       return failure('unknown', err instanceof Error ? err.message : String(err))
   }
@@ -215,29 +216,29 @@ function toFailure(err: unknown): IdeFsResult<never> {
 function writeRel(rel: unknown): string {
   const raw = typeof rel === 'string' ? rel : ''
   if (!raw || raw.includes('\0') || /[\r\n]/.test(raw)) {
-    throw new IdeFsError('invalid-path', '文件路径不合法')
+    throw new IdeFsError('invalid-path', t('ideError.invalidPath'))
   }
   if (isAbsolute(raw) || /^[A-Za-z]:/.test(raw)) {
-    throw new IdeFsError('invalid-path', '必须使用工作区相对路径')
+    throw new IdeFsError('invalid-path', t('ideError.relativeRequired'))
   }
   const p = posix(raw).replace(/^\/+|\/+$/g, '')
   const segments = p.split('/')
   if (!p || segments.some((s) => !s || s === '.' || s === '..')) {
-    throw new IdeFsError('invalid-path', '文件路径不合法')
+    throw new IdeFsError('invalid-path', t('ideError.invalidPath'))
   }
   return p
 }
 
 function writeTarget(cwd: string, rel: unknown): { rel: string; abs: string } {
   if (!cwd || typeof cwd !== 'string' || !isAbsolute(cwd)) {
-    throw new IdeFsError('invalid-path', '工作区路径不合法')
+    throw new IdeFsError('invalid-path', t('ideError.invalidWorkspace'))
   }
   const clean = writeRel(rel)
   const root = resolve(cwd)
   const abs = resolve(root, clean)
   const r = relative(root, abs)
   if (!r || r.startsWith('..') || isAbsolute(r)) {
-    throw new IdeFsError('invalid-path', '路径不在工作区内')
+    throw new IdeFsError('invalid-path', t('ideError.pathOutside'))
   }
   return { rel: clean, abs }
 }
@@ -265,7 +266,7 @@ async function ensureParentInside(cwd: string, abs: string): Promise<void> {
       const real = await fs.realpath(probe)
       const r = relative(rootReal, real)
       if (r.startsWith('..') || isAbsolute(r)) {
-        throw new IdeFsError('invalid-path', '路径不在工作区内')
+        throw new IdeFsError('invalid-path', t('ideError.pathOutside'))
       }
       break
     } catch (err) {
@@ -284,19 +285,19 @@ async function ensureParentInside(cwd: string, abs: string): Promise<void> {
   const real = await fs.realpath(parent)
   const r = relative(rootReal, real)
   if (r.startsWith('..') || isAbsolute(r)) {
-    throw new IdeFsError('invalid-path', '路径不在工作区内')
+    throw new IdeFsError('invalid-path', t('ideError.pathOutside'))
   }
 }
 
 /** 文件必须存在、是普通文件、不是符号链接 */
 async function writableFile(cwd: string, rel: string, abs: string): Promise<string> {
   const ls = await lstatOrNull(abs)
-  if (!ls) throw new IdeFsError('missing', '文件不存在')
-  if (ls.isSymbolicLink()) throw new IdeFsError('invalid-path', '不支持写入符号链接')
-  if (!ls.isFile()) throw new IdeFsError('not-file', '目标不是普通文件')
+  if (!ls) throw new IdeFsError('missing', t('ideError.fileMissing'))
+  if (ls.isSymbolicLink()) throw new IdeFsError('invalid-path', t('ideError.symlinkWrite'))
+  if (!ls.isFile()) throw new IdeFsError('not-file', t('ideError.notFile'))
   const real = await realInside(cwd, rel)
   const st = await fs.stat(real)
-  if (!st.isFile()) throw new IdeFsError('not-file', '目标不是普通文件')
+  if (!st.isFile()) throw new IdeFsError('not-file', t('ideError.notFile'))
   return real
 }
 
@@ -320,14 +321,14 @@ async function writeTextBody(
   force: boolean
 ): Promise<void> {
   if (textLf.includes('\0')) {
-    throw new IdeFsError('binary', '内容里包含二进制字符，不能按文本保存')
+    throw new IdeFsError('binary', t('ideError.binarySave'))
   }
 
   // 编辑器统一用 LF；落盘时还原原文件的换行风格
   const body = textLf.replace(/\r\n?/g, '\n')
   const text = eol === 'crlf' ? body.replace(/\n/g, '\r\n') : body
   if (Buffer.byteLength(text, 'utf8') > MAX_WRITE_BYTES) {
-    throw new IdeFsError('too-large', '文件超过 8 MB，暂不支持在 IDE 里保存')
+    throw new IdeFsError('too-large', t('ideError.tooLargeSave'))
   }
 
   const ls = await lstatOrNull(abs)
@@ -339,12 +340,12 @@ async function writeTextBody(
       typeof expectedMtimeMs === 'number' &&
       Math.abs(st.mtimeMs - expectedMtimeMs) > 0.5
     ) {
-      throw new IdeFsError('conflict', '文件已在磁盘上被修改')
+      throw new IdeFsError('conflict', t('ideError.externalModified'))
     }
     await fs.writeFile(real, text, 'utf8')
   } else {
     if (!force && typeof expectedMtimeMs === 'number') {
-      throw new IdeFsError('missing', '文件已在磁盘上被删除')
+      throw new IdeFsError('missing', t('ideError.externalDeleted'))
     }
     await ensureParentInside(cwd, abs)
     // wx：如果刚好有人抢先建了同名文件，不要覆盖
@@ -371,9 +372,9 @@ export async function createEntry(
     const cwd = req?.cwd
     const { rel, abs } = writeTarget(cwd, req?.rel)
     if (req.kind !== 'file' && req.kind !== 'dir') {
-      throw new IdeFsError('invalid-path', '未知的条目类型')
+      throw new IdeFsError('invalid-path', t('ideError.unknownEntry'))
     }
-    if (await lstatOrNull(abs)) throw new IdeFsError('exists', '同名文件或文件夹已经存在')
+    if (await lstatOrNull(abs)) throw new IdeFsError('exists', t('ideError.exists'))
 
     await ensureParentInside(cwd, abs)
     if (req.kind === 'dir') {
@@ -398,7 +399,7 @@ export async function renameEntry(
     const to = writeTarget(cwd, req?.to)
     if (from.rel === to.rel) {
       const ls = await lstatOrNull(from.abs)
-      if (!ls) throw new IdeFsError('missing', '文件或文件夹不存在')
+      if (!ls) throw new IdeFsError('missing', t('ideError.missing'))
       return ok({
         entry: {
           name: basename(from.rel),
@@ -409,12 +410,12 @@ export async function renameEntry(
     }
 
     const ls = await lstatOrNull(from.abs)
-    if (!ls) throw new IdeFsError('missing', '文件或文件夹不存在')
-    if (ls.isSymbolicLink()) throw new IdeFsError('invalid-path', '不支持重命名符号链接')
+    if (!ls) throw new IdeFsError('missing', t('ideError.missing'))
+    if (ls.isSymbolicLink()) throw new IdeFsError('invalid-path', t('ideError.symlinkRename'))
     if (ls.isDirectory() && to.rel.startsWith(`${from.rel}/`)) {
-      throw new IdeFsError('invalid-path', '不能把文件夹移动到它自己里面')
+      throw new IdeFsError('invalid-path', t('ideError.moveIntoItself'))
     }
-    if (await lstatOrNull(to.abs)) throw new IdeFsError('exists', '目标路径已经存在')
+    if (await lstatOrNull(to.abs)) throw new IdeFsError('exists', t('ideError.targetExists'))
 
     const real = await realInside(cwd, from.rel)
     await ensureParentInside(cwd, to.abs)
@@ -440,8 +441,8 @@ export async function deleteEntry(
     const cwd = req?.cwd
     const { rel, abs } = writeTarget(cwd, req?.rel)
     const ls = await lstatOrNull(abs)
-    if (!ls) throw new IdeFsError('missing', '文件或文件夹不存在')
-    if (ls.isSymbolicLink()) throw new IdeFsError('invalid-path', '不支持删除符号链接')
+    if (!ls) throw new IdeFsError('missing', t('ideError.missing'))
+    if (ls.isSymbolicLink()) throw new IdeFsError('invalid-path', t('ideError.symlinkDelete'))
 
     const real = await realInside(cwd, rel)
     const kind = ls.isDirectory() ? 'dir' : 'file'
@@ -480,10 +481,22 @@ export async function listDir(cwd: string, rel: string): Promise<IdeEntry[]> {
   return out.slice(0, 4000)
 }
 
+/** 读文本：预期内的失败用 IdeFsResult 返回，UI 按 code 判断，不靠文案 */
+export async function readTextFileResult(
+  cwd: string,
+  rel: string
+): Promise<IdeFsResult<IdeTextFile>> {
+  try {
+    return ok(await readTextFile(cwd, rel))
+  } catch (err) {
+    return toFailure(err)
+  }
+}
+
 export async function readTextFile(cwd: string, rel: string): Promise<IdeTextFile> {
   const real = await realInside(cwd, rel)
   const st = await fs.stat(real)
-  if (!st.isFile()) throw new Error('不是文件')
+  if (!st.isFile()) throw new IdeFsError('not-file', t('ideError.notAFile'))
 
   const take = Math.min(st.size, MAX_TEXT_BYTES)
   const fd = await fs.open(real, 'r')
@@ -516,14 +529,27 @@ export async function readTextFile(cwd: string, rel: string): Promise<IdeTextFil
   }
 }
 
+/** 读图片：同上，失败返回结构化 code */
+export async function readImageResult(
+  cwd: string,
+  rel: string
+): Promise<IdeFsResult<IdeImage>> {
+  try {
+    return ok(await readImage(cwd, rel))
+  } catch (err) {
+    return toFailure(err)
+  }
+}
+
 export async function readImage(cwd: string, rel: string): Promise<IdeImage> {
   const ext = extname(rel).toLowerCase()
   const mime = IMAGE_MIME[ext]
-  if (!mime) throw new Error('不是支持的图片格式')
+  if (!mime) throw new IdeFsError('not-file', t('ideError.unsupportedImage'))
 
   const real = await realInside(cwd, rel)
   const st = await fs.stat(real)
-  if (!st.isFile() || st.size > MAX_IMAGE_BYTES) throw new Error('图片过大或不是文件')
+  if (!st.isFile()) throw new IdeFsError('not-file', t('ideError.notAFile'))
+  if (st.size > MAX_IMAGE_BYTES) throw new IdeFsError('too-large', t('ideError.imageTooLarge'))
 
   const buf = await fs.readFile(real)
   return {
@@ -594,7 +620,7 @@ export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult
   try {
     const cwd = req?.cwd
     if (!cwd || typeof cwd !== 'string' || !isAbsolute(cwd)) {
-      throw new IdeFsError('invalid-path', '工作区路径不合法')
+      throw new IdeFsError('invalid-path', t('ideError.invalidWorkspace'))
     }
 
     const search = compileSearch(req?.query, req?.options)
@@ -608,17 +634,17 @@ export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult
     let scanned = 0
     let total = 0
     let truncated = scan.truncated || scan.incomplete
-    let note = truncated ? '工作区文件列表不完整，结果可能缺少部分文件。' : undefined
+    let note = truncated ? t('ideError.searchIncomplete') : undefined
 
     for (const f of files) {
       if (scanned >= SEARCH_MAX_FILES) {
         truncated = true
-        note = '工作区文件过多，只扫描了前 5000 个文件。'
+        note = t('ideError.searchTooMany')
         break
       }
       if (Date.now() - started > SEARCH_DEADLINE_MS) {
         truncated = true
-        note = '搜索超时，结果已截断；请使用包含/排除筛选缩小范围。'
+        note = t('ideError.searchTimeout')
         break
       }
       scanned++
@@ -650,13 +676,19 @@ export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult
         out.push({ rel: f.path, name: f.name, matches })
         if (out.length >= SEARCH_MAX_FILES_WITH_HITS) {
           truncated = true
-          note = `结果已截断：只显示前 ${SEARCH_MAX_FILES_WITH_HITS} 个文件 / ${SEARCH_MAX_MATCHES} 处匹配。`
+          note = t('ideError.searchTruncated', {
+        files: SEARCH_MAX_FILES_WITH_HITS,
+        matches: SEARCH_MAX_MATCHES
+      })
           break
         }
       }
       if (total >= SEARCH_MAX_MATCHES) {
         truncated = true
-        note = `结果已截断：只显示前 ${SEARCH_MAX_MATCHES} 处匹配，请使用包含/排除筛选缩小范围。`
+        note = t('ideError.searchTruncated', {
+        files: SEARCH_MAX_FILES_WITH_HITS,
+        matches: SEARCH_MAX_MATCHES
+      })
         break
       }
     }
@@ -711,20 +743,20 @@ export async function replaceInWorkspace(
   try {
     const cwd = req?.cwd
     if (!cwd || typeof cwd !== 'string' || !isAbsolute(cwd)) {
-      throw new IdeFsError('invalid-path', '工作区路径不合法')
+      throw new IdeFsError('invalid-path', t('ideError.invalidWorkspace'))
     }
     if (typeof req?.query !== 'string') {
-      throw new SearchPatternError('invalid-query', '搜索内容不合法')
+      throw new SearchPatternError('invalid-query', t('ideError.searchInvalid'))
     }
     const replacement = typeof req.replacement === 'string' ? req.replacement : ''
     if (replacement.length > MAX_REPLACEMENT_CHARS) {
       throw new SearchPatternError(
         'invalid-query',
-        `替换内容过长（最多 ${MAX_REPLACEMENT_CHARS} 个字符）`
+        t('ideError.replacementLong', { n: MAX_REPLACEMENT_CHARS })
       )
     }
     if (replacement.includes('\0')) {
-      throw new IdeFsError('binary', '替换内容里包含二进制字符')
+      throw new IdeFsError('binary', t('ideError.replacementBinary'))
     }
 
     const search: CompiledSearch = compileSearch(req.query, req.options)
@@ -751,7 +783,7 @@ export async function replaceInWorkspace(
         totals,
         filesTruncated: false,
         aborted: true,
-        message: '工作区文件列表不完整，已中止；未写入任何文件。请缩小工作区或使用包含筛选。'
+        message: t('ideError.replaceIncomplete2')
       })
     }
 
@@ -772,11 +804,11 @@ export async function replaceInWorkspace(
 
     for (const f of files) {
       if (totals.filesScanned >= REPLACE_MAX_FILES) {
-        abort = `文件数超过上限（${REPLACE_MAX_FILES} 个），已中止；未写入任何文件。`
+        abort = t('ideError.replaceTooMany', { n: REPLACE_MAX_FILES })
         break
       }
       if (Date.now() - started > REPLACE_DEADLINE_MS) {
-        abort = '扫描超时，已中止；未写入任何文件。请使用包含/排除筛选缩小范围。'
+        abort = t('ideError.replaceScanTimeout')
         break
       }
       totals.filesScanned++
@@ -788,7 +820,7 @@ export async function replaceInWorkspace(
           rel: f.path,
           replacements: 0,
           status: 'skipped',
-          message: '有未保存的修改，已跳过'
+          message: t('ideError.replaceDirty')
         })
         continue
       }
@@ -812,14 +844,14 @@ export async function replaceInWorkspace(
       if (count === 0) continue
 
       if (totalMatches + count > maxMatches) {
-        abort = `匹配数超过上限（${maxMatches} 处），已中止；未写入任何文件。`
+        abort = t('ideError.replaceMatchLimit', { n: maxMatches })
         break
       }
 
       const nextText = nextLines.join('\n')
       const bytes = Buffer.byteLength(nextText, 'utf8')
       if (plannedBytes + bytes > REPLACE_MAX_TOTAL_BYTES) {
-        abort = '待替换内容超过内存上限，已中止；未写入任何文件。'
+        abort = t('ideError.replaceMemory')
         break
       }
 
@@ -886,7 +918,7 @@ export async function replaceInWorkspace(
             rel: plan.rel,
             replacements: 0,
             status: 'conflict',
-            message: '文件已在磁盘上被修改，未替换'
+            message: t('ideError.replaceExternal')
           })
         } else {
           totals.filesErrored++

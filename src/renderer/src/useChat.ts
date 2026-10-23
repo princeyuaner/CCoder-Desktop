@@ -9,8 +9,9 @@ import type {
   Usage
 } from '@shared/events'
 import type { CliId, EffortLevel } from '@shared/settings'
-import { DEFAULT_EFFORT, EFFORT_LABEL, sameCwd } from '@shared/settings'
-import { toolDisplay, type ToolStat } from '@shared/tool'
+import { DEFAULT_EFFORT, sameCwd } from '@shared/settings'
+import { toolDisplay, type ToolFallback, type ToolStat } from '@shared/tool'
+import { ltext, type LocalizedText } from '@shared/i18n'
 import { applyFileChange, filesAfterLastTurn, type ChangedFile } from './changedFiles'
 import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
@@ -20,7 +21,6 @@ import type {
   SessionStatus,
   SessionStatusPayload
 } from '@shared/session'
-import { MODE_LABEL } from './constants'
 import { emptyRunState, reduceRun, startRun, type RunState } from './run-state'
 import {
   approvalFromEvent,
@@ -40,6 +40,20 @@ import {
 /** 能被会话内切换、且需要留痕的设置项 */
 export type SystemKey = 'effort' | 'permissionMode' | 'model' | 'channel' | 'auth'
 
+/** 渠道 / 凭据来源的展示数据。渲染时再按语言翻译，不能提前烤成中文。 */
+export type ChannelLabel = { kind: 'official' } | { kind: 'channel'; name: string }
+
+/**
+ * 设置切换的留痕数据。存枚举 / 原始值，不存已经翻译好的文案 ——
+ * 这样切换语言后历史留痕也会跟着变。
+ */
+export type SystemChange =
+  | { key: 'model'; from: string; to: string }
+  | { key: 'permissionMode'; from: PermissionMode; to: PermissionMode }
+  | { key: 'effort'; from: EffortLevel; to: EffortLevel }
+  | { key: 'channel'; from: ChannelLabel; to: ChannelLabel }
+  | { key: 'auth'; from: ChannelLabel; to: ChannelLabel }
+
 export type ChatItem =
   | { kind: 'user'; id: string; text: string; at: string; images?: ImageAttachment[] }
   /** 模型的一段话。连续的 delta 追加到同一张卡上 */
@@ -54,6 +68,8 @@ export type ChatItem =
       summary: string
       /** 折叠行的人话主题。Bash 用 input.description，文件工具用文件名 */
       subject: string
+      /** subject 为空时，渲染层按类型取兜底文案 */
+      fallback?: ToolFallback
       /** 文件工具的父目录（已缩短） */
       dir?: string
       /** 文件工具的完整路径 —— 只进 title / 用来在 IDE 中打开 */
@@ -108,8 +124,12 @@ export type ChatItem =
    * （都是 CLI 启动参数，改了就得换进程 + --resume 接回），所以用一类 item
    * 就能覆盖四种切换，只是 key 不同。
    */
-  | { kind: 'system'; id: string; at: string; key: SystemKey; from: string; to: string }
-  | { kind: 'error'; id: string; at: string; message: string }
+  | ({
+      kind: 'system'
+      id: string
+      at: string
+    } & SystemChange)
+  | { kind: 'error'; id: string; at: string; message: LocalizedText }
   /** 一轮结束的分隔条，不是卡片 —— 用来给回合切边界 */
   | { kind: 'turn'; id: string; at: string; durationMs?: number; steps?: number; usage?: Usage }
 
@@ -168,6 +188,11 @@ export interface ChatApi {
    */
   files: ChangedFile[]
   /**
+   * 当前"等待占位行"的起点（Date.now()）；不在等待时为 undefined。
+   * 放在会话状态里，切走再切回来计时能续上。
+   */
+  waitingSince?: number
+  /**
    * 发送。会话忙时不会立刻发给 CLI，而是进等待队列；
    * `meta` 用于把原话和引用一并存下来，供队列里的「编辑」恢复。
    */
@@ -191,10 +216,10 @@ export interface ChatApi {
    * 换渠道之后踢一脚 —— 渠道是启动参数，不换进程不生效。
    * 两个参数只用于留痕（显示"旧渠道 → 新渠道"），主进程不需要。
    */
-  applyChannel(from: string, to: string): void
+  applyChannel(from: ChannelLabel, to: ChannelLabel): void
   /** 切换凭据来源（官方登录 ↔ 渠道）。和换渠道一样，下一轮换进程生效。 */
-  applyAuth(from: string, to: string): void
-  notice: string | null
+  applyAuth(from: ChannelLabel, to: ChannelLabel): void
+  notice: LocalizedText | null
   clearNotice(): void
 }
 
@@ -220,12 +245,16 @@ const RUN_META_TOOLS = new Set([
 let seq = 0
 const uid = (): string => `i${++seq}`
 
-/** ISO 时间串 → 「10月20日 21:15」；空串或非法值表示"现在" */
-function fmtAt(iso?: string): string {
-  const d = iso ? new Date(iso) : new Date()
-  if (Number.isNaN(d.getTime())) return ''
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`
+/**
+ * 统一存 ISO 时间串，展示时再按当前语言格式化。
+ * 之前这里直接烤成「10月20日 21:15」，切换语言后老消息不会变。
+ */
+function atIso(iso?: string): string {
+  if (iso) {
+    const d = new Date(iso)
+    if (!Number.isNaN(d.getTime())) return d.toISOString()
+  }
+  return new Date().toISOString()
 }
 
 /**
@@ -308,7 +337,7 @@ function appendDelta(
   }
   // 换类了（思考 → 正文）要把上一张封口。不然那张卡永远停在 streaming，
   // 药丸会一直显示"思考中…"，连回合结束了都不消。
-  return [...closeOpen(items), { kind, id: uid(), at: fmtAt(), text, streaming: true }]
+  return [...closeOpen(items), { kind, id: uid(), at: atIso(), text, streaming: true }]
 }
 
 /**
@@ -323,18 +352,20 @@ function appendDelta(
  * 先 `closeOpen` —— 切换可能发生在模型正吐字的时候，那张卡得先封口，
  * 否则下一个 delta 会在留痕后面另起一张，前一张永远停在 streaming。
  */
-function pushSystem(items: ChatItem[], key: SystemKey, from: string, to: string): ChatItem[] {
-  if (from === to) return items
+function pushSystem(items: ChatItem[], change: SystemChange): ChatItem[] {
+  const idOf = (v: string | ChannelLabel): string =>
+    typeof v === 'string' ? v : v.kind === 'official' ? '@official' : `#${v.name}`
+  if (idOf(change.from) === idOf(change.to)) return items
 
   const last = items[items.length - 1]
-  if (last?.kind === 'system' && last.key === key) {
+  if (last?.kind === 'system' && last.key === change.key) {
     const copy = items.slice()
-    if (last.from === to) copy.pop()
-    else copy[copy.length - 1] = { ...last, to }
+    if (idOf(last.from) === idOf(change.to)) copy.pop()
+    else copy[copy.length - 1] = { ...last, to: change.to } as ChatItem
     return copy
   }
 
-  return [...closeOpen(items), { kind: 'system', id: uid(), at: fmtAt(), key, from, to }]
+  return [...closeOpen(items), { kind: 'system', id: uid(), at: atIso(), ...change } as ChatItem]
 }
 
 /**
@@ -349,7 +380,7 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
     case 'user_message':
       return [
         ...closeOpen(items),
-        { kind: 'user', id: uid(), text: e.text, at: fmtAt(e.at), images: e.images }
+        { kind: 'user', id: uid(), text: e.text, at: atIso(e.at), images: e.images }
       ]
 
     case 'text_delta':
@@ -369,7 +400,13 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
         if (prev.path === e.path) return items
         const d = toolDisplay(e.name, { file_path: e.path })
         const copy = items.slice()
-        copy[idx] = { ...prev, subject: d.subject, dir: d.dir, path: d.path }
+        copy[idx] = {
+          ...prev,
+          subject: d.subject,
+          fallback: d.fallback,
+          dir: d.dir,
+          path: d.path
+        }
         return copy
       }
       const d = toolDisplay(e.name, e.path ? { file_path: e.path } : {})
@@ -378,10 +415,11 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
         {
           kind: 'tool',
           id: e.id,
-          at: fmtAt(),
+          at: atIso(),
           name: e.name,
           summary: e.path ?? '',
           subject: d.subject,
+          fallback: d.fallback,
           dir: d.dir,
           path: d.path,
           status: 'running',
@@ -399,10 +437,11 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
       const next = {
         kind: 'tool' as const,
         id: e.id,
-        at: fmtAt(),
+        at: atIso(),
         name: e.name,
         summary: toolSummary(e.name, e.input),
         subject: d.subject,
+        fallback: d.fallback,
         dir: d.dir,
         path: d.path,
         line: toolStartLine(e.name, e.input),
@@ -447,7 +486,7 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
         {
           kind: 'permission',
           id: e.id,
-          at: fmtAt(),
+          at: atIso(),
           tool: e.tool,
           summary: toolSummary(e.tool, e.input),
           input: e.input,
@@ -466,7 +505,7 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
         {
           kind: 'question',
           id: e.id,
-          at: fmtAt(),
+          at: atIso(),
           questions: e.questions,
           state: answered ? 'answered' : e.skipped ? 'skipped' : 'pending',
           ...(answered ? { answers: e.answers } : {})
@@ -480,7 +519,7 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
         {
           kind: 'turn',
           id: uid(),
-          at: fmtAt(),
+          at: atIso(),
           durationMs: e.durationMs,
           steps: e.steps,
           usage: e.usage
@@ -488,7 +527,7 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
       ]
 
     case 'error':
-      return [...closeOpen(items), { kind: 'error', id: uid(), at: fmtAt(), message: e.message }]
+      return [...closeOpen(items), { kind: 'error', id: uid(), at: atIso(), message: e.message }]
 
     // session_started 不改转写内容，由调用方单独处理
     default:
@@ -505,6 +544,36 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
  * 在新会话里换 CLI 才会 dispose。
  */
 
+/**
+ * 什么时候算"轮到模型了但还没吐字"。
+ *
+ * 判据是**最后一条是什么**：只要最后一条是"已经落定、且不该再往下长"的东西，
+ * 就说明球在模型那边。反过来，正在流式的正文/思考、正在跑的工具、
+ * 等人点同意的审批卡，都各自有活着的表现，不用再叠一个占位。
+ *
+ * 放在这里而不是 Transcript 里：等待计时由 controller 跟着会话状态维护，
+ * 这样切走再切回来能续上，而不是跟着组件挂载从 0 重来。
+ */
+export function waitingOnModel(last: ChatItem | undefined): boolean {
+  if (!last) return false
+  switch (last.kind) {
+    case 'user': // 刚发出去，第一个 token 还没回来
+    case 'turn': // 上一轮结束，这一轮还没开始吐
+      return true
+    case 'tool':
+      return last.status !== 'running' // 工具跑完了，等模型接着说
+    case 'permission':
+      return last.state !== 'pending' // 审批已答复，等模型接着跑
+    case 'question':
+      return last.state !== 'pending' // 提问已答复，等模型接着说
+    case 'text':
+    case 'thinking':
+      return !last.streaming // 这一段说完了，等下一段
+    default:
+      return false // 出错之类：不是在等模型
+  }
+}
+
 /** 快照 = ChatApi 去掉方法后的部分。每次变化换一个新对象，供 useSyncExternalStore 比较 */
 export interface ChatSnapshot {
   items: ChatItem[]
@@ -520,7 +589,14 @@ export interface ChatSnapshot {
   queuePaused: boolean
   run: RunState
   files: ChangedFile[]
-  notice: string | null
+  notice: LocalizedText | null
+  /**
+   * 当前"等待占位行"的起点（Date.now()）；不在等待时为 undefined。
+   *
+   * 计时起点放在会话状态里而不是占位行组件里：切到别的会话再切回来，
+   * 组件会重新挂载，但这段等待没有结束，计时不能从 0 重来。
+   */
+  waitingSince?: number
 }
 
 interface ChatInit {
@@ -657,7 +733,19 @@ class ChatController {
 
   /** 一次事件只换一次快照、只通知一次 —— 别让 items 和 run 分两帧落到界面上 */
   private patch(p: Partial<ChatSnapshot>): void {
-    this.snap = { ...this.snap, ...p }
+    const next: ChatSnapshot = { ...this.snap, ...p }
+    /*
+     * 占位行的计时起点跟着会话状态走，而不是跟着组件挂载走。
+     * 组件切走再切回来会重新挂载，但这段等待并没有结束 —— 时间要续上。
+     * 真正进入下一次等待（流式开始、工具跑起来、审批待答复…）时才换起点。
+     */
+    const waiting =
+      (next.status === 'running' || next.status === 'starting') &&
+      waitingOnModel(next.items[next.items.length - 1])
+    if (!waiting) next.waitingSince = undefined
+    else if (next.waitingSince === undefined) next.waitingSince = Date.now()
+
+    this.snap = next
     for (const cb of this.listeners) cb()
   }
 
@@ -673,7 +761,7 @@ class ChatController {
     if (!api?.session) {
       this.patch({
         status: 'exited',
-        notice: '当前不在 Electron 中运行，无法发起会话。'
+        notice: ltext('errors.notElectronSession')
       })
       return
     }
@@ -699,7 +787,9 @@ class ChatController {
       }
       if (this.init.resumeId) await this.loadHistory()
     } catch {
-      if (!this.disposed) this.patch({ notice: '无法创建会话：主进程没有响应' })
+      if (!this.disposed) {
+        this.patch({ notice: ltext('errors.sessionCreateNoResponse') })
+      }
     }
   }
 
@@ -902,7 +992,7 @@ class ChatController {
 
     const id = this.liveId
     if (!id) {
-      this.patch({ notice: '会话还没就绪，请稍候再试' })
+      this.patch({ notice: ltext('errors.sessionNotReady') })
       if (item) this.requeueFront(item)
       return
     }
@@ -911,7 +1001,7 @@ class ChatController {
     this.patch({
       items: [
         ...this.snap.items,
-        { kind: 'user', id: uid(), text: input.text, at: fmtAt(), images: input.images }
+        { kind: 'user', id: uid(), text: input.text, at: atIso(), images: input.images }
       ],
       turns: this.snap.turns + 1,
       // 新一轮：子代理、步数、修改清单都从零算，任务清单留着（它是会话级的）
@@ -924,7 +1014,7 @@ class ChatController {
     if (!r.ok) {
       // 自动发送先停下，消息放回队首；用户确认后点「继续发送」
       this.turnOpen = false
-      this.patch({ queuePaused: true, notice: r.message ?? '发送失败' })
+      this.patch({ queuePaused: true, notice: r.message ?? ltext('errors.sendFailed') })
       if (item) this.requeueFront(item)
     }
   }
@@ -1048,7 +1138,7 @@ class ChatController {
     if (!next || next === this.snap.model) return
     this.patch({
       model: next,
-      items: pushSystem(this.snap.items, 'model', this.snap.model || '未选模型', next)
+      items: pushSystem(this.snap.items, { key: 'model', from: this.snap.model, to: next })
     })
     this.reconfigure({ model: next })
   }
@@ -1057,12 +1147,11 @@ class ChatController {
     if (p === this.snap.permissionMode) return
     this.patch({
       permissionMode: p,
-      items: pushSystem(
-        this.snap.items,
-        'permissionMode',
-        MODE_LABEL[this.snap.permissionMode],
-        MODE_LABEL[p]
-      )
+      items: pushSystem(this.snap.items, {
+        key: 'permissionMode',
+        from: this.snap.permissionMode,
+        to: p
+      })
     })
     this.reconfigure({ permissionMode: p })
   }
@@ -1071,24 +1160,23 @@ class ChatController {
     if (level === this.snap.effort) return
     this.patch({
       effort: level,
-      items: pushSystem(
-        this.snap.items,
-        'effort',
-        EFFORT_LABEL[this.snap.effort],
-        EFFORT_LABEL[level]
-      )
+      items: pushSystem(this.snap.items, {
+        key: 'effort',
+        from: this.snap.effort,
+        to: level
+      })
     })
     this.reconfigure({ effort: level })
   }
 
-  applyChannel = (from: string, to: string): void => {
-    this.patch({ items: pushSystem(this.snap.items, 'channel', from, to) })
+  applyChannel = (from: ChannelLabel, to: ChannelLabel): void => {
+    this.patch({ items: pushSystem(this.snap.items, { key: 'channel', from, to }) })
     // 空 patch 就够：主进程 reconfigure 会把 needsRespawn 置位，下次 spawn 读最新渠道
     this.reconfigure({})
   }
 
-  applyAuth = (from: string, to: string): void => {
-    this.patch({ items: pushSystem(this.snap.items, 'auth', from, to) })
+  applyAuth = (from: ChannelLabel, to: ChannelLabel): void => {
+    this.patch({ items: pushSystem(this.snap.items, { key: 'auth', from, to }) })
     // 来源变了，旧模型可能不属于新来源；主进程的 settingsChanged 会清掉它
     this.reconfigure({})
   }
@@ -1228,7 +1316,7 @@ const EMPTY_SNAPSHOT: ChatSnapshot = {
 const OFFLINE_SNAPSHOT: ChatSnapshot = {
   ...EMPTY_SNAPSHOT,
   status: 'exited',
-  notice: '当前不在 Electron 中运行，无法发起会话。'
+  notice: ltext('errors.notElectronSession')
 }
 
 const noopSubscribe = (): (() => void) => () => undefined
@@ -1243,8 +1331,8 @@ const noopAnswer = (_id: string, _answer: QuestionAnswer): void => undefined
 const noopModel = (_model: string): void => undefined
 const noopMode = (_mode: PermissionMode): void => undefined
 const noopEffort = (_level: EffortLevel): void => undefined
-const noopChannel = (_from: string, _to: string): void => undefined
-const noopAuth = (_from: string, _to: string): void => undefined
+const noopChannel = (_from: ChannelLabel, _to: ChannelLabel): void => undefined
+const noopAuth = (_from: ChannelLabel, _to: ChannelLabel): void => undefined
 
 export function useChat(opts: {
   /** 用哪个 CLI 跑；缺省 claude */
@@ -1325,6 +1413,7 @@ export function useChat(opts: {
       queuePaused: s.queuePaused,
       run: s.run,
       files: s.files,
+      waitingSince: s.waitingSince,
       send: controller ? controller.send : noopSend,
       removeQueued: controller ? controller.removeQueued : noopRemoveQueued,
       clearQueue: controller ? controller.clearQueue : noop,

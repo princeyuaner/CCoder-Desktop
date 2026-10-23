@@ -226,6 +226,10 @@
 .session__time--running {
   color: var(--running);
 }
+/* 刚跑完、还没点开看的行：说「已完成」，直到用户点开它 */
+.session__time--done {
+  color: var(--ok);
+}
 
 /* ── 后台会话卡在审批上（方案 D）───────────────────────────
  *

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import {
   cliDef,
-  PROTOCOL_LABEL,
+  PROTOCOL_LABEL_KEY,
   type AuthMode,
   type Channel,
   type ChannelTestResult,
@@ -9,6 +9,7 @@ import {
   type EnvVar
 } from '@shared/settings'
 import { IconPlus } from './Icons'
+import { useI18n } from '../i18n'
 
 interface Props {
   /** 这条渠道属于哪个 CLI —— 协议、示例 URL、认证方式都由它决定 */
@@ -34,12 +35,14 @@ export function ChannelForm({
   result,
   active
 }: Props): JSX.Element {
+  const { t } = useI18n()
   const [reveal, setReveal] = useState(false)
   const set = <K extends keyof Channel>(k: K, v: Channel[K]): void =>
     onChange({ ...channel, [k]: v })
 
   const def = cliDef(cli)
   const anthropic = def.protocol === 'anthropic'
+  const deepseek = def.protocol === 'deepseek'
 
   const setEnv = (i: number, patch: Partial<EnvVar>): void => {
     const next = channel.extraEnv.map((e, j) => (j === i ? { ...e, ...patch } : e))
@@ -49,73 +52,108 @@ export function ChannelForm({
   return (
     <div className="chform">
       <div className="chform__head">
-        <h2 className="chform__title">{channel.name || '未命名渠道'}</h2>
+        <h2 className="chform__title">
+          {channel.name || t('settings.channel.unnamed')}
+        </h2>
         {active ? (
-          <span className="badge badge--ok">当前使用</span>
+          <span className="badge badge--ok">{t('channel.current')}</span>
         ) : (
           <button className="btn btn--ghost" onClick={onSetActive}>
-            设为当前
+            {t('channel.setActive')}
           </button>
         )}
       </div>
 
-      <Field label="名称">
+      <Field label={t('channel.field.name')}>
         <input className="input" value={channel.name} onChange={(e) => set('name', e.target.value)} />
       </Field>
 
-      <Field label="协议类型" hint={`由所属 CLI 决定 —— 它只认${PROTOCOL_LABEL[def.protocol]}端点`}>
-        <input className="input" value={PROTOCOL_LABEL[def.protocol]} disabled />
+      <Field
+        label={t('channel.field.protocol')}
+        hint={t('channel.protocolHint', { protocol: t(PROTOCOL_LABEL_KEY[def.protocol]) })}
+      >
+        <input className="input" value={t(PROTOCOL_LABEL_KEY[def.protocol])} disabled />
       </Field>
 
       <Field
         label="Base URL"
         hint={
           anthropic
-            ? '例：https://api.deepseek.com/anthropic —— 末尾斜杠会被自动去掉'
-            : '例：https://api.openai.com/v1 —— 末尾斜杠会被自动去掉。留空则使用 Codex 自己的登录与默认 provider'
+            ? t('channel.baseUrl.anthropicPlaceholder')
+            : deepseek
+              ? t('channel.baseUrl.dshPlaceholder')
+              : t('channel.baseUrl.openaiPlaceholder')
         }
       >
         <input
           className="input"
-          placeholder={anthropic ? 'https://…/anthropic' : 'https://…/v1（可留空）'}
+          placeholder={
+            anthropic
+              ? t('channel.baseUrl.inputAnthropic')
+              : deepseek
+                ? t('channel.baseUrl.inputDsh')
+                : t('channel.baseUrl.inputOpenai')
+          }
           value={channel.baseUrl}
           onChange={(e) => set('baseUrl', e.target.value)}
         />
       </Field>
 
-      {!anthropic && (
-        <Field
-          label="模型协议"
-          hint="Codex 0.163 起只支持 Responses API（wire_api = responses）；上游已经移除 Chat Completions。渠道网关必须提供 /v1/responses 入口。"
-        >
+      {!anthropic && !deepseek && (
+        <Field label={t('channel.modelProtocol.label')} hint={t('channel.modelProtocol.hint')}>
           <input className="input" value="Responses API" disabled />
         </Field>
       )}
 
-      <Field
-        label="认证方式"
-        hint={
-          anthropic
-            ? '选错会一直 401：多数中转网关用 Bearer，Anthropic 官方用 x-api-key'
-            : 'OpenAI 兼容端点通常用 Bearer；少数自建网关要求 x-api-key'
-        }
-      >
-        <select
-          className="input"
-          value={channel.authMode}
-          onChange={(e) => set('authMode', e.target.value as AuthMode)}
+      {deepseek && (
+        <Field
+          label={t('channel.modelProtocol.label')}
+          hint={t('channel.modelProtocol.dshHint')}
         >
-          <option value="token">Bearer Token（Authorization: Bearer …）</option>
-          <option value="key">API Key（x-api-key: …）</option>
-        </select>
-      </Field>
+          <input
+            className="input"
+            value={t('channel.modelProtocol.dshLabel')}
+            disabled
+          />
+        </Field>
+      )}
+
+      {deepseek ? (
+        <Field label={t('channel.auth.label')} hint={t('channel.auth.hintDsh')}>
+          <input
+            className="input"
+            value="Bearer Token (DEEPSEEK_API_KEY)"
+            disabled
+          />
+        </Field>
+      ) : (
+        <Field
+          label={t('channel.auth.label')}
+          hint={
+            anthropic
+              ? t('channel.auth.hintAnthropic')
+              : t('channel.auth.hintOpenai')
+          }
+        >
+          <select
+            className="input"
+            value={channel.authMode}
+            onChange={(e) => set('authMode', e.target.value as AuthMode)}
+          >
+            <option value="token">Bearer Token (Authorization: Bearer …)</option>
+            <option value="key">API Key (x-api-key: …)</option>
+          </select>
+        </Field>
+      )}
 
       <Field
-        label="密钥 / Token"
+        label={t('channel.key.label')}
         hint={
           anthropic
-            ? '保存在本机，用系统级加密（Windows DPAPI）'
-            : '保存在本机，用系统级加密；不会写进 Codex 的 config.toml'
+            ? t('channel.key.hintAnthropic')
+            : deepseek
+              ? t('channel.key.hintDsh')
+              : t('channel.key.hintOpenai')
         }
       >
         <div className="input-row">
@@ -127,20 +165,17 @@ export function ChannelForm({
             onChange={(e) => set('authToken', e.target.value)}
           />
           <button className="btn btn--ghost" onClick={() => setReveal((r) => !r)}>
-            {reveal ? '隐藏' : '显示'}
+            {reveal ? t('channel.reveal.hide') : t('channel.reveal.show')}
           </button>
         </div>
       </Field>
 
-      <Field
-        label="模型"
-        hint="想配多少个就配多少个。列表会出现在会话的模型选择器；点「设为默认」决定新会话用哪个。至少保留一个。"
-      >
+      <Field label={t('channel.model.label')} hint={t('channel.model.hint')}>
         <ModelList channel={channel} onChange={onChange} />
       </Field>
 
       {anthropic && (
-        <Field label="快模型（可选）" hint="后台小任务用；留空则不注入">
+        <Field label={t('channel.fastModel.label')} hint={t('channel.fastModel.hint')}>
           <input
             className="input"
             value={channel.smallFastModel}
@@ -149,7 +184,7 @@ export function ChannelForm({
         </Field>
       )}
 
-      <Field label="额外环境变量" hint="原样注入 CLI 进程，如 HTTP_PROXY">
+      <Field label={t('channel.env.label')} hint={t('channel.env.hint')}>
         <div className="envlist">
           {channel.extraEnv.map((e, i) => (
             <div className="envlist__row" key={i}>
@@ -167,7 +202,7 @@ export function ChannelForm({
               />
               <button
                 className="iconbtn"
-                title="删除"
+                title={t('channel.delete')}
                 onClick={() => set('extraEnv', channel.extraEnv.filter((_, j) => j !== i))}
               >
                 ×
@@ -179,25 +214,25 @@ export function ChannelForm({
             onClick={() => set('extraEnv', [...channel.extraEnv, { key: '', value: '' }])}
           >
             <IconPlus width={13} height={13} />
-            添加变量
+            {t('channel.addEnv')}
           </button>
         </div>
       </Field>
 
       <div className="chform__actions">
         <button className="btn btn--primary" onClick={onTest} disabled={testing}>
-          {testing ? '测试中…' : '测试连接'}
+          {testing ? t('channel.testing') : t('channel.test')}
         </button>
         <div className="chform__spacer" />
         <button className="btn btn--danger" onClick={onDelete}>
-          删除渠道
+          {t('channel.deleteChannel')}
         </button>
       </div>
 
       {result && (
         <div className={`testresult ${result.ok ? 'is-ok' : 'is-fail'}`}>
           <div className="testresult__head">
-            {result.ok ? '✓ 连接正常' : '✗ 连接失败'}
+            {result.ok ? t('channel.test.ok') : t('channel.test.fail')}
             <span className="testresult__latency">{result.latencyMs} ms</span>
           </div>
           <pre className="testresult__msg">{result.message}</pre>
@@ -220,6 +255,7 @@ function ModelList({
   channel: Channel
   onChange: (c: Channel) => void
 }): JSX.Element {
+  const { t } = useI18n()
   const rows = [channel.model, ...(channel.models ?? [])]
 
   const write = (next: string[]): void => {
@@ -259,25 +295,36 @@ function ModelList({
           <input
             className="input"
             value={m}
-            placeholder="输入模型名称"
-            aria-label="模型名称"
+            placeholder={t('channel.model.placeholder')}
+            aria-label={t('channel.model.aria')}
             onChange={(e) => setRow(i, e.target.value)}
           />
-          <label className="modelrow__default" title={i === 0 ? '新会话默认使用这个模型' : '设为默认模型'}>
+          <label
+            className="modelrow__default"
+            title={
+              i === 0
+                ? t('channel.model.defaultTitle')
+                : t('channel.model.setDefaultTitle')
+            }
+          >
             <input
               type="radio"
               name={`default-model-${channel.id}`}
               checked={i === 0}
               onChange={() => setDefault(i)}
             />
-            <span className="when-on">默认</span>
-            <span className="when-off">设为默认</span>
+            <span className="when-on">{t('channel.model.default')}</span>
+            <span className="when-off">{t('channel.model.setDefault')}</span>
           </label>
           <button
             type="button"
             className="iconbtn modelrow__del"
-            aria-label="删除模型"
-            title={rows.length <= 1 ? '至少保留一个模型' : '删除这个模型'}
+            aria-label={t('channel.model.deleteAria')}
+            title={
+              rows.length <= 1
+                ? t('channel.model.keepOne')
+                : t('channel.model.deleteTitle')
+            }
             disabled={rows.length <= 1}
             onClick={() => remove(i)}
           >
@@ -287,7 +334,7 @@ function ModelList({
       ))}
       <button type="button" className="btn modeladd" onClick={add}>
         <IconPlus width={13} height={13} />
-        添加模型
+        {t('channel.addModel')}
       </button>
     </div>
   )

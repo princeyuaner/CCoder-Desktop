@@ -1,0 +1,1130 @@
+<!doctype html>
+<html lang="zh" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>工具卡片 · 动效审批稿</title>
+<style>
+/* ══════════════════════════════════════════════════════════
+ * token
+ * ══════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #191919;
+  --pane: #1b1b1b;
+  --raised: #232323;
+  --border: #2c2c2c;
+  --border-soft: #242424;
+  --text: #e8e8e8;
+  --text-dim: #d2d2dc;
+  --muted: #8a8a8a;
+  --faint: #6b6b6b;
+  --ok: #4b9e5f;
+  --warn: #c9a227;
+  --danger: #e5534b;
+  --add: #7fbf7f;
+  --del: #d98a8a;
+
+  --card-rgb: 255, 255, 255;
+  --line: rgba(255, 255, 255, 0.075);
+  --body-bg: rgba(0, 0, 0, 0.14);
+  --code-text: #c8c8d4;
+  --code-no: #4a4a55;
+  --diff-add-text: #a9cfa9;
+  --diff-del-text: #dfa6a2;
+  --hit-file: #7aa2f7;
+  --me-bg: rgba(34, 211, 238, 0.09);
+  --me-border: rgba(34, 211, 238, 0.22);
+  --me-text: #d8f8ff;
+
+  --font: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  /* 一条曲线走到底：入场、展开、悬停、状态切换都用它 */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 只给 chevron 一点回弹，别让整张卡跟着弹 */
+  --spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+}
+html[data-theme='light'] {
+  --bg: #f6f6f7;
+  --pane: #fbfbfc;
+  --raised: #ffffff;
+  --border: #d7d7dc;
+  --border-soft: #e5e5e8;
+  --text: #1d1d1f;
+  --text-dim: #3a3a40;
+  --muted: #6c6c75;
+  --faint: #95959e;
+  --ok: #2f8a45;
+  --warn: #a97b0b;
+  --danger: #c83b32;
+  --add: #3f7d46;
+  --del: #b8442f;
+
+  --card-rgb: 15, 15, 20;
+  --line: rgba(15, 15, 20, 0.08);
+  --body-bg: rgba(15, 15, 20, 0.022);
+  --code-text: #33333c;
+  --code-no: #b0b0ba;
+  --diff-add-text: #2f6b38;
+  --diff-del-text: #8e3129;
+  --hit-file: #2f5fbf;
+  --me-bg: rgba(8, 145, 178, 0.08);
+  --me-border: rgba(8, 145, 178, 0.2);
+  --me-text: #0e4b5a;
+}
+
+/* 工具族配色：只染图标和运行态，正文一律中性色 */
+[data-family='bash']   { --fam: #9ece6a; }
+[data-family='read']   { --fam: #7aa2f7; }
+[data-family='edit']   { --fam: #e0af68; }
+[data-family='write']  { --fam: #c4a7f7; }
+[data-family='search'] { --fam: #7dcfff; }
+[data-family='task']   { --fam: #a8a8c0; }
+[data-family='ask']    { --fam: #d0a0e0; }
+[data-family='other']  { --fam: #8a8a9c; }
+html[data-theme='light'] [data-family='bash']   { --fam: #3f7d46; }
+html[data-theme='light'] [data-family='read']   { --fam: #2f5fbf; }
+html[data-theme='light'] [data-family='edit']   { --fam: #a06b0b; }
+html[data-theme='light'] [data-family='write']  { --fam: #6b4fa8; }
+html[data-theme='light'] [data-family='search'] { --fam: #1f6f8b; }
+html[data-theme='light'] [data-family='task']   { --fam: #5c5c6e; }
+html[data-theme='light'] [data-family='ask']    { --fam: #8a4d9e; }
+
+html, body { min-height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 64px;
+  transition: background-color 0.3s var(--ease), color 0.3s var(--ease);
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text) 35%, transparent);
+  outline-offset: 2px;
+}
+code { font-family: var(--mono); }
+
+/* ══════════════════════════════════════════════════════════
+ * 顶部控制条
+ * ══════════════════════════════════════════════════════════ */
+.bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 13px 28px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.bar h1 { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.bar h1 span { font-weight: 400; color: var(--faint); margin-left: 6px; }
+.bar .sp { flex: 1; }
+.seg {
+  display: flex; gap: 2px; padding: 3px;
+  background: rgba(var(--card-rgb), 0.045);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+}
+.seg button {
+  padding: 5px 13px; border-radius: 7px;
+  font-size: 12.5px; color: var(--muted); white-space: nowrap;
+  transition: color 0.18s var(--ease), background-color 0.18s var(--ease);
+}
+.seg button:hover { color: var(--text); }
+.seg button.on {
+  color: var(--text);
+  background: var(--raised);
+  box-shadow: inset 0 1px 0 rgba(var(--card-rgb), 0.06), 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+.iconbtn {
+  display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  color: var(--muted);
+  transition: color 0.18s, background-color 0.18s, border-color 0.18s;
+}
+.iconbtn:hover { color: var(--text); background: rgba(var(--card-rgb), 0.05); border-color: var(--border); }
+.replay {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  font-size: 12.5px; color: var(--muted);
+  transition: color 0.18s, background-color 0.18s, border-color 0.18s;
+}
+.replay:hover { color: var(--text); background: rgba(var(--card-rgb), 0.05); border-color: var(--border); }
+.replay svg { transition: transform 0.45s var(--ease); }
+.replay:active svg { transform: rotate(-180deg); }
+
+.desc {
+  max-width: 1100px;
+  padding: 12px 28px 0;
+  font-size: 12.5px; line-height: 1.75; color: var(--muted);
+}
+.desc b { color: var(--text-dim); font-weight: 500; }
+
+/* ══════════════════════════════════════════════════════════
+ * 演示面板（尽量贴近真实主区）
+ * ══════════════════════════════════════════════════════════ */
+.stage { padding: 16px 28px 0; }
+.pane {
+  max-width: 1080px; margin: 0 auto;
+  display: flex; flex-direction: column;
+  background: var(--pane);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 34px 80px -52px rgba(0, 0, 0, 0.85);
+  transition: background-color 0.3s var(--ease), border-color 0.3s var(--ease);
+}
+.pane__head {
+  flex: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 44px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pane__dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 15%, transparent);
+}
+.pane__head b { font-size: 13px; font-weight: 600; }
+.pane__head .sub { font-size: 12px; color: var(--faint); }
+.pane__head .sp { flex: 1; }
+.chip {
+  padding: 3px 9px;
+  font-size: 11px; color: var(--muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pane__body {
+  height: 600px;
+  overflow-y: auto;
+  padding: 22px 44px 30px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.pane__body::-webkit-scrollbar { width: 10px; }
+.pane__body::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 10px;
+  border: 3px solid var(--pane);
+}
+.pane__foot {
+  flex: none;
+  padding: 12px 44px 18px;
+  border-top: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--pane) 78%, var(--bg));
+}
+.composer {
+  max-width: 820px; margin: 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px; color: var(--faint);
+  transition: background-color 0.3s var(--ease), border-color 0.3s var(--ease);
+}
+.composer .send {
+  margin-left: auto;
+  display: grid; place-items: center;
+  width: 26px; height: 26px; border-radius: 7px;
+  background: rgba(var(--card-rgb), 0.075);
+  color: var(--muted);
+}
+
+/* ══════════════════════════════════════════════════════════
+ * 转写区
+ * ══════════════════════════════════════════════════════════ */
+.tl { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; }
+.tl__row { margin-bottom: 14px; }
+.tl__row--me { display: flex; justify-content: flex-end; }
+.tl__me {
+  max-width: 78%;
+  padding: 8px 13px;
+  font-size: 14px; line-height: 1.68;
+  color: var(--me-text);
+  background: var(--me-bg);
+  border: 1px solid var(--me-border);
+  border-radius: 9px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.think {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 0 11px;
+  font-size: 12.5px; color: var(--faint);
+}
+.think svg { flex: none; opacity: 0.7; }
+.think b { font-weight: 500; color: var(--muted); }
+.think .peek {
+  min-width: 0;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.md { margin: 14px 0 4px; font-size: 14px; line-height: 1.75; color: var(--text); }
+.md p + p { margin-top: 10px; }
+.md code {
+  padding: 1px 5px;
+  font-size: 0.9em;
+  color: var(--text-dim);
+  background: rgba(var(--card-rgb), 0.075);
+  border-radius: 4px;
+}
+
+/* ══════════════════════════════════════════════════════════
+ * 工具卡 —— 共享骨架
+ * ══════════════════════════════════════════════════════════ */
+.tools { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 16px; }
+
+.tc {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  transition:
+    background-color 0.2s var(--ease),
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease),
+    transform 0.2s var(--ease);
+}
+.tc[data-state='error'] { --fam: var(--danger); }
+
+.tc__row {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 9px;
+  min-height: 36px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.tc__node {
+  position: relative; z-index: 2;
+  flex: none;
+  display: grid; place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 7px;
+  font-size: 11px; line-height: 1;
+  color: var(--fam);
+  background: color-mix(in srgb, var(--fam) 16%, var(--bg));
+  transition: color 0.25s var(--ease), background-color 0.25s var(--ease);
+}
+.tc__glyph { position: relative; z-index: 1; transform: translateY(-0.5px); }
+.tc__main {
+  display: flex; align-items: baseline; gap: 8px;
+  flex: 1; min-width: 0;
+}
+.tc__title {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: color 0.2s var(--ease);
+}
+.tc:hover .tc__title { color: var(--text); }
+.tc__meta {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tc__meta--right { display: none; flex: none; max-width: 170px; }
+
+.tc__stat {
+  flex: none;
+  display: inline-flex; gap: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.tc__stat i {
+  font-style: normal;
+  line-height: 15px;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.tc__stat .add { color: var(--add); background: color-mix(in srgb, var(--add) 13%, transparent); }
+.tc__stat .del { color: var(--del); background: color-mix(in srgb, var(--del) 13%, transparent); }
+
+.tc__tag {
+  flex: none;
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  opacity: 0.8;
+}
+.tc__time {
+  flex: none;
+  min-width: 36px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  transition: color 0.25s var(--ease);
+}
+.tc[data-state='running'] .tc__time { color: var(--fam); }
+
+.tc__chev {
+  flex: none;
+  display: grid; place-items: center;
+  width: 18px; height: 18px;
+  border-radius: 5px;
+  color: var(--faint);
+  opacity: 0.3;
+  transition: opacity 0.2s, color 0.2s, background-color 0.2s;
+}
+.tc:hover .tc__chev { opacity: 0.85; }
+.tc__chev svg { width: 12px; height: 12px; transition: transform 0.3s var(--spring); }
+.tc[aria-expanded='true'] .tc__chev svg { transform: rotate(90deg); }
+
+/* 展开：高度走 grid 0fr → 1fr，内容延后 50ms 淡入上浮 */
+.tc__body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.32s var(--ease);
+}
+.tc[aria-expanded='true'] .tc__body { grid-template-rows: 1fr; }
+.tc__bodyin { overflow: hidden; min-height: 0; }
+.tc__pad {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.24s var(--ease);
+}
+.tc[aria-expanded='true'] .tc__pad {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.05s;
+}
+
+/* 运行中的顶部流光 */
+.tc__flow {
+  position: absolute; left: 0; right: 0; top: 0;
+  height: 1.5px;
+  overflow: hidden;
+  opacity: 0;
+  z-index: 3;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease);
+}
+.tc__flow::after {
+  content: '';
+  display: block;
+  width: 42%; height: 100%;
+  background: linear-gradient(90deg, transparent, var(--fam), transparent);
+  animation: flowx 1.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes flowx {
+  from { transform: translateX(-120%); }
+  to   { transform: translateX(340%); }
+}
+
+/* 运行中的图标外圈 */
+.tc__ring {
+  position: absolute; inset: -2px;
+  border-radius: 9px;
+  padding: 1.5px;
+  background: conic-gradient(from 0deg, transparent 0 55%, var(--fam) 82%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s var(--ease);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 完成的柔光沉降 */
+@keyframes settle {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fam) 50%, transparent); }
+  100% { box-shadow: 0 0 0 9px transparent; }
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ══════════════════════════════════════════════════════════
+ * 方案 A · 柔光卡片
+ * ══════════════════════════════════════════════════════════ */
+body[data-v='a'] .tc {
+  background: rgba(var(--card-rgb), 0.022);
+  border-color: rgba(var(--card-rgb), 0.06);
+}
+body[data-v='a'] .tc:hover {
+  background: rgba(var(--card-rgb), 0.042);
+  border-color: rgba(var(--card-rgb), 0.11);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px -12px rgba(0, 0, 0, 0.7);
+}
+body[data-v='a'] .tc[data-state='running'] {
+  border-color: color-mix(in srgb, var(--fam) 30%, transparent);
+}
+body[data-v='a'] .tc[data-state='error'] {
+  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+}
+body[data-v='a'] .tc[aria-expanded='true'] {
+  background: rgba(var(--card-rgb), 0.036);
+}
+body[data-v='a'] .tc[data-state='running'] .tc__flow { opacity: 1; }
+body[data-v='a'] .tc[data-state='running'] .tc__ring {
+  opacity: 0.9;
+  animation: spin 1.6s linear infinite;
+}
+body[data-v='a'] .tc.is-new { animation: cardIn 0.38s var(--ease) backwards; }
+body[data-v='a'] .is-fade { animation: fadeUp 0.42s var(--ease) backwards; }
+body[data-v='a'] .tc.just-done .tc__node { animation: settle 0.55s ease-out; }
+body[data-v='a'] .tc__pad {
+  padding: 9px 12px 11px 41px;
+  border-top: 1px solid rgba(var(--card-rgb), 0.06);
+  background: var(--body-bg);
+}
+body[data-v='a'] .tc__tag { display: none; }
+
+/* ══════════════════════════════════════════════════════════
+ * 方案 B · 时间轴（去掉盒子）
+ * ══════════════════════════════════════════════════════════ */
+body[data-v='b'] .tc {
+  overflow: visible;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 8px;
+}
+body[data-v='b'] .tc:hover { background: rgba(var(--card-rgb), 0.032); }
+body[data-v='b'] .tc[aria-expanded='true'] { background: rgba(var(--card-rgb), 0.022); }
+body[data-v='b'] .tc__row { min-height: 30px; padding: 5px 8px 5px 0; gap: 11px; }
+body[data-v='b'] .tc__node { width: 18px; height: 18px; border-radius: 6px; font-size: 10px; }
+body[data-v='b'] .tc__ring { inset: -2px; border-radius: 8px; }
+body[data-v='b'] .tc__chev { width: 16px; opacity: 0; }
+body[data-v='b'] .tc:hover .tc__chev,
+body[data-v='b'] .tc[aria-expanded='true'] .tc__chev { opacity: 0.8; }
+body[data-v='b'] .tc__pad {
+  margin-left: 29px;
+  padding: 8px 11px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--fam) 28%, transparent);
+  border-radius: 0 8px 8px 0;
+  background: rgba(var(--card-rgb), 0.024);
+}
+body[data-v='b'] .tc__tag { display: none; }
+body[data-v='b'] .tc.is-new { animation: cardIn 0.38s var(--ease) backwards; }
+body[data-v='b'] .is-fade { animation: fadeUp 0.42s var(--ease) backwards; }
+body[data-v='b'] .tc.just-done .tc__node { animation: settle 0.55s ease-out; }
+body[data-v='b'] .tc[data-state='running'] .tc__ring {
+  opacity: 0.9;
+  animation: spin 1.6s linear infinite;
+}
+
+/* 时间轴主线：相邻卡片各画一段，最后一段停在图标中心 */
+body[data-v='b'] .tc::before {
+  content: '';
+  position: absolute;
+  left: 9px; top: -7px; bottom: -7px;
+  width: 1px;
+  background: var(--line);
+  z-index: 0;
+}
+body[data-v='b'] .tc:first-child::before { top: 15px; }
+body[data-v='b'] .tc:last-child::before { top: -7px; bottom: auto; height: 22px; }
+body[data-v='b'] .tc:only-child::before { display: none; }
+body[data-v='b'] .tc[data-state='running']::before {
+  background: linear-gradient(180deg, transparent, var(--fam), transparent);
+  background-size: 100% 45%;
+  background-repeat: no-repeat;
+  animation: flowy 1.7s linear infinite;
+}
+@keyframes flowy {
+  0%   { background-position: 0 -70%; }
+  100% { background-position: 0 170%; }
+}
+
+/* ══════════════════════════════════════════════════════════
+ * 当前实现（对照）
+ * ══════════════════════════════════════════════════════════ */
+body[data-v='current'] .tc {
+  background: var(--raised);
+  border-color: var(--border-soft);
+  border-radius: 8px;
+}
+body[data-v='current'] .tc__row { min-height: 34px; padding: 7px 10px; }
+body[data-v='current'] .tc__row:hover { background: rgba(var(--card-rgb), 0.03); }
+body[data-v='current'] .tc__node {
+  width: 20px; height: 20px;
+  border-radius: 6px;
+  background: rgba(var(--card-rgb), 0.055);
+  color: var(--muted);
+}
+body[data-v='current'] .tc[data-state='running'] { border-color: rgba(201, 162, 39, 0.3); }
+body[data-v='current'] .tc[data-state='running'] .tc__node { color: var(--warn); }
+body[data-v='current'] .tc[data-state='error'] { border-color: rgba(229, 83, 75, 0.32); }
+body[data-v='current'] .tc[data-state='error'] .tc__node { color: var(--danger); }
+body[data-v='current'] .tc[data-state='running'] .tc__time {
+  color: var(--warn);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+body[data-v='current'] .tc__chev { opacity: 0.6; }
+body[data-v='current'] .tc__chev svg { transition: none; }
+body[data-v='current'] .tc__stat i { padding: 0; background: none; }
+body[data-v='current'] .tc__main .tc__meta { display: none; }
+body[data-v='current'] .tc__meta--right { display: block; }
+body[data-v='current'] .tc__title { color: var(--text-dim); }
+body[data-v='current'] .tc__body { transition: none; }
+body[data-v='current'] .tc__pad {
+  padding: 8px 11px 9px 40px;
+  border-top: 1px solid var(--line);
+  background: var(--body-bg);
+  transition: none;
+}
+body[data-v='current'] .tc[aria-expanded='true'] .tc__pad { transition-delay: 0s; }
+body[data-v='current'] .tc.just-done .tc__node { animation: none; }
+
+/* ══════════════════════════════════════════════════════════
+ * 展开区内容
+ * ══════════════════════════════════════════════════════════ */
+.code {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.7;
+  color: var(--code-text);
+  overflow-x: auto;
+}
+.code .ln { display: flex; gap: 14px; min-width: max-content; }
+.code .no { flex: none; width: 16px; text-align: right; color: var(--code-no); user-select: none; }
+.code .tx { white-space: pre; }
+.k { color: #c792ea; }
+.s { color: #c3e88d; }
+.n { color: #ffcb6b; }
+.c { color: #5a5a68; font-style: italic; }
+.f { color: #82aaff; }
+.p { color: #89ddff; }
+html[data-theme='light'] .k { color: #8b3fa8; }
+html[data-theme='light'] .s { color: #3f7d46; }
+html[data-theme='light'] .n { color: #a06b0b; }
+html[data-theme='light'] .c { color: #9a9aa4; }
+html[data-theme='light'] .f { color: #2f5fbf; }
+html[data-theme='light'] .p { color: #1f6f8b; }
+
+.diff {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.7;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.dl { display: flex; gap: 9px; padding: 0 8px; white-space: pre; min-width: max-content; }
+.dl .sg { flex: none; width: 9px; color: var(--faint); }
+.dl.add { color: var(--diff-add-text); background: rgba(75, 158, 95, 0.13); }
+.dl.del { color: var(--diff-del-text); background: rgba(229, 83, 75, 0.11); }
+.dl.ctx { color: var(--muted); }
+
+.cmd {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.65;
+  color: var(--code-text);
+}
+.cmd::before { content: '$ '; color: var(--faint); }
+.out {
+  font-family: var(--mono);
+  font-size: 11px; line-height: 1.7;
+  color: var(--muted);
+}
+.out .ln {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.out .ok { color: var(--add); }
+.out .err { color: var(--danger); }
+.stream {
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.3s ease, transform 0.3s var(--ease);
+}
+.stream.on { opacity: 1; transform: none; }
+
+.hit {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.9;
+  white-space: nowrap; overflow: hidden;
+}
+.hit__file { flex: none; color: var(--hit-file); }
+.hit__line { flex: none; min-width: 26px; text-align: right; color: var(--faint); }
+.hit__text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+
+/* ══════════════════════════════════════════════════════════
+ * 页脚：动效说明
+ * ══════════════════════════════════════════════════════════ */
+.notes {
+  max-width: 1080px; margin: 26px auto 0;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.note {
+  padding: 14px 16px;
+  background: rgba(var(--card-rgb), 0.02);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+}
+.note h3 {
+  margin-bottom: 6px;
+  font-size: 12px; font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+.note p { font-size: 11.5px; line-height: 1.7; color: var(--faint); }
+.note code { color: var(--muted); }
+.tokens {
+  max-width: 1080px; margin: 14px auto 0;
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.tok {
+  padding: 4px 10px;
+  font-size: 11px; color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+}
+.tok b { color: var(--muted); font-weight: 500; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+</style>
+</head>
+<body data-v="a">
+
+<header class="bar">
+  <h1>工具卡片 · 动效稿<span>审批用</span></h1>
+  <div class="seg" id="seg">
+    <button data-v="current">当前</button>
+    <button data-v="a" class="on">方案 A · 柔光卡片</button>
+    <button data-v="b">方案 B · 时间轴</button>
+  </div>
+  <div class="sp"></div>
+  <button class="iconbtn" id="theme" title="切换浅色">☀</button>
+  <button class="replay" id="replay">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.9-4.2M13.5 2v3.6h-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    重播
+  </button>
+</header>
+
+<p class="desc" id="desc"></p>
+
+<main class="stage">
+  <section class="pane">
+    <div class="pane__head">
+      <span class="pane__dot"></span>
+      <b>CCoder-Desktop</b>
+      <span class="sub">Claude Code · 会话</span>
+      <span class="sp"></span>
+      <span class="chip">工具详情 · 完整</span>
+      <span class="chip">点任意一行展开 / 收起</span>
+    </div>
+    <div class="pane__body" id="scroll">
+      <div class="tl" id="tl"></div>
+    </div>
+    <div class="pane__foot">
+      <div class="composer">
+        给 Claude Code 发消息…
+        <span class="send">↑</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes">
+    <div class="note">
+      <h3>01 · 一条曲线</h3>
+      <p>入场、展开、悬停、状态切换共用 <code>cubic-bezier(.22,1,.36,1)</code>，不做各弹各的。</p>
+    </div>
+    <div class="note">
+      <h3>02 · 状态是渐变</h3>
+      <p>运行 → 完成 → 失败只改颜色和一道柔光，不换版式；文字不跳位。</p>
+    </div>
+    <div class="note">
+      <h3>03 · 内容晚 50ms</h3>
+      <p>高度先走，文字随后淡入上浮。展开不会像抽屉被硬拉开。</p>
+    </div>
+    <div class="note">
+      <h3>04 · 盒子只在该出现时出现</h3>
+      <p>A 把边框压到 6% 白；B 干脆去掉盒子，静止时只剩一条时间轴。</p>
+    </div>
+  </section>
+
+  <div class="tokens">
+    <span class="tok"><b>入场</b> 380ms</span>
+    <span class="tok"><b>展开</b> 320ms</span>
+    <span class="tok"><b>悬停</b> 200ms</span>
+    <span class="tok"><b>状态变色</b> 250ms</span>
+    <span class="tok"><b>内容延迟</b> 50ms</span>
+    <span class="tok"><b>完成柔光</b> 550ms</span>
+  </div>
+</main>
+
+<script>
+(() => {
+  'use strict'
+
+  const $ = (s, r = document) => r.querySelector(s)
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s))
+  const el = (html) => {
+    const t = document.createElement('template')
+    t.innerHTML = html.trim()
+    return t.content.firstElementChild
+  }
+
+  const scrollEl = $('#scroll')
+  const tlEl = $('#tl')
+  const descEl = $('#desc')
+  const segEl = $('#seg')
+
+  const CHEV = `
+    <span class="tc__chev" aria-hidden="true">
+      <svg viewBox="0 0 12 12" fill="none">
+        <path d="M4.5 2.5 8 6 4.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>`
+  const THINK_CHEV = `
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M4.5 2.5 8 6 4.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`
+
+  const DESC = {
+    current:
+      '<b>现在</b>：实心卡片 + 硬边框，展开是瞬间跳变，运行中只有时间文字在闪。',
+    a:
+      '<b>方案 A · 柔光卡片</b>：保留卡片轮廓，但边框降到 6% 白、去掉重复的工具标签；运行有流光和呼吸圈，完成是一次柔光沉降，展开高度走弹性曲线。',
+    b:
+      '<b>方案 B · 时间轴</b>：去掉盒子。工具排成一条竖向时间轴，卡片表面只在悬停和展开时浮起；连续调用读起来像一段流，而不是一叠卡。'
+  }
+
+  const USER_TEXT = '把设置页的保存逻辑抽成 useSettings 里的 hook，顺便修一下切换主题时闪白屏的问题'
+
+  const DATA = {
+    read: {
+      family: 'read',
+      glyph: '▤',
+      tag: 'READ',
+      title: 'SettingsPage.tsx',
+      meta: 'components',
+      time: '42ms',
+      body: `
+        <div class="code">
+          <div class="ln"><span class="no">1</span><span class="tx"><span class="k">import</span> { useState } <span class="k">from</span> <span class="s">'react'</span></span></div>
+          <div class="ln"><span class="no">2</span><span class="tx"><span class="k">import</span> { useSettings } <span class="k">from</span> <span class="s">'../useSettings'</span></span></div>
+          <div class="ln"><span class="no">3</span><span class="tx"></span></div>
+          <div class="ln"><span class="no">4</span><span class="tx"><span class="k">export function</span> <span class="f">SettingsPage</span>() {</span></div>
+          <div class="ln"><span class="no">5</span><span class="tx">  <span class="k">const</span> { settings, save } = <span class="f">useSettings</span>()</span></div>
+          <div class="ln"><span class="no">6</span><span class="tx">  <span class="k">const</span> [saving, setSaving] = <span class="f">useState</span>(<span class="n">false</span>)</span></div>
+          <div class="ln"><span class="no">7</span><span class="tx"></span></div>
+          <div class="ln"><span class="no">8</span><span class="tx">  <span class="k">return</span> &lt;form onSubmit={save}&gt;…&lt;/form&gt;</span></div>
+          <div class="ln"><span class="no">9</span><span class="tx">}</span></div>
+        </div>`
+    },
+    search: {
+      family: 'search',
+      glyph: '⌕',
+      tag: 'SEARCH',
+      title: 'saveSettings|applyTheme',
+      meta: 'src/renderer',
+      time: '18ms',
+      body: `
+        <div class="hits">
+          <div class="hit"><span class="hit__file">useSettings.ts</span><span class="hit__line">42</span><span class="hit__text">export function useSettings()</span></div>
+          <div class="hit"><span class="hit__file">useSettings.ts</span><span class="hit__line">68</span><span class="hit__text">const save = useCallback((next) =&gt; saveSettings(next), [])</span></div>
+          <div class="hit"><span class="hit__file">settings.ts</span><span class="hit__line">12</span><span class="hit__text">export async function saveSettings(patch) {</span></div>
+          <div class="hit"><span class="hit__file">SettingsPage.tsx</span><span class="hit__line">31</span><span class="hit__text">save({ theme })</span></div>
+        </div>`
+    },
+    edit: {
+      family: 'edit',
+      glyph: '✎',
+      tag: 'EDIT',
+      title: 'useSettings.ts',
+      meta: 'src/renderer/src',
+      time: '1.2s',
+      stat: '<i class="add">+4</i><i class="del">−2</i>',
+      body: `
+        <div class="diff">
+          <div class="dl ctx"><span class="sg"> </span><span class="tx">  const theme = settings.theme</span></div>
+          <div class="dl del"><span class="sg">−</span><span class="tx">  const [saving, setSaving] = useState(false)</span></div>
+          <div class="dl add"><span class="sg">+</span><span class="tx">  const { saving, save } = useSettings()</span></div>
+          <div class="dl ctx"><span class="sg"> </span><span class="tx">  const applyTheme = useCallback((next) =&gt; {</span></div>
+          <div class="dl del"><span class="sg">−</span><span class="tx">    applyTheme(settings.theme)</span></div>
+          <div class="dl add"><span class="sg">+</span><span class="tx">    applyTheme(settings.theme, { flush: true })</span></div>
+          <div class="dl add"><span class="sg">+</span><span class="tx">    root.style.colorScheme = next</span></div>
+          <div class="dl add"><span class="sg">+</span><span class="tx">  }, [settings.theme])</span></div>
+        </div>`
+    },
+    bash: {
+      family: 'bash',
+      glyph: '❯',
+      tag: 'BASH',
+      title: '运行类型检查',
+      meta: 'pnpm typecheck',
+      time: '2.1s',
+      body: `
+        <div class="cmd">pnpm typecheck</div>
+        <div class="out">
+          <span class="ln stream">&gt; tsc --noEmit -p tsconfig.web.json</span>
+          <span class="ln stream">src/renderer/src/useSettings.ts</span>
+          <span class="ln stream">  ✓ 类型推导通过</span>
+          <span class="ln stream ok">✓ 0 errors · 1.84s</span>
+        </div>`
+    },
+    test: {
+      family: 'bash',
+      glyph: '❯',
+      tag: 'BASH',
+      title: '跑主题相关测试',
+      meta: 'pnpm vitest run theme',
+      time: '1.8s',
+      body: `
+        <div class="cmd">pnpm vitest run theme</div>
+        <div class="out">
+          <span class="ln">RUN  v3.1.0  node</span>
+          <span class="ln ok">✓ theme &gt; applies root class            312ms</span>
+          <span class="ln err">× theme &gt; keeps class in sync             18ms</span>
+          <span class="ln err">  AssertionError: expected 'light' to be 'dark'</span>
+          <span class="ln err">    at applyTheme (theme.ts:42:9)</span>
+          <span class="ln">Tests  1 failed | 3 passed (4)</span>
+        </div>`
+    }
+  }
+
+  let variant = 'a'
+  let runId = 0
+  let timers = []
+  let intervals = []
+  let scrollTimer = 0
+  let toolsEl = null
+
+  function at(ms, fn) {
+    const id = runId
+    timers.push(
+      setTimeout(() => {
+        if (id === runId) fn()
+      }, ms)
+    )
+  }
+
+  function clearRun() {
+    runId++
+    timers.forEach(clearTimeout)
+    intervals.forEach(clearInterval)
+    timers = []
+    intervals = []
+    toolsEl = null
+    tlEl.innerHTML = ''
+  }
+
+  function scrollSoon() {
+    clearTimeout(scrollTimer)
+    scrollTimer = setTimeout(() => {
+      scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' })
+    }, 60)
+  }
+
+  function addUser() {
+    tlEl.appendChild(
+      el(`<div class="tl__row tl__row--me is-fade"><div class="tl__me">${USER_TEXT}</div></div>`)
+    )
+    scrollSoon()
+  }
+
+  function addThinking() {
+    tlEl.appendChild(
+      el(`
+        <div class="think is-fade">
+          ${THINK_CHEV}
+          <b>思考</b>
+          <span class="peek">· 先定位保存逻辑，再看主题写入的时序</span>
+        </div>`)
+    )
+    scrollSoon()
+  }
+
+  function toggleCard(card) {
+    const open = card.getAttribute('aria-expanded') === 'true'
+    const next = String(!open)
+    card.setAttribute('aria-expanded', next)
+    card.querySelector('.tc__row').setAttribute('aria-expanded', next)
+    if (!open) scrollSoon()
+  }
+
+  function openCard(card) {
+    card.setAttribute('aria-expanded', 'true')
+    card.querySelector('.tc__row').setAttribute('aria-expanded', 'true')
+    scrollSoon()
+  }
+
+  function addTool(id) {
+    const d = DATA[id]
+    if (!toolsEl) {
+      toolsEl = el('<div class="tools"></div>')
+      tlEl.appendChild(toolsEl)
+    }
+
+    const card = el(`
+      <div class="tc is-new" data-family="${d.family}" data-state="running" aria-expanded="false">
+        <span class="tc__flow"></span>
+        <div class="tc__row" role="button" tabindex="0" aria-expanded="false">
+          <span class="tc__node">
+            <span class="tc__glyph">${d.glyph}</span>
+            <span class="tc__ring"></span>
+          </span>
+          <span class="tc__main">
+            <span class="tc__title">${d.title}</span>
+            <span class="tc__meta">${d.meta}</span>
+          </span>
+          <span class="tc__stat">${d.stat || ''}</span>
+          <span class="tc__meta tc__meta--right">${d.meta}</span>
+          <span class="tc__tag">${d.tag}</span>
+          <span class="tc__time">${variant === 'current' ? '运行中' : '0.0s'}</span>
+          ${CHEV}
+        </div>
+        <div class="tc__body">
+          <div class="tc__bodyin"><div class="tc__pad">${d.body}</div></div>
+        </div>
+      </div>`)
+
+    const row = card.querySelector('.tc__row')
+    const timeEl = card.querySelector('.tc__time')
+
+    if (variant !== 'current') {
+      const start = performance.now()
+      const iv = setInterval(() => {
+        timeEl.textContent = ((performance.now() - start) / 1000).toFixed(1) + 's'
+      }, 80)
+      card._iv = iv
+      intervals.push(iv)
+    }
+
+    row.addEventListener('click', () => toggleCard(card))
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        toggleCard(card)
+      }
+    })
+
+    toolsEl.appendChild(card)
+    scrollSoon()
+    return card
+  }
+
+  function finish(card, time, opts = {}) {
+    if (card._iv) clearInterval(card._iv)
+    card.setAttribute('data-state', opts.error ? 'error' : 'ok')
+    const timeEl = card.querySelector('.tc__time')
+    timeEl.textContent = time
+    card.classList.add('just-done')
+    timers.push(setTimeout(() => card.classList.remove('just-done'), 900))
+    if (opts.error) {
+      timers.push(setTimeout(() => openCard(card), 220))
+    }
+  }
+
+  function stream(card, delay) {
+    const lines = Array.from(card.querySelectorAll('.stream'))
+    lines.forEach((ln, i) => at(delay + i * 240, () => ln.classList.add('on')))
+  }
+
+  function addAssistant() {
+    tlEl.appendChild(
+      el(`
+        <div class="md is-fade">
+          <p>保存逻辑已经收进 <code>useSettings</code>，<code>SettingsPage</code> 现在只负责渲染。</p>
+          <p>闪白是因为切换时先删了根节点上的 <code>data-theme</code>，到下一帧才写入新值——中间有一帧掉回了默认主题。现在改成同一帧内替换，并给 <code>&lt;html&gt;</code> 补了 <code>color-scheme</code> 过渡。</p>
+        </div>`)
+    )
+    scrollSoon()
+  }
+
+  function play() {
+    clearRun()
+
+    const t = 80
+    at(t, addUser)
+    at(t + 380, addThinking)
+
+    at(t + 760, () => {
+      const c = addTool('read')
+      at(340, () => finish(c, '42ms'))
+    })
+
+    at(t + 1420, () => {
+      const c = addTool('search')
+      at(300, () => finish(c, '18ms'))
+    })
+
+    at(t + 2060, () => {
+      const c = addTool('edit')
+      at(1050, () => finish(c, '1.2s'))
+    })
+
+    at(t + 3420, () => {
+      const c = addTool('bash')
+      at(240, () => openCard(c))
+      stream(c, 430)
+      at(2050, () => finish(c, '2.1s'))
+    })
+
+    at(t + 5760, () => {
+      const c = addTool('test')
+      at(720, () => finish(c, '1.8s', { error: true }))
+    })
+
+    at(t + 6900, addAssistant)
+  }
+
+  function setVariant(v) {
+    variant = v
+    document.body.setAttribute('data-v', v)
+    $$('button', segEl).forEach((b) => b.classList.toggle('on', b.dataset.v === v))
+    descEl.innerHTML = DESC[v]
+    play()
+  }
+
+  $$('button', segEl).forEach((b) => {
+    b.addEventListener('click', () => setVariant(b.dataset.v))
+  })
+
+  $('#replay').addEventListener('click', play)
+
+  const themeBtn = $('#theme')
+  themeBtn.addEventListener('click', () => {
+    const html = document.documentElement
+    const light = html.getAttribute('data-theme') === 'light'
+    html.setAttribute('data-theme', light ? 'dark' : 'light')
+    themeBtn.textContent = light ? '☀' : '☾'
+    themeBtn.title = light ? '切换浅色' : '切换深色'
+  })
+
+  descEl.innerHTML = DESC[variant]
+  play()
+})()
+</script>
+</body>
+</html>

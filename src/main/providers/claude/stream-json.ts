@@ -7,6 +7,7 @@ import type {
 import { isFileEditTool, statFromPatch, toolDisplay, toolFamily } from '../../../shared/tool'
 import { agentRunInfo, taskResultInfo } from './tool-result-meta'
 import { taskSystemEvent } from './task-events'
+import { t } from '../../i18n'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
@@ -381,7 +382,7 @@ export class ClaudeStreamTranslator {
 
     // 失败时 CLI 会把原因放在 result 字段里（如 401 的原话），要让它浮上来
     if (o.is_error === true) {
-      out.push({ t: 'error', message: str(o.result) || '本轮以错误结束', fatal: false })
+      out.push({ t: 'error', message: str(o.result) || t('claudeStream.turnError'), fatal: false })
     }
 
     // steps 由 session-manager 按本轮的 tool_call 数填，这里先给 0

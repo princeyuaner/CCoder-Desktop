@@ -1,5 +1,6 @@
 import type { FileMatch } from '@shared/workspace'
 import type { SlashCommand } from '../commands'
+import { useI18n } from '../i18n'
 
 /* ── @ 文件引用 ─────────────────────────────────────────── */
 
@@ -50,13 +51,18 @@ export function MentionPopup({
   onPick,
   onHover
 }: MentionProps): JSX.Element {
+  const { t, tn } = useI18n()
   return (
-    <div className="cpop cpop--mention" role="listbox" aria-label="引用文件">
+    <div className="cpop cpop--mention" role="listbox" aria-label={t('mention.aria')}>
       <div className="cpop__head">
-        <span className="cpop__title">引用文件</span>
+        <span className="cpop__title">{t('mention.title')}</span>
         {scope && <span className="cpop__scope">{scope}</span>}
         <span className="cpop__hint">
-          {loading ? '扫描中…' : query ? `${items.length} 个匹配` : '工作区文件'}
+          {loading
+            ? t('mention.scanning')
+            : query
+              ? tn('mention.matches', items.length)
+              : t('mention.workspaceFiles')}
         </span>
       </div>
       <div className="cpop__query">
@@ -66,10 +72,12 @@ export function MentionPopup({
       </div>
 
       <div className="cpop__list">
-        {loading && items.length === 0 && <p className="cpop__empty">正在扫描工作区…</p>}
+        {loading && items.length === 0 && (
+          <p className="cpop__empty">{t('mention.emptyLoading')}</p>
+        )}
         {!loading && items.length === 0 && (
           <p className="cpop__empty">
-            {query ? `没有匹配 “${query}” 的文件` : '这个工作区里没有可引用的文件'}
+            {query ? t('mention.emptyNoMatch', { query }) : t('mention.empty')}
           </p>
         )}
         {items.map((f, i) => {
@@ -91,17 +99,19 @@ export function MentionPopup({
                 <span className="citem__name">{f.name}</span>
                 <span className="citem__path">{f.path}</span>
               </span>
-              <span className="citem__meta">{f.kind === 'dir' ? '目录' : f.dir || '根目录'}</span>
+              <span className="citem__meta">
+                {f.kind === 'dir' ? t('mention.dir') : f.dir || t('mention.root')}
+              </span>
             </button>
           )
         })}
       </div>
 
       <div className="cpop__foot">
-        <span><b>↑↓</b> 选择</span>
-        <span><b>Enter</b> 插入</span>
-        <span><b>Tab</b> 补全路径</span>
-        <span><b>Esc</b> 关闭</span>
+        <span><b>↑↓</b> {t('mention.key.select')}</span>
+        <span><b>Enter</b> {t('mention.key.insert')}</span>
+        <span><b>Tab</b> {t('mention.key.complete')}</span>
+        <span><b>Esc</b> {t('mention.key.close')}</span>
       </div>
     </div>
   )
@@ -149,21 +159,23 @@ export function CommandPopup({
   onPick,
   onHover
 }: CommandProps): JSX.Element {
+  const { t } = useI18n()
   const selected = items[active]
   const groups: { name: string; rows: { c: SlashCommand; index: number }[] }[] = []
   for (let i = 0; i < items.length; i++) {
     const c = items[i]
+    const name = t(c.groupKey)
     const last = groups[groups.length - 1]
-    if (last && last.name === c.group) last.rows.push({ c, index: i })
-    else groups.push({ name: c.group, rows: [{ c, index: i }] })
+    if (last && last.name === name) last.rows.push({ c, index: i })
+    else groups.push({ name, rows: [{ c, index: i }] })
   }
 
   return (
-    <div className="cpop cpop--command" role="listbox" aria-label="系统指令">
+    <div className="cpop cpop--command" role="listbox" aria-label={t('command.aria')}>
       <div className="cpop__head">
-        <span className="cpop__title">系统指令</span>
+        <span className="cpop__title">{t('command.title')}</span>
         <span className="cpop__scope">Claude Code</span>
-        <span className="cpop__hint">输入名称筛选</span>
+        <span className="cpop__hint">{t('command.filter')}</span>
       </div>
       <div className="cpop__query">
         <span className="cpop__trigger">/</span>
@@ -173,7 +185,7 @@ export function CommandPopup({
 
       {items.length === 0 ? (
         <p className="cpop__empty cpop__empty--pad">
-          没有匹配 “{query}” 的指令
+          {t('command.empty', { query })}
         </p>
       ) : (
         <div className="ccmd-cols">
@@ -195,8 +207,10 @@ export function CommandPopup({
                   >
                     <span className="ccmd__ico">{commandGlyph(c)}</span>
                     <span className="ccmd__name">{c.name}</span>
-                    <span className="ccmd__desc">{c.description}</span>
-                    {c.disabled && <span className="ccmd__tag">暂未接入</span>}
+                    <span className="ccmd__desc">{t(c.descriptionKey)}</span>
+                    {c.disabled && (
+                      <span className="ccmd__tag">{t('command.notReady')}</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -205,16 +219,18 @@ export function CommandPopup({
 
           {selected && (
             <div className="ccmd-detail">
-              <div className="ccmd-detail__kicker">{selected.group}</div>
+              <div className="ccmd-detail__kicker">{t(selected.groupKey)}</div>
               <div className="ccmd-detail__name">{selected.name}</div>
-              <p className="ccmd-detail__desc">{selected.detail}</p>
-              {selected.warning && <p className="ccmd-detail__warn">{selected.warning}</p>}
+              <p className="ccmd-detail__desc">{t(selected.detailKey)}</p>
+              {selected.warningKey && (
+                <p className="ccmd-detail__warn">{t(selected.warningKey)}</p>
+              )}
               <div className="ccmd-detail__foot">
                 <span className="ccmd-key">Enter</span>
-                <span>{selected.disabled ? '查看说明' : '执行'}</span>
+                <span>{selected.disabled ? t('command.viewInfo') : t('command.run')}</span>
                 <span className="ccmd-dot">·</span>
                 <span className="ccmd-key">Esc</span>
-                <span>关闭</span>
+                <span>{t('command.close')}</span>
               </div>
             </div>
           )}

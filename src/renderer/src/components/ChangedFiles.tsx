@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changedFiles'
 import { IconChevronDown } from './Icons'
+import { useI18n } from '../i18n'
 
 /**
  * 输入框左上角、工作目录胶囊右边那颗按钮：本轮改过哪些文件。
@@ -16,6 +17,7 @@ import { IconChevronDown } from './Icons'
  * 弹层往**上**开：输入区贴着窗口底部，往下没有地方。
  */
 export function ChangedFiles({ files }: { files: ChangedFile[] }): JSX.Element | null {
+  const { t, tn } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -49,23 +51,23 @@ export function ChangedFiles({ files }: { files: ChangedFile[] }): JSX.Element |
   const created = files.filter((f) => f.created && !f.deleted).length
   const edited = files.length - created - deleted
   const bits: string[] = []
-  if (edited > 0) bits.push(`${edited} 个修改`)
-  if (created > 0) bits.push(`${created} 个新建`)
-  if (deleted > 0) bits.push(`${deleted} 个删除`)
+  if (edited > 0) bits.push(tn('count.changes', edited))
+  if (created > 0) bits.push(tn('count.created', created))
+  if (deleted > 0) bits.push(tn('count.deleted', deleted))
 
   return (
     <div className="cfwrap" ref={ref}>
       <button
         className={`cfbtn ${open ? 'is-open' : ''}`}
         onClick={() => setOpen((o) => !o)}
-        title={`本轮改动 ${files.length} 个文件`}
+        title={tn('changed.title', files.length)}
         aria-expanded={open}
         aria-haspopup="dialog"
       >
         <span className="cfbtn__seg cfbtn__main">
           <span className="cfbtn__ico">✎</span>
           <span className="cfbtn__label">
-            <b>{files.length}</b> 个文件
+            <b>{files.length}</b> {t('changed.filesLabel')}
           </span>
         </span>
         <span className="cfbtn__seg cfbtn__stat">
@@ -80,12 +82,10 @@ export function ChangedFiles({ files }: { files: ChangedFile[] }): JSX.Element |
       </button>
 
       {open && (
-        <div className="cfpop" role="dialog" aria-label="本轮改动的文件">
+        <div className="cfpop" role="dialog" aria-label={t('changed.aria')}>
           <div className="cfpop__head">
             <span className="cfpop__glyph">✎</span>
-            <span className="cfpop__title">
-              本轮改动 <b>{files.length}</b> 个文件
-            </span>
+            <span className="cfpop__title">{tn('changed.title', files.length)}</span>
             <span className="cfpop__sum">
               {added > 0 && <b className="cf-add">+{added}</b>}
               {removed > 0 && <b className="cf-del">−{removed}</b>}
@@ -105,8 +105,10 @@ export function ChangedFiles({ files }: { files: ChangedFile[] }): JSX.Element |
                 </span>
                 <span className="cfrow__name">{f.name}</span>
                 <span className="cfrow__dir">{f.dir}</span>
-                {f.created && !f.deleted && <span className="cfrow__new">新</span>}
-                {f.deleted && <span className="cfrow__del">删</span>}
+                {f.created && !f.deleted && (
+                  <span className="cfrow__new">{t('changed.new')}</span>
+                )}
+                {f.deleted && <span className="cfrow__del">{t('changed.deleted')}</span>}
                 <span className="cfrow__diff">
                   {f.added > 0 && <b className="cf-add">+{f.added}</b>}
                   {f.removed > 0 && <b className="cf-del">−{f.removed}</b>}
@@ -117,7 +119,7 @@ export function ChangedFiles({ files }: { files: ChangedFile[] }): JSX.Element |
 
           <div className="cfpop__foot">
             <span>{bits.join(' · ')}</span>
-            <span>仅本轮</span>
+            <span>{t('changed.onlyThisTurn')}</span>
           </div>
         </div>
       )}

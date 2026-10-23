@@ -4,9 +4,11 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    // micromatch / electron-updater 要跟着主进程 bundle 走：打包配置排除了
-    // node_modules，外部化它们会让安装包里缺依赖
-    plugins: [externalizeDepsPlugin({ exclude: ['micromatch', 'electron-updater'] })],
+    // micromatch / electron-updater / fzstd 要跟着主进程 bundle 走：打包配置
+    // 排除了 node_modules，外部化它们会让安装包里缺依赖
+    plugins: [
+      externalizeDepsPlugin({ exclude: ['micromatch', 'electron-updater', 'fzstd'] })
+    ],
     build: {
       rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } }
     }
