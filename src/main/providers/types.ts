@@ -3,8 +3,8 @@ import type { Channel, EffortLevel } from '../../shared/settings'
 import type { PermissionDecision, QuestionAnswer, SessionSendInput } from '../../shared/session'
 
 /**
- * provider 抽象。现在只有 claude 一家，但**接口先立起来** ——
- * 加 codex 时 UI 与 session-manager 一行不改，只多一个实现。
+ * provider 抽象。claude 与 codex 各一个实现，UI 与 session-manager
+ * 只认这一组接口 —— 加新 CLI 时只多一个 adapter。
  *
  * 形态是"一个长驻会话"而不是"每轮一个进程"：因为要在工具执行**之前**
  * 拦下来问用户，就必须有一个活着的东西在对话中间接得住请求。
@@ -30,7 +30,12 @@ export interface ProviderSession {
 }
 
 export interface ProviderSessionOptions {
-  channel: Channel
+  /**
+   * 会话用的渠道；null = 走 CLI 自己的官方登录。
+   *
+   * Claude 的 official 模式就是 null —— 不注入任何 base URL / key。
+   */
+  channel: Channel | null
   cwd: string
   model: string
   permissionMode: string

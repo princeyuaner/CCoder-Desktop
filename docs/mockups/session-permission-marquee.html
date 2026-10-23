@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>后台会话 · 权限审批跑马灯</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #0d0d0d; }
+  body {
+    color: #e8e8e8;
+    padding: 26px 30px 40px;
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; }
+  svg { display: block; fill: currentColor; }
+
+  h1 { font-size: 17px; font-weight: 650; letter-spacing: .1px; }
+  .lead { max-width: 980px; margin-top: 7px; font-size: 12.5px; color: #8a8a8a; line-height: 1.85; }
+  .lead b { color: #c9c9c9; font-weight: 600; }
+  .lead .warn { color: #e0b84a; }
+  h2 { margin: 30px 0 12px; font-size: 13px; font-weight: 650; color: #b4b4b4; letter-spacing: .3px; }
+  h2 em { margin-left: 8px; font-style: normal; font-weight: 400; font-size: 11.5px; color: #6b6b6b; }
+
+  /* ══ 侧栏（与 shell.css 同尺寸） ═══════════════════════════ */
+  .sb {
+    --sb-bg: #141414;
+    --bg-raised: #232323;
+    --bg-hover: #1f1f1f;
+    --bg-active: #2a2a2a;
+    --border-soft: #242424;
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+    --warn: #c9a227;
+    --warn-fg: #e0b84a;
+    --warn-bg: rgba(201, 162, 39, .13);
+    --warn-line: rgba(201, 162, 39, .34);
+    width: 280px;
+    padding: 10px 10px 8px;
+    background: var(--sb-bg);
+    border-radius: 10px;
+    border: 1px solid var(--border-soft);
+    font-size: 13.5px;
+  }
+  .sb--light {
+    --sb-bg: #efeff1;
+    --bg-raised: #ffffff;
+    --bg-hover: #e9e9ec;
+    --bg-active: #e2e2e6;
+    --border-soft: #e0e0e4;
+    --text: #1d1d1f;
+    --text-dim: #4c4c53;
+    --text-muted: #6c6c75;
+    --text-faint: #95959e;
+    --warn: #a97b0b;
+    --warn-fg: #8a6205;
+    --warn-bg: rgba(169, 123, 11, .11);
+    --warn-line: rgba(169, 123, 11, .32);
+  }
+  .sb__nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 8px; }
+  .navitem {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px; font-size: 13.5px; color: var(--text-dim);
+    border-radius: 6px; text-align: left;
+  }
+  .navitem:hover { background: var(--bg-hover); color: var(--text); }
+  .sb__head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px 6px;
+  }
+  .sb__title { font-size: 12px; font-weight: 600; color: var(--text-muted); letter-spacing: .4px; }
+  .sb__tools { display: flex; gap: 2px; color: var(--text-muted); }
+  .sb__tools span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; }
+  .sb__tools span:hover { background: var(--bg-raised); color: var(--text); }
+
+  .ws__head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; color: var(--text-dim);
+  }
+  .ws__ico { display: grid; place-items: center; width: 22px; height: 22px; margin: 0 -2px 0 -4px; color: var(--text-muted); }
+  .ws__name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws__count { flex: none; font-size: 11.5px; color: var(--text-faint); }
+  .ws__acts { display: flex; gap: 2px; margin-left: 2px; opacity: .45; }
+  .ws__acts span { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--text-muted); }
+
+  .srow {
+    display: flex; align-items: center; gap: 9px;
+    margin-left: 16px; padding: 5px 10px 5px 12px;
+    border-radius: 6px; position: relative; overflow: hidden;
+  }
+  .srow.is-active { background: var(--bg-active); }
+  .srow:hover { background: var(--bg-hover); }
+  .srow.is-active:hover { background: var(--bg-active); }
+  .cli { flex: none; display: grid; place-items: center; width: 16px; height: 16px;
+    color: #d97757; }
+  .cli svg { width: 16px; height: 16px; }
+  .cli.is-idle { color: #6d4b3e; }
+  .srow.is-active .cli { color: #d97757; }
+  .tm { flex: none; font-size: 12px; color: var(--text-faint); }
+
+  /* 标题跑马灯：两份内容首尾相接，-50% 正好滚过一份 */
+  .mq {
+    flex: 1; min-width: 0; overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 5px, #000 calc(100% - 5px), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 5px, #000 calc(100% - 5px), transparent 100%);
+  }
+  .mq__track {
+    display: inline-flex; white-space: nowrap;
+    animation: mq var(--d, 8s) linear infinite;
+    animation-delay: var(--delay, 0s);
+  }
+  .mq__t { display: inline-block; padding-right: 36px; font-size: 13.5px; color: var(--text-dim); }
+  .srow.is-active .mq__t { color: var(--text); }
+  .srow:hover .mq__track { animation-play-state: paused; }
+  .mq--static .mq__track { animation: none; }
+  @keyframes mq {
+    0%, 9%    { transform: translateX(0); }
+    91%, 100% { transform: translateX(-50%); }
+  }
+
+  /* 待审批的各种标记 */
+  .tag {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px; font-size: 10.5px; line-height: 15px;
+    color: var(--warn-fg); background: var(--warn-bg);
+    border: 1px solid var(--warn-line); border-radius: 999px;
+  }
+  .tag i { width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+    animation: blink 1.5s ease-in-out infinite; }
+  @keyframes blink { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+  .st { flex: none; font-size: 11.5px; color: var(--warn-fg); }
+  .mq--warn .mq__t { color: var(--warn-fg); }
+
+  /* D：底色 + 左竖条 + 扫光 */
+  .srow--d { background: var(--warn-bg); }
+  .srow--d:hover { background: var(--warn-bg); }
+  .srow--d::before {
+    content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px;
+    border-radius: 2px; background: var(--warn);
+  }
+  .srow--d::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(100deg, transparent 25%, rgba(224, 184, 74, .16) 46%, transparent 68%);
+    transform: translateX(-120%);
+    animation: sweep 3.4s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    0%, 24%   { transform: translateX(-120%); }
+    62%, 100% { transform: translateX(120%); }
+  }
+
+  /* ══ 整窗预览 ═════════════════════════════════════════════ */
+  .hero { display: flex; align-items: flex-start; gap: 26px; margin-top: 18px; }
+  .window {
+    width: 900px; flex: none;
+    border: 1px solid #2c2c2c; border-radius: 11px; overflow: hidden;
+    background: #191919;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .45);
+  }
+  .titlebar {
+    display: flex; align-items: center; height: 36px;
+    padding-left: 12px; border-bottom: 1px solid #242424; background: #191919;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 650; color: #e8e8e8; }
+  .brand svg { width: 16px; height: 16px; color: #d97757; }
+  .wctl { display: flex; margin-left: auto; height: 100%; color: #8a8a8a; }
+  .wctl span { display: grid; place-items: center; width: 44px; height: 100%; font-size: 11px; }
+  .wctl span:last-child:hover { background: #c42b1c; color: #fff; }
+
+  .shell { display: flex; height: 448px; }
+  .shell .sb { border: 0; border-right: 1px solid #242424; border-radius: 0; }
+  .shell .sb__scroll { height: 100%; }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .main__head {
+    display: flex; align-items: center; gap: 8px;
+    height: 44px; padding: 0 18px; border-bottom: 1px solid #232323;
+  }
+  .main__head b { font-size: 13.5px; font-weight: 600; color: #dcdcdc; }
+  .main__head span { margin-left: auto; font-size: 11px; color: #6b6b6b; }
+  .main__body { flex: 1; padding: 22px 26px; display: flex; flex-direction: column; gap: 14px; }
+  .bubble {
+    max-width: 78%; padding: 9px 13px; border-radius: 10px;
+    font-size: 13px; line-height: 1.65; color: #d6d6d6; background: #202020;
+  }
+  .bubble--me { align-self: flex-end; background: #2a2a2a; color: #e8e8e8; }
+  .bubble small { display: block; margin-top: 4px; font-size: 11.5px; color: #7d7d7d; }
+  .composer {
+    margin: 0 22px 18px; padding: 10px 12px; min-height: 62px;
+    border: 1px solid #2f2f2f; border-radius: 10px; background: #1c1c1c;
+    font-size: 12.5px; color: #6b6b6b;
+  }
+
+  .notes { width: 300px; flex: none; }
+  .notes h3 { font-size: 12px; font-weight: 650; color: #b8b8b8; letter-spacing: .3px; margin-bottom: 10px; }
+  .notes ol { list-style: none; counter-reset: n; }
+  .notes li {
+    counter-increment: n; position: relative; padding-left: 25px;
+    margin-bottom: 13px; font-size: 12px; line-height: 1.8; color: #8f8f8f;
+  }
+  .notes li::before {
+    content: counter(n); position: absolute; left: 0; top: 2px;
+    display: grid; place-items: center; width: 16px; height: 16px;
+    border-radius: 50%; background: #232323; color: #a8a8a8; font-size: 10px;
+  }
+  .notes li b { color: #d6d6d6; font-weight: 600; }
+  .notes .kbd {
+    display: inline-block; padding: 0 4px; border-radius: 3px;
+    background: #232323; color: #b8b8b8; font-size: 11px;
+  }
+
+  /* ══ 四联对比 ═════════════════════════════════════════════ */
+  .grid { display: grid; grid-template-columns: repeat(4, 286px); gap: 16px; align-items: start; }
+  .cell {
+    padding: 12px 8px 14px; background: #101010;
+    border: 1px solid #1f1f1f; border-radius: 12px;
+  }
+  .cell.is-pick { border-color: #3a3020; background: #12100c; }
+  .cell__head { display: flex; align-items: baseline; gap: 7px; padding: 0 8px 10px; }
+  .k { font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px; color: #6b6b6b; }
+  .cell__head .t { font-size: 12.5px; font-weight: 650; color: #cfcfcf; }
+  .pick { margin-left: auto; padding: 1px 6px; font-size: 9.5px; color: #191919;
+    background: #d9b451; border-radius: 999px; }
+  .cell .sb { width: 270px; margin: 0 auto; border-color: #202020; }
+  .cell__note { margin: 10px 8px 0; font-size: 11px; line-height: 1.75; color: #6f6f6f; }
+  .cell__note b { color: #b5b5b5; font-weight: 600; }
+  .mini__head { padding-top: 2px; }
+
+  /* ══ 2× 放大 ══════════════════════════════════════════════ */
+  .zoom-wrap { width: 640px; margin-top: 10px; }
+  .zoom {
+    height: 50px; overflow: hidden; border-radius: 7px;
+    background: #10100d; border: 1px solid #242018;
+    padding: 5px 0;
+  }
+  .zoom__in { width: 64.5%; transform: scale(1.55); transform-origin: left center; }
+  .zoom .srow { margin-left: 10px; }
+  .zoom__cap { margin-top: 7px; font-size: 11px; color: #6b6b6b; }
+
+  /* ══ 深浅色并排 ═══════════════════════════════════════════ */
+  .themes { display: flex; gap: 20px; }
+  .theme-cell { width: 300px; }
+  .theme-cell p { margin-top: 9px; font-size: 11px; color: #6b6b6b; }
+
+  /* ══ 规则表 ═══════════════════════════════════════════════ */
+  .rules { display: grid; grid-template-columns: repeat(2, 590px); gap: 10px 24px; margin-top: 6px; }
+  .rule { display: flex; gap: 11px; padding: 11px 14px; background: #101010;
+    border: 1px solid #1e1e1e; border-radius: 9px; }
+  .rule__dot { flex: none; width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: #4a4a4a; }
+  .rule__dot.is-on { background: #d9b451; }
+  .rule b { display: block; font-size: 12px; font-weight: 600; color: #cfcfcf; margin-bottom: 3px; }
+  .rule span { font-size: 11.5px; line-height: 1.7; color: #7e7e7e; }
+  .rule code { padding: 0 4px; border-radius: 3px; background: #1e1e1e; color: #b8b8b8;
+    font-family: 'JetBrains Mono', Consolas, monospace; font-size: 10.5px; }
+
+  .foot { margin-top: 22px; font-size: 11.5px; color: #6b6b6b; line-height: 1.9; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mq__track, .tag i, .srow--d::after { animation: none; }
+    .mq__track { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="claude" viewBox="0 0 24 24">
+    <path d="M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z" />
+  </symbol>
+  <symbol id="folder" viewBox="0 0 24 24">
+    <path d="M3.5 6.5h5.2l1.8 2.2h9.9v9.3a1.5 1.5 0 0 1-1.5 1.5h-14a1.5 1.5 0 0 1-1.5-1.5z"
+      fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+  </symbol>
+  <symbol id="search" viewBox="0 0 24 24">
+    <circle cx="10.5" cy="10.5" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" />
+    <path d="m14.8 14.8 4.4 4.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+  </symbol>
+  <symbol id="sort" viewBox="0 0 24 24">
+    <path d="M7 5v14m0 0-3-3m3 3 3-3M17 19V5m0 0-3 3m3-3 3 3"
+      fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  </symbol>
+  <symbol id="folderplus" viewBox="0 0 24 24">
+    <path d="M3.5 6.5h5.2l1.8 2.2h9.9v9.3a1.5 1.5 0 0 1-1.5 1.5h-14a1.5 1.5 0 0 1-1.5-1.5z"
+      fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+    <path d="M12 11v5m-2.5-2.5h5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+  </symbol>
+  <symbol id="plus" viewBox="0 0 24 24">
+    <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+  </symbol>
+  <symbol id="plugin" viewBox="0 0 24 24">
+    <path d="M8 4h3v3h2V4h3v4h2.5v3H16v2h2.5v3H16v4h-3v-2.5h-2V20H8v-4H5.5v-3H8v-2H5.5V7H8z"
+      fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+  </symbol>
+  <symbol id="clock" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.4" />
+    <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+  </symbol>
+</defs></svg>
+
+<h1>后台会话 · 权限审批跑马灯</h1>
+<p class="lead">
+  审批请求现在只画在<b>当前会话</b>里。切到别处之后，那条会话就停在半空，用户永远不知道它在等 ——
+  侧栏那行的标题改成跑马灯：<span class="warn">待审批 · 允许运行 npm install？</span>
+  来回滚，右侧挂一颗「待审批」胶囊。当前会话不跑马灯（它的审批已经在眼前了）。
+</p>
+
+<!-- ══ 整窗 ══════════════════════════════════════════════ -->
+<div class="hero">
+  <div class="window">
+    <div class="titlebar">
+      <div class="brand"><svg><use href="#claude"/></svg>CCoder</div>
+      <div class="wctl"><span>—</span><span>□</span><span>×</span></div>
+    </div>
+    <div class="shell">
+      <aside class="sb sb--hero">
+        <div class="sb__nav">
+          <button class="navitem"><svg width="15" height="15"><use href="#plugin"/></svg><span>插件</span></button>
+          <button class="navitem"><svg width="15" height="15"><use href="#clock"/></svg><span>自动化任务</span></button>
+        </div>
+        <div class="sb__head">
+          <span class="sb__title">工作区</span>
+          <div class="sb__tools">
+            <span><svg width="14" height="14"><use href="#search"/></svg></span>
+            <span><svg width="14" height="14"><use href="#sort"/></svg></span>
+            <span><svg width="14" height="14"><use href="#folderplus"/></svg></span>
+          </div>
+        </div>
+        <div class="ws__head">
+          <span class="ws__ico"><svg width="15" height="15"><use href="#folder"/></svg></span>
+          <span class="ws__name">CCoder-Desktop</span>
+          <span class="ws__count">6</span>
+          <span class="ws__acts">
+            <span><svg width="13" height="13"><use href="#plus"/></svg></span>
+            <span>×</span>
+          </span>
+        </div>
+
+        <!-- 当前会话：正常 -->
+        <div class="srow is-active">
+          <span class="cli"><svg><use href="#claude"/></svg></span>
+          <span class="mq"><span class="mq__track" style="--d:9s;--delay:-2s"><span class="mq__t">给设置页加渠道测试按钮</span><span class="mq__t" aria-hidden="true">给设置页加渠道测试按钮</span></span></span>
+          <span class="tm">刚刚</span>
+        </div>
+
+        <!-- 后台会话：待审批 -->
+        <div class="srow">
+          <span class="cli"><svg><use href="#claude"/></svg></span>
+          <span class="mq mq--warn"><span class="mq__track" style="--d:10s;--delay:0.5s"><span class="mq__t">待审批 · 允许运行 npm install？</span><span class="mq__t" aria-hidden="true">待审批 · 允许运行 npm install？</span></span></span>
+          <span class="tag"><i></i>待审批</span>
+        </div>
+
+        <div class="srow">
+          <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+          <span class="mq"><span class="mq__track" style="--d:9s;--delay:-1s"><span class="mq__t">重构 Sidebar 的会话分组</span><span class="mq__t" aria-hidden="true">重构 Sidebar 的会话分组</span></span></span>
+          <span class="tm">2小时</span>
+        </div>
+        <div class="srow">
+          <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+          <span class="mq"><span class="mq__track" style="--d:9s;--delay:-4s"><span class="mq__t">Codex 审批面板对齐</span><span class="mq__t" aria-hidden="true">Codex 审批面板对齐</span></span></span>
+          <span class="tm">3小时</span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="main__head">
+          <b>给设置页加渠道测试按钮</b>
+          <span>Claude · 标准权限</span>
+        </div>
+        <div class="main__body">
+          <div class="bubble">设置页每个渠道右侧加一个「测试」按钮，点完显示延迟和模型回显。</div>
+          <div class="bubble bubble--me">用 POST /v1/messages 发一条 1 token 的请求就行，别走 SDK。</div>
+          <div class="bubble">好，正在改 <code style="font-family:Consolas,monospace">SettingsPage.tsx</code> 和 <code style="font-family:Consolas,monospace">channel:test</code> 的 IPC 通道。<small>正在编辑…</small></div>
+        </div>
+        <div class="composer">给这条会话留言…</div>
+      </main>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h3>为什么是跑马灯</h3>
+    <ol>
+      <li><b>不抢当前会话。</b>不弹窗、不切走、不打断你手上这轮 —— 只占侧栏一行。</li>
+      <li><b>标题本来就是省略号。</b>审批内容比原标题长得多，跑马灯顺带解决了「看不全」。</li>
+      <li><b>状态一眼可辨。</b>琥珀色只用于待审批，和珊瑚色的「运行中」分开，不打架。</li>
+      <li><b>点一下就到。</b>点这行 → 切过去 → 审批面板已经在最上面。</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ══ 2× 放大 ═══════════════════════════════════════════ -->
+<div class="zoom-wrap">
+  <div class="zoom">
+    <div class="zoom__in">
+      <div class="srow">
+        <span class="cli"><svg><use href="#claude"/></svg></span>
+        <span class="mq mq--warn mq--static"><span class="mq__track"><span class="mq__t">待审批 · 允许运行 npm install？</span></span></span>
+        <span class="tag"><i></i>待审批</span>
+      </div>
+    </div>
+  </div>
+  <div class="zoom__cap">2× 放大 · 图标保持 CLI 本来的颜色（进程还活着），标签才是状态</div>
+</div>
+
+<!-- ══ 四联对比 ══════════════════════════════════════════ -->
+<h2>四种强调程度 <em>跑马灯都在，差别是「滚什么」和提示有多重</em></h2>
+<div class="grid">
+
+  <div class="cell">
+    <div class="cell__head"><span class="k">A</span><span class="t">轻提示</span></div>
+    <aside class="sb">
+      <div class="ws__head mini__head">
+        <span class="ws__ico"><svg width="15" height="15"><use href="#folder"/></svg></span>
+        <span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span>
+      </div>
+      <div class="srow">
+        <span class="cli"><svg><use href="#claude"/></svg></span>
+        <span class="mq"><span class="mq__track" style="--d:11s;--delay:0.5s"><span class="mq__t">修复登录态在刷新后丢失的问题</span><span class="mq__t" aria-hidden="true">修复登录态在刷新后丢失的问题</span></span></span>
+        <span class="st">待审批</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="mq"><span class="mq__track" style="--d:9s;--delay:-1s"><span class="mq__t">重构 Sidebar 的会话分组</span><span class="mq__t" aria-hidden="true">重构 Sidebar 的会话分组</span></span></span>
+        <span class="tm">2小时</span>
+      </div>
+    </aside>
+    <p class="cell__note">原标题照常滚，只把时间位置换成 <b>琥珀色「待审批」</b>。最克制，但看不出它在等什么操作。</p>
+  </div>
+
+  <div class="cell">
+    <div class="cell__head"><span class="k">B</span><span class="t">标题加标签</span></div>
+    <aside class="sb">
+      <div class="ws__head mini__head">
+        <span class="ws__ico"><svg width="15" height="15"><use href="#folder"/></svg></span>
+        <span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span>
+      </div>
+      <div class="srow">
+        <span class="cli"><svg><use href="#claude"/></svg></span>
+        <span class="tag"><i></i>待审批</span>
+        <span class="mq"><span class="mq__track" style="--d:11s;--delay:0.5s"><span class="mq__t">修复登录态在刷新后丢失的问题</span><span class="mq__t" aria-hidden="true">修复登录态在刷新后丢失的问题</span></span></span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="mq"><span class="mq__track" style="--d:9s;--delay:-1s"><span class="mq__t">重构 Sidebar 的会话分组</span><span class="mq__t" aria-hidden="true">重构 Sidebar 的会话分组</span></span></span>
+        <span class="tm">2小时</span>
+      </div>
+    </aside>
+    <p class="cell__note">胶囊钉在标题左边，<b>原标题仍占主位</b>。知道是哪条在等，但仍要点进去才知道等什么。</p>
+  </div>
+
+  <div class="cell is-pick">
+    <div class="cell__head"><span class="k">C</span><span class="t">整句跑马灯</span><span class="pick">推荐</span></div>
+    <aside class="sb">
+      <div class="ws__head mini__head">
+        <span class="ws__ico"><svg width="15" height="15"><use href="#folder"/></svg></span>
+        <span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span>
+      </div>
+      <div class="srow">
+        <span class="cli"><svg><use href="#claude"/></svg></span>
+        <span class="mq mq--warn"><span class="mq__track" style="--d:10s;--delay:0.5s"><span class="mq__t">待审批 · 允许运行 npm install？</span><span class="mq__t" aria-hidden="true">待审批 · 允许运行 npm install？</span></span></span>
+        <span class="tag"><i></i>待审批</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="mq"><span class="mq__track" style="--d:9s;--delay:-1s"><span class="mq__t">重构 Sidebar 的会话分组</span><span class="mq__t" aria-hidden="true">重构 Sidebar 的会话分组</span></span></span>
+        <span class="tm">2小时</span>
+      </div>
+    </aside>
+    <p class="cell__note">标题整句换成 <b>「待审批 · 具体操作」</b> 滚动，右侧胶囊兜底。离开座位回来也能立刻知道在等什么。</p>
+  </div>
+
+  <div class="cell">
+    <div class="cell__head"><span class="k">D</span><span class="t">强提示</span></div>
+    <aside class="sb">
+      <div class="ws__head mini__head">
+        <span class="ws__ico"><svg width="15" height="15"><use href="#folder"/></svg></span>
+        <span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span>
+      </div>
+      <div class="srow srow--d">
+        <span class="cli"><svg><use href="#claude"/></svg></span>
+        <span class="mq mq--warn"><span class="mq__track" style="--d:10s;--delay:0.5s"><span class="mq__t">待审批 · 允许运行 npm install？</span><span class="mq__t" aria-hidden="true">待审批 · 允许运行 npm install？</span></span></span>
+        <span class="tag"><i></i>待审批</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="mq"><span class="mq__track" style="--d:9s;--delay:-1s"><span class="mq__t">重构 Sidebar 的会话分组</span><span class="mq__t" aria-hidden="true">重构 Sidebar 的会话分组</span></span></span>
+        <span class="tm">2小时</span>
+      </div>
+    </aside>
+    <p class="cell__note">再加一层暖底、左侧竖条和一道缓慢扫光。适合「审批卡住就等于全部停摆」的用法，但平时可能偏吵。</p>
+  </div>
+
+</div>
+
+<!-- ══ 深浅色 ═══════════════════════════════════════════ -->
+<h2>深浅色 <em>琥珀只传达「在等你」，不跟运行中的珊瑚色混用</em></h2>
+<div class="themes">
+  <div class="theme-cell">
+    <aside class="sb">
+      <div class="ws__head mini__head">
+        <span class="ws__ico"><svg width="15" height="15"><use href="#folder"/></svg></span>
+        <span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span>
+      </div>
+      <div class="srow">
+        <span class="cli"><svg><use href="#claude"/></svg></span>
+        <span class="mq mq--warn"><span class="mq__track" style="--d:10s;--delay:0.5s"><span class="mq__t">待审批 · 允许运行 npm install？</span><span class="mq__t" aria-hidden="true">待审批 · 允许运行 npm install？</span></span></span>
+        <span class="tag"><i></i>待审批</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle"><svg><use href="#claude"/></svg></span>
+        <span class="mq"><span class="mq__track" style="--d:9s;--delay:-1s"><span class="mq__t">重构 Sidebar 的会话分组</span><span class="mq__t" aria-hidden="true">重构 Sidebar 的会话分组</span></span></span>
+        <span class="tm">2小时</span>
+      </div>
+    </aside>
+    <p>深色 · #141414 侧栏底，待审批文字 #e0b84a</p>
+  </div>
+
+  <div class="theme-cell">
+    <aside class="sb sb--light">
+      <div class="ws__head mini__head">
+        <span class="ws__ico"><svg width="15" height="15"><use href="#folder"/></svg></span>
+        <span class="ws__name">CCoder-Desktop</span><span class="ws__count">6</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle" style="color:#b0612f"><svg><use href="#claude"/></svg></span>
+        <span class="mq mq--warn"><span class="mq__track" style="--d:10s;--delay:0.5s"><span class="mq__t">待审批 · 允许运行 npm install？</span><span class="mq__t" aria-hidden="true">待审批 · 允许运行 npm install？</span></span></span>
+        <span class="tag"><i></i>待审批</span>
+      </div>
+      <div class="srow">
+        <span class="cli is-idle" style="color:#b0612f"><svg><use href="#claude"/></svg></span>
+        <span class="mq"><span class="mq__track" style="--d:9s;--delay:-1s"><span class="mq__t">重构 Sidebar 的会话分组</span><span class="mq__t" aria-hidden="true">重构 Sidebar 的会话分组</span></span></span>
+        <span class="tm">2小时</span>
+      </div>
+    </aside>
+    <p>浅色 · #efeff1 侧栏底，文字压深到 #8a6205（4.6:1）</p>
+  </div>
+</div>
+
+<!-- ══ 规则 ══════════════════════════════════════════════ -->
+<h2>行为规则 <em>实现时按这几条走</em></h2>
+<div class="rules">
+  <div class="rule">
+    <span class="rule__dot is-on"></span>
+    <div><b>只在「非当前会话」出现</b><span>当前会话的审批本来就在主区里，再滚一遍是噪音。</span></div>
+  </div>
+  <div class="rule">
+    <span class="rule__dot"></span>
+    <div><b>标题超长才滚，短标题不滚</b><span>跑马灯的触发条件是 <code>scrollWidth &gt; clientWidth</code>；不溢出就正常省略。</span></div>
+  </div>
+  <div class="rule">
+    <span class="rule__dot"></span>
+    <div><b>一条请求对应一条，不合并</b><span>同会话连续多条只显示最上面那条；多个会话各自滚各自的。</span></div>
+  </div>
+  <div class="rule">
+    <span class="rule__dot"></span>
+    <div><b>hover 暂停</b><span>鼠标停在行上就停住，移开继续 —— 方便读完整句再点。</span></div>
+  </div>
+  <div class="rule">
+    <span class="rule__dot"></span>
+    <div><b>回答完立即停</b><span>答复 / 切到该会话 / 进程退出 / 会话被删 —— 四个出口都要把标记撤掉。</span></div>
+  </div>
+  <div class="rule">
+    <span class="rule__dot is-on"></span>
+    <div><b>减少动态效果时不滚</b><span><code>prefers-reduced-motion</code> 下标题静态省略，只留「待审批」胶囊，状态信息不能靠动效单独承载。</span></div>
+  </div>
+  <div class="rule">
+    <span class="rule__dot is-on"></span>
+    <div><b>折叠起来的会话也要冒头</b><span>待审批的会话被「展开其余 N 个」收进去时，自动展开该组；组头再加一颗小角标，免得列表一长又看不见。</span></div>
+  </div>
+  <div class="rule">
+    <span class="rule__dot"></span>
+    <div><b>匀速，不按标题长短变速</b><span>时长按文本宽度算（约 26px/s），长标题不会滚得飞快。每轮开头停 0.8s，读完再走。</span></div>
+  </div>
+</div>
+
+<p class="foot">
+  A / B / C / D 选一个（或者混搭：C 的内容 + A 的轻量配色也行）。定下来我再动 <code style="font-family:Consolas,monospace">Sidebar.tsx</code>：
+  在 <code style="font-family:Consolas,monospace">useSessions</code> 里加一份按 CLI session id 索引的待审批表，由 <code style="font-family:Consolas,monospace">permission_request</code> / 答复事件维护，
+  <code style="font-family:Consolas,monospace">SessionRow</code> 按 <code style="font-family:Consolas,monospace">pending &amp;&amp; !active</code> 渲染跑马灯。
+</p>
+
+</body>
+</html>

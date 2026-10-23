@@ -1,6 +1,13 @@
 /**
  * IPC 通道名与载荷类型。两端都从这里取，避免字符串散落各处。
  */
+import type { CodexStatus } from './codex'
+import type {
+  ClaudeAuthEvent,
+  ClaudeAuthResult,
+  ClaudeAuthStatus,
+  ClaudeLoginSnapshot
+} from './claude'
 import type { Channel, ChannelTestResult, EffortLevel, Settings } from './settings'
 import type { AgentEvent, PermissionMode } from './events'
 import type {
@@ -25,8 +32,11 @@ import type {
   IdeImage,
   IdeOpenResult,
   IdeRenameRequest,
+  IdeReplaceRequest,
+  IdeReplaceResult,
   IdeSaveRequest,
-  IdeSearchFile,
+  IdeSearchRequest,
+  IdeSearchResult,
   IdeTarget,
   IdeTextFile
 } from './ide'
@@ -49,6 +59,18 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsSave: 'settings:save',
   channelTest: 'channel:test',
+  /** Codex CLI 安装 / 登录 / app-server 状态 */
+  codexStatus: 'codex:status',
+  /** Claude Code 官方登录状态 / 登录 / 登出 */
+  claudeAuthStatus: 'claude:auth-status',
+  claudeAuthLogin: 'claude:auth-login',
+  claudeAuthSubmitCode: 'claude:auth-submit-code',
+  claudeAuthCancel: 'claude:auth-cancel',
+  claudeAuthLogout: 'claude:auth-logout',
+  /** 重开设置页时恢复登录流程现场 */
+  claudeAuthLoginState: 'claude:auth-login-state',
+  /** 主进程 → 渲染进程：登录流程的输出 / URL / 阶段变化 */
+  claudeAuthEvent: 'claude:auth-event',
   /** 主进程 → 渲染进程：设置被他处改动 */
   settingsChanged: 'settings:changed',
 
@@ -84,6 +106,7 @@ export const IPC = {
   ideReadFile: 'ide:read-file',
   ideReadImage: 'ide:read-image',
   ideSearchCode: 'ide:search-code',
+  ideReplaceInWorkspace: 'ide:replace-in-workspace',
   ideSaveFile: 'ide:save-file',
   ideCreateEntry: 'ide:create-entry',
   ideRenameEntry: 'ide:rename-entry',
@@ -122,7 +145,17 @@ export const IPC = {
   vcsPull: 'vcs:pull',
   vcsPush: 'vcs:push',
   vcsUpdate: 'vcs:update',
-  vcsCancel: 'vcs:cancel'
+  vcsWorktreeList: 'vcs:worktree-list',
+  vcsWorktreeAdd: 'vcs:worktree-add',
+  vcsWorktreeRemove: 'vcs:worktree-remove',
+  vcsWorktreePrune: 'vcs:worktree-prune',
+  vcsCancel: 'vcs:cancel',
+
+  /* ── 工作树 → 新会话 ───────────────────────────────── */
+  /** IDE → 主进程：请求在主窗口里用这个目录开一条新会话 */
+  workspaceOpenSession: 'workspace:open-session',
+  /** 主进程 → 主窗口：真正切到该目录的新会话 */
+  chatOpenSession: 'chat:open-session'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -144,6 +177,28 @@ export interface WindowApi {
     /** 用给定渠道跑一发真实请求，回报成功或端点给的原话 */
     test(channel: Channel): Promise<ChannelTestResult>
     onChanged(cb: (settings: Settings) => void): () => void
+  }
+
+  codex: {
+    /** 探测 CLI 是否安装、app-server 是否可用、当前登录的是哪个账号 */
+    status(): Promise<CodexStatus>
+  }
+
+  /**
+   * Claude Code 官方登录。
+   *
+   * 登录是一个长流程：login() 只负责把 CLI 拉起来，后续的 URL、输出、
+   * 阶段变化通过 onAuthEvent 推送；用户拿到授权码后走 submitCode()。
+   */
+  claude: {
+    authStatus(): Promise<ClaudeAuthStatus>
+    authLogin(): Promise<ClaudeAuthResult>
+    authSubmitCode(code: string): Promise<ClaudeAuthResult>
+    authCancel(): Promise<ClaudeAuthResult>
+    authLogout(): Promise<ClaudeAuthResult>
+    authLoginState(): Promise<ClaudeLoginSnapshot>
+    /** 订阅登录流程事件，返回取消订阅函数 */
+    onAuthEvent(cb: (e: ClaudeAuthEvent) => void): () => void
   }
 
   session: {
@@ -198,6 +253,15 @@ export interface WindowApi {
   /** 工作区文件检索 —— @ 引用用。主进程异步扫描并缓存，返回相对路径。 */
   workspace: {
     searchFiles(cwd: string, query: string, limit?: number): Promise<FileMatch[]>
+    /**
+     * IDE：请主窗口在这个目录下开一条新会话。
+     *
+     * 返回 ok 只表示请求已经投递到主窗口，不代表 CLI 已经启动。
+     * 主进程会顺手把这个目录加入 `openedCwds`（在主进程里合并，避免整份回写）。
+     */
+    openSession(cwd: string): Promise<{ ok: boolean; message?: string }>
+    /** 主窗口：接收上面的请求 */
+    onOpenSession(cb: (cwd: string) => void): () => void
   }
 
   /**
@@ -226,7 +290,9 @@ export interface WindowApi {
     listDir(cwd: string, rel: string): Promise<IdeEntry[]>
     readFile(cwd: string, rel: string): Promise<IdeTextFile>
     readImage(cwd: string, rel: string): Promise<IdeImage>
-    searchCode(cwd: string, query: string): Promise<IdeSearchFile[]>
+    searchCode(req: IdeSearchRequest): Promise<IdeSearchResult>
+    /** 工作区全部替换；有未保存修改的文件由 dirtyRels 指定并跳过 */
+    replaceInWorkspace(req: IdeReplaceRequest): Promise<IdeReplaceResult>
     saveFile(req: IdeSaveRequest): Promise<IdeFsResult<IdeTextFile>>
     createEntry(req: IdeCreateRequest): Promise<IdeFsResult<IdeEntryChange>>
     renameEntry(req: IdeRenameRequest): Promise<IdeFsResult<IdeEntryChange>>

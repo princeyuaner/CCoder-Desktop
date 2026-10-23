@@ -31,6 +31,12 @@ export function buildClaudeArgs(o: {
   effort?: EffortLevel
   addDirs: string[]
   resumeId?: string | null
+  /**
+   * 官方登录模式。此时**不加载用户级 settings.json** —— 用户全局那套
+   * ANTHROPIC_BASE_URL / AUTH_TOKEN 会盖过官方 OAuth 凭据，让"官方登录"
+   * 名不副实。项目级 / local 配置仍然生效。
+   */
+  official?: boolean
 }): string[] {
   const args = [
     '-p',
@@ -57,10 +63,17 @@ export function buildClaudeArgs(o: {
   // 思考深度。**medium 不传**：那是 CLI 的默认档，显式传一遍等于把
   // "没动过设置"的用户也推进新参数里 —— 万一他的 CLI 版本还不认
   // `--effort`，本来好端端的会话就全崩了。只有真选过别的档才加这个参数。
-  if (o.effort && o.effort !== 'medium') args.push('--effort', o.effort)
+  // ultra 是 Codex 专属档，绝不能传给 Claude。
+  if (o.effort && o.effort !== 'medium' && o.effort !== 'ultra') {
+    args.push('--effort', o.effort)
+  }
 
   // 接着已有会话跑。cwd 必须和原会话一致，否则 CLI 找不到那份记录。
   if (o.resumeId) args.push('--resume', o.resumeId)
+
+  // 官方登录：绕开 ~/.claude/settings.json 里的全局 provider env。
+  // 只保留项目级 / local 配置（MCP、hooks 等仍按目录生效）。
+  if (o.official) args.push('--setting-sources', 'project,local')
 
   const mode = CLI_MODE[o.permissionMode]
   if (mode) args.push('--permission-mode', mode)
@@ -130,10 +143,18 @@ class ClaudeSession implements ProviderSession {
       permissionMode: o.permissionMode,
       effort: o.effort,
       addDirs: o.addDirs,
-      resumeId: o.resumeId
+      resumeId: o.resumeId,
+      // channel 为 null = 官方登录
+      official: !o.channel
     })
 
-    this.child = spawnClaude(args, { env: channelToEnv(o.channel), cwd: o.cwd })
+    // channel 为 null = 官方登录：不注入渠道环境，也不加
+    // CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST，让 CLI 用自己保存的 OAuth 凭据。
+    this.child = spawnClaude(args, {
+      env: o.channel ? channelToEnv(o.channel) : {},
+      cwd: o.cwd,
+      providerManaged: !!o.channel
+    })
 
     this.child.stdout?.on('data', (d: Buffer) => this.onStdout(d.toString()))
     this.child.stderr?.on('data', (d: Buffer) => {

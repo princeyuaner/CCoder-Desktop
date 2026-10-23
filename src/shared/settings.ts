@@ -12,7 +12,6 @@ import type { PermissionMode } from './events'
 /**
  * 渠道说的协议。**由所属 CLI 决定**，不是用户在表单里挑的 ——
  * Claude Code 只会说 Anthropic 协议，Codex 只会说 OpenAI 协议。
- * 'openai' 目前还没有适配器去消费，先把位置占住，免得以后改数据格式。
  */
 export type ChannelKind = 'anthropic' | 'openai'
 
@@ -43,10 +42,10 @@ export interface Channel {
   /**
    * 这个端点还能用哪些模型。会话里的模型选择器就列这些。
    * `model` 是默认的那个（选择器里标「默认」并置顶），这里放其余候选。
-   * 可以为空 —— 那就只有默认模型 + 手动输入。
+   * 可以为空 —— 那就只有默认模型。
    */
   models: string[]
-  /** 后台小任务用的快模型，留空则不注入 */
+  /** 后台小任务用的快模型，留空则不注入（仅 Anthropic 渠道使用） */
   smallFastModel: string
   authMode: AuthMode
   authToken: string
@@ -64,16 +63,24 @@ export interface Channel {
  * `CLAUDE_CODE_EFFORT_LEVEL` 两个环境变量。所以这是个**真实存在**的启动参数，
  * 不是我们自己编的档位。
  */
-export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
 
 export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+/** Codex 多一档 Ultra（会主动委派子任务），Claude Code 没有这一档 */
+export const CODEX_EFFORT_LEVELS: EffortLevel[] = [...EFFORT_LEVELS, 'ultra']
+
+export function effortLevelsFor(cli: CliId): EffortLevel[] {
+  return cli === 'codex' ? CODEX_EFFORT_LEVELS : EFFORT_LEVELS
+}
 
 export const EFFORT_LABEL: Record<EffortLevel, string> = {
   low: '低',
   medium: '中',
   high: '高',
   xhigh: '极高',
-  max: '最高'
+  max: '最高',
+  ultra: 'Ultra'
 }
 
 export const EFFORT_HINT: Record<EffortLevel, string> = {
@@ -81,7 +88,8 @@ export const EFFORT_HINT: Record<EffortLevel, string> = {
   medium: 'CLI 默认档。日常改动的平衡点。',
   high: '动代码之前先推演一遍。',
   xhigh: '多步推理，慢但稳，留给重构和排查。',
-  max: '吃满预算。最慢最贵，留给硬骨头。'
+  max: '吃满预算。最慢最贵，留给硬骨头。',
+  ultra: 'Codex 专用：主动拆分并委派子任务，消耗最高。'
 }
 
 /**
@@ -288,13 +296,33 @@ export interface CliDef {
 
 export const CLIS: CliDef[] = [
   { id: 'claude', name: 'Claude Code', protocol: 'anthropic', ready: true },
-  { id: 'codex', name: 'Codex CLI', protocol: 'openai', ready: false }
+  { id: 'codex', name: 'Codex CLI', protocol: 'openai', ready: true }
 ]
 
 export const CLI_IDS: CliId[] = CLIS.map((c) => c.id)
 
 export function cliDef(id: CliId): CliDef {
   return CLIS.find((c) => c.id === id) ?? CLIS[0]
+}
+
+/**
+ * 凭据来源。
+ *
+ * - `channel`：API Key / 中转端点，走「渠道」那套配置（原来的唯一方式）。
+ * - `official`：用 CLI 自己保存的官方登录（OAuth），不注入任何渠道环境变量。
+ *
+ * 只有 Claude Code 在界面上暴露这个切换；Codex 仍然用"Base URL 留空"
+ * 表示它自己的登录。
+ */
+export type CliAuthMode = 'channel' | 'official'
+
+export const AUTH_MODE_LABEL: Record<CliAuthMode, string> = {
+  channel: 'API 渠道',
+  official: '官方登录'
+}
+
+export function isCliAuthMode(v: unknown): v is CliAuthMode {
+  return v === 'channel' || v === 'official'
 }
 
 /** 一个 CLI 的独立配置 */
@@ -305,6 +333,10 @@ export interface CliConfig {
   channels: Channel[]
   /** 新会话默认的思考深度。会话里还能单独改，只影响那一条会话。 */
   effort: EffortLevel
+  /** 凭据来源。旧版本落盘的配置没有这个字段，读进来一律按 channel 处理。 */
+  authMode: CliAuthMode
+  /** 官方登录模式下的默认模型；空 = 由 CLI 自己决定 */
+  officialModel: string
 }
 
 export interface Settings {
@@ -355,7 +387,9 @@ export function emptyCliConfig(id: CliId): CliConfig {
     enabled: cliDef(id).ready,
     activeChannelId: null,
     channels: [],
-    effort: DEFAULT_EFFORT
+    effort: DEFAULT_EFFORT,
+    authMode: 'channel',
+    officialModel: ''
   }
 }
 
@@ -407,7 +441,10 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
       activeChannelId: c?.activeChannelId ?? null,
       channels: Array.isArray(c?.channels) ? c.channels.map(normalizeChannel) : [],
       // 老版本落盘的配置没有 effort 字段 —— 补成默认档，别让它变成 undefined 混进命令行
-      effort: isEffortLevel(c?.effort) ? c.effort : DEFAULT_EFFORT
+      effort: isEffortLevel(c?.effort) ? c.effort : DEFAULT_EFFORT,
+      // 老版本没有凭据来源，保持原来的渠道行为
+      authMode: isCliAuthMode(c?.authMode) ? c.authMode : 'channel',
+      officialModel: typeof c?.officialModel === 'string' ? c.officialModel : ''
     }
   }
   return {

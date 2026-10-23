@@ -351,6 +351,300 @@ select.input {
   flex: 0 0 40%;
 }
 
+/* ── 模型列表：一行一个输入框，可增删、可设默认 ─────────── */
+
+.modellist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.modelrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+}
+.modelrow:focus-within {
+  border-color: #4a4a4a;
+}
+/* 默认行：底色和边框亮一档，让「当前用哪个」一眼可见 */
+.modelrow.is-default {
+  border-color: #4a4a4a;
+  background: var(--bg-active);
+}
+.modelrow .input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border-color: transparent;
+}
+.modelrow.is-default .input {
+  color: var(--text);
+  font-weight: 500;
+}
+.modelrow__default {
+  display: inline-flex;
+  flex: none;
+  cursor: pointer;
+}
+.modelrow__default input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.modelrow__default span {
+  padding: 3px 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+.modelrow__default:hover span {
+  color: var(--text-dim);
+  border-color: #3d3d3d;
+}
+.modelrow__default .when-on {
+  display: none;
+}
+.modelrow__default input:checked ~ .when-on {
+  display: inline-flex;
+  color: var(--ok);
+  background: #16241a;
+  border-color: #2c4a34;
+}
+.modelrow__default input:checked ~ .when-off {
+  display: none;
+}
+.modelrow__del {
+  flex: none;
+}
+.modelrow__del:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.modeladd {
+  justify-content: center;
+  width: 100%;
+  margin-top: 2px;
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+}
+.modeladd:hover {
+  color: var(--text);
+  border-color: #4a4a4a;
+  background: var(--bg-raised);
+}
+
+/* ── CLI 状态卡（Codex 安装 / 登录） ────────────────────── */
+
+.statuscard {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+}
+.statuscard--muted {
+  opacity: 0.85;
+}
+.statuscard--bad {
+  border-color: #4a2a28;
+}
+.statuscard__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.statuscard__icon--ok {
+  color: var(--ok);
+  background: #16241a;
+  border-color: #2c4a34;
+}
+.statuscard__icon--bad {
+  color: var(--danger);
+  background: #2a1a19;
+  border-color: #4a2a28;
+}
+.statuscard__main {
+  flex: 1;
+  min-width: 0;
+}
+.statuscard__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.statuscard__meta {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+.statuscard__meta code {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.statuscard__path {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.statuscard__error {
+  margin: 7px 0 0;
+  max-height: 90px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--danger);
+  white-space: pre-wrap;
+  user-select: text;
+}
+.statuscard__actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+  padding-top: 1px;
+}
+
+.badge--bad {
+  color: var(--danger);
+  border-color: #4a2a28;
+  background: #2a1a19;
+}
+
+.section-lead {
+  margin: 18px 0 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-faint);
+}
+
+/* ── 安装引导 ───────────────────────────────────────────── */
+
+.installguide {
+  margin: 10px 0 22px;
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+}
+.installguide__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.installguide__lead {
+  margin: 7px 0 14px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-faint);
+}
+.installguide__lead code,
+.installguide__steps code {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.ostabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 9px;
+}
+.ostab {
+  padding: 5px 11px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.ostab:hover {
+  color: var(--text-dim);
+}
+.ostab.is-on {
+  color: var(--text);
+  background: var(--bg-active);
+  border-color: #4a4a4a;
+}
+
+.cmdbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+}
+.cmdbox__line {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.cmdbox--inline {
+  flex: 1;
+  padding: 6px 8px;
+}
+
+.installguide__alt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.installguide__steps {
+  margin: 14px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-dim);
+}
+.installguide__steps li {
+  margin-bottom: 4px;
+}
+
+/* 状态卡里的小转圈 */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-dim);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .chform__actions {
   display: flex;
   align-items: center;
@@ -459,3 +753,193 @@ select.input {
   border-top: 1px solid var(--border-soft);
 }
 
+
+/* ── Claude 官方登录 ─────────────────────────────────────── */
+
+.authpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.authdot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok, #4ade80);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok, #4ade80) 18%, transparent);
+}
+
+.authwarn {
+  margin: 8px 0 0;
+  color: var(--warn, #fbbf24);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.authwarn--block {
+  margin: 0 0 4px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn, #fbbf24) 35%, transparent);
+  border-radius: var(--radius-chip);
+  background: color-mix(in srgb, var(--warn, #fbbf24) 8%, transparent);
+}
+
+.authmeta {
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+}
+
+.authcmd {
+  display: inline-block;
+  margin: 6px 0 2px;
+  padding: 3px 7px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  user-select: all;
+}
+
+/* 凭据来源二选一 */
+.authpick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.authpick__it {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-dim);
+}
+.authpick__it:hover {
+  background: var(--bg-raised);
+}
+.authpick__it.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+}
+.authpick__t {
+  font-size: 13px;
+  font-weight: 500;
+}
+.authpick__d {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* 登录流程 */
+.authflow {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--bg-raised);
+}
+.authflow__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.authflow__state {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.authflow__state.is-waiting {
+  color: var(--warn, #fbbf24);
+}
+.authflow__state.is-verifying {
+  color: var(--accent);
+}
+.authflow__state.is-failed {
+  color: var(--danger);
+}
+.authflow__state.is-success {
+  color: var(--ok, #4ade80);
+}
+
+.authurlrow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.authurlrow__label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.authurl {
+  display: block;
+  max-height: 64px;
+  overflow: auto;
+  padding: 7px 9px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  word-break: break-all;
+  user-select: all;
+}
+.authurlrow__acts {
+  display: flex;
+  gap: 8px;
+}
+
+.authcoderow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.authcoderow .input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.authnote {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.55;
+}
+
+.authlogwrap {
+  margin-top: 10px;
+}
+.authlogtoggle {
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.authlog {
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 9px 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+}

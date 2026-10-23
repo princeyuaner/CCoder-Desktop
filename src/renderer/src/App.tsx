@@ -46,7 +46,15 @@ export function App(): JSX.Element {
    * 新会话 controller，被错误地复用。
    */
   const newSeq = useRef(0)
-  const { workspaces, loading, running, sort, toggleSort, refresh } = useSessions()
+  const {
+    workspaces,
+    loading,
+    running,
+    pending: pendingApprovals,
+    sort,
+    toggleSort,
+    refresh
+  } = useSessions()
   const { settings, save } = useSettings()
 
   // 设置落盘（或启动时读完）后立刻应用主题 / 缩放 / 字体
@@ -218,17 +226,44 @@ export function App(): JSX.Element {
     return window.api?.chat?.onAttachRefs((p) => attachRef.current(p))
   }, [])
 
+  /**
+   * IDE 请求「在工作树目录开新会话」。
+   *
+   * 工作区白名单已经由主进程合并并广播，这里只切到新会话；
+   * **不要**再调用 openWorkspace —— 渲染层拿旧快照整份保存会覆盖主进程的合并。
+   */
+  const openSessionRef = useRef<(cwd: string) => void>(() => undefined)
+  openSessionRef.current = (cwd) => {
+    if (typeof cwd === 'string' && cwd.trim()) newSession(cwd)
+  }
+
+  useEffect(() => {
+    return window.api?.workspace?.onOpenSession((cwd) => openSessionRef.current(cwd))
+  }, [])
+
+  /** 工作树被删除后，别让下一次普通「新会话」落进一个已经不存在的地方 */
+  useEffect(() => {
+    if (pickedCwd && !settings.openedCwds.some((c) => sameCwd(c, pickedCwd))) {
+      setPickedCwd('')
+    }
+  }, [pickedCwd, settings.openedCwds])
+
   return (
     <div className="app">
       <TitleBar />
       <div className="app__body">
+        {/*
+          设置页会把审批面板整个盖住 —— 这时候连「当前会话」也该提醒。
+          所以只有真正看着对话时才把 active 传下去。
+        */}
         <Sidebar
           workspaces={visible}
           loading={loading}
           running={running}
+          pending={pendingApprovals}
           sort={sort}
           onToggleSort={toggleSort}
-          activeId={active.kind === 'stored' ? active.id : null}
+          activeId={view === 'chat' && active.kind === 'stored' ? active.id : null}
           onSelect={openStored}
           onNewSession={newSession}
           onCloseWorkspace={closeWorkspace}

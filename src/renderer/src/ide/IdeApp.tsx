@@ -10,7 +10,10 @@ import type {
   IdeEntry,
   IdeFsChanged,
   IdeImage,
+  IdeReplaceData,
   IdeSearchFile,
+  IdeSearchMatch,
+  IdeSearchOptions,
   IdeTextFile
 } from '@shared/ide'
 import type { VcsChange, VcsDiffData } from '@shared/vcs'
@@ -458,6 +461,36 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       if (flashTimer.current) window.clearTimeout(flashTimer.current)
     }
   }, [])
+
+  /**
+   * 工作区替换完成后刷新 IDE 状态。
+   *
+   * 主进程只跳过脏文件，所以被改动的都是磁盘上的干净文件 —— 把它们的
+   * 缓存丢掉，ensureTab 会在激活时重新读取；脏草稿原样保留，绝不能被
+   * 磁盘内容覆盖。
+   */
+  const onWorkspaceReplaced = useCallback(
+    (r: IdeReplaceData): void => {
+      if (r.totals.filesChanged === 0) return
+      const keep = new Set(dirtyRels)
+      const onlyDirty = <T,>(rec: Record<string, T>): Record<string, T> =>
+        Object.fromEntries(Object.entries(rec).filter(([rel]) => keep.has(rel)))
+      setFileCache(onlyDirty)
+      setBaseText(onlyDirty)
+      setImageCache({})
+      setDiffCache({})
+      const keepExternal = new Set(dirtyRels.map(extKey))
+      setExternal((m) =>
+        Object.fromEntries(Object.entries(m).filter(([key]) => keepExternal.has(key)))
+      )
+      setTreeVersion((v) => v + 1)
+      void vcs.refresh()
+      showFlash(
+        `替换完成：${r.totals.replacements} 处 · ${r.totals.filesChanged} 个文件`
+      )
+    },
+    [dirtyRels, showFlash, vcs]
+  )
 
   // 任务栏/窗口标题跟着工作区走，而不是页面默认的 CCoder
   useEffect(() => {
@@ -1263,7 +1296,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               </div>
             </div>
           )}
-          {view === 'search' && <SearchPanel cwd={cwd} onOpen={openFile} />}
+          {view === 'search' && (
+            <SearchPanel
+              cwd={cwd}
+              onOpen={openFile}
+              dirtyRels={dirtyRels}
+              onReplaced={onWorkspaceReplaced}
+              askConfirm={setDialog}
+            />
+          )}
         </aside>
 
         <section className="ide-editor">
@@ -1644,86 +1685,313 @@ function FileRow({
 
 /* ── 搜索 ─────────────────────────────────────────────── */
 
-function highlightQuery(text: string, q: string): JSX.Element {
-  const needle = q.trim()
-  if (!needle) return <>{text}</>
-  const lower = text.toLowerCase()
-  const n = needle.toLowerCase()
-  const parts: JSX.Element[] = []
-  let from = 0
-  let at = lower.indexOf(n)
-  let k = 0
-  while (at >= 0) {
-    if (at > from) parts.push(<span key={`t${k++}`}>{text.slice(from, at)}</span>)
-    parts.push(<mark key={`m${k++}`}>{text.slice(at, at + needle.length)}</mark>)
-    from = at + needle.length
-    at = lower.indexOf(n, from)
+/** 用后端给的 offset/length 高亮；不要在渲染层重跑一次子串搜索 */
+function highlightMatch(text: string, m: IdeSearchMatch): JSX.Element {
+  const start = Math.max(0, Math.min(m.offset, text.length))
+  const end = Math.min(text.length, start + m.length)
+  return (
+    <>
+      {text.slice(0, start)}
+      <mark>{text.slice(start, end)}</mark>
+      {text.slice(end)}
+    </>
+  )
+}
+
+/** 逗号 / 换行分隔 glob，但别把 `{ts,tsx}` 里的逗号拆开 */
+function splitGlobList(raw: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let depth = 0
+  for (const ch of raw) {
+    if (ch === '{') depth++
+    else if (ch === '}' && depth > 0) depth--
+    if ((ch === ',' || ch === '\n') && depth === 0) {
+      if (cur.trim()) out.push(cur.trim())
+      cur = ''
+    } else {
+      cur += ch
+    }
   }
-  if (from < text.length) parts.push(<span key={`t${k++}`}>{text.slice(from)}</span>)
-  return <>{parts}</>
+  if (cur.trim()) out.push(cur.trim())
+  return out
 }
 
 function SearchPanel({
   cwd,
-  onOpen
+  onOpen,
+  dirtyRels,
+  onReplaced,
+  askConfirm
 }: {
   cwd: string
   onOpen: (rel: string, line?: number) => void
+  dirtyRels: string[]
+  onReplaced: (r: IdeReplaceData) => void
+  askConfirm: (state: DialogState) => void
 }): JSX.Element {
   const [q, setQ] = useState('')
+  const [replacement, setReplacement] = useState('')
+  const [showReplace, setShowReplace] = useState(false)
+  const [caseSensitive, setCaseSensitive] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
+  const [regex, setRegex] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const [includeText, setIncludeText] = useState('')
+  const [excludeText, setExcludeText] = useState('')
   const [results, setResults] = useState<IdeSearchFile[]>([])
   const [busy, setBusy] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+  const [replacing, setReplacing] = useState(false)
+  const [lastReplace, setLastReplace] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  const options = useMemo<IdeSearchOptions>(
+    () => ({
+      caseSensitive,
+      wholeWord,
+      regex,
+      include: splitGlobList(includeText),
+      exclude: splitGlobList(excludeText)
+    }),
+    [caseSensitive, wholeWord, regex, includeText, excludeText]
+  )
+
+  // 正则至少 1 个字符；字面量沿用旧 UI 的「至少 2 个字符」，避免扫全库
+  const usable = regex ? q.length >= 1 : q.trim().length >= 2
 
   useEffect(() => {
-    const query = q.trim()
-    if (query.length < 2) {
+    if (!usable) {
       setResults([])
       setSearched(false)
+      setBusy(false)
+      setError(null)
+      setNote(null)
       return
     }
+
     let cancelled = false
     const timer = setTimeout(async () => {
       setBusy(true)
+      setError(null)
+      setNote(null)
       try {
-        const r = (await window.api?.ide?.searchCode(cwd, query)) ?? []
+        const r = await window.api?.ide?.searchCode({ cwd, query: q, options })
+        if (cancelled) return
+        if (!r) {
+          setResults([])
+          setSearched(true)
+          return
+        }
+        if (!r.ok) {
+          setResults([])
+          setError(r.message)
+          setSearched(true)
+          return
+        }
+        setResults(r.data.files)
+        setNote(r.data.truncated ? (r.data.note ?? '结果已截断') : null)
+        setSearched(true)
+      } catch (err) {
         if (!cancelled) {
-          setResults(r)
+          setResults([])
+          setError(err instanceof Error ? err.message : String(err))
           setSearched(true)
         }
-      } catch {
-        if (!cancelled) setResults([])
       } finally {
         if (!cancelled) setBusy(false)
       }
     }, 350)
+
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [q, cwd])
+  }, [cwd, q, options, refreshTick, usable])
 
   const total = results.reduce((n, f) => n + f.matches.length, 0)
+  const canReplace = searched && !busy && !replacing && total > 0 && !error && usable
+
+  const doReplace = async (): Promise<void> => {
+    setReplacing(true)
+    setError(null)
+    setLastReplace(null)
+    try {
+      const api = window.api
+      if (!api?.ide) {
+        setError('当前环境不支持工作区替换')
+        return
+      }
+      const r = await api.ide.replaceInWorkspace({
+        cwd,
+        query: q,
+        replacement,
+        options,
+        dirtyRels
+      })
+      if (!r.ok) {
+        setError(r.message)
+        return
+      }
+      const d = r.data
+      if (d.aborted) {
+        setError(d.message ?? '替换已中止，未写入任何文件')
+        return
+      }
+
+      const t = d.totals
+      const parts = [`${t.replacements} 处`, `${t.filesChanged} 个文件`]
+      if (t.filesSkippedDirty) parts.push(`跳过 ${t.filesSkippedDirty} 个未保存文件`)
+      if (t.filesConflicted) parts.push(`${t.filesConflicted} 个冲突`)
+      if (t.filesErrored) parts.push(`${t.filesErrored} 个失败`)
+      if (t.filesSkippedBinary || t.filesSkippedLarge) {
+        parts.push(`忽略 ${t.filesSkippedBinary + t.filesSkippedLarge} 个二进制/大文件`)
+      }
+      setLastReplace(`已替换 ${parts.join(' · ')}`)
+
+      onReplaced(d)
+      // 重新搜索，让面板显示替换后的磁盘内容
+      setRefreshTick((x) => x + 1)
+    } catch (err) {
+      setError(`替换失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setReplacing(false)
+    }
+  }
+
+  const onReplaceAll = (): void => {
+    if (!canReplace) return
+    const dirtyNote = dirtyRels.length ? `；${dirtyRels.length} 个未保存文件会跳过` : ''
+    const truncatedNote = note ? '；面板结果已截断，替换会重新扫描整个工作区' : ''
+    askConfirm({
+      title: '在工作区中全部替换',
+      message: `将把 ${total} 处匹配替换为「${replacement || '空'}」，涉及 ${results.length} 个文件${dirtyNote}${truncatedNote}。这个操作不能撤销。`,
+      actions: [
+        { label: '取消', run: () => undefined },
+        {
+          label: '全部替换',
+          kind: 'danger',
+          run: doReplace
+        }
+      ]
+    })
+  }
 
   return (
     <div className="ide-searchview">
       <div className="ide-side-head">
         <span>搜索</span>
       </div>
+
       <div className="ide-searchbox">
+        <button
+          className="ide-sreplace-toggle"
+          aria-expanded={showReplace}
+          title={showReplace ? '收起替换' : '展开替换'}
+          onClick={() => setShowReplace((v) => !v)}
+        >
+          <Ico d={showReplace ? P.down : P.chevron} size={11} />
+        </button>
         <IconSearch width={13} height={13} />
         <input
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="在工作区中搜索…"
+          placeholder={regex ? '正则表达式…' : '在工作区中搜索…'}
           spellCheck={false}
+          disabled={replacing}
         />
         {busy && <span className="ide-spin" />}
       </div>
-      <div className="ide-searchsum">
-        {searched ? `${total} 个结果 · ${results.length} 个文件` : '输入至少 2 个字符'}
+
+      {showReplace && (
+        <div className="ide-searchbox ide-searchbox--replace">
+          <input
+            value={replacement}
+            onChange={(e) => setReplacement(e.target.value)}
+            placeholder={regex ? '替换为…（支持 $1 / $&）' : '替换为…'}
+            spellCheck={false}
+            disabled={replacing}
+          />
+          <button
+            className="ide-replaceall"
+            disabled={!canReplace}
+            onClick={onReplaceAll}
+            title="在工作区中全部替换"
+          >
+            {replacing ? <span className="ide-spin" /> : '全部替换'}
+          </button>
+        </div>
+      )}
+
+      <div className="ide-sopts">
+        <button
+          className={`ide-sopt ${caseSensitive ? 'is-on' : ''}`}
+          aria-pressed={caseSensitive}
+          title="区分大小写"
+          onClick={() => setCaseSensitive((v) => !v)}
+        >
+          Aa
+        </button>
+        <button
+          className={`ide-sopt ${wholeWord ? 'is-on' : ''}`}
+          aria-pressed={wholeWord}
+          title="全字匹配"
+          onClick={() => setWholeWord((v) => !v)}
+        >
+          全字
+        </button>
+        <button
+          className={`ide-sopt ${regex ? 'is-on' : ''}`}
+          aria-pressed={regex}
+          title="使用正则表达式"
+          onClick={() => setRegex((v) => !v)}
+        >
+          .*
+        </button>
+        <button
+          className={`ide-sopt ${showFilters ? 'is-on' : ''}`}
+          aria-pressed={showFilters}
+          title="包含 / 排除文件"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          筛选
+        </button>
       </div>
+
+      {showFilters && (
+        <div className="ide-sglob">
+          <input
+            value={includeText}
+            onChange={(e) => setIncludeText(e.target.value)}
+            placeholder="包含：src/**/*.{ts,tsx}"
+            spellCheck={false}
+            disabled={replacing}
+          />
+          <input
+            value={excludeText}
+            onChange={(e) => setExcludeText(e.target.value)}
+            placeholder="排除：**/*.test.ts, dist/**"
+            spellCheck={false}
+            disabled={replacing}
+          />
+        </div>
+      )}
+
+      <div className={`ide-searchsum ${error ? 'is-error' : ''}`}>
+        {error
+          ? error
+          : searched
+            ? `${total} 个结果 · ${results.length} 个文件${note ? '（已截断）' : ''}`
+            : regex
+              ? '输入正则表达式'
+              : '输入至少 2 个字符'}
+      </div>
+      {note && !error && <div className="ide-searchnote">{note}</div>}
+      {lastReplace && <div className="ide-searchsum is-done">{lastReplace}</div>}
+
       <div className="ide-searchres">
         {results.map((f) => (
           <div key={f.rel} className="ide-sfile">
@@ -1734,18 +2002,18 @@ function SearchPanel({
             </div>
             {f.matches.map((m, i) => (
               <button
-                key={`${f.rel}-${m.line}-${i}`}
+                key={`${f.rel}-${m.line}-${m.column}-${i}`}
                 className="ide-smatch"
-                title={`${f.rel}:${m.line}`}
+                title={`${f.rel}:${m.line}:${m.column}`}
                 onClick={() => onOpen(f.rel, m.line)}
               >
                 <span className="ide-sline">{m.line}</span>
-                <span className="ide-snip">{highlightQuery(m.text, q)}</span>
+                <span className="ide-snip">{highlightMatch(m.text, m)}</span>
               </button>
             ))}
           </div>
         ))}
-        {searched && results.length === 0 && !busy && (
+        {searched && results.length === 0 && !busy && !error && (
           <div className="ide-emptyhint">没有找到匹配</div>
         )}
       </div>

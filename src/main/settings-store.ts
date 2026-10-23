@@ -87,8 +87,10 @@ function storedClis(raw: StoredSettings): Partial<Record<CliId, StoredCli>> {
         enabled: true,
         activeChannelId: raw.activeChannelId ?? null,
         channels: raw.channels,
-        // v1 还没有这一档，补默认值 —— 反正 normalizeSettings 也会兜一次
-        effort: DEFAULT_EFFORT
+        // v1 还没有这两档，补默认值 —— 反正 normalizeSettings 也会兜一次
+        effort: DEFAULT_EFFORT,
+        authMode: 'channel',
+        officialModel: ''
       }
     }
   }
@@ -116,7 +118,10 @@ export function loadSettings(): Settings {
         ...rest,
         authToken: unseal(secret)
       })) as Channel[],
-      effort: isEffortLevel(c?.effort) ? c.effort : empty.effort
+      effort: isEffortLevel(c?.effort) ? c.effort : empty.effort,
+      authMode: c?.authMode === 'official' ? 'official' : empty.authMode,
+      officialModel:
+        typeof c?.officialModel === 'string' ? c.officialModel : empty.officialModel
     }
   }
 
@@ -148,7 +153,9 @@ export function saveSettings(s: Settings): void {
         ...rest,
         secret: seal(authToken)
       })),
-      effort: c.effort
+      effort: c.effort,
+      authMode: c.authMode,
+      officialModel: c.officialModel
     }
   }
 

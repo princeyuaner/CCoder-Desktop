@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import type { StoredSession } from '@shared/session'
 import { cliDef, type CliId } from '@shared/settings'
 import { relTime, type SessionSort, type WorkspaceView } from '../useSessions'
+import type { PendingApproval } from '../pending-approvals'
 import {
   IconClaudeCode,
   IconClock,
@@ -23,6 +24,11 @@ interface SidebarProps {
   loading: boolean
   /** 正在跑的会话（CLI 的 session id）—— 这些行的图标会跳 */
   running: Set<string>
+  /**
+   * 卡在审批上的后台会话（CLI 的 session id）。
+   * 当前会话不在里面显示跑马灯 —— 它的审批面板就在主区里。
+   */
+  pending: ReadonlyMap<string, PendingApproval>
   /** 会话行排序：创建时间 / 最近活动 */
   sort: SessionSort
   onToggleSort: () => void
@@ -44,6 +50,7 @@ export function Sidebar({
   workspaces,
   loading,
   running,
+  pending,
   sort,
   onToggleSort,
   activeId,
@@ -58,11 +65,6 @@ export function Sidebar({
 }: SidebarProps): JSX.Element {
   return (
     <aside className="sidebar">
-      <button className="sidebar__new" onClick={() => onNewSession()}>
-        <IconPlus width={15} height={15} />
-        <span>新会话</span>
-      </button>
-
       <nav className="sidebar__nav">
         <button className="navitem">
           <IconPlugin width={15} height={15} />
@@ -111,6 +113,7 @@ export function Sidebar({
             key={ws.cwd}
             ws={ws}
             running={running}
+            pending={pending}
             activeId={activeId}
             onSelect={onSelect}
             onNewSession={onNewSession}
@@ -133,6 +136,7 @@ export function Sidebar({
 function WorkspaceGroup({
   ws,
   running,
+  pending,
   activeId,
   onSelect,
   onNewSession,
@@ -143,6 +147,7 @@ function WorkspaceGroup({
 }: {
   ws: WorkspaceView
   running: Set<string>
+  pending: ReadonlyMap<string, PendingApproval>
   activeId: string | null
   onSelect: (s: StoredSession) => void
   onNewSession: (cwd?: string) => void
@@ -153,14 +158,23 @@ function WorkspaceGroup({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const hidden = Math.max(0, ws.sessions.length - COLLAPSED_COUNT)
-  const visible = expanded || hidden === 0 ? ws.sessions : ws.sessions.slice(0, COLLAPSED_COUNT)
+  /**
+   * 组里有会话卡在审批上时强制展开。
+   *
+   * 跑马灯只能救"看得见"的行：被「展开其余 N 个」收进去的那条，用户
+   * 根本不知道它在等。审批一答复就恢复原来的折叠状态，不把这次
+   * 强制展开写进 `expanded` —— 用户手动收起的选择要保留。
+   */
+  const groupPending = ws.sessions.reduce((n, s) => n + (pending.has(s.id) ? 1 : 0), 0)
+  const forceOpen = groupPending > 0
+  const visible =
+    expanded || hidden === 0 || forceOpen
+      ? ws.sessions
+      : ws.sessions.slice(0, COLLAPSED_COUNT)
 
   return (
     <div className="wsgroup">
-      {/*
-        两个按钮平时收着，鼠标移到这一行才浮出来 —— 侧栏只有 280px，
-        常驻会把目录名挤掉一截。目录名被省略时靠 title 看全路径。
-      */}
+      {/* 两个按钮常驻；目录名被省略时靠 title 看全路径。 */}
       <div className="wsgroup__head" title={ws.cwd}>
         <button
           className="wsgroup__iconbtn"
@@ -170,6 +184,12 @@ function WorkspaceGroup({
           <IconFolder width={15} height={15} className="wsgroup__icon" />
         </button>
         <span className="wsgroup__name">{ws.name}</span>
+        {groupPending > 0 && (
+          <span
+            className="wsgroup__pending"
+            title={`${groupPending} 个会话卡在审批上`}
+          />
+        )}
         <span className="wsgroup__count">{ws.sessions.length}</span>
         <span className="wsgroup__acts">
           <button
@@ -195,6 +215,7 @@ function WorkspaceGroup({
           s={s}
           active={s.id === activeId}
           running={running.has(s.id)}
+          approval={pending.get(s.id)}
           onSelect={() => {
             onSelect(s)
             onRefresh()
@@ -203,7 +224,7 @@ function WorkspaceGroup({
         />
       ))}
 
-      {hidden > 0 && (
+      {hidden > 0 && !forceOpen && (
         <button className="wsgroup__expand" onClick={() => setExpanded((v) => !v)}>
           {expanded ? '收起会话' : `展开其余 ${hidden} 个会话`}
         </button>
@@ -217,37 +238,116 @@ function SessionRow({
   s,
   active,
   running,
+  approval,
   onSelect,
   onDelete
 }: {
   s: StoredSession
   active: boolean
   running: boolean
+  /** 这条会话正在等的审批；没有就是 undefined */
+  approval?: PendingApproval
   onSelect: () => void
   onDelete: () => void
 }): JSX.Element {
+  /*
+   * 当前会话不挂跑马灯：审批面板已经在主区，重复提醒是噪音。
+   * 点开这一行后它立刻变成 active，提醒自然收起。
+   */
+  const waiting = approval !== undefined && !active
+  const label = waiting ? (approval.kind === 'question' ? '待回答' : '待审批') : ''
+
   return (
-    <div className={`session ${active ? 'is-active' : ''}`}>
+    <div className={`session ${active ? 'is-active' : ''} ${waiting ? 'is-pending' : ''}`}>
       <button
         className="session__main"
         onClick={onSelect}
-        title={`${s.title}\n${s.cwd}\n${cliDef(s.cli).name}`}
+        title={`${s.title}\n${s.cwd}\n${cliDef(s.cli).name}${
+          waiting ? `\n${label}：${approval.text}` : ''
+        }`}
       >
-        <CliMark cli={s.cli} running={running} />
-        <span className="session__title">{s.title}</span>
         {/*
-          在跑的时候，右下角不再显示「刚刚」—— 那个数字只说明最后写入有多近，
-          跟"现在还在不在干活"是两回事。换成状态字，跟左侧图标的跳动互相印证；
-          动效被系统「减少动态效果」关掉时，这行字就是唯一的状态来源。
+          等审批时进程还活着，但卡在用户这里 —— 不是"在干活"，
+          别让图标继续跳，把注意力留给跑马灯。
         */}
-        <span className={`session__time ${running ? 'session__time--running' : ''}`}>
-          {running ? '运行中' : relTime(s.updatedAt)}
-        </span>
+        <CliMark cli={s.cli} running={running && !waiting} />
+        {waiting ? (
+          <PendingTitle text={`${label} · ${approval.text}`} />
+        ) : (
+          <span className="session__title">{s.title}</span>
+        )}
+        {waiting ? (
+          <span className="session__pending-tag" title={`${label}：${approval.text}`}>
+            <i />
+            {label}
+          </span>
+        ) : (
+          /*
+            在跑的时候，右下角不再显示「刚刚」—— 那个数字只说明最后写入有多近，
+            跟"现在还在不在干活"是两回事。换成状态字，跟左侧图标的跳动互相印证；
+            动效被系统「减少动态效果」关掉时，这行字就是唯一的状态来源。
+          */
+          <span className={`session__time ${running ? 'session__time--running' : ''}`}>
+            {running ? '运行中' : relTime(s.updatedAt)}
+          </span>
+        )}
       </button>
       <button className="session__del" title="删除这条会话（不可恢复）" onClick={onDelete}>
         ×
       </button>
     </div>
+  )
+}
+
+/**
+ * 待审批标题的跑马灯。
+ *
+ * 只有文本真的溢出才滚：短命令（`ls`）在百来像素的标题位里来回晃，
+ * 比省略号更烦。测量放在 layout effect —— 先画一帧静止的、再突然开始，
+ * 看起来像界面在抖。
+ *
+ * 时长按距离算（约 26px/s），长命令不会滚得飞快；每轮开头由 keyframes
+ * 自带 9% 的停顿，够读完一遍。
+ */
+function PendingTitle({ text }: { text: string }): JSX.Element {
+  const box = useRef<HTMLSpanElement>(null)
+  const [scrolling, setScrolling] = useState(false)
+  const [duration, setDuration] = useState(9)
+
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const measure = (): void => {
+      // 量第一份文本，而不是容器的 scrollWidth —— 滚起来之后 track 里
+      // 有两份文本，scrollWidth 会翻倍，时长就会算慢一倍。
+      const track = el.firstElementChild as HTMLElement | null
+      const item = track?.firstElementChild as HTMLElement | null
+      const width = item?.offsetWidth ?? 0
+      const over = width > el.clientWidth + 1
+      setScrolling(over)
+      // 一轮里真正在走的部分占 82%（首尾各停 9%）
+      if (over) setDuration(Math.min(20, Math.max(6, (width + 36) / (26 * 0.82))))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [text])
+
+  return (
+    <span className={`session__mq ${scrolling ? 'is-scrolling' : ''}`} ref={box}>
+      <span
+        className="session__mq-track"
+        style={{ '--mq-dur': `${duration.toFixed(1)}s` } as CSSProperties}
+      >
+        <span className="session__mq-item">{text}</span>
+        {scrolling && (
+          <span className="session__mq-item" aria-hidden="true">
+            {text}
+          </span>
+        )}
+      </span>
+    </span>
   )
 }
 

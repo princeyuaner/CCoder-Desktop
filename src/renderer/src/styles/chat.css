@@ -60,6 +60,50 @@
   background: var(--ok);
 }
 
+/* ── 模型胶囊：CLI 图标 + 渠道名 + 模型名 ──────────────── */
+
+/* 先说明走哪个 CLI、哪个渠道，再说用什么模型。渠道名是「出处」，压低一档；
+   模型名占用剩余宽度，窄窗口下优先保住它。 */
+.chip--model {
+  max-width: 380px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.chip__cli {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.chip__cli svg {
+  display: block;
+}
+/* 品牌色跟侧栏会话图标同源：Claude 珊瑚橙，OpenAI 本来就是黑白 */
+.chip__cli--claude {
+  color: #d97757;
+}
+.chip__cli--codex {
+  color: var(--text);
+}
+.chip__channel {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.chip__sep {
+  flex: none;
+  color: var(--text-faint);
+}
+.chip__model {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 上下文用量：底栏里的小环 + 百分比。环的颜色跟随 70% / 90% 阈值 */
 .ctxchip {
   display: inline-flex;
@@ -444,6 +488,20 @@
 .tl__chunk {
   content-visibility: auto;
   contain-intrinsic-size: auto 3150px;
+}
+/*
+ * 末尾两块永远按真实高度排版。
+ *
+ * content-visibility: auto 下，屏幕外的块按 3150px 估算高度。切会话时我们
+ * 直接把 scrollTop 写到 scrollHeight —— 那是**估算出来**的底部；随后浏览器
+ * 可能不再把最后一块判为「和视口相交」，于是它一直停在估算高度、真实内容
+ * 根本不排版。表现就是转写区停在倒数第几屏的一片空白上，滚也滚不动。
+ *
+ * 只关掉末尾两块（最多 80 行）的跳过，性能代价可以忽略；上方的长历史
+ * 仍然整块跳过。
+ */
+.tl__chunk.is-tail {
+  content-visibility: visible;
 }
 .tl__row {
   margin-bottom: 12px;
@@ -2631,8 +2689,11 @@
   right: auto;
   left: 0;
   width: auto;
+  max-height: none;
   padding: 0;
   overflow: visible;
+  border-radius: 15px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.62), 0 2px 8px rgba(0, 0, 0, 0.45);
 }
 
 /* ── 思考深度（chip + 滑轨弹层） ────────────────────────── */
@@ -2773,57 +2834,111 @@
   background: #6a6a7c;
 }
 
-/* ── CLI › 渠道 › 模型 三列选择器 ──────────────────────── */
+/* ── CLI › 渠道 › 模型 三列选择器 ────────────────────────
+ *
+ * 三列是同一个决定的三个部分，所以并排而不是逐级点进去。视觉上用三块
+ * 圆角面板分组，不用表格竖线 —— 竖线会把「选到哪了」拆成三条独立列表。
+ * 选中项统一用珊瑚色细边 + 实心勾，位置固定在行尾，扫一眼就能确认。
+ */
 
 .mpick {
-  width: 680px;
+  width: 668px;
+  padding: 9px;
 }
 .mpick__cols {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.3fr;
+  grid-template-columns: 170px minmax(0, 1fr) minmax(0, 1.45fr);
+  gap: 8px;
 }
 .mpick__col {
   min-width: 0;
-  padding: 8px 6px;
+  padding: 5px;
   max-height: 300px;
   overflow-y: auto;
+  background: rgba(255, 255, 255, 0.035);
+  border-radius: 11px;
 }
-.mpick__col + .mpick__col {
-  border-left: 1px solid #34343f;
+.mpick__col--models {
+  background: rgba(255, 255, 255, 0.055);
 }
 .mpick__h {
-  padding: 2px 10px 7px;
-  font-size: 11px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 9px 8px;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.07em;
   color: var(--text-faint);
+  text-transform: uppercase;
+}
+.mpick__hctx {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
 }
 .mpick__it {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  padding: 7px 10px;
-  border-radius: 7px;
+  height: 34px;
+  padding: 0 9px;
+  border-radius: 8px;
   font-size: 13px;
-  color: #b8b8c8;
+  color: var(--text-dim);
   text-align: left;
 }
 .mpick__it:hover {
-  background: #34343d;
+  background: rgba(255, 255, 255, 0.045);
 }
 .mpick__it.is-on {
-  background: #3a3a44;
   color: var(--text);
+  background: rgba(217, 119, 87, 0.105);
+  box-shadow: inset 2px 0 0 rgba(217, 119, 87, 0.85);
+}
+/* 悬停只是在预览右边两列，不是提交 —— 用中性底色，珊瑚色留给真正的选中项 */
+.mpick__it.is-preview {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.055);
 }
 .mpick__it.is-off {
   opacity: 0.42;
 }
-.mpick__tick {
+.mpick__ico {
   flex: none;
-  width: 11px;
-  font-size: 11px;
-  color: #6ee7a8;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+}
+.mpick__ico--claude {
+  color: #d97757;
+}
+.mpick__ico--codex {
+  color: var(--text);
+}
+.mpick__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.07);
+}
+.mpick__it.is-on .mpick__avatar {
+  color: #eab19a;
+  background: rgba(217, 119, 87, 0.17);
 }
 .mpick__name {
   flex: 1;
@@ -2836,44 +2951,81 @@
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.mpick__pill {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-pill);
+}
 .mpick__sub {
   flex: none;
   font-size: 11.5px;
   color: var(--text-faint);
 }
+.mpick__tick {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  color: transparent;
+  border: 1px solid rgba(128, 128, 140, 0.5);
+  border-radius: 50%;
+}
+.mpick__it.is-on .mpick__tick {
+  color: #21130e;
+  background: var(--running);
+  border-color: transparent;
+}
 .mpick__empty {
-  padding: 4px 10px;
+  padding: 4px 9px;
   font-size: 11.5px;
   line-height: 1.6;
   color: var(--text-faint);
-}
-.mpick__sep {
-  height: 1px;
-  margin: 6px 10px;
-  background: #34343f;
-}
-.mpick__input {
-  padding: 0 4px;
-}
-.mpick__input .input {
-  width: 100%;
 }
 .mpick__note {
-  padding: 9px 14px 10px;
-  border-top: 1px solid #34343f;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 9px 10px 2px;
   font-size: 11.5px;
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--text-faint);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.mpick__note b {
+  font-weight: 500;
+  color: var(--text-dim);
 }
 .mpick__note code {
   font-family: var(--font-mono);
   color: var(--text-muted);
 }
+.mpick__note-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border: 1px solid rgba(128, 128, 140, 0.5);
+  border-radius: 50%;
+}
 
 /* 换 CLI 的确认条。页脚那行小字太容易被忽略，真点到别的 CLI 时得拦住 */
 .mpick__warn {
-  padding: 11px 14px 12px;
-  border-top: 1px solid rgba(252, 211, 77, 0.28);
+  margin-top: 9px;
+  padding: 11px 12px 12px;
+  border: 1px solid rgba(252, 211, 77, 0.28);
+  border-radius: 10px;
   background: rgba(252, 211, 77, 0.06);
 }
 .mpick__warn-t {

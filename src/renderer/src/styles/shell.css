@@ -73,26 +73,6 @@
   letter-spacing: 0.2px;
 }
 
-.sidebar__new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  padding: 9px 12px;
-  margin-bottom: 8px;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--text);
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.sidebar__new:hover {
-  background: var(--bg-hover);
-  border-color: var(--border);
-}
-
 .sidebar__nav {
   display: flex;
   flex-direction: column;
@@ -247,6 +227,168 @@
   color: var(--running);
 }
 
+/* ── 后台会话卡在审批上（方案 D）───────────────────────────
+ *
+ * 只给「不是当前会话」的行挂：当前会话的审批面板已经在主区，
+ * 侧栏再闪一遍是重复提醒。暖底 + 左竖条 + 缓慢扫光负责抓住余光，
+ * 标题跑马灯负责说清楚"在等什么"。
+ */
+.session.is-pending {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+}
+.session.is-pending:hover {
+  background: color-mix(in srgb, var(--warn) 13%, transparent);
+}
+/* 扫光和竖条是伪元素，行内容要抬到它们上面；删除键也一起抬 */
+.session.is-pending > * {
+  position: relative;
+  z-index: 1;
+}
+.session.is-pending::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--warn);
+  z-index: 2;
+}
+.session.is-pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 25%,
+    color-mix(in srgb, var(--warn) 18%, transparent) 46%,
+    transparent 68%
+  );
+  transform: translateX(-120%);
+  animation: session-sweep 3.4s ease-in-out infinite;
+}
+@keyframes session-sweep {
+  0%,
+  24% {
+    transform: translateX(-120%);
+  }
+  62%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+/* 标题跑马灯：两份文本首尾相接，滚过一份（含 36px 间隔）正好接上 */
+.session__mq {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 5px,
+    #000 calc(100% - 5px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 5px,
+    #000 calc(100% - 5px),
+    transparent 100%
+  );
+}
+.session__mq-track {
+  display: inline-flex;
+  column-gap: 36px;
+  white-space: nowrap;
+}
+.session__mq-item {
+  display: inline-block;
+  font-size: 13px;
+  /* 纯 --warn 在深色下偏暗、浅色下偏亮；跟正文色混一档，两边都够读 */
+  color: color-mix(in srgb, var(--warn) 70%, var(--text));
+}
+.session__mq.is-scrolling .session__mq-track {
+  animation: session-marquee var(--mq-dur, 9s) linear infinite;
+}
+/* 鼠标停在行上就停住，方便把整句读完再点（移开继续） */
+.session:hover .session__mq-track {
+  animation-play-state: paused;
+}
+@keyframes session-marquee {
+  0%,
+  9% {
+    transform: translateX(0);
+  }
+  91%,
+  100% {
+    transform: translateX(calc(-50% - 18px));
+  }
+}
+
+/* 右侧的状态胶囊。跟「运行中」一样占时间那一格，不另起一行 */
+.session__pending-tag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  line-height: 15px;
+  color: color-mix(in srgb, var(--warn) 70%, var(--text));
+  background: color-mix(in srgb, var(--warn) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 34%, transparent);
+  border-radius: var(--radius-pill);
+}
+.session__pending-tag i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: session-pending-blink 1.5s ease-in-out infinite;
+}
+@keyframes session-pending-blink {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 组头的小圆点：折叠组被强制展开时，说明"为什么突然多了几行" */
+.wsgroup__pending {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent);
+  animation: session-pending-blink 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session.is-pending::after {
+    animation: none;
+    opacity: 0;
+  }
+  .session__mq.is-scrolling .session__mq-track {
+    animation: none;
+  }
+  .session__pending-tag i,
+  .wsgroup__pending {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .wsgroup__expand {
   /*
    * 跟会话行对齐，拆成两段：
@@ -314,18 +456,12 @@
   --pane-pad-x: 28px;
 }
 
-/* ── 工作区标题上的操作按钮（hover 才浮出来） ───────────── */
+/* ── 工作区标题上的操作按钮（常驻） ─────────────────────── */
 
 .wsgroup__acts {
   display: flex;
   gap: 2px;
   flex: none;
-  opacity: 0;
-}
-/* 平时收着：侧栏只有 280px，常驻会把目录名挤掉一截 */
-.wsgroup__head:hover .wsgroup__acts,
-.wsgroup__acts:focus-within {
-  opacity: 1;
 }
 .wsact {
   display: grid;

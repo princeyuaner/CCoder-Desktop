@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, screen, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { IdeFsChanged, IdeOpenResult, IdeTarget } from '../shared/ide'
 import { startWorkspaceWatch } from './ide-watch'
+import { pathKey } from './path-key'
 import { windowBg } from './window-theme'
 
 /**
@@ -30,14 +31,25 @@ const dirtySenders = new Set<number>()
 /** 渲染层已经确认可以关（保存/放弃完成），下一次 close 直接放行 */
 const closeConfirmed = new Set<number>()
 
-const keyOf = (cwd: string): string => {
-  const p = resolve(cwd).replace(/\\/g, '/').replace(/\/+$/, '')
-  return process.platform === 'win32' ? p.toLowerCase() : p
-}
+const keyOf = (cwd: string): string => pathKey(cwd)
 
 export function authorizeVcsSender(senderId: number, cwd: string): boolean {
   const allowed = senderCwds.get(senderId)
   return !!allowed && allowed === keyOf(cwd)
+}
+
+/** 是否有 IDE 窗口绑定在 dir 或 dir 的子目录上 */
+export function hasIdeWindowUnder(dir: string): boolean {
+  const key = keyOf(dir)
+  for (const bound of senderCwds.values()) {
+    if (bound === key || bound.startsWith(`${key}/`)) return true
+  }
+  return false
+}
+
+/** 这个 webContents 是不是 IDE 窗口 */
+export function isIdeSender(senderId: number): boolean {
+  return senderCwds.has(senderId)
 }
 
 export function markIdeDirty(senderId: number, dirty: boolean): void {

@@ -17,7 +17,8 @@ const GIT_CAPS: VcsCapabilities = {
   amend: true,
   log: true,
   commitDetail: true,
-  branches: true
+  branches: true,
+  worktrees: true
 }
 
 const SVN_CAPS: VcsCapabilities = {
@@ -33,7 +34,8 @@ const SVN_CAPS: VcsCapabilities = {
   amend: false,
   log: true,
   commitDetail: true,
-  branches: false
+  branches: false,
+  worktrees: false
 }
 
 const cache = new Map<string, { at: number; data: VcsDetectData }>()

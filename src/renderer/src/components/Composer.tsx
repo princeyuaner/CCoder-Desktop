@@ -16,8 +16,10 @@ import {
   cliDef,
   EFFORT_HINT,
   EFFORT_LABEL,
-  EFFORT_LEVELS,
+  effortLevelsFor,
+  emptyCliConfig,
   type Channel,
+  type CliConfig,
   type CliId,
   type EffortLevel,
   type SendKey
@@ -34,7 +36,14 @@ import type { ChangedFile } from '../changedFiles'
 import { ChangedFiles } from './ChangedFiles'
 import { CommandPopup, MentionPopup } from './ComposerPopups'
 import { filterCommands, type SlashCommand } from '../commands'
-import { IconBrain, IconChevronDown, IconPlus, IconSend } from './Icons'
+import {
+  IconBrain,
+  IconChevronDown,
+  IconClaudeCode,
+  IconOpenAI,
+  IconPlus,
+  IconSend
+} from './Icons'
 import { contextPercent, contextWindowOf, fmtTokens } from './format'
 import { MAX_IMAGES, readImageFiles } from '../imagePaste'
 
@@ -91,6 +100,20 @@ function findCommand(value: string, caret: number): { query: string } | null {
   return m ? { query: m[1] } : null
 }
 
+/**
+ * 三列选择器落下的一套选择 —— 用哪个 CLI、走哪个端点、调哪个模型。
+ *
+ * 三者是同一个决定的三个部分，所以统一从 `onSelect` 提交，
+ * 跨 CLI 时由父组件决定怎么切（那会开一条新会话）。
+ */
+export interface ModelSelection {
+  cli: CliId
+  channelId?: string
+  /** 选 Claude 的「官方账号」伪来源 */
+  official?: boolean
+  model?: string
+}
+
 interface Props {
   onSend: (input: SessionSendInput, meta?: SendMeta) => void
   onInterrupt: () => void
@@ -108,8 +131,9 @@ interface Props {
   locked?: boolean
   /** 这条会话跑在哪个 CLI 上 */
   cli: CliId
-  /** 该 CLI 下的渠道，以及当前在用的那个 */
-  channels: Channel[]
+  /** 所有 CLI 的配置 —— 选择器悬停预览别的 CLI 的渠道时要用 */
+  cliConfigs: Record<CliId, CliConfig>
+  /** 该 CLI 当前在用的渠道 */
   activeChannelId: string | null
   model: string
   permissionMode: PermissionMode
@@ -128,9 +152,8 @@ interface Props {
   steps: number
   /** 最近一轮的用量 —— 底栏上下文胶囊从这里取 contextTokens */
   usage?: Usage
-  onCliChange: (c: CliId) => void
-  onChannelChange: (id: string) => void
-  onModelChange: (m: string) => void
+  /** 模型选择器里落下一套选择：CLI / 渠道 / 模型，点哪一列都走这里 */
+  onSelect: (sel: ModelSelection) => void
   onModeChange: (p: PermissionMode) => void
   onEffortChange: (l: EffortLevel) => void
   /** /clear：清空并重开一条 CLI 会话 */
@@ -153,7 +176,7 @@ export function Composer({
   onResumeQueue,
   locked = false,
   cli,
-  channels,
+  cliConfigs,
   activeChannelId,
   model,
   permissionMode,
@@ -165,9 +188,7 @@ export function Composer({
   turns,
   steps,
   usage,
-  onCliChange,
-  onChannelChange,
-  onModelChange,
+  onSelect,
   onModeChange,
   onEffortChange,
   onClearConversation,
@@ -187,6 +208,14 @@ export function Composer({
   const [ctxOpen, setCtxOpen] = useState(false)
   const canSend =
     !locked && (text.trim().length > 0 || attachments.length > 0 || refs.length > 0)
+
+  const curCfg = cliConfigs[cli] ?? emptyCliConfig(cli)
+  /** Claude 的官方登录模式：不显示渠道名，显示「官方账号」 */
+  const official = cli === 'claude' && curCfg.authMode === 'official'
+  /** 胶囊里要显示渠道名。没选渠道时也要占位，免得只看到一个模型名又不知道走的哪儿 */
+  const channel = official
+    ? null
+    : (curCfg.channels).find((c) => c.id === activeChannelId) ?? null
 
   /** 收下 IDE 送来的引用。nonce 保证同一批只加一次 */
   const lastRefNonce = useRef(0)
@@ -860,18 +889,35 @@ export function Composer({
                 setCommand(null)
               }
             }}
-            label={<span>{model || '未选模型'}</span>}
+            label={
+              <>
+                {/* 先说明走哪个 CLI、哪个渠道，再说用什么模型 —— 同名模型挂在
+                    两个渠道上时，光看模型名分不出差别 */}
+                <span className={`chip__cli chip__cli--${cli}`}>
+                  {cli === 'claude' ? (
+                    <IconClaudeCode width={14} height={14} />
+                  ) : (
+                    <IconOpenAI width={14} height={14} />
+                  )}
+                </span>
+                <span className="chip__channel">
+                  {official ? '官方账号' : channel?.name?.trim() || '未选渠道'}
+                </span>
+                <span className="chip__sep">·</span>
+                <span className="chip__model">
+                  {model || (official ? 'CLI 默认' : '未选模型')}
+                </span>
+              </>
+            }
           >
             {(close) => (
               <ModelPicker
                 cli={cli}
-                channels={channels}
+                cliConfigs={cliConfigs}
                 activeChannelId={activeChannelId}
                 model={model}
                 hasConversation={hasConversation}
-                onCli={onCliChange}
-                onChannel={onChannelChange}
-                onModel={onModelChange}
+                onSelect={onSelect}
                 close={close}
               />
             )}
@@ -1051,6 +1097,7 @@ export function Composer({
             {(close) => (
               <EffortPicker
                 value={effort}
+                levels={effortLevelsFor(cli)}
                 onPick={(l) => {
                   onEffortChange(l)
                   close()
@@ -1195,8 +1242,9 @@ function Picker({
  * 路径 —— 两段一模一样的 `C:\Users\...`。统一用 useSessions 里那份。
  */
 
-/** 五档在滑轨上的位置（0%~100%） */
-const EFFORT_PCT = (i: number): number => (i / (EFFORT_LEVELS.length - 1)) * 100
+/** 某一档在滑轨上的位置（0%~100%） */
+const effortPct = (i: number, count: number): number =>
+  count <= 1 ? 0 : (i / (count - 1)) * 100
 
 /**
  * 思考深度：一根滑轨 + 五个刻度。
@@ -1209,9 +1257,12 @@ const EFFORT_PCT = (i: number): number => (i / (EFFORT_LEVELS.length - 1)) * 100
  */
 function EffortPicker({
   value,
+  levels,
   onPick
 }: {
   value: EffortLevel
+  /** Claude 五档；Codex 多一档 Ultra */
+  levels: EffortLevel[]
   /** 选定了。外面负责把弹层收起来 */
   onPick: (l: EffortLevel) => void
 }): JSX.Element {
@@ -1221,7 +1272,7 @@ function EffortPicker({
   const railRef = useRef<HTMLDivElement>(null)
 
   const shown = drag ?? value
-  const idx = Math.max(0, EFFORT_LEVELS.indexOf(shown))
+  const idx = Math.max(0, levels.indexOf(shown))
 
   /** 鼠标横坐标 → 最近的一档 */
   const levelAt = (clientX: number): EffortLevel => {
@@ -1229,7 +1280,7 @@ function EffortPicker({
     if (!el) return value
     const r = el.getBoundingClientRect()
     const t = Math.min(1, Math.max(0, (clientX - r.left) / r.width))
-    return EFFORT_LEVELS[Math.round(t * (EFFORT_LEVELS.length - 1))]
+    return levels[Math.round(t * (levels.length - 1))]
   }
 
   return (
@@ -1255,15 +1306,22 @@ function EffortPicker({
           onPick(lv)
         }}
       >
-        <div className="erail__fill" style={{ width: `${EFFORT_PCT(idx)}%` }} />
-        {EFFORT_LEVELS.map((l, i) => (
-          <span key={l} className="erail__tick" style={{ left: `${EFFORT_PCT(i)}%` }} />
+        <div className="erail__fill" style={{ width: `${effortPct(idx, levels.length)}%` }} />
+        {levels.map((l, i) => (
+          <span
+            key={l}
+            className="erail__tick"
+            style={{ left: `${effortPct(i, levels.length)}%` }}
+          />
         ))}
-        <span className="erail__knob" style={{ left: `${EFFORT_PCT(idx)}%` }} />
+        <span
+          className="erail__knob"
+          style={{ left: `${effortPct(idx, levels.length)}%` }}
+        />
       </div>
 
       <div className="erail__lab">
-        {EFFORT_LEVELS.map((l) => (
+        {levels.map((l) => (
           <button
             key={l}
             className={l === value ? 'is-on' : ''}
@@ -1284,7 +1342,7 @@ function EffortPicker({
       {/* 只是相对量感，不是真实数字 —— 别在这里写 token 数 */}
       <div className="emeter">
         <span>更快</span>
-        <i style={{ ['--pct' as string]: `${EFFORT_PCT(idx)}%` }} />
+        <i style={{ ['--pct' as string]: `${effortPct(idx, levels.length)}%` }} />
         <span>更慢 / 更贵</span>
       </div>
     </div>
@@ -1296,32 +1354,65 @@ function EffortPicker({
  *
  * 为什么不做成一层层点进去：这三样是**同一个决定**的三个部分
  * （用哪个 CLI、走哪个端点、调哪个模型），摊开才能一眼看全自己在用哪套。
+ *
+ * 三列之间是**悬停级联**：指针停在哪个 CLI 上，渠道列就展开它下面的渠道；
+ * 停在哪个渠道上，模型列就展开那个渠道的模型。悬停只预览、不提交 ——
+ * 否则滑过 Codex 就会把会话换掉。点下去才算数。
  */
 function ModelPicker({
   cli,
-  channels,
+  cliConfigs,
   activeChannelId,
   model,
   hasConversation,
-  onCli,
-  onChannel,
-  onModel,
+  onSelect,
   close
 }: {
   cli: CliId
-  channels: Channel[]
+  cliConfigs: Record<CliId, CliConfig>
   activeChannelId: string | null
   model: string
   hasConversation: boolean
-  onCli: (c: CliId) => void
-  onChannel: (id: string) => void
-  onModel: (m: string) => void
+  onSelect: (sel: ModelSelection) => void
   close: () => void
 }): JSX.Element {
-  const [draft, setDraft] = useState(model)
-  /** 点了别的 CLI、正等着确认的那个 */
-  const [confirmCli, setConfirmCli] = useState<CliId | null>(null)
-  const ch = channels.find((c) => c.id === activeChannelId) ?? null
+  /** 自定义模型名的输入。留空 —— 用当前模型预填会和上面的列表项长得一模一样 */
+  /** 点了别的 CLI、正等着确认的那一套选择 */
+  const [confirm, setConfirm] = useState<ModelSelection | null>(null)
+  /** 悬停预览的 CLI；null = 没悬停，两列跟着当前会话的 CLI 走 */
+  const [hoverCli, setHoverCli] = useState<CliId | null>(null)
+  /** 悬停预览的渠道 —— 带上所属 CLI，免得换列时把上一列的悬停带过来 */
+  const [hoverChannel, setHoverChannel] = useState<{ cli: CliId; id: string } | null>(null)
+  /** 悬停在 Claude 的「官方账号」伪条目上 */
+  const [hoverOfficial, setHoverOfficial] = useState(false)
+
+  /** 右两列现在展开的是哪套配置：悬停的优先，没悬停就回到当前 CLI */
+  const viewCli = hoverCli ?? cli
+  const viewCfg = cliConfigs[viewCli] ?? emptyCliConfig(viewCli)
+  const officialActive = viewCli === 'claude' && viewCfg.authMode === 'official'
+  /** 这个 CLI 自己当前在用的渠道；官方模式下没有渠道 */
+  const inUseChannelId = officialActive
+    ? null
+    : viewCli === cli
+      ? activeChannelId
+      : viewCfg.activeChannelId
+  /** 模型列要展开的渠道：悬停的那个优先，否则用它自己的在用渠道 */
+  const shownChannelId =
+    hoverChannel && hoverChannel.cli === viewCli ? hoverChannel.id : inUseChannelId
+  const ch = viewCfg.channels.find((c) => c.id === shownChannelId) ?? null
+  /** 模型列现在展开的是官方账号（悬停预览也算） */
+  const officialShown =
+    viewCli === 'claude' && (hoverOfficial || (officialActive && !hoverChannel))
+  /** 模型列现在显示的就是这条会话在用的模型，才配打勾 */
+  const modelInUse =
+    viewCli === cli &&
+    (officialShown ? officialActive : !officialActive && shownChannelId === activeChannelId)
+
+  const clearHover = (): void => {
+    setHoverCli(null)
+    setHoverChannel(null)
+    setHoverOfficial(false)
+  }
 
   /**
    * 换 CLI 跟换模型/渠道**不是一回事**。
@@ -1329,15 +1420,46 @@ function ModelPicker({
    * 模型和渠道都是 CLI 的启动参数，换完用 `--resume` 接回原会话，上下文不丢。
    * CLI 换了就是另一个 provider、另一套会话记录 —— 接不回来，只能开新的。
    * 所以有内容的时候拦一道，别让人以为还在原来那条会话上。
+   *
+   * 返回 true 表示已经提交，false 表示挂起了确认条。
    */
+  const commit = (sel: ModelSelection): boolean => {
+    if (sel.cli !== cli && hasConversation) {
+      setConfirm(sel)
+      return false
+    }
+    onSelect(sel)
+    return true
+  }
+
+  /** 点 CLI：只换 CLI，右边两列跟着刷新；选择器继续开着，接着挑渠道和模型 */
   const pickCli = (id: CliId): void => {
     if (id === cli) return
-    if (hasConversation) {
-      setConfirmCli(id)
+    commit({ cli: id })
+  }
+
+  /** 点渠道：落到它所属的 CLI 上；如果这列正预览着别的 CLI，这一下会顺带换过去 */
+  const pickChannel = (c: Channel): void => {
+    commit({ cli: viewCli, channelId: c.id })
+  }
+
+  /** 点「官方账号」：切回官方登录，模型沿用设置里的默认值 */
+  const pickOfficial = (): void => {
+    if (commit({ cli: 'claude', official: true })) close()
+  }
+
+  /**
+   * 点模型：模型属于模型列当前展开的那个来源（渠道或官方账号），一起提交。
+   * 渠道没变就不必再记一次「渠道 A → A」。
+   */
+  const pickModel = (m: string): void => {
+    if (officialShown) {
+      if (commit({ cli: 'claude', official: true, model: m })) close()
       return
     }
-    onCli(id)
-    close()
+    const channelId =
+      shownChannelId && shownChannelId !== inUseChannelId ? shownChannelId : undefined
+    if (commit({ cli: viewCli, channelId, model: m })) close()
   }
 
   // 默认模型置顶，后面接渠道里列的那些候选。去重 + 去掉空行（表单里允许空行）
@@ -1345,94 +1467,173 @@ function ModelPicker({
     new Set([ch?.model ?? '', ...(ch?.models ?? [])].map((s) => s.trim()).filter(Boolean))
   )
 
+  /** 官方登录的模型列：设置里的默认模型 + 几个常用别名 */
+  const officialModel = (viewCfg.officialModel ?? '').trim()
+  const officialOptions = [
+    { value: officialModel, label: officialModel || '默认（CLI 决定）' },
+    ...['sonnet', 'opus', 'haiku']
+      .filter((m) => m !== officialModel)
+      .map((m) => ({ value: m, label: m }))
+  ]
+
+  /** 渠道列的方形头像：取名字首字，英文大写。比放一排一样的云朵图标好认。 */
+  const avatarOf = (name: string): string => name.trim().slice(0, 1).toUpperCase() || '?'
+
   return (
-    <div className="mpick">
+    <div className="mpick" onMouseLeave={clearHover}>
       <div className="mpick__cols">
         <div className="mpick__col">
           <div className="mpick__h">CLI</div>
           {CLIS.map((c) => (
             <button
               key={c.id}
-              className={`mpick__it ${c.id === cli ? 'is-on' : ''} ${c.ready ? '' : 'is-off'}`}
+              className={`mpick__it ${c.id === cli ? 'is-on' : ''} ${
+                hoverCli === c.id && c.id !== cli ? 'is-preview' : ''
+              } ${c.ready ? '' : 'is-off'}`}
               disabled={!c.ready}
+              onMouseEnter={() => {
+                if (!c.ready) return
+                setHoverCli(c.id)
+                setHoverChannel(null)
+              }}
               onClick={() => pickCli(c.id)}
             >
-              <span className="mpick__tick">{c.id === cli ? '✓' : ''}</span>
+              <span className={`mpick__ico mpick__ico--${c.id}`}>
+                {c.id === 'claude' ? (
+                  <IconClaudeCode width={15} height={15} />
+                ) : (
+                  <IconOpenAI width={15} height={15} />
+                )}
+              </span>
               <span className="mpick__name">{c.name}</span>
               {!c.ready && <span className="mpick__sub">未接入</span>}
+              <span className="mpick__tick">{c.id === cli ? '✓' : ''}</span>
             </button>
           ))}
         </div>
 
         <div className="mpick__col">
-          <div className="mpick__h">渠道 · {cliDef(cli).name}</div>
-          {channels.length === 0 && (
-            <p className="mpick__empty">这个 CLI 还没配渠道，去设置里加一个。</p>
-          )}
-          {channels.map((c) => (
-            <button
-              key={c.id}
-              className={`mpick__it ${c.id === activeChannelId ? 'is-on' : ''}`}
-              onClick={() => onChannel(c.id)}
-            >
-              <span className="mpick__tick">{c.id === activeChannelId ? '✓' : ''}</span>
-              <span className="mpick__name">{c.name}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="mpick__col">
-          <div className="mpick__h">模型 · {ch?.name ?? '未选渠道'}</div>
-          {options.map((m, i) => (
-            <button
-              key={m}
-              className={`mpick__it ${m === model ? 'is-on' : ''}`}
-              onClick={() => {
-                onModel(m)
-                close()
-              }}
-            >
-              <span className="mpick__tick">{m === model ? '✓' : ''}</span>
-              <span className="mpick__name mpick__name--mono">{m}</span>
-              {i === 0 && <span className="mpick__sub">默认</span>}
-            </button>
-          ))}
-          {options.length === 0 && <p className="mpick__empty">渠道里没填模型名。</p>}
-
-          <div className="mpick__sep" />
-          <div className="mpick__input">
-            <input
-              className="input"
-              placeholder="自定义模型名，回车确认"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && draft.trim()) {
-                  onModel(draft.trim())
-                  close()
-                }
-              }}
-            />
+          <div className="mpick__h">
+            渠道 <span className="mpick__hctx">· {cliDef(viewCli).name}</span>
           </div>
+
+          {viewCli === 'claude' && (
+            <button
+              className={`mpick__it ${
+                viewCli === cli && officialActive ? 'is-on' : ''
+              } ${
+                hoverOfficial && !(viewCli === cli && officialActive) ? 'is-preview' : ''
+              }`}
+              onMouseEnter={() => {
+                setHoverOfficial(true)
+                setHoverChannel(null)
+              }}
+              onClick={pickOfficial}
+            >
+              <span className="mpick__ico mpick__ico--claude">
+                <IconClaudeCode width={15} height={15} />
+              </span>
+              <span className="mpick__name">Claude 官方账号</span>
+              <span className="mpick__tick">
+                {viewCli === cli && officialActive ? '✓' : ''}
+              </span>
+            </button>
+          )}
+
+          {viewCfg.channels.length === 0 && !officialActive && (
+            <p className="mpick__empty">
+              {viewCli === 'claude'
+                ? '没有 API 渠道；仍可使用官方账号。'
+                : '这个 CLI 还没配渠道，去设置里加一个。'}
+            </p>
+          )}
+          {viewCfg.channels.map((c) => {
+            const on =
+              !officialActive &&
+              (viewCli === cli
+                ? c.id === activeChannelId
+                : c.id === viewCfg.activeChannelId)
+            return (
+              <button
+                key={c.id}
+                className={`mpick__it ${on ? 'is-on' : ''} ${
+                  hoverChannel?.cli === viewCli && hoverChannel.id === c.id && !on
+                    ? 'is-preview'
+                    : ''
+                }`}
+                onMouseEnter={() => {
+                  setHoverChannel({ cli: viewCli, id: c.id })
+                  setHoverOfficial(false)
+                }}
+                onClick={() => pickChannel(c)}
+              >
+                <span className="mpick__avatar">{avatarOf(c.name)}</span>
+                <span className="mpick__name">{c.name}</span>
+                <span className="mpick__tick">{on ? '✓' : ''}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mpick__col mpick__col--models">
+          <div className="mpick__h">
+            模型{' '}
+            <span className="mpick__hctx">
+              · {officialShown ? '官方账号' : ch?.name ?? '未选渠道'}
+            </span>
+          </div>
+          {officialShown
+            ? officialOptions.map((o, i) => (
+                <button
+                  key={o.value || '__default__'}
+                  className={`mpick__it ${
+                    modelInUse && o.value === officialModel ? 'is-on' : ''
+                  }`}
+                  onClick={() => pickModel(o.value)}
+                >
+                  <span className="mpick__name mpick__name--mono">{o.label}</span>
+                  {i === 0 && <span className="mpick__pill">默认</span>}
+                  <span className="mpick__tick">
+                    {modelInUse && o.value === officialModel ? '✓' : ''}
+                  </span>
+                </button>
+              ))
+            : options.map((m, i) => (
+                <button
+                  key={m}
+                  className={`mpick__it ${modelInUse && m === model ? 'is-on' : ''}`}
+                  onClick={() => pickModel(m)}
+                >
+                  <span className="mpick__name mpick__name--mono">{m}</span>
+                  {i === 0 && <span className="mpick__pill">默认</span>}
+                  <span className="mpick__tick">{modelInUse && m === model ? '✓' : ''}</span>
+                </button>
+              ))}
+          {!officialShown && options.length === 0 && (
+            <p className="mpick__empty">渠道里没填模型名。</p>
+          )}
         </div>
       </div>
 
-      {confirmCli ? (
+      {confirm ? (
         <div className="mpick__warn">
-          <div className="mpick__warn-t">换到 {cliDef(confirmCli).name} 会开一条新会话</div>
+          <div className="mpick__warn-t">换到 {cliDef(confirm.cli).name} 会开一条新会话</div>
           <p className="mpick__warn-d">
             换 CLI 不是换启动参数 —— 它用的是另一套会话记录，当前这段对话带不过去。
             换模型和渠道都会 <code>--resume</code> 接回原会话，只有换 CLI 会断。
           </p>
           <div className="mpick__warn-b">
-            <button className="mbtn" onClick={() => setConfirmCli(null)}>
+            <button className="mbtn" onClick={() => setConfirm(null)}>
               取消
             </button>
             <button
               className="mbtn mbtn--danger"
               onClick={() => {
-                onCli(confirmCli)
-                close()
+                const sel = confirm
+                setConfirm(null)
+                onSelect(sel)
+                // 只是换 CLI 就把选择器留着，接着挑渠道；模型都选完了才收摊
+                if (sel.model) close()
               }}
             >
               换过去，开新会话
@@ -1441,8 +1642,11 @@ function ModelPicker({
         </div>
       ) : (
         <p className="mpick__note">
-          换模型 / 换渠道会换进程并用 <code>--resume</code> 接回当前会话，上下文不丢；
-          换 CLI 是另一套会话记录，接不回来 —— 会开一条新的。
+          <span className="mpick__note-ico">i</span>
+          <span>
+            <b>换模型 / 渠道</b> 会换进程并用 <code>--resume</code> 接回当前会话，上下文不丢；
+            <b>换 CLI</b> 是另一套会话记录，会新开一条。
+          </span>
         </p>
       )}
     </div>

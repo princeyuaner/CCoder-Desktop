@@ -9,7 +9,7 @@ import {
   DEFAULT_UI_FONT,
   EFFORT_HINT,
   EFFORT_LABEL,
-  EFFORT_LEVELS,
+  effortLevelsFor,
   MONO_FONT_PRESETS,
   newChannel,
   PROTOCOL_LABEL,
@@ -31,7 +31,11 @@ import {
 import { MODE_HINT, MODE_LABEL, PERMISSION_MODES } from '../constants'
 import { applyAppearance } from '../appearance'
 import { useSettings } from '../useSettings'
+import { useCodexStatus } from '../useCodexStatus'
+import { useClaudeAuth } from '../useClaudeAuth'
 import { ChannelForm } from './ChannelForm'
+import { ClaudeAuthPanel } from './ClaudeAuthPanel'
+import { CodexStatusPanel } from './CodexStatusPanel'
 import { IconChevronLeft, IconPlus } from './Icons'
 
 /** 设置页的两类页面：某个 CLI 的渠道配置，或与 CLI 无关的系统设置 */
@@ -40,6 +44,15 @@ type Page = { kind: 'cli'; id: CliId } | { kind: 'general' } | { kind: 'permissi
 export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
   const { settings, loading, save, test } = useSettings()
   const [page, setPage] = useState<Page>({ kind: 'cli', id: CLIS[0].id })
+  /**
+   * Codex 的安装 / 登录状态。hook 必须无条件调用；真正探测由 enabled 控制 ——
+   * 只有停在 Codex 页时才起 app-server。
+   */
+  const codexStatus = useCodexStatus(page.kind === 'cli' && page.id === 'codex')
+  /** Claude 的官方登录状态。同样只在停在 Claude 页时探测。 */
+  const claudeAuth = useClaudeAuth(page.kind === 'cli' && page.id === 'claude')
+  /** 退出登录前提醒用：当前有多少条会话在跑 */
+  const [runningSessions, setRunningSessions] = useState(0)
 
   // 编辑副本：改动先落在 draft，停手后自动落盘（不需要点保存）
   const [draft, setDraft] = useState<Settings | null>(null)
@@ -61,6 +74,21 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
     if (loading || draft !== null) return
     setDraft(settings)
   }, [loading, settings, draft])
+
+  // 退出登录只会影响"下一轮"请求，先让用户知道有几条会话还在跑
+  useEffect(() => {
+    if (page.kind !== 'cli' || page.id !== 'claude') return
+    let alive = true
+    void window.api?.session
+      .running()
+      .then((ids) => {
+        if (alive) setRunningSessions(ids.length)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [page])
 
   /** 外观设置（主题/缩放/字号/字体）改一下预览一下，和落盘无关，立刻生效 */
   useEffect(() => {
@@ -147,6 +175,8 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
   const cfg = cliId && draft ? cliConfig(draft, cliId) : null
   const selectedId = cfg ? resolveSelection(cfg, picked) : null
   const selected = cfg?.channels.find((c) => c.id === selectedId) ?? null
+  /** 当前渠道是否已经带了凭据 —— Codex 有它就不必登录 ChatGPT */
+  const activeCfgChannel = cfg?.channels.find((c) => c.id === cfg.activeChannelId) ?? null
 
   // 换 CLI / 换渠道时把上一次的测试结果收掉，免得张冠李戴
   useEffect(() => {
@@ -178,9 +208,25 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
     // 协议由所属 CLI 决定：在 Codex 下新建的渠道天生就是 OpenAI 协议
     const c = newChannel(cliDef(cliId).protocol)
     const cur = cliConfig(draft, cliId)
-    // 第一个渠道自动设为当前，省一次点击
-    patchCli(cliId, { channels: [...cur.channels, c], activeChannelId: cur.activeChannelId ?? c.id })
+    // 第一个渠道自动设为当前，省一次点击；Claude 下新建渠道也意味着
+    // 用户想用渠道模式，顺手切回去
+    patchCli(cliId, {
+      channels: [...cur.channels, c],
+      activeChannelId: cur.activeChannelId ?? c.id,
+      ...(cliId === 'claude' && cur.channels.length === 0
+        ? { authMode: 'channel' as const }
+        : {})
+    })
     setPicked(c.id)
+  }
+
+  /** 启用某个渠道 —— Claude 下这一步同时切回渠道模式 */
+  const activateChannel = (id: string): void => {
+    if (!cliId) return
+    patchCli(cliId, {
+      activeChannelId: id,
+      ...(cliId === 'claude' ? { authMode: 'channel' as const } : {})
+    })
   }
 
   const deleteChannel = (id: string): void => {
@@ -259,6 +305,27 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
         <div className="settings__content">
           {page.kind === 'cli' && cfg && (
             <>
+              {page.id === 'codex' && (
+                <CodexStatusPanel
+                  status={codexStatus.status}
+                  loading={codexStatus.loading}
+                  error={codexStatus.error}
+                  onRefresh={() => void codexStatus.refresh()}
+                  hasChannelKey={!!activeCfgChannel?.authToken.trim()}
+                />
+              )}
+
+              {page.id === 'claude' && (
+                <ClaudeAuthPanel
+                  auth={claudeAuth}
+                  authMode={cfg.authMode}
+                  officialModel={cfg.officialModel}
+                  runningSessions={runningSessions}
+                  onAuthMode={(m) => patchCli('claude', { authMode: m })}
+                  onOfficialModel={(v) => patchCli('claude', { officialModel: v })}
+                />
+              )}
+
               <div className="clipane">
                 <div className="clipane__main">
                   <h2 className="clipane__title">{cliDef(page.id).name}</h2>
@@ -282,6 +349,21 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                 </p>
               )}
 
+              {page.id === 'codex' && (
+                <p className="section-lead">
+                  Codex 只接受 <strong>OpenAI 兼容端点</strong>的 Responses API。
+                  0.163 起上游已移除 Chat Completions wire；Anthropic 兼容渠道请使用
+                  Claude Code。
+                </p>
+              )}
+
+              {page.id === 'claude' && cfg.authMode === 'official' ? (
+                <p className="section-lead">
+                  当前使用官方登录，下面的渠道不会生效；配置会保留，点上方「API 渠道」
+                  或启用某个渠道即可切回。
+                </p>
+              ) : (
+                <>
               <section className="chlist">
                 <div className="chlist__head">
                   <span>渠道</span>
@@ -293,7 +375,8 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
 
                 {cfg.channels.length === 0 && (
                   <p className="empty">
-                    还没有渠道。新建一个，填入 Base URL、密钥和模型名即可开始 —— 无需登录。
+                    还没有渠道。新建一个，填入 Base URL、密钥和模型名即可开始
+                    {page.id === 'claude' ? '；也可以直接使用上方的官方登录。' : '。'}
                   </p>
                 )}
 
@@ -306,12 +389,12 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                       <span className="chlist__name">{c.name || '未命名渠道'}</span>
                       <span className="chlist__meta">{c.baseUrl || '未填 Base URL'}</span>
                     </button>
-                    {c.id === cfg.activeChannelId ? (
+                    {c.id === cfg.activeChannelId && cfg.authMode === 'channel' ? (
                       <span className="badge badge--ok">使用中</span>
                     ) : (
                       <button
                         className="btn btn--ghost btn--xs"
-                        onClick={() => patchCli(page.id, { activeChannelId: c.id })}
+                        onClick={() => activateChannel(c.id)}
                       >
                         启用
                       </button>
@@ -324,14 +407,19 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                 <ChannelForm
                   cli={page.id}
                   channel={selected}
-                  active={selected.id === cfg.activeChannelId}
+                  active={
+                    selected.id === cfg.activeChannelId &&
+                    (page.id !== 'claude' || cfg.authMode === 'channel')
+                  }
                   testing={testing}
                   result={result}
                   onChange={updateChannel}
                   onTest={() => void runTest()}
                   onDelete={() => deleteChannel(selected.id)}
-                  onSetActive={() => patchCli(page.id, { activeChannelId: selected.id })}
+                  onSetActive={() => activateChannel(selected.id)}
                 />
+              )}
+                </>
               )}
 
               {/* 加条分隔线：上面紧挨着渠道表单的「测试连接 / 删除渠道」按钮行，
@@ -342,7 +430,7 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                   <label className="field__label">新会话默认</label>
                   <div className="field__body">
                     <div className="effpick">
-                      {EFFORT_LEVELS.map((l) => (
+                      {effortLevelsFor(page.id).map((l) => (
                         <button
                           key={l}
                           className={`effpick__it ${l === cfg.effort ? 'is-on' : ''}`}
@@ -354,7 +442,16 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
                       ))}
                     </div>
                     <p className="field__hint">
-                      {EFFORT_HINT[cfg.effort]}　对应 CLI 的 <code>--effort</code>。
+                      {EFFORT_HINT[cfg.effort]}
+                      {page.id === 'codex' ? (
+                        <>
+                          对应 Codex 的 <code>reasoning effort</code>。
+                        </>
+                      ) : (
+                        <>
+                          对应 CLI 的 <code>--effort</code>。
+                        </>
+                      )}
                       会话里还能单独改，只影响那一条会话。
                     </p>
                   </div>

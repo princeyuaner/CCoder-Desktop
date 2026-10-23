@@ -23,7 +23,13 @@ import type {
   VcsStatus,
   VcsStatusRequest,
   VcsSyncData,
-  VcsUpdateRequest
+  VcsUpdateRequest,
+  VcsWorktreeAddRequest,
+  VcsWorktreeListData,
+  VcsWorktreeListRequest,
+  VcsWorktreePruneData,
+  VcsWorktreePruneRequest,
+  VcsWorktreeRemoveRequest
 } from '../../shared/vcs'
 import { detectVcs, invalidateDetect } from './detect'
 import { VcsOpError } from './exec'
@@ -205,6 +211,48 @@ export async function update(req: VcsUpdateRequest): Promise<VcsResult<VcsSyncDa
     const repo = await repoOf(req.cwd)
     if (repo.kind !== 'svn') throw new VcsOpError('unsupported', 'Git 使用「拉取」')
     return svn.updateSvn(repo, req, signal)
+  })
+}
+
+/* ── Worktree（Git only） ──────────────────────────────── */
+
+export async function worktreeList(
+  req: VcsWorktreeListRequest
+): Promise<VcsResult<VcsWorktreeListData>> {
+  return read(async () => {
+    const repo = await repoOf(req.cwd)
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    return git.worktreeListGit(repo, req)
+  })
+}
+
+export async function worktreeAdd(
+  req: VcsWorktreeAddRequest
+): Promise<VcsResult<VcsWorktreeListData>> {
+  return write(req.cwd, { opId: req.opId, label: '新建工作树' }, async (signal) => {
+    const repo = await repoOf(req.cwd)
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    return git.worktreeAddGit(repo, req, signal)
+  })
+}
+
+export async function worktreeRemove(
+  req: VcsWorktreeRemoveRequest
+): Promise<VcsResult<VcsWorktreeListData>> {
+  return write(req.cwd, { opId: req.opId, label: '删除工作树' }, async (signal) => {
+    const repo = await repoOf(req.cwd)
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    return git.worktreeRemoveGit(repo, req, signal)
+  })
+}
+
+export async function worktreePrune(
+  req: VcsWorktreePruneRequest
+): Promise<VcsResult<VcsWorktreePruneData>> {
+  return write(req.cwd, { opId: req.opId, label: '清理工作树' }, async (signal) => {
+    const repo = await repoOf(req.cwd)
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', 'SVN 没有工作树')
+    return git.worktreePruneGit(repo, req, signal)
   })
 }
 

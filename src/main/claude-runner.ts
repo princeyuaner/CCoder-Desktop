@@ -57,26 +57,17 @@ function quoteWin(s: string): string {
 }
 
 /**
- * 按平台正确地把 claude 拉起来。所有调用点都该走这里，
- * 免得 Windows 那套 spawn 细节散落各处。
+ * 按平台正确地把 claude 拉起来，**不额外注入任何 provider 环境**。
+ *
+ * 给 `auth status/login/logout` 这类命令用 —— 它们要看的是 CLI 自己的
+ * 登录状态，不能被渠道的 ANTHROPIC_* 变量干扰。
  */
-export function spawnClaude(
+export function spawnClaudeBin(
   args: string[],
   opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {}
 ): ChildProcess {
   const bin = resolveClaudeBin()
-  // 关键：告诉 CLI「provider（base URL / 凭据 / 模型）由宿主管理」。
-  //
-  // 不加这一条时，CLI 会把 `~/.claude/settings.json` 里的 `env` 块**叠在**
-  // 我们传进去的进程环境之上 —— 用户全局配过 ANTHROPIC_BASE_URL 的话，
-  // 渠道里填的地址根本不生效（实测 2.1.303：进程环境 ANTHROPIC_BASE_URL
-  // 指向本地探针，请求依旧打到 ~/.claude/settings.json 里的网关）。
-  // 加上之后宿主注入的渠道环境才是权威，CLI 不再用全局配置覆盖它。
-  const env = {
-    ...process.env,
-    ...opts.env,
-    CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1'
-  }
+  const env = opts.env ?? process.env
   return IS_WIN
     ? spawn([quoteWin(bin), ...args.map(quoteWin)].join(' '), {
         env,
@@ -85,6 +76,79 @@ export function spawnClaude(
         windowsHide: true
       })
     : spawn(bin, args, { env, cwd: opts.cwd, shell: false, windowsHide: true })
+}
+
+/** 官方登录模式下要摘掉的变量：宿主环境里残留的 key 会盖过 OAuth */
+const OFFICIAL_STRIP = [
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST'
+]
+
+/**
+ * 去掉所有 provider 相关变量的进程环境。
+ *
+ * 给官方登录 / auth 命令用：让 CLI 只看自己保存的凭据，而不是宿主环境
+ * 里可能残留的 base URL / key。
+ */
+export function cleanProviderEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  for (const k of OFFICIAL_STRIP) delete env[k]
+  return env
+}
+
+/**
+ * 按平台正确地把 claude 拉起来。所有会话 / 测试调用点都该走这里，
+ * 免得 Windows 那套 spawn 细节散落各处。
+ *
+ * `providerManaged: false` 用于「官方登录」：不注入宿主管理标记，并且
+ * 清掉 process.env 里可能存在的 ANTHROPIC_*，让 CLI 老老实实用自己
+ * 保存的 OAuth 凭据。
+ */
+export function spawnClaude(
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; cwd?: string; providerManaged?: boolean } = {}
+): ChildProcess {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...opts.env }
+  if (opts.providerManaged === false) {
+    for (const k of OFFICIAL_STRIP) delete env[k]
+  } else {
+    // 关键：告诉 CLI「provider（base URL / 凭据 / 模型）由宿主管理」。
+    //
+    // 不加这一条时，CLI 会把 `~/.claude/settings.json` 里的 `env` 块**叠在**
+    // 我们传进去的进程环境之上 —— 用户全局配过 ANTHROPIC_BASE_URL 的话，
+    // 渠道里填的地址根本不生效（实测 2.1.303：进程环境 ANTHROPIC_BASE_URL
+    // 指向本地探针，请求依旧打到 ~/.claude/settings.json 里的网关）。
+    // 加上之后宿主注入的渠道环境才是权威，CLI 不再用全局配置覆盖它。
+    env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+  }
+  return spawnClaudeBin(args, { env, cwd: opts.cwd })
+}
+
+/**
+ * 杀掉整棵进程树。
+ *
+ * Windows 上 `child.kill()` 只杀 cmd.exe，claude.exe 会变成孤儿继续挂着，
+ * 所以登录取消 / 退出时必须用 taskkill /T。
+ */
+export function killProcessTree(child: ChildProcess): void {
+  if (!child.pid) return
+  if (IS_WIN) {
+    try {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+    } catch {
+      // 进程已经没了
+    }
+    return
+  }
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    // 已经没了
+  }
 }
 
 export interface RunOptions {

@@ -238,7 +238,7 @@ export function mapCliError(kind: 'git' | 'svn', r: VcsExecResult): VcsOpError {
   if (/authentication|authorization|credential|permission denied|e170001|e215004/.test(low)) {
     return new VcsOpError('auth-required', '需要先完成认证', text)
   }
-  if (/index\.lock|e155004|working copy.*locked|is locked/.test(low)) {
+  if (/index\.lock|e155004|working copy.*locked|is locked|locked working tree/.test(low)) {
     return new VcsOpError('locked', '仓库正在被另一个进程占用', text)
   }
   if (/out of date|e160028|needs update|non-fast-forward|fetch first|rejected/.test(low)) {
@@ -251,7 +251,7 @@ export function mapCliError(kind: 'git' | 'svn', r: VcsExecResult): VcsOpError {
   if (/conflict|unmerged|e155015|e155027/.test(low)) {
     return new VcsOpError('conflict', '存在未解决的冲突', text)
   }
-  if (/local changes|would be overwritten|please commit|dirty/.test(low)) {
+  if (/local changes|would be overwritten|please commit|dirty|contains modified or untracked files/.test(low)) {
     return new VcsOpError('dirty', '工作区有未处理的改动', text)
   }
   return new VcsOpError('unknown', text.split('\n').find((l) => l.trim()) || '操作失败', text)

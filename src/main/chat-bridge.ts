@@ -106,3 +106,20 @@ export function sendRefsToChat(payload: IdeSendPayload): IdeSendResult {
   mainWin.webContents.send(IPC.chatAttachRefs, payload)
   return { ok: true }
 }
+
+/**
+ * 让主窗口在指定目录开一条新会话。
+ *
+ * 只负责投递和把窗口带到前台；真正的 `newSession(cwd)` 由主窗口渲染进程执行。
+ * 返回 ok 不代表 CLI 已启动。
+ */
+export function openSessionInChat(cwd: string): { ok: boolean; message?: string } {
+  if (!mainWin || mainWin.isDestroyed()) {
+    return { ok: false, message: '聊天窗口没有打开' }
+  }
+  if (mainWin.isMinimized()) mainWin.restore()
+  mainWin.show()
+  mainWin.focus()
+  mainWin.webContents.send(IPC.chatOpenSession, cwd)
+  return { ok: true }
+}

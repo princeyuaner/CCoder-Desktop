@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { baseName } from '@shared/path'
 import type { StoredSession } from '@shared/session'
+import { subscribePendingApprovals, type PendingApproval } from './pending-approvals'
 
 export interface WorkspaceView {
   cwd: string
@@ -53,6 +54,13 @@ export function useSessions(): {
   loading: boolean
   /** 正在跑的会话 —— 键是 **CLI 自己的 session id**，就是会话行的 id */
   running: Set<string>
+  /**
+   * 后台卡在审批上的会话 —— 键同样是 CLI 的 session id。
+   *
+   * 只含「还等着回答」的：答复、轮末、进程退出都会由各自的 ChatController
+   * 清掉。侧栏拿它给**不是当前会话**的行挂跑马灯。
+   */
+  pending: ReadonlyMap<string, PendingApproval>
   /** 当前排序方式 */
   sort: SessionSort
   toggleSort: () => void
@@ -61,6 +69,7 @@ export function useSessions(): {
   const [sessions, setSessions] = useState<StoredSession[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState<Set<string>>(() => new Set())
+  const [pending, setPending] = useState<ReadonlyMap<string, PendingApproval>>(() => new Map())
   // 默认按创建时间：运行中的会话写盘不会改变行序
   const [sort, setSort] = useState<SessionSort>('created')
   const lastAt = useRef(0)
@@ -223,6 +232,15 @@ export function useSessions(): {
     }
   }, [])
 
+  /**
+   * 「哪条后台会话在等审批」。
+   *
+   * 这份状态不在主进程里另开一条查询通道：每个 ChatController 反正都
+   * 收得到自己的 permission_request，答复时也知道自己答复了哪条。
+   * subscribe 时会先回放一次当前快照，界面重挂载不会丢。
+   */
+  useEffect(() => subscribePendingApprovals(setPending), [])
+
   const toggleSort = useCallback((): void => {
     setSort((s) => (s === 'created' ? 'recent' : 'created'))
   }, [])
@@ -253,5 +271,5 @@ export function useSessions(): {
     return out
   }, [sessions, sort])
 
-  return { workspaces, loading, running, sort, toggleSort, refresh }
+  return { workspaces, loading, running, pending, sort, toggleSort, refresh }
 }

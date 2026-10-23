@@ -25,10 +25,6 @@ html[data-scheme='light'] ::-webkit-scrollbar-thumb:hover {
 html[data-scheme='light'] .titlebar__brand-mark {
   color: #3a3a40;
 }
-html[data-scheme='light'] .sidebar__new:hover {
-  background: var(--bg-active);
-  border-color: var(--border);
-}
 html[data-scheme='light'] .wsact--del:hover,
 html[data-scheme='light'] .session__del:hover {
   background: #fdeceb;
@@ -744,29 +740,66 @@ html[data-scheme='light'] .emeter i::after {
   background: #a0a0a8;
 }
 
-html[data-scheme='light'] .mpick__col + .mpick__col,
-html[data-scheme='light'] .mpick__sep,
-html[data-scheme='light'] .mpick__note {
-  border-color: #e4e4e8;
+html[data-scheme='light'] .mpick__col {
+  background: #f4f4f6;
 }
-html[data-scheme='light'] .mpick__sep {
-  background: #e4e4e8;
+html[data-scheme='light'] .mpick__col--models {
+  background: #efeff2;
 }
 html[data-scheme='light'] .mpick__it {
   color: #3a3a42;
 }
 html[data-scheme='light'] .mpick__it:hover {
-  background: #f0f0f3;
+  background: rgba(0, 0, 0, 0.045);
 }
 html[data-scheme='light'] .mpick__it.is-on {
-  background: #e8e8ec;
   color: #111114;
+  background: rgba(217, 119, 87, 0.12);
+  box-shadow: inset 2px 0 0 rgba(217, 119, 87, 0.9);
+}
+html[data-scheme='light'] .mpick__it.is-preview {
+  color: #111114;
+  background: rgba(0, 0, 0, 0.05);
+}
+html[data-scheme='light'] .mpick__avatar {
+  color: #5a5a64;
+  background: rgba(0, 0, 0, 0.06);
+}
+html[data-scheme='light'] .mpick__it.is-on .mpick__avatar {
+  color: #b15537;
+  background: rgba(217, 119, 87, 0.16);
+}
+html[data-scheme='light'] .mpick__pill {
+  color: #6c6c75;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 html[data-scheme='light'] .mpick__tick {
-  color: #1f7a45;
+  border-color: rgba(0, 0, 0, 0.28);
+}
+html[data-scheme='light'] .mpick__it.is-on .mpick__tick {
+  color: #fff;
+  background: #d97757;
+  border-color: transparent;
+}
+html[data-scheme='light'] .mpick__note {
+  border-color: #e4e4e8;
+}
+html[data-scheme='light'] .mpick__note b {
+  color: #3a3a42;
+}
+html[data-scheme='light'] .mpick__note code {
+  color: #5a5a64;
+}
+html[data-scheme='light'] .mpick__note-ico {
+  color: #8a8a93;
+  border-color: rgba(0, 0, 0, 0.25);
+}
+html[data-scheme='light'] .picker__pop--left {
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 html[data-scheme='light'] .mpick__warn {
-  border-top-color: #eedfae;
+  border-color: #eedfae;
   background: #fdf9ee;
 }
 html[data-scheme='light'] .mpick__warn-t {
@@ -1197,9 +1230,12 @@ html[data-theme='sepia'] .mpick__it:hover,
 html[data-theme='sepia'] .qopt.is-active {
   background: var(--bg-hover);
 }
-html[data-theme='sepia'] .picker__item.is-on,
-html[data-theme='sepia'] .mpick__it.is-on {
+html[data-theme='sepia'] .picker__item.is-on {
   background: var(--bg-active);
+}
+html[data-theme='sepia'] .mpick__it.is-on {
+  background: rgba(215, 167, 122, 0.14);
+  box-shadow: inset 2px 0 0 rgba(215, 167, 122, 0.9);
 }
 
 /* 主按钮：跟随暖褐强调色，而不是浅色主题里的近黑 */

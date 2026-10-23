@@ -9,7 +9,9 @@ import type {
   VcsLogEntry,
   VcsRepo,
   VcsResult,
-  VcsStatus
+  VcsStatus,
+  VcsWorktree,
+  VcsWorktreeListData
 } from '@shared/vcs'
 import { VcsDiffView } from './VcsDiffView'
 
@@ -68,6 +70,33 @@ function statusLabel(f: VcsFile): string {
   return f.status
 }
 
+/** 两个路径是不是同一个目录（只做字符串归一，不碰 fs） */
+function samePath(a: string, b: string): boolean {
+  const n = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  return n(a) === n(b)
+}
+
+/** 绝对路径的粗略判断；最终由主进程拍板 */
+function looksAbsolute(p: string): boolean {
+  return /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(p.trim())
+}
+
+/** 分支名 → 目录名。Windows 非法字符、空白、保留名都处理掉 */
+function worktreeSlug(branch: string): string {
+  let slug = branch
+    .trim()
+    .replace(/[\\/:*?"<>|\s]+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 80)
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug)) slug = `_${slug}`
+  return slug
+}
+
+function joinPath(root: string, name: string): string {
+  const sep = root.includes('\\') ? '\\' : '/'
+  return `${root.replace(/[\\/]+$/, '')}${sep}${name}`
+}
+
 interface Props {
   cwd: string
   detect: VcsDetectData | null
@@ -80,7 +109,7 @@ interface Props {
   onOpenFile: (rel: string) => void
 }
 
-type Tab = 'changes' | 'history' | 'repo'
+type Tab = 'changes' | 'history' | 'repo' | 'worktrees'
 type Active = { rel: string; source: VcsDiffSource }
 type Group = { key: string; title: string; files: VcsFile[]; source: VcsDiffSource }
 
@@ -127,13 +156,28 @@ export function VcsWorkspace({
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
 
+  /* ── 工作树 ─────────────────────────────────────────── */
+  const [trees, setTrees] = useState<VcsWorktreeListData | null>(null)
+  const [treesLoading, setTreesLoading] = useState(false)
+  const [treesError, setTreesError] = useState<string | null>(null)
+  const [treeSel, setTreeSel] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [form, setForm] = useState({ branch: '', path: '', base: '' })
+  /** 用户手动改过位置后，不再跟着分支名自动重算 */
+  const [pathEdited, setPathEdited] = useState(false)
+
   const diffSeq = useRef(0)
   const logSeq = useRef(0)
   const detailSeq = useRef(0)
+  const treeSeq = useRef(0)
   /** SVN 第一次拿到状态时自动全选；用户手动「全不选」后不再覆盖 */
   const selectionInit = useRef(false)
   const repo = status?.repo ?? detect?.repo ?? null
   const isGit = repo?.kind === 'git'
+
+  const selectedTree: VcsWorktree | null =
+    trees?.worktrees.find((w) => w.path === treeSel) ?? null
+  const prunableCount = trees?.worktrees.filter((w) => w.prunable).length ?? 0
 
   const groups = useMemo<Group[]>(() => {
     if (!status) return []
@@ -446,6 +490,154 @@ export function VcsWorkspace({
     void window.api!.vcs.cancel({ cwd, opId: op.id })
   }
 
+  /* ── 工作树 ─────────────────────────────────────────── */
+
+  const loadTrees = useCallback(async (): Promise<void> => {
+    const seq = ++treeSeq.current
+    setTreesLoading(true)
+    setTreesError(null)
+    try {
+      const r = await window.api!.vcs.worktreeList({ cwd })
+      if (seq !== treeSeq.current) return
+      if (!r.ok) {
+        setTreesError(r.error.message)
+        return
+      }
+      setTrees(r.data)
+      setTreeSel((prev) => {
+        if (prev && r.data.worktrees.some((w) => samePath(w.path, prev))) return prev
+        return (r.data.worktrees.find((w) => w.current) ?? r.data.worktrees[0])?.path ?? null
+      })
+    } catch (err) {
+      if (seq === treeSeq.current) setTreesError(errorOf(err))
+    } finally {
+      if (seq === treeSeq.current) setTreesLoading(false)
+    }
+  }, [cwd])
+
+  useEffect(() => {
+    if (tab === 'worktrees' && isGit) void loadTrees()
+  }, [tab, isGit, loadTrees])
+
+  /** 工作树写操作：和 run() 一样走 opId / 取消，但不动文件缓存 */
+  const runTree = async <T extends VcsWorktreeListData,>(
+    label: string,
+    fn: (id: string) => Promise<VcsResult<T>>,
+    successNotice = true
+  ): Promise<VcsResult<T> | null> => {
+    if (op) return null
+    const id = makeOpId()
+    setOp({ id, label, network: false })
+    setOpError(null)
+    try {
+      const r = await fn(id)
+      if (!r.ok) {
+        if (r.error.code === 'cancelled') onNotice('操作已取消')
+        else setOpError(r.error)
+        return r
+      }
+      setTrees(r.data)
+      if (successNotice) onNotice(`${label}成功`)
+      return r
+    } catch (err) {
+      setOpError({ code: 'unknown', message: errorOf(err) })
+      return null
+    } finally {
+      setOp(null)
+    }
+  }
+
+  const openCreate = (): void => {
+    if (!trees || !status) return
+    const base =
+      status.repo.kind === 'git' && !status.repo.detached ? status.repo.branch : status.repo.head
+    setForm({ branch: '', path: '', base })
+    setPathEdited(false)
+    setCreateOpen(true)
+  }
+
+  const onBranchChange = (value: string): void => {
+    setForm((prev) => {
+      const next = { ...prev, branch: value }
+      if (!pathEdited && trees) {
+        const slug = worktreeSlug(value)
+        next.path = slug ? joinPath(trees.defaultRoot, slug) : ''
+      }
+      return next
+    })
+  }
+
+  const doCreateTree = async (): Promise<void> => {
+    const branch = form.branch.trim()
+    const path = form.path.trim()
+    if (!branch || !path) return
+    const r = await runTree('创建工作树', (id) =>
+      window.api!.vcs.worktreeAdd({
+        cwd,
+        opId: id,
+        path,
+        branch,
+        base: form.base.trim() || undefined
+      })
+    )
+    if (!r?.ok) return
+    const created = r.data.worktrees.find((w) => samePath(w.path, path))
+    setTreeSel(created?.path ?? null)
+    setCreateOpen(false)
+  }
+
+  const confirmRemoveTree = (w: VcsWorktree, force = false): void => {
+    setConfirm({
+      title: force ? '强制删除工作树？' : '删除工作树？',
+      body: force
+        ? `未提交的改动和未跟踪文件会被丢弃：${w.path}。分支 ${w.branch ?? ''} 会保留。`
+        : `将删除目录 ${w.path}。有未提交改动时会再要求确认一次；分支会保留。`,
+      label: force ? '强制删除' : '删除',
+      action: async () => {
+        const r = await runTree('删除工作树', (id) =>
+          window.api!.vcs.worktreeRemove({ cwd, opId: id, path: w.path, force })
+        )
+        if (!r) return
+        if (r.ok) {
+          setTreeSel(null)
+          return
+        }
+        if (!force && r.error.code === 'dirty') {
+          // 第一次只做普通删除；git 明确拒绝后才升级成强制删除
+          setOpError(null)
+          confirmRemoveTree(w, true)
+        }
+      }
+    })
+  }
+
+  const doPruneTrees = (): void => {
+    if (!prunableCount) return
+    setConfirm({
+      title: '清理失效的工作树记录？',
+      body: `会移除 ${prunableCount} 条指向不存在目录的注册信息。不会删除任何现有文件；已锁定的记录会保留。`,
+      label: '清理',
+      action: async () => {
+        const r = await runTree(
+          '清理工作树',
+          (id) => window.api!.vcs.worktreePrune({ cwd, opId: id }),
+          false
+        )
+        if (!r?.ok) return
+        onNotice(`已清理 ${r.data.pruned} 条失效记录`)
+      }
+    })
+  }
+
+  const openSessionInWorktree = async (path: string): Promise<void> => {
+    const r = await window.api!.workspace.openSession(path)
+    if (!r.ok) {
+      setOpError({ code: 'unknown', message: r.message || '打开会话失败' })
+      return
+    }
+    onNotice('已切换到新会话')
+  }
+
   const openFile = (f: VcsFile, source: VcsDiffSource): void => {
     setActive({ rel: f.rel, source })
     if (tab !== 'changes') setTab('changes')
@@ -577,6 +769,14 @@ export function VcsWorkspace({
         <button className={tab === 'repo' ? 'on' : ''} onClick={() => setTab('repo')}>
           仓库
         </button>
+        {isGit && (
+          <button
+            className={tab === 'worktrees' ? 'on' : ''}
+            onClick={() => setTab('worktrees')}
+          >
+            工作树
+          </button>
+        )}
         <span className="ide-spacer" />
         {op ? (
           <span className="ide-vcs-busy">
@@ -737,6 +937,69 @@ export function VcsWorkspace({
           )}
 
           {tab === 'repo' && <RepoInfo repo={status.repo} />}
+
+          {tab === 'worktrees' && (
+            <div className="ide-vcs-wtlist">
+              <div className="ide-vcs-sidehead">
+                <span>工作树</span>
+                <button
+                  className="ide-vcs-mini is-primary"
+                  disabled={!!op || !trees}
+                  onClick={openCreate}
+                >
+                  新建
+                </button>
+                <button
+                  className="ide-vcs-mini"
+                  disabled={!!op || prunableCount === 0}
+                  title="移除指向不存在目录的注册信息"
+                  onClick={doPruneTrees}
+                >
+                  清理失效
+                </button>
+                <button
+                  className="ide-iconbtn"
+                  title="刷新"
+                  disabled={treesLoading}
+                  onClick={() => void loadTrees()}
+                >
+                  <Ico d={P.refresh} size={12} />
+                </button>
+              </div>
+
+              {treesError && <div className="ide-vcs-inline-error">{treesError}</div>}
+              {treesLoading && !trees && (
+                <div className="ide-vcs-loadingrow">
+                  <i className="ide-spin" /> 读取中…
+                </div>
+              )}
+
+              {trees?.worktrees.map((w) => (
+                <button
+                  key={w.path}
+                  className={`ide-vcs-wtrow ${treeSel === w.path ? 'is-active' : ''}`}
+                  title={w.path}
+                  onClick={() => setTreeSel(w.path)}
+                >
+                  <span className="ide-vcs-wtbranch">
+                    {w.branch || (w.detached ? 'detached' : '(bare)')}
+                  </span>
+                  <span className="ide-vcs-wttags">
+                    {w.main && <i className="ide-vcs-wttag is-main">主</i>}
+                    {w.current && <i className="ide-vcs-wttag is-current">当前</i>}
+                    {!w.exists && <i className="ide-vcs-wttag is-missing">缺失</i>}
+                    {w.locked && <i className="ide-vcs-wttag is-locked">锁定</i>}
+                    {w.bare && <i className="ide-vcs-wttag">bare</i>}
+                  </span>
+                  <span className="ide-vcs-wtpath">{w.path}</span>
+                </button>
+              ))}
+
+              {!treesLoading && trees && trees.worktrees.length === 0 && (
+                <div className="ide-vcs-clean">没有工作树记录。</div>
+              )}
+            </div>
+          )}
         </aside>
 
         <main className="ide-vcs-right">
@@ -778,8 +1041,151 @@ export function VcsWorkspace({
               </p>
             </div>
           )}
+
+          {tab === 'worktrees' &&
+            (selectedTree ? (
+              <div className="ide-vcs-wtdetail">
+                <div className="ide-vcs-sidehead">
+                  <span>工作树详情</span>
+                </div>
+                <dl className="ide-vcs-dl">
+                  <div className="ide-vcs-dlrow">
+                    <dt>分支</dt>
+                    <dd>{selectedTree.branch || (selectedTree.detached ? 'detached' : '(bare)')}</dd>
+                  </div>
+                  <div className="ide-vcs-dlrow">
+                    <dt>HEAD</dt>
+                    <dd>{selectedTree.headShort || '(空)'}</dd>
+                  </div>
+                  <div className="ide-vcs-dlrow">
+                    <dt>目录</dt>
+                    <dd title={selectedTree.path}>{selectedTree.path}</dd>
+                  </div>
+                  {selectedTree.lockReason && (
+                    <div className="ide-vcs-dlrow">
+                      <dt>锁定原因</dt>
+                      <dd>{selectedTree.lockReason}</dd>
+                    </div>
+                  )}
+                </dl>
+
+                <div className="ide-vcs-wtactions">
+                  {selectedTree.exists && (
+                    <>
+                      <button
+                        className="ide-vcs-btn"
+                        onClick={() => void window.api?.ide?.open(selectedTree.path)}
+                      >
+                        打开 IDE
+                      </button>
+                      <button
+                        className="ide-vcs-btn is-primary"
+                        onClick={() => void openSessionInWorktree(selectedTree.path)}
+                      >
+                        新会话
+                      </button>
+                    </>
+                  )}
+                  {selectedTree.exists &&
+                    !selectedTree.main &&
+                    !selectedTree.current &&
+                    !selectedTree.locked && (
+                      <button
+                        className="ide-vcs-btn is-danger"
+                        disabled={!!op}
+                        onClick={() => confirmRemoveTree(selectedTree)}
+                      >
+                        删除
+                      </button>
+                    )}
+                </div>
+
+                {!selectedTree.exists && (
+                  <p className="ide-vcs-note">
+                    目录已不存在。用「清理失效」移除这条注册；分支会保留。
+                  </p>
+                )}
+                {selectedTree.locked && (
+                  <p className="ide-vcs-note">
+                    工作树已锁定，删除前先在外部执行 <code>git worktree unlock</code>。
+                  </p>
+                )}
+                <p className="ide-vcs-note">
+                  删除工作树不会删除分支；主工作树和当前工作树不能删。
+                </p>
+              </div>
+            ) : (
+              <div className="ide-vcs-empty">
+                <div className="ide-vcs-empty-t">选择一个工作树</div>
+                <div className="ide-vcs-empty-s">查看分支、目录和可用操作。</div>
+              </div>
+            ))}
         </main>
       </div>
+
+      {createOpen && (
+        <div className="ide-vcs-scrim" onClick={() => setCreateOpen(false)}>
+          <div className="ide-vcs-confirm is-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="ide-vcs-confirm-t">新建工作树</div>
+            <div className="ide-vcs-confirm-b">
+              <div className="ide-vcs-form">
+                <label>
+                  新分支
+                  <input
+                    value={form.branch}
+                    onChange={(e) => onBranchChange(e.target.value)}
+                    placeholder="feature/my-change"
+                    spellCheck={false}
+                    autoFocus
+                  />
+                </label>
+                <label>
+                  基于分支 / 提交
+                  <input
+                    value={form.base}
+                    onChange={(e) => setForm((prev) => ({ ...prev, base: e.target.value }))}
+                    spellCheck={false}
+                  />
+                </label>
+                <label>
+                  工作树位置
+                  <input
+                    value={form.path}
+                    onChange={(e) => {
+                      setPathEdited(true)
+                      setForm((prev) => ({ ...prev, path: e.target.value }))
+                    }}
+                    spellCheck={false}
+                  />
+                </label>
+                <div className="ide-vcs-formhint">
+                  默认创建在 {trees?.defaultRoot || '(主工作树同级)'} 下；目录必须是绝对路径，
+                  且不能位于现有工作树内部。删除工作树不会删除分支。
+                </div>
+              </div>
+            </div>
+            <div className="ide-vcs-confirm-f">
+              <button className="ide-vcs-btn" onClick={() => setCreateOpen(false)}>
+                取消
+              </button>
+              <button
+                className="ide-vcs-btn is-primary"
+                disabled={
+                  !!op ||
+                  !form.branch.trim() ||
+                  !form.path.trim() ||
+                  !looksAbsolute(form.path) ||
+                  !status.repo.head
+                }
+                title={!status.repo.head ? '仓库还没有提交，无法创建工作树' : ''}
+                onClick={() => void doCreateTree()}
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirm && (
         <div className="ide-vcs-scrim" onClick={() => setConfirm(null)}>

@@ -1,0 +1,2191 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CCoder · Codex CLI 设置</title>
+<style>
+  /* ── 设计 token（与 src/renderer/src/styles/tokens.css 对齐） ── */
+  :root {
+    color-scheme: dark;
+    --bg-app: #191919;
+    --bg-sidebar: #141414;
+    --bg-raised: #232323;
+    --bg-hover: #1f1f1f;
+    --bg-active: #2a2a2a;
+
+    --border: #2c2c2c;
+    --border-soft: #242424;
+
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+
+    --accent: #e8e8e8;
+    --accent-fg: #191919;
+    --ok: #4b9e5f;
+    --warn: #c9a227;
+    --danger: #e5534b;
+    --running: #d97757;
+
+    --radius-card: 12px;
+    --radius-chip: 8px;
+    --radius-sm: 6px;
+    --radius-pill: 999px;
+
+    --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+    --titlebar-h: 36px;
+    --sidebar-w: 280px;
+    --pane-pad-x: 40px;
+    --scrollbar-w: 10px;
+  }
+
+  *,
+  *::before,
+  *::after { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    background: #0d0d0d;
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  button, input, select, textarea { font: inherit; }
+  button {
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  input, textarea { color: inherit; }
+  a { color: inherit; text-decoration: none; }
+
+  ::-webkit-scrollbar { width: var(--scrollbar-w); height: var(--scrollbar-w); }
+  ::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4a4a4a;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ── 窗口骨架 ─────────────────────────────────────────── */
+  .window {
+    width: 1360px;
+    height: 860px;
+    display: grid;
+    grid-template-rows: var(--titlebar-h) 1fr;
+    background: var(--bg-app);
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--titlebar-h);
+    padding-left: 12px;
+    background: var(--bg-app);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .titlebar__menu { display: flex; gap: 2px; }
+  .titlebar__menu button {
+    padding: 4px 8px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    border-radius: 4px;
+  }
+  .titlebar__menu button:hover {
+    background: var(--bg-raised);
+    color: var(--text);
+  }
+  .titlebar__right { display: flex; height: 100%; }
+  .wctl {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 100%;
+    color: var(--text-dim);
+  }
+  .wctl:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl--close:hover { background: #c42b1c; color: #fff; }
+
+  .app__body {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    min-height: 0;
+  }
+
+  /* ── 左侧栏 ───────────────────────────────────────────── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 10px 10px 6px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-soft);
+  }
+  .sidebar__brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px 13px;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: 0.2px;
+  }
+  .sidebar__brand svg { color: #d8d8d8; }
+  .sidebar__new {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    padding: 9px 12px;
+    margin-bottom: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .sidebar__new:hover { background: var(--bg-hover); }
+  .sidebar__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-bottom: 8px;
+  }
+  .navitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .navitem:hover { background: var(--bg-hover); color: var(--text); }
+
+  .sidebar__section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px 6px;
+  }
+  .sidebar__section-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+  }
+  .sidebar__scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 8px;
+  }
+  .wsgroup { margin-bottom: 6px; padding-bottom: 8px; }
+  .wsgroup + .wsgroup {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .wsgroup__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    color: var(--text-dim);
+  }
+  .wsgroup__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .wsgroup__count {
+    flex: none;
+    padding: 1px 6px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-active);
+    border-radius: var(--radius-pill);
+  }
+  .session {
+    display: flex;
+    align-items: center;
+    margin-left: 16px;
+    border-radius: var(--radius-sm);
+  }
+  .session:hover { background: var(--bg-hover); }
+  .session.is-active { background: var(--bg-active); }
+  .session__main {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px 5px 12px;
+    text-align: left;
+  }
+  .session__title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .session.is-active .session__title { color: var(--text); }
+  .session__time { flex: none; font-size: 12px; color: var(--text-faint); }
+  .session__cli {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+  }
+  .session__cli svg { display: block; width: 100%; height: 100%; }
+  .session__cli--claude svg { fill: #d97757; }
+  .session__cli--codex svg { fill: #e8e8e8; }
+  .sidebar__settings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-top: 4px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .sidebar__settings:hover { background: var(--bg-hover); color: var(--text); }
+  .sidebar__settings.is-active { background: var(--bg-active); color: var(--text); }
+
+  /* ── 设置页骨架 ───────────────────────────────────────── */
+  .mainpane {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg-app);
+  }
+  .settings {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+  }
+  .settings__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px var(--pane-pad-x) 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .settings__title { margin: 0; font-size: 15px; font-weight: 600; }
+  .settings__head-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+  }
+  .saved-flash { font-size: 12.5px; color: var(--text-faint); }
+  .saved-flash.is-saved { color: var(--ok); }
+
+  .settings__body {
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    min-height: 0;
+  }
+  .settings__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 12px;
+    border-right: 1px solid var(--border-soft);
+  }
+  .settings__navgroup {
+    padding: 12px 12px 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text-faint);
+  }
+  .settings__navgroup:first-child { padding-top: 2px; }
+  .settings__navitem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .settings__navitem:hover { background: var(--bg-hover); color: var(--text); }
+  .settings__navitem.is-active { background: var(--bg-active); color: var(--text); }
+  .settings__navtag {
+    flex: none;
+    margin-left: auto;
+    padding: 1px 6px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .settings__navtag--ok { color: var(--ok); border-color: #2c4a34; background: #16241a; }
+  .settings__navtag--warn { color: var(--warn); border-color: #4a3f22; background: #2a2418; }
+  .settings__content {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px var(--pane-pad-x) 40px;
+  }
+  .settings__content > * { max-width: 720px; }
+
+  /* ── 按钮 ─────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: var(--radius-chip);
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .btn--ghost { color: var(--text-dim); border-color: var(--border); }
+  .btn--ghost:hover { background: var(--bg-raised); color: var(--text); }
+  .btn--primary { color: var(--accent-fg); background: var(--accent); font-weight: 500; }
+  .btn--primary:hover { background: #fff; }
+  .btn--primary:disabled { color: var(--text-faint); background: var(--bg-raised); cursor: default; }
+  .btn--danger { color: var(--danger); border-color: #4a2a28; }
+  .btn--danger:hover { background: #2a1a19; }
+  .btn--xs { padding: 3px 9px; font-size: 12px; }
+
+  /* ── CLI 标题行 ───────────────────────────────────────── */
+  .clipane {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .clipane__main { flex: 1; min-width: 0; }
+  .clipane__title { margin: 0; font-size: 16px; font-weight: 600; }
+  .clipane__hint { margin: 4px 0 0; font-size: 12.5px; color: var(--text-faint); }
+  .switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .switch input {
+    appearance: none;
+    position: relative;
+    width: 34px;
+    height: 20px;
+    background: #3a3a3a;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .switch input::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: #8a8a8a;
+    border-radius: 50%;
+    transition: transform 0.12s, background 0.12s;
+  }
+  .switch input:checked { background: var(--accent); }
+  .switch input:checked::after {
+    transform: translateX(14px);
+    background: var(--bg-app);
+  }
+  .switch input:disabled { opacity: 0.45; cursor: default; }
+
+  /* ── 评审预览条 ───────────────────────────────────────── */
+  .reviewbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 12px;
+    margin-bottom: 18px;
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px dashed #3d3d3d;
+    border-radius: 10px;
+  }
+  .reviewbar__label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--text-faint);
+  }
+  .reviewbar__hint { margin-left: auto; font-size: 11px; color: var(--text-faint); }
+  .seg {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .seg__it { padding: 4px 12px; font-size: 12px; color: var(--text-dim); border-radius: 6px; }
+  .seg__it:hover { color: var(--text); }
+  .seg__it.is-on { background: var(--bg-active); color: var(--text); }
+
+  /* ── 状态卡片 ─────────────────────────────────────────── */
+  .statuscard {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 14px;
+    margin-bottom: 10px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .statuscard--ok { border-color: #2c4a34; }
+  .statuscard--warn { border-color: #4a3f22; }
+  .statuscard__icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    color: var(--text-dim);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+  }
+  .statuscard__icon--ok { color: #8ed6a1; background: #16241a; border-color: #2c4a34; }
+  .statuscard__main { flex: 1; min-width: 0; }
+  .statuscard__title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+  .statuscard__meta {
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    color: var(--text-faint);
+  }
+  .statuscard__meta code { font-family: var(--font-mono); color: var(--text-muted); }
+  .statuscard__actions { display: flex; gap: 6px; flex: none; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+  .badge--ok { color: var(--ok); border-color: #2c4a34; background: #16241a; }
+  .badge--warn { color: var(--warn); border-color: #4a3f22; background: #2a2418; }
+  .badge--danger { color: var(--danger); border-color: #4a2a28; background: #2a1a19; }
+
+  .section-lead {
+    margin: 18px 0 9px;
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-faint);
+  }
+  .section-lead code { font-family: var(--font-mono); color: var(--text-muted); }
+
+  /* ── 渠道列表 ─────────────────────────────────────────── */
+  .chlist { margin: 0 0 26px; }
+  .chlist__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+  }
+  .chlist__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 4px 4px;
+    margin-bottom: 6px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+  }
+  .chlist__item:hover { border-color: #3d3d3d; }
+  .chlist__item.is-active { border-color: #4a4a4a; background: var(--bg-active); }
+  .chlist__main {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    text-align: left;
+  }
+  .chlist__name { flex: none; font-size: 13.5px; font-weight: 500; }
+  .chlist__meta {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  /* ── 表单 ─────────────────────────────────────────────── */
+  .chform { margin: 0; }
+  .chform__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .chform__title { margin: 0; font-size: 14px; font-weight: 600; }
+  .field {
+    display: grid;
+    grid-template-columns: 132px 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .field__label { padding-top: 7px; font-size: 13px; color: var(--text-dim); }
+  .field__body { min-width: 0; }
+  .field__hint { margin: 6px 0 0; font-size: 12px; color: var(--text-faint); }
+  .field__hint code { font-family: var(--font-mono); color: var(--text-muted); }
+  .input {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+    outline: none;
+    user-select: text;
+  }
+  .input:focus { border-color: #4a4a4a; }
+  .input:disabled { color: var(--text-muted); cursor: default; }
+  select.input { cursor: pointer; }
+  textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; }
+  .input-row { display: flex; gap: 8px; }
+  .input-row .input { flex: 1; }
+  .envlist__row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .envlist__row .input:first-child { flex: 0 0 40%; }
+  .iconbtn {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .iconbtn:hover { background: var(--bg-raised); color: var(--text); }
+  .chform__actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .chform__spacer { flex: 1; }
+  .chform--sep {
+    margin-top: 26px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  /* ── 测试结果 ─────────────────────────────────────────── */
+  .testresult {
+    margin-top: 16px;
+    padding: 12px 14px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+  }
+  .testresult.is-ok { border-color: #2c4a34; }
+  .testresult.is-fail { border-color: #4a2a28; }
+  .testresult__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .testresult.is-ok .testresult__head { color: var(--ok); }
+  .testresult.is-fail .testresult__head { color: var(--danger); }
+  .testresult__latency { font-size: 12px; font-weight: 400; color: var(--text-faint); }
+  .testresult__msg {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+
+  /* ── 思考深度 ─────────────────────────────────────────── */
+  .effpick { display: flex; gap: 6px; }
+  .effpick__it {
+    flex: 1;
+    padding: 8px 0 7px;
+    text-align: center;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+  }
+  .effpick__it:hover { border-color: #3d3d3d; }
+  .effpick__it.is-on {
+    background: rgba(167, 139, 250, 0.12);
+    border-color: rgba(167, 139, 250, 0.4);
+  }
+  .effpick__n { display: block; font-size: 13px; color: var(--text-dim); }
+  .effpick__e {
+    display: block;
+    margin-top: 1px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+  }
+  .effpick__it.is-on .effpick__n { color: #ddd6fe; }
+  .effpick__it.is-on .effpick__e { color: #a78bfa; }
+
+  /* ── 模型列表：加号动态增加输入框 ─────────────────────── */
+  .modellist {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .modelrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+  }
+  .modelrow:has(.modelrow__default input:checked) {
+    border-color: #4a4a4a;
+    background: var(--bg-active);
+  }
+  .modelrow:has(.modelrow__default input:checked) .input {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .modelrow .input {
+    flex: 1;
+    padding: 5px 8px;
+    background: transparent;
+    border-color: transparent;
+  }
+  .modelrow .input:hover { background: rgba(255, 255, 255, 0.03); }
+  .modelrow .input:focus {
+    background: var(--bg-raised);
+    border-color: #4a4a4a;
+  }
+  .modelrow__default {
+    position: relative;
+    flex: none;
+    cursor: pointer;
+  }
+  .modelrow__default input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .modelrow__default span {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .modelrow__default:hover span { color: var(--text-dim); border-color: #3d3d3d; }
+  .modelrow__default .when-on { display: none; }
+  .modelrow__default input:checked ~ .when-on {
+    display: inline-flex;
+    color: var(--ok);
+    background: #16241a;
+    border-color: #2c4a34;
+  }
+  .modelrow__default input:checked ~ .when-off { display: none; }
+  .modelrow__del {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    color: var(--text-faint);
+  }
+  .modelrow__del:hover {
+    background: rgba(244, 63, 94, 0.14);
+    color: #fda4af;
+  }
+  .modeladd {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    margin-top: 8px;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-chip);
+  }
+  .modeladd:hover {
+    color: var(--text);
+    background: var(--bg-raised);
+    border-color: #4a4a4a;
+  }
+
+  .callout {
+    padding: 11px 13px;
+    font-size: 12px;
+    line-height: 1.65;
+    border-radius: var(--radius-chip);
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+  }
+  .callout--warn {
+    color: #e0c98a;
+    background: #2a2418;
+    border-color: #4a3f22;
+  }
+  .callout strong { color: #f0e0b0; font-weight: 600; }
+
+  .fineprint {
+    margin: 20px 0 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--text-faint);
+  }
+  .fineprint code { font-family: var(--font-mono); color: var(--text-muted); }
+
+  /* ── 未安装引导 ───────────────────────────────────────── */
+  .installhero {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    padding: 24px;
+    margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(201, 162, 39, 0.1), rgba(35, 35, 35, 0.55));
+    border: 1px solid #4a3f22;
+    border-radius: 14px;
+  }
+  .installhero__mark {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 54px;
+    height: 54px;
+    color: #f0e6c8;
+    background: #2a2418;
+    border: 1px solid #4a3f22;
+    border-radius: 15px;
+  }
+  .installhero__body { flex: 1; min-width: 0; }
+  .installhero__eyebrow {
+    margin-bottom: 3px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    color: var(--warn);
+  }
+  .installhero h2 { margin: 0 0 6px; font-size: 19px; line-height: 1.35; }
+  .installhero p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-dim); }
+  .installhero p code { font-family: var(--font-mono); color: var(--text); }
+  .installhero__status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 12px;
+    font-size: 12.5px;
+    color: #e0c98a;
+  }
+  .installhero__status code { font-family: var(--font-mono); color: #f0e0b0; }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warn);
+    box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.15);
+  }
+
+  .installcard {
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .installcard__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .installcard h3 { margin: 0 0 4px; font-size: 15px; }
+  .installcard p { margin: 0; font-size: 12.5px; color: var(--text-faint); }
+  .ostabs {
+    display: flex;
+    flex: none;
+    gap: 2px;
+    padding: 2px;
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .ostab { padding: 5px 10px; font-size: 12px; color: var(--text-muted); border-radius: 6px; }
+  .ostab:hover { color: var(--text); }
+  .ostab.is-on { background: var(--bg-active); color: var(--text); }
+  .installmethod { margin-top: 14px; }
+  .installmethod__label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .cmdblock {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #0e0e0e;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .cmdblock code {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: #d8d8d8;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: text;
+  }
+  .copybtn { flex: none; }
+  .installmethod__hint {
+    margin: 7px 0 0;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-faint);
+  }
+  .installmethod__hint code { font-family: var(--font-mono); color: var(--text-muted); }
+
+  .steps {
+    display: grid;
+    gap: 12px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .step { display: flex; gap: 12px; align-items: flex-start; }
+  .step__n {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--bg-active);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+  }
+  .step__t { font-size: 13px; font-weight: 500; }
+  .step__d { margin-top: 2px; font-size: 12px; line-height: 1.6; color: var(--text-faint); }
+  .step__d code { font-family: var(--font-mono); color: var(--text-muted); }
+
+  .manualcard {
+    padding: 16px 20px 4px;
+    margin-bottom: 18px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .installactions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 18px 0 22px;
+  }
+  .installactions__hint { font-size: 11.5px; color: var(--text-faint); }
+  .detectstatus {
+    margin: -8px 0 18px;
+    padding: 9px 12px;
+    font-size: 12px;
+    color: #e0c98a;
+    background: #2a2418;
+    border: 1px solid #4a3f22;
+    border-radius: var(--radius-chip);
+  }
+
+  .preconfig {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+  .preconfig__title { font-size: 13px; font-weight: 500; }
+  .preconfig p { margin: 3px 0 0; font-size: 12px; color: var(--text-faint); }
+  .preconfigpanel {
+    margin-top: 12px;
+    padding: 18px 20px 4px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .toast {
+    position: fixed;
+    right: 26px;
+    bottom: 26px;
+    z-index: 50;
+    max-width: 420px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text);
+    background: #2b2b2b;
+    border: 1px solid #3d3d3d;
+    border-radius: 9px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+    transition: opacity 0.16s, transform 0.16s;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  :focus-visible { outline: 2px solid #6ea8fe; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="titlebar__menu">
+      <button type="button">应用</button>
+      <button type="button">编辑</button>
+    </div>
+    <div class="titlebar__right">
+      <button type="button" class="wctl" aria-label="最小化">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 5h8" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+      <button type="button" class="wctl" aria-label="最大化">
+        <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" rx="0.6" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+      <button type="button" class="wctl wctl--close" aria-label="关闭">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="app__body">
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="0">
+          <path d="M2 9.2c0-3.2 2.6-5.8 5.8-5.8 1.2 0 2.3.4 3.2 1 .5-.4 1.2-.6 1.9-.5l1.6.2-.9 1.5c.4.8.6 1.7.6 2.6 0 3.2-2.6 5.8-5.8 5.8-1.6 0-3-.6-4.1-1.7-.3-.3-.6-.6-.8-1l-.6.2.3-1.2A5.7 5.7 0 0 1 2 9.2z" fill="currentColor"/>
+          <circle cx="6.4" cy="8.2" r="0.75" fill="var(--bg-sidebar)"/>
+        </svg>
+        CCoder
+      </div>
+
+      <button type="button" class="sidebar__new">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+        新会话
+      </button>
+
+      <nav class="sidebar__nav">
+        <button type="button" class="navitem">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5v2M10 2.5v2"/><rect x="3" y="4.5" width="10" height="9" rx="1.6"/><path d="M6.2 8.2v2.4M9.8 8.2v2.4"/></svg>
+          插件
+        </button>
+        <button type="button" class="navitem">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.2l2 1.3"/></svg>
+          自动化任务
+        </button>
+      </nav>
+
+      <div class="sidebar__section-head">
+        <span class="sidebar__section-title">工作区</span>
+      </div>
+
+      <div class="sidebar__scroll">
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/></svg>
+            <span class="wsgroup__name">servercontrol</span>
+            <span class="wsgroup__count">5</span>
+          </div>
+          <div class="session">
+            <button type="button" class="session__main">
+              <span class="session__cli session__cli--codex">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
+              </span>
+              <span class="session__title">Codex 接入方案</span>
+              <span class="session__time">刚刚</span>
+            </button>
+          </div>
+          <div class="session">
+            <button type="button" class="session__main">
+              <span class="session__cli session__cli--claude">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z"/></svg>
+              </span>
+              <span class="session__title">Single Digit Input</span>
+              <span class="session__time">1天</span>
+            </button>
+          </div>
+          <div class="session">
+            <button type="button" class="session__main">
+              <span class="session__cli session__cli--claude">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z"/></svg>
+              </span>
+              <span class="session__title">为何会话无 1M 上下文</span>
+              <span class="session__time">1天</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/></svg>
+            <span class="wsgroup__name">CCoder-Desktop</span>
+            <span class="wsgroup__count">2</span>
+          </div>
+          <div class="session is-active">
+            <button type="button" class="session__main">
+              <span class="session__cli session__cli--codex">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
+              </span>
+              <span class="session__title">Codex 设置页评审</span>
+              <span class="session__time">2分</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="sidebar__settings is-active">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2 3.6 12.4"/></svg>
+        设置
+      </button>
+    </aside>
+
+    <main class="mainpane settings">
+      <header class="settings__head">
+        <button type="button" class="btn btn--ghost">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4 5.5 8l4 4"/></svg>
+          返回
+        </button>
+        <h1 class="settings__title">设置</h1>
+        <div class="settings__head-right">
+          <span class="saved-flash" id="saveStatus">修改后自动保存</span>
+        </div>
+      </header>
+
+      <div class="settings__body">
+        <nav class="settings__nav">
+          <div class="settings__navgroup">系统</div>
+          <button type="button" class="settings__navitem">通用</button>
+          <button type="button" class="settings__navitem">权限</button>
+
+          <div class="settings__navgroup">CLI</div>
+          <button type="button" class="settings__navitem" data-page="claude">Claude Code</button>
+          <button type="button" class="settings__navitem is-active" data-page="codex">
+            Codex CLI
+            <span class="settings__navtag settings__navtag--ok" id="codexNavTag">已安装</span>
+          </button>
+          <button type="button" class="settings__navitem" title="DeepSeek Harness" data-page="deepseek">
+            DeepSeek
+            <span class="settings__navtag">未接入</span>
+          </button>
+        </nav>
+
+        <div class="settings__content">
+          <div id="codexPage">
+          <div class="reviewbar">
+            <span class="reviewbar__label">评审预览</span>
+            <div class="seg" id="installState">
+              <button type="button" class="seg__it is-on" data-state="installed">已安装</button>
+              <button type="button" class="seg__it" data-state="missing">未安装</button>
+            </div>
+            <span class="reviewbar__hint">仅用于审核，不会写进真实设置</span>
+          </div>
+
+          <div class="clipane">
+            <div class="clipane__main">
+              <h2 class="clipane__title">Codex CLI</h2>
+              <p class="clipane__hint" id="clipaneHint">OpenAI 兼容端点 · 通过 codex app-server 驱动</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="enableToggle" checked />
+              <span id="enableLabel">已启用</span>
+            </label>
+          </div>
+
+          <!-- ── 已安装：完整设置 ─────────────────────────────── -->
+          <div id="installedView">
+            <div class="statuscard statuscard--ok">
+              <div class="statuscard__icon statuscard__icon--ok">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
+              </div>
+              <div class="statuscard__main">
+                <div class="statuscard__title">Codex CLI <span class="badge badge--ok">已安装</span></div>
+                <div class="statuscard__meta"><code>v0.163.0</code> · C:\Users\CY\AppData\Roaming\npm\codex.cmd · app-server 正常</div>
+              </div>
+              <div class="statuscard__actions">
+                <button type="button" class="btn btn--ghost" id="redetectInstalled">重新检测</button>
+              </div>
+            </div>
+
+            <div class="statuscard">
+              <div class="statuscard__icon">
+                <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.4" r="2.7"/><path d="M2.8 13.2c.6-2.4 2.6-3.7 5.2-3.7s4.6 1.3 5.2 3.7"/></svg>
+              </div>
+              <div class="statuscard__main">
+                <div class="statuscard__title">账号 <span class="badge badge--ok">已登录</span></div>
+                <div class="statuscard__meta">ChatGPT Plus · 与 Codex CLI / VSCode 插件共享 <code>CODEX_HOME</code></div>
+              </div>
+              <div class="statuscard__actions">
+                <button type="button" class="btn btn--ghost btn--xs" data-toast="评审稿：会打开 ChatGPT 账号切换流程">切换账号</button>
+                <button type="button" class="btn btn--ghost btn--xs" data-toast="评审稿：会退出 ChatGPT 登录，并使用渠道 API Key">退出登录</button>
+              </div>
+            </div>
+
+            <p class="section-lead">
+              Codex 只接受 <strong>OpenAI 兼容端点</strong>的 Responses API。
+              0.163 起上游已移除 Chat Completions wire；Anthropic 兼容渠道请使用 Claude Code。
+            </p>
+
+            <section class="chlist">
+              <div class="chlist__head">
+                <span>渠道</span>
+                <button type="button" class="btn btn--ghost" data-toast="评审稿：新建渠道流程与 Claude Code 一致">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                  新建渠道
+                </button>
+              </div>
+
+              <div class="chlist__item is-active">
+                <button type="button" class="chlist__main">
+                  <span class="chlist__name">OpenAI 官方</span>
+                  <span class="chlist__meta">https://api.openai.com/v1</span>
+                </button>
+                <span class="badge badge--ok">使用中</span>
+              </div>
+              <div class="chlist__item">
+                <button type="button" class="chlist__main">
+                  <span class="chlist__name">公司网关</span>
+                  <span class="chlist__meta">https://gw.corp.internal/v1</span>
+                </button>
+                <button type="button" class="btn btn--ghost btn--xs" data-toast="评审稿：会把「公司网关」设为当前渠道">启用</button>
+              </div>
+            </section>
+
+            <section class="chform">
+              <div class="chform__head">
+                <h2 class="chform__title">OpenAI 官方</h2>
+                <span class="badge badge--ok">当前使用</span>
+              </div>
+
+              <div class="field">
+                <label class="field__label">名称</label>
+                <div class="field__body">
+                  <input class="input" value="OpenAI 官方" />
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">协议类型</label>
+                <div class="field__body">
+                  <input class="input" value="OpenAI 兼容" disabled />
+                  <p class="field__hint">由所属 CLI 决定 —— Codex 只认 OpenAI Responses / Chat Completions。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">Base URL</label>
+                <div class="field__body">
+                  <input class="input" value="https://api.openai.com/v1" />
+                  <p class="field__hint">例：https://api.openai.com/v1 —— 末尾斜杠会被自动去掉。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">模型协议</label>
+                <div class="field__body">
+                  <input class="input" value="Responses API" disabled />
+                  <p class="field__hint">Codex 0.163 起只支持 Responses API（<code>wire_api = responses</code>）；上游已移除 Chat Completions。渠道网关必须提供 <code>/v1/responses</code> 入口。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">认证方式</label>
+                <div class="field__body">
+                  <select class="input">
+                    <option>Bearer Token（Authorization: Bearer …）</option>
+                    <option>自定义 Header（高级）</option>
+                  </select>
+                  <p class="field__hint">OpenAI 兼容端点统一使用 Bearer；自定义 Header 需要确认网关不校验其他字段。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">密钥 / Token</label>
+                <div class="field__body">
+                  <div class="input-row">
+                    <input class="input" id="apiKeyInput" type="password" value="sk-demo-xxxxxxxxxxxxxxxx" />
+                    <button type="button" class="btn btn--ghost" id="revealKey">显示</button>
+                  </div>
+                  <p class="field__hint">保存在本机，用系统级加密（Windows DPAPI）；不会写进 Codex 的 config.toml。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">模型</label>
+                <div class="field__body">
+                  <div class="modellist" id="codexModelList" data-model-list="codex">
+                    <div class="modelrow">
+                      <input class="input" value="gpt-6.1-sol" aria-label="模型名称" />
+                      <label class="modelrow__default">
+                        <input type="radio" name="codexDefaultModel" checked />
+                        <span class="when-on">默认</span>
+                        <span class="when-off">设为默认</span>
+                      </label>
+                      <button type="button" class="iconbtn modelrow__del" aria-label="删除模型">×</button>
+                    </div>
+                    <div class="modelrow">
+                      <input class="input" value="gpt-6-astra" aria-label="模型名称" />
+                      <label class="modelrow__default">
+                        <input type="radio" name="codexDefaultModel" />
+                        <span class="when-on">默认</span>
+                        <span class="when-off">设为默认</span>
+                      </label>
+                      <button type="button" class="iconbtn modelrow__del" aria-label="删除模型">×</button>
+                    </div>
+                    <div class="modelrow">
+                      <input class="input" value="gpt-5.2-codex" aria-label="模型名称" />
+                      <label class="modelrow__default">
+                        <input type="radio" name="codexDefaultModel" />
+                        <span class="when-on">默认</span>
+                        <span class="when-off">设为默认</span>
+                      </label>
+                      <button type="button" class="iconbtn modelrow__del" aria-label="删除模型">×</button>
+                    </div>
+                  </div>
+                  <button type="button" class="btn modeladd" id="addCodexModel" data-add-model="codex">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                    添加模型
+                  </button>
+                  <p class="field__hint">想配多少个就配多少个。列表会出现在会话的模型选择器；点「设为默认」决定新会话用哪个。至少保留一个。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">额外环境变量</label>
+                <div class="field__body">
+                  <div class="envlist">
+                    <div class="envlist__row">
+                      <input class="input" value="HTTP_PROXY" />
+                      <input class="input" value="http://127.0.0.1:7890" />
+                      <button type="button" class="iconbtn" aria-label="删除" data-toast="评审稿：删除这一行环境变量">×</button>
+                    </div>
+                    <button type="button" class="btn btn--ghost" data-toast="评审稿：新增一行环境变量">
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                      添加变量
+                    </button>
+                  </div>
+                  <p class="field__hint">原样注入 Codex 进程，如 HTTP_PROXY。</p>
+                </div>
+              </div>
+
+              <div class="chform__actions">
+                <button type="button" class="btn btn--primary" id="testConnection">测试连接</button>
+                <div class="chform__spacer"></div>
+                <button type="button" class="btn btn--danger" data-toast="评审稿：删除渠道需要二次确认">删除渠道</button>
+              </div>
+
+              <div class="testresult is-ok" id="testResult">
+                <div class="testresult__head">
+                  <span id="testHead">✓ 连接正常</span>
+                  <span class="testresult__latency" id="testLatency">182 ms</span>
+                </div>
+                <pre class="testresult__msg" id="testMsg">app-server 已就绪 · 模型列表 3 个 · 当前模型 gpt-6.1-sol</pre>
+              </div>
+            </section>
+
+            <section class="chform chform--sep">
+              <h2 class="chform__title">模型与思考深度</h2>
+
+              <div class="field">
+                <label class="field__label">新会话默认模型</label>
+                <div class="field__body">
+                  <select class="input">
+                    <option>gpt-6.1-sol（推荐）</option>
+                    <option>gpt-6-astra</option>
+                    <option>gpt-5.2-codex</option>
+                    <option>跟随渠道默认</option>
+                  </select>
+                  <p class="field__hint">来自 Codex 的 <code>model/list</code>；会话里仍可单独切换。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">默认思考深度</label>
+                <div class="field__body">
+                  <div class="effpick">
+                    <button type="button" class="effpick__it"><span class="effpick__n">Low</span><span class="effpick__e">low</span></button>
+                    <button type="button" class="effpick__it"><span class="effpick__n">Medium</span><span class="effpick__e">medium</span></button>
+                    <button type="button" class="effpick__it is-on"><span class="effpick__n">High</span><span class="effpick__e">high</span></button>
+                    <button type="button" class="effpick__it"><span class="effpick__n">XHigh</span><span class="effpick__e">xhigh</span></button>
+                    <button type="button" class="effpick__it"><span class="effpick__n">Max</span><span class="effpick__e">max</span></button>
+                    <button type="button" class="effpick__it"><span class="effpick__n">Ultra</span><span class="effpick__e">ultra</span></button>
+                  </div>
+                  <p class="field__hint">对应 Codex 的 <code>reasoning effort</code>。Ultra 会启用自动任务委派，消耗更高。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">服务档位</label>
+                <div class="field__body">
+                  <select class="input">
+                    <option>默认</option>
+                    <option>Fast（priority，2× 速度 / 更高用量）</option>
+                  </select>
+                  <p class="field__hint">仅当所选模型声明了 service tiers 时显示。</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="chform chform--sep">
+              <h2 class="chform__title">权限与沙箱</h2>
+
+              <div class="field">
+                <label class="field__label">新会话默认权限</label>
+                <div class="field__body">
+                  <select class="input">
+                    <option>标准 —— workspace 可写，逐次审批</option>
+                    <option>只读 —— 不改文件，只读命令</option>
+                    <option>完全访问 —— 跳过沙箱与审批（危险）</option>
+                  </select>
+                  <p class="field__hint">对应 Codex 的 <code>permissions</code> profile：<code>:workspace</code> / <code>:read-only</code> / <code>:danger-full-access</code>。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">审批方式</label>
+                <div class="field__body">
+                  <select class="input">
+                    <option>用户审批（推荐）</option>
+                    <option>自动审查（auto_review）</option>
+                    <option>Guardian 子代理</option>
+                  </select>
+                  <p class="field__hint">自动审查会让一个子代理先判断风险；涉及敏感操作时仍建议用户审批。</p>
+                </div>
+              </div>
+
+              <div class="callout callout--warn">
+                <strong>完全访问会跳过沙箱。</strong>只有在你明确知道命令会做什么时才选择；CCoder 会额外弹一次确认。
+              </div>
+            </section>
+
+            <section class="chform chform--sep">
+              <h2 class="chform__title">高级</h2>
+
+              <div class="field">
+                <label class="field__label">CODEX_HOME</label>
+                <div class="field__body">
+                  <div class="input-row">
+                    <input class="input" value="C:\Users\CY\.codex" />
+                    <button type="button" class="btn btn--ghost" data-toast="评审稿：会打开系统目录选择器">选择目录</button>
+                  </div>
+                  <p class="field__hint">与 Codex CLI / VSCode 插件共享登录态和会话；留空使用默认 <code>~/.codex</code>。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">额外启动参数</label>
+                <div class="field__body">
+                  <textarea class="input" rows="2">-c model_reasoning_summary="auto"</textarea>
+                  <p class="field__hint">每行一个 <code>-c key=value</code>，原样传给 <code>codex app-server</code>。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">遥测</label>
+                <div class="field__body">
+                  <label class="switch">
+                    <input type="checkbox" checked />
+                    <span>关闭遥测</span>
+                  </label>
+                  <p class="field__hint">app-server 默认关闭 analytics；建议保持关闭。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">图片输入</label>
+                <div class="field__body">
+                  <label class="switch">
+                    <input type="checkbox" checked />
+                    <span>允许粘贴图片</span>
+                  </label>
+                  <p class="field__hint">取决于所选模型的 input modalities；gpt-6.1-sol 支持图片。</p>
+                </div>
+              </div>
+
+              <p class="fineprint">
+                CCoder 使用 <code>codex app-server</code>（实验性协议）。当前适配版本：0.163.x。
+                升级 Codex 后如遇协议变化，请重新检测或查看日志。
+              </p>
+            </section>
+          </div>
+
+          <!-- ── 未安装：安装引导 ─────────────────────────────── -->
+          <div id="missingView" hidden>
+            <div class="installhero">
+              <div class="installhero__mark">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
+              </div>
+              <div class="installhero__body">
+                <div class="installhero__eyebrow">SETUP REQUIRED</div>
+                <h2>还没有检测到 Codex CLI</h2>
+                <p>
+                  CCoder 通过 <code>codex app-server</code> 驱动 Codex。安装后无需重启 CCoder，
+                  点「重新检测」即可继续配置。
+                </p>
+                <div class="installhero__status">
+                  <span class="dot"></span>
+                  未找到 <code>codex.exe</code> / <code>codex.cmd</code>
+                </div>
+              </div>
+            </div>
+
+            <div class="installcard">
+              <div class="installcard__head">
+                <div>
+                  <h3>安装 Codex CLI</h3>
+                  <p>任选一种方式。安装完成后回到这里点「重新检测」。</p>
+                </div>
+                <div class="ostabs" id="osTabs">
+                  <button type="button" class="ostab is-on" data-os="windows">Windows</button>
+                  <button type="button" class="ostab" data-os="macos">macOS</button>
+                  <button type="button" class="ostab" data-os="linux">Linux</button>
+                </div>
+              </div>
+
+              <div class="installmethod">
+                <div class="installmethod__label">
+                  方式 1 · 官方安装脚本
+                  <span class="badge badge--ok">推荐</span>
+                </div>
+                <div class="cmdblock">
+                  <code id="cmdScript">powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"</code>
+                  <button type="button" class="btn btn--ghost btn--xs copybtn" data-copy="cmdScript">复制</button>
+                </div>
+                <p class="installmethod__hint" id="scriptHint">
+                  Windows 安装脚本。安装后可能需要重开终端，让 PATH 生效。
+                </p>
+              </div>
+
+              <div class="installmethod">
+                <div class="installmethod__label">方式 2 · npm</div>
+                <div class="cmdblock">
+                  <code id="cmdNpm">npm install -g @openai/codex</code>
+                  <button type="button" class="btn btn--ghost btn--xs copybtn" data-copy="cmdNpm">复制</button>
+                </div>
+                <p class="installmethod__hint">需要 Node.js 18+；全局安装后 <code>codex</code> 应在 PATH 中。</p>
+              </div>
+            </div>
+
+            <div class="steps">
+              <div class="step">
+                <span class="step__n">1</span>
+                <div>
+                  <div class="step__t">安装 Codex CLI</div>
+                  <div class="step__d">用上面的官方脚本或 npm 安装。</div>
+                </div>
+              </div>
+              <div class="step">
+                <span class="step__n">2</span>
+                <div>
+                  <div class="step__t">登录或配置 API Key</div>
+                  <div class="step__d">在终端运行 <code>codex login</code>，或稍后在 CCoder 的「账号」区登录。</div>
+                </div>
+              </div>
+              <div class="step">
+                <span class="step__n">3</span>
+                <div>
+                  <div class="step__t">重新检测</div>
+                  <div class="step__d">回到这里点「重新检测」，检测到后即可配置渠道和权限。</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="manualcard">
+              <div class="field">
+                <label class="field__label">手动指定路径</label>
+                <div class="field__body">
+                  <div class="input-row">
+                    <input class="input" placeholder="C:\path\to\codex.exe" />
+                    <button type="button" class="btn btn--ghost" data-toast="评审稿：会打开系统文件选择器">选择文件</button>
+                  </div>
+                  <p class="field__hint">适用于便携版或非标准安装位置。留空则自动从 PATH 查找。</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="installactions">
+              <button type="button" class="btn btn--primary" id="redetectMissing">重新检测</button>
+              <a class="btn btn--ghost" href="https://developers.openai.com/codex" target="_blank" rel="noreferrer">打开安装文档</a>
+              <span class="installactions__hint">已安装但仍检测不到？检查 PATH，或手动指定路径。</span>
+            </div>
+
+            <div class="detectstatus" id="detectStatus" hidden>
+              仍未检测到 <code>codex</code>。请确认安装完成、PATH 已刷新，或手动指定可执行文件路径。
+            </div>
+
+            <div class="preconfig">
+              <div>
+                <div class="preconfig__title">想先配置渠道？</div>
+                <p>渠道可以先保存，安装完成后直接使用，不用重填。</p>
+              </div>
+              <button type="button" class="btn btn--ghost" id="togglePreconfig">展开配置</button>
+            </div>
+
+            <div class="preconfigpanel" id="preconfigPanel" hidden>
+              <div class="field">
+                <label class="field__label">渠道名称</label>
+                <div class="field__body">
+                  <input class="input" placeholder="例如：公司网关" />
+                </div>
+              </div>
+              <div class="field">
+                <label class="field__label">Base URL</label>
+                <div class="field__body">
+                  <input class="input" placeholder="https://…/v1" />
+                </div>
+              </div>
+              <div class="field">
+                <label class="field__label">密钥 / Token</label>
+                <div class="field__body">
+                  <input class="input" type="password" placeholder="sk-..." />
+                </div>
+              </div>
+              <div class="field">
+                <label class="field__label">模型</label>
+                <div class="field__body">
+                  <input class="input" placeholder="gpt-6.1-sol" />
+                  <p class="field__hint">安装完成后可以在这里点「测试连接」。</p>
+                </div>
+              </div>
+            </div>
+
+            <p class="fineprint">
+              Codex CLI 是原生二进制，Windows 安装包解压后约 340 MB。CCoder 不内置它，避免安装包膨胀；
+              检测到全局安装后直接复用。当前适配协议：<code>codex app-server</code>（实验性，0.163.x）。
+            </p>
+          </div>
+          </div>
+          <!-- codexPage end -->
+
+          <!-- ── Claude Code：同一套模型列表 ───────────────────── -->
+          <div id="claudePage" hidden>
+            <div class="clipane">
+              <div class="clipane__main">
+                <h2 class="clipane__title">Claude Code</h2>
+                <p class="clipane__hint">Anthropic 兼容端点 · 渠道与其它 CLI 各自独立</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" checked />
+                <span>已启用</span>
+              </label>
+            </div>
+
+            <div class="statuscard statuscard--ok">
+              <div class="statuscard__icon statuscard__icon--ok">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z"/></svg>
+              </div>
+              <div class="statuscard__main">
+                <div class="statuscard__title">Claude Code <span class="badge badge--ok">已安装</span></div>
+                <div class="statuscard__meta"><code>v2.1.303</code> · C:\Users\CY\AppData\Roaming\npm\claude.cmd · stream-json 正常</div>
+              </div>
+              <div class="statuscard__actions">
+                <button type="button" class="btn btn--ghost" data-toast="评审稿：会重新检测 Claude Code">重新检测</button>
+              </div>
+            </div>
+
+            <p class="section-lead">
+              Claude Code 使用 Anthropic 兼容渠道。模型列表的配置方式与 Codex 相同：
+              点「添加模型」增加一行，点「设为默认」决定新会话用哪个。
+            </p>
+
+            <section class="chlist">
+              <div class="chlist__head">
+                <span>渠道</span>
+                <button type="button" class="btn btn--ghost" data-toast="评审稿：新建渠道流程与现有设置页一致">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                  新建渠道
+                </button>
+              </div>
+              <div class="chlist__item is-active">
+                <button type="button" class="chlist__main">
+                  <span class="chlist__name">DeepSeek 中转</span>
+                  <span class="chlist__meta">https://api.deepseek.com/anthropic</span>
+                </button>
+                <span class="badge badge--ok">使用中</span>
+              </div>
+              <div class="chlist__item">
+                <button type="button" class="chlist__main">
+                  <span class="chlist__name">公司网关</span>
+                  <span class="chlist__meta">https://gw.corp.internal/anthropic</span>
+                </button>
+                <button type="button" class="btn btn--ghost btn--xs" data-toast="评审稿：会把「公司网关」设为当前渠道">启用</button>
+              </div>
+            </section>
+
+            <section class="chform">
+              <div class="chform__head">
+                <h2 class="chform__title">DeepSeek 中转</h2>
+                <span class="badge badge--ok">当前使用</span>
+              </div>
+
+              <div class="field">
+                <label class="field__label">名称</label>
+                <div class="field__body">
+                  <input class="input" value="DeepSeek 中转" />
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">协议类型</label>
+                <div class="field__body">
+                  <input class="input" value="Anthropic 兼容" disabled />
+                  <p class="field__hint">由所属 CLI 决定 —— Claude Code 只认 Anthropic 兼容端点。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">Base URL</label>
+                <div class="field__body">
+                  <input class="input" value="https://api.deepseek.com/anthropic" />
+                  <p class="field__hint">例：https://api.deepseek.com/anthropic —— 末尾斜杠会被自动去掉。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">认证方式</label>
+                <div class="field__body">
+                  <select class="input">
+                    <option>Bearer Token（Authorization: Bearer …）</option>
+                    <option>API Key（x-api-key: …）</option>
+                  </select>
+                  <p class="field__hint">选错会一直 401：多数中转网关用 Bearer，Anthropic 官方用 x-api-key。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">密钥 / Token</label>
+                <div class="field__body">
+                  <div class="input-row">
+                    <input class="input" type="password" value="sk-demo-anthropic-xxxxxxxx" />
+                    <button type="button" class="btn btn--ghost">显示</button>
+                  </div>
+                  <p class="field__hint">保存在本机，用系统级加密（Windows DPAPI）。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">模型</label>
+                <div class="field__body">
+                  <div class="modellist" id="claudeModelList" data-model-list="claude">
+                    <div class="modelrow">
+                      <input class="input" value="deepseek-chat" aria-label="模型名称" />
+                      <label class="modelrow__default">
+                        <input type="radio" name="claudeDefaultModel" checked />
+                        <span class="when-on">默认</span>
+                        <span class="when-off">设为默认</span>
+                      </label>
+                      <button type="button" class="iconbtn modelrow__del" aria-label="删除模型">×</button>
+                    </div>
+                    <div class="modelrow">
+                      <input class="input" value="deepseek-reasoner" aria-label="模型名称" />
+                      <label class="modelrow__default">
+                        <input type="radio" name="claudeDefaultModel" />
+                        <span class="when-on">默认</span>
+                        <span class="when-off">设为默认</span>
+                      </label>
+                      <button type="button" class="iconbtn modelrow__del" aria-label="删除模型">×</button>
+                    </div>
+                    <div class="modelrow">
+                      <input class="input" value="deepseek-v4-pro" aria-label="模型名称" />
+                      <label class="modelrow__default">
+                        <input type="radio" name="claudeDefaultModel" />
+                        <span class="when-on">默认</span>
+                        <span class="when-off">设为默认</span>
+                      </label>
+                      <button type="button" class="iconbtn modelrow__del" aria-label="删除模型">×</button>
+                    </div>
+                  </div>
+                  <button type="button" class="btn modeladd" id="addClaudeModel" data-add-model="claude">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                    添加模型
+                  </button>
+                  <p class="field__hint">想配多少个就配多少个。列表会出现在会话的模型选择器；点「设为默认」决定新会话用哪个。至少保留一个。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">快模型（可选）</label>
+                <div class="field__body">
+                  <input class="input" value="deepseek-chat" />
+                  <p class="field__hint">后台小任务用；留空则不注入。</p>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field__label">额外环境变量</label>
+                <div class="field__body">
+                  <div class="envlist">
+                    <div class="envlist__row">
+                      <input class="input" value="HTTP_PROXY" />
+                      <input class="input" value="http://127.0.0.1:7890" />
+                      <button type="button" class="iconbtn" aria-label="删除" data-toast="评审稿：删除这一行环境变量">×</button>
+                    </div>
+                    <button type="button" class="btn btn--ghost" data-toast="评审稿：新增一行环境变量">
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                      添加变量
+                    </button>
+                  </div>
+                  <p class="field__hint">原样注入 Claude Code 进程，如 HTTP_PROXY。</p>
+                </div>
+              </div>
+
+              <div class="chform__actions">
+                <button type="button" class="btn btn--primary" data-toast="评审稿：Claude Code 连接测试会走 claude -p">测试连接</button>
+                <div class="chform__spacer"></div>
+                <button type="button" class="btn btn--danger" data-toast="评审稿：删除渠道需要二次确认">删除渠道</button>
+              </div>
+
+              <div class="testresult is-ok">
+                <div class="testresult__head">
+                  <span>✓ 连接正常</span>
+                  <span class="testresult__latency">96 ms</span>
+                </div>
+                <pre class="testresult__msg">claude -p --output-format json · 模型 deepseek-chat · 连接正常</pre>
+              </div>
+            </section>
+
+            <section class="chform chform--sep">
+              <h2 class="chform__title">思考深度</h2>
+              <div class="field">
+                <label class="field__label">新会话默认</label>
+                <div class="field__body">
+                  <div class="effpick">
+                    <button type="button" class="effpick__it"><span class="effpick__n">Low</span><span class="effpick__e">low</span></button>
+                    <button type="button" class="effpick__it is-on"><span class="effpick__n">Medium</span><span class="effpick__e">medium</span></button>
+                    <button type="button" class="effpick__it"><span class="effpick__n">High</span><span class="effpick__e">high</span></button>
+                    <button type="button" class="effpick__it"><span class="effpick__n">XHigh</span><span class="effpick__e">xhigh</span></button>
+                    <button type="button" class="effpick__it"><span class="effpick__n">Max</span><span class="effpick__e">max</span></button>
+                  </div>
+                  <p class="field__hint">对应 CLI 的 <code>--effort</code>。会话里还能单独改，只影响那一条会话。</p>
+                </div>
+              </div>
+            </section>
+          </div>
+          <!-- claudePage end -->
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+  (function () {
+    var toastTimer = null;
+    var toastEl = document.getElementById('toast');
+    var saveTimer = null;
+
+    function toast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () {
+        toastEl.classList.remove('show');
+      }, 2400);
+    }
+
+    function setSaveStatus(text, saved) {
+      var el = document.getElementById('saveStatus');
+      el.textContent = text;
+      el.classList.toggle('is-saved', !!saved);
+    }
+
+    function scheduleSave() {
+      setSaveStatus('保存中…', false);
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(function () {
+        setSaveStatus('已自动保存', true);
+      }, 520);
+    }
+
+    /* ── 已安装 / 未安装 ─────────────────────────────── */
+    function setInstalled(installed) {
+      var installedView = document.getElementById('installedView');
+      var missingView = document.getElementById('missingView');
+      installedView.hidden = !installed;
+      missingView.hidden = installed;
+
+      document.querySelectorAll('#installState .seg__it').forEach(function (btn) {
+        btn.classList.toggle('is-on', btn.dataset.state === (installed ? 'installed' : 'missing'));
+      });
+
+      var tag = document.getElementById('codexNavTag');
+      tag.textContent = installed ? '已安装' : '未安装';
+      tag.classList.toggle('settings__navtag--ok', installed);
+      tag.classList.toggle('settings__navtag--warn', !installed);
+
+      var enable = document.getElementById('enableToggle');
+      enable.checked = installed;
+      enable.disabled = !installed;
+      document.getElementById('enableLabel').textContent = installed ? '已启用' : '安装后可用';
+      document.getElementById('clipaneHint').textContent = installed
+        ? 'OpenAI 兼容端点 · 通过 codex app-server 驱动'
+        : 'OpenAI 兼容端点 · 安装 Codex CLI 后可用';
+    }
+
+    document.querySelectorAll('#installState .seg__it').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setInstalled(btn.dataset.state === 'installed');
+      });
+    });
+
+    /* 截图/评审时可用 ?v=missing 直接打开未安装状态 */
+    var variant = new URLSearchParams(location.search).get('v');
+    setInstalled(variant !== 'missing');
+
+    /* ── CLI 页面切换 ───────────────────────────────── */
+    function setPage(page) {
+      var codexPage = document.getElementById('codexPage');
+      var claudePage = document.getElementById('claudePage');
+      codexPage.hidden = page !== 'codex';
+      claudePage.hidden = page !== 'claude';
+      document.querySelectorAll('.settings__navitem[data-page]').forEach(function (btn) {
+        btn.classList.toggle('is-active', btn.dataset.page === page);
+      });
+      var content = document.querySelector('.settings__content');
+      if (content) content.scrollTop = 0;
+    }
+
+    document.querySelectorAll('.settings__navitem[data-page]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.dataset.page === 'deepseek') {
+          toast('评审稿：DeepSeek Harness 还未接入');
+          return;
+        }
+        setPage(btn.dataset.page);
+      });
+    });
+
+    var pageParam = new URLSearchParams(location.search).get('page');
+    setPage(pageParam === 'claude' ? 'claude' : 'codex');
+
+    /* 方便评审时直接定位到模型列表 */
+    setTimeout(function () {
+      if (location.hash.length > 1) {
+        var target = document.querySelector(location.hash);
+        if (target) target.scrollIntoView({ block: 'center' });
+      }
+    }, 80);
+
+    document.getElementById('enableToggle').addEventListener('change', function (e) {
+      document.getElementById('enableLabel').textContent = e.target.checked ? '已启用' : '已停用';
+      scheduleSave();
+    });
+
+    /* ── 安装方式：OS 切换 ───────────────────────────── */
+    var commands = {
+      windows: {
+        script: 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
+        hint: 'Windows 安装脚本。安装后可能需要重开终端，让 PATH 生效。'
+      },
+      macos: {
+        script: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+        hint: 'macOS 安装脚本。安装脚本会把 codex 放到用户可执行目录。'
+      },
+      linux: {
+        script: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+        hint: 'Linux 安装脚本。安装后确认 ~/.local/bin 或 /usr/local/bin 在 PATH 中。'
+      }
+    };
+
+    function setOS(os) {
+      var data = commands[os] || commands.windows;
+      document.getElementById('cmdScript').textContent = data.script;
+      document.getElementById('scriptHint').textContent = data.hint;
+      document.querySelectorAll('#osTabs .ostab').forEach(function (btn) {
+        btn.classList.toggle('is-on', btn.dataset.os === os);
+      });
+    }
+
+    document.querySelectorAll('#osTabs .ostab').forEach(function (btn) {
+      btn.addEventListener('click', function () { setOS(btn.dataset.os); });
+    });
+
+    /* ── 复制命令 ─────────────────────────────────────── */
+    function copyText(text, btn) {
+      function done() {
+        var old = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(function () { btn.textContent = old; }, 1200);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {
+          fallbackCopy(text); done();
+        });
+      } else {
+        fallbackCopy(text); done();
+      }
+    }
+    function fallbackCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+
+    document.querySelectorAll('[data-copy]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var el = document.getElementById(btn.dataset.copy);
+        copyText(el.textContent, btn);
+      });
+    });
+
+    /* ── 重新检测 ─────────────────────────────────────── */
+    function redetect(btn, installed) {
+      var old = btn.textContent;
+      btn.textContent = '检测中…';
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.textContent = old;
+        btn.disabled = false;
+        if (installed) {
+          toast('已检测到 Codex 0.163.0 · app-server 正常');
+          setSaveStatus('检测完成', true);
+        } else {
+          document.getElementById('detectStatus').hidden = false;
+          toast('仍未检测到 codex。请确认安装完成且 PATH 已刷新');
+        }
+      }, 1100);
+    }
+
+    document.getElementById('redetectInstalled').addEventListener('click', function () {
+      redetect(this, true);
+    });
+    document.getElementById('redetectMissing').addEventListener('click', function () {
+      redetect(this, false);
+    });
+
+    /* ── 测试连接 ─────────────────────────────────────── */
+    document.getElementById('testConnection').addEventListener('click', function () {
+      var btn = this;
+      var result = document.getElementById('testResult');
+      var head = document.getElementById('testHead');
+      var latency = document.getElementById('testLatency');
+      var msg = document.getElementById('testMsg');
+      btn.textContent = '测试中…';
+      btn.disabled = true;
+      head.textContent = '… 正在连接 app-server';
+      result.classList.remove('is-fail');
+      result.classList.add('is-ok');
+      setTimeout(function () {
+        btn.textContent = '测试连接';
+        btn.disabled = false;
+        head.textContent = '✓ 连接正常';
+        latency.textContent = (160 + Math.floor(Math.random() * 80)) + ' ms';
+        msg.textContent = 'app-server 已就绪 · 模型列表 3 个 · 当前模型 gpt-6.1-sol';
+        toast('连接正常 · app-server 已就绪');
+      }, 900);
+    });
+
+    /* ── 显示/隐藏密钥 ───────────────────────────────── */
+    document.getElementById('revealKey').addEventListener('click', function () {
+      var input = document.getElementById('apiKeyInput');
+      var reveal = input.type === 'password';
+      input.type = reveal ? 'text' : 'password';
+      this.textContent = reveal ? '隐藏' : '显示';
+    });
+
+    /* ── 先配置渠道 ───────────────────────────────────── */
+    document.getElementById('togglePreconfig').addEventListener('click', function () {
+      var panel = document.getElementById('preconfigPanel');
+      var open = panel.hidden;
+      panel.hidden = !open;
+      this.textContent = open ? '收起配置' : '展开配置';
+    });
+
+    /* ── 评审稿占位交互 ───────────────────────────────── */
+    document.querySelectorAll('[data-toast]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        toast(btn.dataset.toast);
+      });
+    });
+
+    /* ── 思考深度分段按钮 ─────────────────────────────── */
+    document.querySelectorAll('.effpick__it').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        btn.parentElement.querySelectorAll('.effpick__it').forEach(function (b) {
+          b.classList.remove('is-on');
+        });
+        btn.classList.add('is-on');
+        scheduleSave();
+      });
+    });
+
+    /* ── 模型列表：加号增加输入框 ─────────────────────── */
+    var settingsContent = document.querySelector('.settings__content');
+    var radioNames = { codex: 'codexDefaultModel', claude: 'claudeDefaultModel' };
+
+    function escapeAttr(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function makeModelRow(key, value) {
+      var row = document.createElement('div');
+      row.className = 'modelrow';
+      row.innerHTML =
+        '<input class="input" value="' + escapeAttr(value) + '" placeholder="输入模型名称" aria-label="模型名称" />' +
+        '<label class="modelrow__default">' +
+          '<input type="radio" name="' + radioNames[key] + '" />' +
+          '<span class="when-on">默认</span>' +
+          '<span class="when-off">设为默认</span>' +
+        '</label>' +
+        '<button type="button" class="iconbtn modelrow__del" aria-label="删除模型">×</button>';
+      return row;
+    }
+
+    document.querySelectorAll('[data-add-model]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var key = btn.dataset.addModel;
+        var list = document.querySelector('[data-model-list="' + key + '"]');
+        if (!list) return;
+        var row = makeModelRow(key, '');
+        list.appendChild(row);
+        var input = row.querySelector('.input');
+        if (input) input.focus();
+        scheduleSave();
+      });
+    });
+
+    settingsContent.addEventListener('click', function (e) {
+      var del = e.target.closest ? e.target.closest('.modelrow__del') : null;
+      if (!del) return;
+      var row = del.closest('.modelrow');
+      var list = row.parentElement;
+      var rows = list.querySelectorAll('.modelrow');
+      if (rows.length <= 1) {
+        var only = row.querySelector('.input');
+        if (only) only.value = '';
+        toast('至少保留一个模型');
+        scheduleSave();
+        return;
+      }
+      var wasDefault = row.querySelector('.modelrow__default input').checked;
+      row.remove();
+      if (wasDefault) {
+        var first = list.querySelector('.modelrow__default input');
+        if (first) first.checked = true;
+      }
+      scheduleSave();
+    });
+
+    /* ── 输入即自动保存（评审稿里只做视觉反馈） ───────── */
+    settingsContent.addEventListener('input', function (e) {
+      if (e.target.matches('.input')) scheduleSave();
+    });
+    settingsContent.addEventListener('change', function (e) {
+      if (e.target.matches('.input, .switch input, .modelrow__default input')) scheduleSave();
+    });
+  })();
+</script>
+</body>
+</html>

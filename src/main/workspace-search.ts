@@ -70,15 +70,24 @@ function isIgnoredFile(name: string, rel: string): boolean {
 /** IDE 文件树也用这一份忽略表，免得 node_modules 又冒出来 */
 export const WORKSPACE_IGNORE_DIRS: ReadonlySet<string> = IGNORE_DIRS
 
-interface Cached {
+/**
+ * 扫描结果。搜索 / 替换必须知道列表是否完整：
+ * `truncated` 是条目或深度上限，`incomplete` 是有目录读失败。
+ */
+export interface WorkspaceScanResult {
+  files: FileMatch[]
+  truncated: boolean
+  incomplete: boolean
+}
+
+interface Cached extends WorkspaceScanResult {
   /** resolve 后的真实根路径，用来读盘 */
   root: string
   at: number
-  files: FileMatch[]
 }
 
 const cache = new Map<string, Cached>()
-const inFlight = new Map<string, Promise<FileMatch[]>>()
+const inFlight = new Map<string, Promise<WorkspaceScanResult>>()
 /**
  * 失效代数。清缓存时递增，让失效前已经开始的扫描不要把它读到的旧目录
  * 内容再写回缓存 —— 否则外部改完文件后快速打开仍可能看到旧列表。
@@ -93,9 +102,11 @@ function cacheKey(cwd: string): string {
 
 const toPosix = (p: string): string => p.replace(/\\/g, '/')
 
-async function scan(root: string): Promise<FileMatch[]> {
+async function scan(root: string): Promise<WorkspaceScanResult> {
   const out: FileMatch[] = []
   let seen = 0
+  let truncated = false
+  let incomplete = false
   /** 栈里存相对路径；最后统一拼绝对路径，避免每个条目都做一次 resolve */
   const stack: { rel: string; depth: number }[] = [{ rel: '', depth: 0 }]
 
@@ -107,19 +118,26 @@ async function scan(root: string): Promise<FileMatch[]> {
     try {
       entries = await fs.readdir(absDir, { withFileTypes: true })
     } catch {
-      // 单个目录不可读（权限 / 刚被删）就跳过，别让整次检索失败
+      // 单个目录不可读（权限 / 刚被删）就跳过，但要让调用方知道列表不完整
+      incomplete = true
       continue
     }
 
     for (const ent of entries) {
-      if (++seen > MAX_ENTRIES) return out
+      if (++seen > MAX_ENTRIES) {
+        truncated = true
+        return { files: out, truncated, incomplete }
+      }
       // 不跟随符号链接：避免环、也避免跑到工作区外面
       if (ent.isSymbolicLink()) continue
 
       const rel = dirRel ? `${dirRel}/${ent.name}` : ent.name
       if (ent.isDirectory()) {
         if (IGNORE_DIRS.has(ent.name)) continue
-        if (depth >= MAX_DEPTH) continue
+        if (depth >= MAX_DEPTH) {
+          truncated = true
+          continue
+        }
         out.push({
           path: rel,
           name: ent.name,
@@ -139,13 +157,13 @@ async function scan(root: string): Promise<FileMatch[]> {
     }
   }
 
-  return out
+  return { files: out, truncated, incomplete }
 }
 
-function getScan(cwd: string): Promise<FileMatch[]> {
+function getScan(cwd: string): Promise<WorkspaceScanResult> {
   const key = cacheKey(cwd)
   const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return Promise.resolve(hit.files)
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return Promise.resolve(hit)
 
   const running = inFlight.get(key)
   if (running) return running
@@ -153,10 +171,10 @@ function getScan(cwd: string): Promise<FileMatch[]> {
   const root = resolve(cwd)
   const gen = generation
   const p = scan(root)
-    .then((files) => {
+    .then((result) => {
       // 扫描期间缓存被失效（外部文件变化）就不要回填旧结果
       if (gen === generation) {
-        cache.set(key, { root, at: Date.now(), files })
+        cache.set(key, { root, at: Date.now(), ...result })
         // 只留最近用到的几个工作区，避免长时间运行后缓存无限涨
         while (cache.size > MAX_ROOTS) {
           const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
@@ -164,7 +182,7 @@ function getScan(cwd: string): Promise<FileMatch[]> {
           cache.delete(oldest[0])
         }
       }
-      return files
+      return result
     })
     .finally(() => {
       inFlight.delete(key)
@@ -204,9 +222,28 @@ export async function listWorkspaceFiles(cwd: string): Promise<FileMatch[]> {
   try {
     const st = await fs.stat(cwd)
     if (!st.isDirectory()) return []
-    return await getScan(cwd)
+    return (await getScan(cwd)).files
   } catch {
     return []
+  }
+}
+
+/**
+ * 和 `listWorkspaceFiles` 同一份缓存，但带上「扫描是否完整」。
+ * 代码搜索 / 全部替换用它：替换在列表不完整时宁可中止，也不能静默漏文件。
+ */
+export async function listWorkspaceFilesDetailed(
+  cwd: string
+): Promise<WorkspaceScanResult> {
+  if (!cwd || !isAbsolute(cwd)) {
+    return { files: [], truncated: false, incomplete: true }
+  }
+  try {
+    const st = await fs.stat(cwd)
+    if (!st.isDirectory()) return { files: [], truncated: false, incomplete: true }
+    return await getScan(cwd)
+  } catch {
+    return { files: [], truncated: false, incomplete: true }
   }
 }
 
@@ -232,7 +269,7 @@ export async function searchWorkspaceFiles(
 
   let files: FileMatch[]
   try {
-    files = await getScan(cwd)
+    files = (await getScan(cwd)).files
   } catch {
     return []
   }

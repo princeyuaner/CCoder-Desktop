@@ -70,6 +70,9 @@ export interface IdeTextFile {
 export type IdeFsErrorCode =
   | 'forbidden'
   | 'invalid-path'
+  | 'invalid-query'
+  | 'invalid-regex'
+  | 'invalid-glob'
   | 'exists'
   | 'missing'
   | 'conflict'
@@ -135,18 +138,100 @@ export interface IdeImage {
   mime: string
 }
 
+export interface IdeSearchOptions {
+  /** false / 省略 = 不区分大小写（保持旧行为） */
+  caseSensitive?: boolean
+  /** false / 省略 = 普通子串 */
+  wholeWord?: boolean
+  /** false / 省略 = 字面量；true 时 query 按 JS 正则解释 */
+  regex?: boolean
+  /** 工作区相对 POSIX glob，任一命中即可；空 = 全部文件 */
+  include?: string[]
+  /** 任一命中即排除 */
+  exclude?: string[]
+}
+
+export interface IdeSearchRequest {
+  cwd: string
+  query: string
+  options?: IdeSearchOptions
+}
+
 export interface IdeSearchMatch {
   /** 1-based */
   line: number
-  /** 1-based */
+  /** 1-based，UTF-16 code unit */
   column: number
-  /** 命中所在行的内容（已压缩空白、截断） */
+  /** 命中长度，UTF-16 code unit */
+  length: number
+  /** 命中附近的片段，可能带首尾 … */
   text: string
+  /** 命中在 text 中的 0-based 偏移，UTF-16 code unit */
+  offset: number
 }
 
 export interface IdeSearchFile {
   rel: string
   name: string
   matches: IdeSearchMatch[]
+}
+
+export interface IdeSearchData {
+  files: IdeSearchFile[]
+  /** 实际返回的命中数（可能被截断） */
+  matchCount: number
+  scannedFiles: number
+  /** 展示上限、扫描超时或工作区扫描不完整 */
+  truncated: boolean
+  /** 直接展示给用户的截断原因 */
+  note?: string
+}
+
+export type IdeSearchResult = IdeFsResult<IdeSearchData>
+
+export type IdeReplaceFileStatus = 'ok' | 'conflict' | 'skipped' | 'error'
+
+export interface IdeReplaceFileResult {
+  rel: string
+  /** 这个文件里替换掉的处数 */
+  replacements: number
+  status: IdeReplaceFileStatus
+  message?: string
+}
+
+export interface IdeReplaceTotals {
+  filesScanned: number
+  filesWithMatches: number
+  filesChanged: number
+  filesSkippedDirty: number
+  filesSkippedBinary: number
+  filesSkippedLarge: number
+  filesConflicted: number
+  filesErrored: number
+  replacements: number
+}
+
+export interface IdeReplaceData {
+  /** 每个文件的处理结果；无命中 / 二进制 / 过大文件不列出 */
+  files: IdeReplaceFileResult[]
+  totals: IdeReplaceTotals
+  /** files 被截断，totals 仍然完整 */
+  filesTruncated: boolean
+  /** 扫描不完整或触发上限：一个文件都没写 */
+  aborted: boolean
+  message?: string
+}
+
+export type IdeReplaceResult = IdeFsResult<IdeReplaceData>
+
+export interface IdeReplaceRequest {
+  cwd: string
+  query: string
+  replacement: string
+  options?: IdeSearchOptions
+  /** IDE 里有未保存修改的文件；这些文件一律跳过 */
+  dirtyRels?: string[]
+  /** 测试 / 安全阀；服务端还会再夹一次硬上限 */
+  maxReplacements?: number
 }
 

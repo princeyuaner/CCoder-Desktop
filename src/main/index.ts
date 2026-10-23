@@ -1,4 +1,5 @@
-import { join } from 'node:path'
+import { existsSync, statSync } from 'node:fs'
+import { isAbsolute, join, resolve } from 'node:path'
 import { app, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { PermissionMode } from '../shared/events'
@@ -11,6 +12,17 @@ import type {
 } from '../shared/session'
 import { loadSettings, saveSettings } from './settings-store'
 import { testChannel } from './claude-runner'
+import { checkCodexStatus, testCodexChannel } from './codex-runner'
+import {
+  cancelClaudeLogin,
+  claudeLoginSnapshot,
+  disposeClaudeAuth,
+  initClaudeAuth,
+  logoutClaude,
+  probeClaudeAuth,
+  startClaudeLogin,
+  submitClaudeLoginCode
+} from './claude-auth'
 import { deleteStoredSession, listStoredSessions, readTranscript } from './session-store'
 import { SessionManager } from './session-manager'
 import { searchWorkspaceFiles } from './workspace-search'
@@ -21,12 +33,15 @@ import {
   readImage,
   readTextFile,
   renameEntry,
+  replaceInWorkspace,
   saveTextFile,
   searchCode
 } from './ide-fs'
 import {
   authorizeVcsSender,
   closeIdeWindow,
+  hasIdeWindowUnder,
+  isIdeSender,
   markIdeDirty,
   openFileInIde,
   openIdeWindow
@@ -35,7 +50,9 @@ import type {
   IdeCreateRequest,
   IdeDeleteRequest,
   IdeRenameRequest,
-  IdeSaveRequest
+  IdeReplaceRequest,
+  IdeSaveRequest,
+  IdeSearchRequest
 } from '../shared/ide'
 import * as vcs from './vcs'
 import type {
@@ -52,16 +69,22 @@ import type {
   VcsResolveRequest,
   VcsRevertRequest,
   VcsStatusRequest,
-  VcsUpdateRequest
+  VcsUpdateRequest,
+  VcsWorktreeAddRequest,
+  VcsWorktreeListRequest,
+  VcsWorktreePruneRequest,
+  VcsWorktreeRemoveRequest
 } from '../shared/vcs'
 import {
   isChatMainSender,
   listChatTargets,
+  openSessionInChat,
   reportActiveChat,
   sendRefsToChat,
   setChatMainWindow
 } from './chat-bridge'
 import type { ChatActiveInfo, IdeSendPayload } from '../shared/ide-chat'
+import { pathKey } from './path-key'
 import { applyNativeTheme, windowBg } from './window-theme'
 
 /**
@@ -133,24 +156,35 @@ function registerWindowIpc(): void {
   ipcMain.handle(IPC.winIsMaximized, (e) => target(e)?.isMaximized() ?? false)
 }
 
-function registerSettingsIpc(): void {
+/** 把一份已经落盘的设置推给所有窗口（主题、底色、渲染层状态） */
+function pushSettings(fresh: Settings): void {
+  // 主题交给 Electron：原生控件、菜单、对话框跟着变，system 时继续跟系统走
+  applyNativeTheme(fresh.theme)
+  const bg = windowBg()
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.setBackgroundColor(bg)
+    w.webContents.send(IPC.settingsChanged, fresh)
+  }
+}
+
+function registerSettingsIpc(sessions: SessionManager): void {
   ipcMain.handle(IPC.settingsGet, (): Settings => loadSettings())
 
   ipcMain.handle(IPC.settingsSave, (_e, incoming: Settings): Settings => {
+    const before = loadSettings()
     saveSettings(incoming)
-    // 主题交给 Electron：原生控件、菜单、对话框跟着变，system 时继续跟系统走
-    applyNativeTheme(incoming.theme)
-    const bg = windowBg()
     const fresh = loadSettings()
-    // 广播给所有窗口，将来多窗口时天然同步
-    for (const w of BrowserWindow.getAllWindows()) {
-      w.setBackgroundColor(bg)
-      w.webContents.send(IPC.settingsChanged, fresh)
-    }
+    // 凭据来源 / 官方默认模型是启动参数：让正在跑的会话在下一轮换进程
+    sessions.settingsChanged(before, fresh)
+    pushSettings(fresh)
     return fresh
   })
 
-  ipcMain.handle(IPC.channelTest, (_e, channel: Channel) => testChannel(channel))
+  ipcMain.handle(IPC.channelTest, (_e, channel: Channel) =>
+    channel.kind === 'openai' ? testCodexChannel(channel) : testChannel(channel)
+  )
+
+  ipcMain.handle(IPC.codexStatus, () => checkCodexStatus())
 
   // 会话存储归 CLI 所有：我们只读它写的，唯一的写操作是"删掉一整条"
   ipcMain.handle(IPC.sessionsList, () => listStoredSessions())
@@ -159,11 +193,67 @@ function registerSettingsIpc(): void {
   )
 }
 
+/**
+ * Claude Code 官方登录。
+ *
+ * login 只负责拉起进程；URL / 输出 / 阶段由主进程广播（注册在 whenReady 里，
+ * 见 initClaudeAuth），设置页订阅即可。授权码只从主进程写进 stdin。
+ */
+function registerClaudeAuthIpc(): void {
+  ipcMain.handle(IPC.claudeAuthStatus, () => probeClaudeAuth())
+  ipcMain.handle(IPC.claudeAuthLogin, () => startClaudeLogin())
+  ipcMain.handle(IPC.claudeAuthSubmitCode, (_e, code: unknown) =>
+    submitClaudeLoginCode(typeof code === 'string' ? code : '')
+  )
+  ipcMain.handle(IPC.claudeAuthCancel, () => cancelClaudeLogin())
+  ipcMain.handle(IPC.claudeAuthLogout, () => logoutClaude())
+  ipcMain.handle(IPC.claudeAuthLoginState, () => claudeLoginSnapshot())
+}
+
 /** @ 文件引用：主进程异步扫描工作区，渲染进程只拿相对路径 */
 function registerWorkspaceIpc(): void {
   ipcMain.handle(IPC.workspaceSearchFiles, (_e, cwd: string, query: string, limit?: number) =>
     searchWorkspaceFiles(cwd, query, limit)
   )
+
+  /**
+   * IDE 请求主窗口在某个目录开新会话。
+   *
+   * `openedCwds` 必须在主进程合并：IDE 窗口没有 Settings 状态，
+   * 让它拿一份旧快照整份 save 会覆盖主窗口刚改的主题 / 渠道等字段。
+   */
+  ipcMain.handle(IPC.workspaceOpenSession, (e, cwd: unknown) => {
+    if (!isIdeSender(e.sender.id)) {
+      return { ok: false, message: '只有 IDE 窗口可以请求打开会话' }
+    }
+    if (typeof cwd !== 'string' || !cwd.trim()) {
+      return { ok: false, message: '路径不合法' }
+    }
+    if (!isAbsolute(cwd)) {
+      return { ok: false, message: '路径必须是绝对路径' }
+    }
+
+    const abs = resolve(cwd)
+    try {
+      if (!existsSync(abs) || !statSync(abs).isDirectory()) {
+        return { ok: false, message: '目录不存在或不是目录' }
+      }
+    } catch {
+      return { ok: false, message: '无法读取目录' }
+    }
+
+    try {
+      const fresh = loadSettings()
+      if (!fresh.openedCwds.some((c) => pathKey(c) === pathKey(abs))) {
+        saveSettings({ ...fresh, openedCwds: [abs, ...fresh.openedCwds] })
+        pushSettings(loadSettings())
+      }
+    } catch {
+      // 设置落盘失败不应该挡住打开会话
+    }
+
+    return openSessionInChat(abs)
+  })
 }
 
 /** 独立 IDE 窗口的文件 / 搜索能力。写操作按窗口绑定的工作区授权。 */
@@ -193,8 +283,11 @@ function registerIdeIpc(): void {
   ipcMain.handle(IPC.ideReadImage, (e, cwd: string, rel: string) =>
     allow(e, cwd) ? readImage(cwd, rel) : denyRead()
   )
-  ipcMain.handle(IPC.ideSearchCode, (e, cwd: string, query: string) =>
-    allow(e, cwd) ? searchCode(cwd, query) : denyRead()
+  ipcMain.handle(IPC.ideSearchCode, (e, req: IdeSearchRequest) =>
+    req && allow(e, req.cwd) ? searchCode(req) : denyRead()
+  )
+  ipcMain.handle(IPC.ideReplaceInWorkspace, (e, req: IdeReplaceRequest) =>
+    req && allow(e, req.cwd) ? replaceInWorkspace(req) : denyWrite()
   )
   ipcMain.handle(IPC.ideSaveFile, (e, req: IdeSaveRequest) =>
     req && allow(e, req.cwd) ? saveTextFile(req) : denyWrite()
@@ -217,10 +310,14 @@ function registerIdeIpc(): void {
  * Git / SVN。只有绑定到该工作区的 IDE 窗口能调用 —— 渲染层传来的 cwd
  * 不可信，必须和窗口创建时记录的工作区一致。
  */
-function registerVcsIpc(): void {
+function registerVcsIpc(sessions: SessionManager): void {
   const deny = (): { ok: false; error: { code: 'forbidden'; message: string } } => ({
     ok: false,
     error: { code: 'forbidden', message: '这个窗口不能操作该工作区' }
+  })
+  const busy = (message: string): { ok: false; error: { code: 'busy'; message: string } } => ({
+    ok: false,
+    error: { code: 'busy', message }
   })
   const allow = (e: Electron.IpcMainInvokeEvent, cwd: unknown): boolean =>
     typeof cwd === 'string' && authorizeVcsSender(e.sender.id, cwd)
@@ -270,6 +367,42 @@ function registerVcsIpc(): void {
   ipcMain.handle(IPC.vcsUpdate, (e, req: VcsUpdateRequest) =>
     req && allow(e, req.cwd) ? vcs.update(req) : deny()
   )
+  ipcMain.handle(IPC.vcsWorktreeList, (e, req: VcsWorktreeListRequest) =>
+    req && allow(e, req.cwd) ? vcs.worktreeList(req) : deny()
+  )
+  ipcMain.handle(IPC.vcsWorktreeAdd, (e, req: VcsWorktreeAddRequest) =>
+    req && allow(e, req.cwd) ? vcs.worktreeAdd(req) : deny()
+  )
+  ipcMain.handle(IPC.vcsWorktreePrune, (e, req: VcsWorktreePruneRequest) =>
+    req && allow(e, req.cwd) ? vcs.worktreePrune(req) : deny()
+  )
+  ipcMain.handle(IPC.vcsWorktreeRemove, async (e, req: VcsWorktreeRemoveRequest) => {
+    if (!req || !allow(e, req.cwd)) return deny()
+    if (typeof req.path !== 'string' || !isAbsolute(req.path)) return deny()
+
+    // 目录被 IDE 窗口或活跃会话占着时，Windows 上删不干净，
+    // 而且删完还会让它们的后续读写落到一个不存在的目录。
+    if (hasIdeWindowUnder(req.path)) return busy('请先关闭该工作树的 IDE 窗口')
+    if (sessions.hasLiveSessionIn(req.path)) return busy('该工作树下还有活跃会话，请先停止')
+
+    const r = await vcs.worktreeRemove(req)
+    if (r.ok) {
+      // 工作树目录已经没了，顺手把它从侧栏白名单里摘掉。
+      // 仍然只在主进程合并，避免渲染层拿旧快照整份回写。
+      try {
+        const fresh = loadSettings()
+        const next = fresh.openedCwds.filter((c) => pathKey(c) !== pathKey(req.path))
+        if (next.length !== fresh.openedCwds.length) {
+          saveSettings({ ...fresh, openedCwds: next })
+          pushSettings(loadSettings())
+        }
+      } catch {
+        // 清理失败不影响删除结果
+      }
+    }
+    return r
+  })
+
   ipcMain.handle(IPC.vcsCancel, (e, req: VcsCancelRequest) =>
     req && allow(e, req.cwd) ? vcs.cancel(req) : deny()
   )
@@ -358,12 +491,19 @@ app.whenReady().then(() => {
     (p) => broadcast(IPC.sessionStatus, p)
   )
 
+  // 登录状态机不直接碰 electron：事件出口和"打开浏览器"都从这里注入
+  initClaudeAuth({
+    emit: (e) => broadcast(IPC.claudeAuthEvent, e),
+    openUrl: (url) => void shell.openExternal(url)
+  })
+
   registerWindowIpc()
-  registerSettingsIpc()
+  registerSettingsIpc(sessions)
+  registerClaudeAuthIpc()
   registerSessionIpc(sessions)
   registerWorkspaceIpc()
   registerIdeIpc()
-  registerVcsIpc()
+  registerVcsIpc(sessions)
   registerChatBridgeIpc()
   createWindow()
 
@@ -371,8 +511,11 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 
-  // 退出前收掉所有 CLI 子进程，别留孤儿
-  app.on('before-quit', () => sessions.stopAll())
+  // 退出前收掉所有 CLI 子进程（包括还在等授权码的登录进程），别留孤儿
+  app.on('before-quit', () => {
+    sessions.stopAll()
+    disposeClaudeAuth()
+  })
 })
 
 app.on('window-all-closed', () => {

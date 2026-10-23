@@ -4,6 +4,10 @@ import { join } from 'node:path'
 import type { AgentEvent } from '../shared/events'
 import type { StoredSession } from '../shared/session'
 import { looksInjected, replayRecords } from './providers/claude/history'
+import {
+  listCodexSessionFiles,
+  readCodexTranscript
+} from './providers/codex/history'
 
 /**
  * 读 CLI 自己的会话存储。
@@ -195,7 +199,13 @@ function readTailCwd(file: string, size: number): string {
  * 同一个 session id 可能同时出现在两个项目目录下（会话被换过 cwd，
  * 或者从别处 resume 过来）。只按 id 索引会互相覆盖，读历史时拿到错的那份。
  */
-const pathById = new Map<string, string>()
+interface SessionFile {
+  file: string
+  cli: 'claude' | 'codex'
+  id: string
+}
+
+const pathById = new Map<string, SessionFile>()
 const keyOf = (cwd: string, id: string): string => `${cwd}\u0000${id}`
 
 export function listStoredSessions(): StoredSession[] {
@@ -255,7 +265,7 @@ export function listStoredSessions(): StoredSession[] {
         const id = f.slice(0, -'.jsonl'.length)
         const k = keyOf(cwd, id)
         if (pathById.has(k)) continue // 同一份不该出现两次
-        pathById.set(k, full)
+        pathById.set(k, { file: full, cli: 'claude', id })
         out.push({
           id,
           cwd,
@@ -279,6 +289,18 @@ export function listStoredSessions(): StoredSession[] {
   }
 
   /*
+   * Codex 的 rollout 自己有一份扫描与缓存（~/.codex/sessions）。
+   * 两边都可能出现同一个 cwd，但 id 空间不同，按 (cwd,id) 合并即可；
+   * 真撞了也以后者为准 —— 这种概率比文件损坏还低。
+   */
+  for (const { file, session } of listCodexSessionFiles()) {
+    const k = keyOf(session.cwd, session.id)
+    if (pathById.has(k)) continue
+    pathById.set(k, { file, cli: 'codex', id: session.id })
+    out.push(session)
+  }
+
+  /*
    * 默认按**创建时间**倒序，而不是 mtime。
    *
    * mtime 在会话运行期间每写一条记录就变一次，而列表会在每个 turn_end
@@ -291,7 +313,7 @@ export function listStoredSessions(): StoredSession[] {
   )
 }
 
-function findFile(cwd: string, id: string): string | null {
+function findFile(cwd: string, id: string): SessionFile | null {
   const cached = pathById.get(keyOf(cwd, id))
   if (cached) return cached
   // 缓存没命中（比如列表还没拉过），退化成扫一遍
@@ -310,9 +332,10 @@ export async function deleteStoredSession(
   cwd: string,
   id: string
 ): Promise<{ ok: boolean; message?: string }> {
-  const file = findFile(cwd, id)
-  if (!file) return { ok: false, message: '找不到这条会话的记录文件' }
+  const found = findFile(cwd, id)
+  if (!found) return { ok: false, message: '找不到这条会话的记录文件' }
 
+  const file = found.file
   for (let i = 0; i < 6; i++) {
     try {
       unlinkSync(file)
@@ -333,9 +356,11 @@ export async function deleteStoredSession(
 
 /** 读一份会话并把记录回放成事件流。cwd 必须一起给：身份是 (cwd, id)。 */
 export function readTranscript(cwd: string, id: string): AgentEvent[] {
-  const file = findFile(cwd, id)
-  if (!file) return []
+  const found = findFile(cwd, id)
+  if (!found) return []
+  if (found.cli === 'codex') return readCodexTranscript(found.file, cwd, id)
 
+  const file = found.file
   let raw: string
   try {
     raw = readFileSync(file, 'utf8')

@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { IPC, type WindowApi } from '../shared/ipc'
+import type { CodexStatus } from '../shared/codex'
+import type {
+  ClaudeAuthEvent,
+  ClaudeAuthResult,
+  ClaudeAuthStatus,
+  ClaudeLoginSnapshot
+} from '../shared/claude'
 import type { Channel, ChannelTestResult, Settings } from '../shared/settings'
 import type {
   PermissionDecision,
@@ -45,6 +52,16 @@ ipcRenderer.on(IPC.ideCloseRequest, () => {
   else for (const cb of closeListeners) cb()
 })
 
+/** IDE 请求主窗口“在这个目录开新会话”；主窗口可能还在加载 */
+let pendingOpenSession: string | null = null
+const openSessionListeners = new Set<(cwd: string) => void>()
+
+ipcRenderer.on(IPC.chatOpenSession, (_e: Electron.IpcRendererEvent, cwd: string) => {
+  if (typeof cwd !== 'string') return
+  if (openSessionListeners.size === 0) pendingOpenSession = cwd
+  else for (const cb of openSessionListeners) cb(cwd)
+})
+
 /**
  * 渲染进程能看到的**全部**能力都在这里。加能力必须先在这里加一行，
  * 这是刻意的摩擦：渲染进程永远拿不到 ipcRenderer 本身。
@@ -74,6 +91,26 @@ const api: WindowApi = {
       const listener = (_e: Electron.IpcRendererEvent, s: Settings): void => cb(s)
       ipcRenderer.on(IPC.settingsChanged, listener)
       return () => ipcRenderer.off(IPC.settingsChanged, listener)
+    }
+  },
+
+  codex: {
+    status: (): Promise<CodexStatus> => ipcRenderer.invoke(IPC.codexStatus)
+  },
+
+  claude: {
+    authStatus: (): Promise<ClaudeAuthStatus> => ipcRenderer.invoke(IPC.claudeAuthStatus),
+    authLogin: (): Promise<ClaudeAuthResult> => ipcRenderer.invoke(IPC.claudeAuthLogin),
+    authSubmitCode: (code: string): Promise<ClaudeAuthResult> =>
+      ipcRenderer.invoke(IPC.claudeAuthSubmitCode, code),
+    authCancel: (): Promise<ClaudeAuthResult> => ipcRenderer.invoke(IPC.claudeAuthCancel),
+    authLogout: (): Promise<ClaudeAuthResult> => ipcRenderer.invoke(IPC.claudeAuthLogout),
+    authLoginState: (): Promise<ClaudeLoginSnapshot> =>
+      ipcRenderer.invoke(IPC.claudeAuthLoginState),
+    onAuthEvent: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, ev: ClaudeAuthEvent): void => cb(ev)
+      ipcRenderer.on(IPC.claudeAuthEvent, listener)
+      return () => ipcRenderer.off(IPC.claudeAuthEvent, listener)
     }
   },
 
@@ -112,7 +149,21 @@ const api: WindowApi = {
 
   workspace: {
     searchFiles: (cwd: string, query: string, limit?: number) =>
-      ipcRenderer.invoke(IPC.workspaceSearchFiles, cwd, query, limit)
+      ipcRenderer.invoke(IPC.workspaceSearchFiles, cwd, query, limit),
+    openSession: (cwd: string): Promise<{ ok: boolean; message?: string }> =>
+      ipcRenderer.invoke(IPC.workspaceOpenSession, cwd),
+    onOpenSession: (cb) => {
+      openSessionListeners.add(cb)
+      // 订阅之前就到的请求补发一次，别让用户点了没反应
+      const late = pendingOpenSession
+      if (late) {
+        pendingOpenSession = null
+        cb(late)
+      }
+      return () => {
+        openSessionListeners.delete(cb)
+      }
+    }
   },
 
   ide: {
@@ -142,7 +193,8 @@ const api: WindowApi = {
     listDir: (cwd, rel) => ipcRenderer.invoke(IPC.ideListDir, cwd, rel),
     readFile: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadFile, cwd, rel),
     readImage: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadImage, cwd, rel),
-    searchCode: (cwd, query) => ipcRenderer.invoke(IPC.ideSearchCode, cwd, query),
+    searchCode: (req) => ipcRenderer.invoke(IPC.ideSearchCode, req),
+    replaceInWorkspace: (req) => ipcRenderer.invoke(IPC.ideReplaceInWorkspace, req),
     saveFile: (req) => ipcRenderer.invoke(IPC.ideSaveFile, req),
     createEntry: (req) => ipcRenderer.invoke(IPC.ideCreateEntry, req),
     renameEntry: (req) => ipcRenderer.invoke(IPC.ideRenameEntry, req),
@@ -177,6 +229,10 @@ const api: WindowApi = {
     pull: (req) => ipcRenderer.invoke(IPC.vcsPull, req),
     push: (req) => ipcRenderer.invoke(IPC.vcsPush, req),
     update: (req) => ipcRenderer.invoke(IPC.vcsUpdate, req),
+    worktreeList: (req) => ipcRenderer.invoke(IPC.vcsWorktreeList, req),
+    worktreeAdd: (req) => ipcRenderer.invoke(IPC.vcsWorktreeAdd, req),
+    worktreeRemove: (req) => ipcRenderer.invoke(IPC.vcsWorktreeRemove, req),
+    worktreePrune: (req) => ipcRenderer.invoke(IPC.vcsWorktreePrune, req),
     cancel: (req) => ipcRenderer.invoke(IPC.vcsCancel, req)
   } satisfies VcsApi,
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { activeChannelOf, cliConfig, type CliId } from '@shared/settings'
 import type { ChatActiveInfo, IdeCodeRef } from '@shared/ide-chat'
 import { parseIdeRefs } from '../ideRef'
@@ -14,7 +14,7 @@ import type { Active } from '../App'
 import { ChatHeader } from './ChatHeader'
 import { TabBar, type TabKey } from './TabBar'
 import { Transcript } from './Transcript'
-import { Composer } from './Composer'
+import { Composer, type ModelSelection } from './Composer'
 import { StatusBar } from './StatusBar'
 import { PermissionModal } from './PermissionModal'
 import { QuestionDrawer } from './QuestionDrawer'
@@ -110,7 +110,9 @@ export function MainPane({
     setPanelPref(null)
   }, [cli, sessionKey])
   const cfg = cliConfig(settings, cli)
-  const activeCh = activeChannelOf(settings, cli)
+  /** Claude 的官方登录模式：不挂渠道，模型用 officialModel 兜底 */
+  const official = cli === 'claude' && cfg.authMode === 'official'
+  const activeCh = official ? null : activeChannelOf(settings, cli)
 
   /*
    * 上下文胶囊要算百分比，就得知道上下文窗口上限；上限只写在模型名的
@@ -126,36 +128,103 @@ export function MainPane({
    */
   const bareModel = (m: string): string =>
     m.trim().toLowerCase().replace(/\s*\[[^\]]*\]\s*$/, '')
-  const modelPool = [activeCh?.model ?? '', ...(activeCh?.models ?? [])].filter(
-    (m) => m.trim().length > 0
-  )
+  const modelPool = official
+    ? [cfg.officialModel]
+    : [activeCh?.model ?? '', ...(activeCh?.models ?? [])].filter(
+        (m) => m.trim().length > 0
+      )
   const matchedModel = chat.model.trim()
     ? modelPool.find((m) => bareModel(m) === bareModel(chat.model))
     : undefined
   /** 展示 / 算窗口用的模型名：优先用户配置里的原始写法，其次才是 CLI 报的 */
-  const displayModel = matchedModel ?? (chat.model || activeCh?.model || '')
+  const displayModel = official
+    ? matchedModel ?? (cfg.officialModel || chat.model)
+    : matchedModel ?? (chat.model || activeCh?.model || '')
 
   /**
-   * 换渠道。渠道是**启动参数**（就是注入给 CLI 的那几个环境变量），
-   * 不换进程不生效 —— 所以改完设置还得让会话重开一个进程；
-   * 主进程 spawn 时会自己重新读一遍当前渠道，这里不用把渠道传下去。
+   * 跨 CLI 选模型时，新会话对象要下一次渲染才建好 —— 先把模型记下来，
+   * 等它出现再补上。否则 `applyModel` 会落到刚被换掉的那条会话上。
    */
-  const pickChannel = (id: string): void => {
-    void save({ ...settings, clis: { ...settings.clis, [cli]: { ...cfg, activeChannelId: id } } })
-    // 留痕要的是名字，而主进程只认 id —— 两个名字在这里取好再传下去
-    const name = (cid: string | null): string =>
-      cfg.channels.find((c) => c.id === cid)?.name || '未选渠道'
-    chat.applyChannel(name(cfg.activeChannelId), name(id))
-  }
+  const pendingModel = useRef<{ cli: CliId; model: string } | null>(null)
+
+  useEffect(() => {
+    const p = pendingModel.current
+    if (!p) return
+    // 只在这一帧确实切到了目标 CLI 时才用；否则（比如看的是已有会话，
+    // 换 CLI 并不会真的生效）丢掉，别让它留到下一次新会话上
+    pendingModel.current = null
+    if (p.cli === cli) chat.applyModel(p.model)
+  }, [cli, chat])
 
   /**
-   * 换 CLI。新会话换 CLI 等于换一条会话（另一套 provider + 另一份记录），
-   * 旧 controller 必须收掉 —— 否则它会挂在后台，而且没有侧栏行能再点回来。
+   * 模型选择器落下一套选择。三列是**同一个决定**的三个部分（哪个 CLI、
+   * 哪个端点、哪个模型），点哪一列都从这里走。
+   *
+   * 渠道和模型都是**启动参数**（就是注入给 CLI 的那几个环境变量），
+   * 不换进程不生效 —— 改完设置还得让会话重开一个进程；主进程 spawn 时
+   * 会自己重新读一遍当前渠道，这里不用把渠道传下去。
+   *
+   * 换 CLI 则是另一条会话（另一套 provider + 另一份记录），旧 controller
+   * 必须收掉 —— 否则它会挂在后台，而且没有侧栏行能再点回来。
    */
-  const changeCli = (c: CliId): void => {
-    if (c === cli) return
-    if (active.kind === 'new') disposeNewChat(cli, active.n)
-    setPickedCli(c)
+  const pickSelection = (sel: ModelSelection): void => {
+    const targetCfg = cliConfig(settings, sel.cli)
+
+    // 凭据来源跟着选择一起落盘：选官方账号 → official；选真实渠道 → channel。
+    // 官方模式下模型也记在 officialModel 上，渠道配置原样保留。
+    const patch: Partial<typeof targetCfg> = {}
+    if (sel.channelId) patch.activeChannelId = sel.channelId
+    if (sel.official) patch.authMode = 'official'
+    else if (sel.channelId && sel.cli === 'claude') patch.authMode = 'channel'
+    if (sel.official && sel.model !== undefined) patch.officialModel = sel.model
+
+    const persist =
+      Object.keys(patch).length > 0
+        ? save({
+            ...settings,
+            clis: {
+              ...settings.clis,
+              [sel.cli]: { ...targetCfg, ...patch }
+            }
+          })
+        : Promise.resolve(settings)
+
+    /*
+     * **先落盘再改会话**。
+     *
+     * 主进程的 settingsSave 会调 SettingsManager.settingsChanged()：切换凭据
+     * 来源时它会清掉会话里显式设过的模型。如果 applyModel 抢在保存前面到达，
+     * 用户刚选的模型会被随后到达的 settingsChanged 清掉。
+     */
+    void persist
+      .then(() => {
+        if (sel.cli !== cli) {
+          if (active.kind === 'new') disposeNewChat(cli, active.n)
+          setPickedCli(sel.cli)
+          // 新会话的 controller 还没建好，模型等它出现再应用
+          if (sel.model) pendingModel.current = { cli: sel.cli, model: sel.model }
+          return
+        }
+
+        // 同一条 CLI：渠道 / 模型都是启动参数，重开进程并 --resume 接回会话
+        // 留痕要的是名字，而主进程只认 id —— 两个名字在这里取好再传下去
+        const chanName = (cid: string | null): string =>
+          targetCfg.channels.find((c) => c.id === cid)?.name || '未选渠道'
+
+        if (sel.official) {
+          // 已经在官方模式时只需要应用模型，别再留一条「官方账号 → 官方账号」
+          if (!official) {
+            chat.applyAuth(chanName(targetCfg.activeChannelId), '官方账号')
+          }
+        } else if (sel.channelId) {
+          chat.applyChannel(
+            official ? '官方账号' : chanName(targetCfg.activeChannelId),
+            chanName(sel.channelId)
+          )
+        }
+        if (sel.model) chat.applyModel(sel.model)
+      })
+      .catch(() => undefined)
   }
 
   /**
@@ -287,8 +356,8 @@ export function MainPane({
           onResumeQueue={chat.resumeQueue}
           locked={pendingQuestions.length > 0}
           cli={cli}
-          channels={cfg.channels}
-          activeChannelId={cfg.activeChannelId}
+          cliConfigs={settings.clis}
+          activeChannelId={official ? null : cfg.activeChannelId}
           model={displayModel}
           permissionMode={chat.permissionMode}
           effort={chat.effort}
@@ -299,9 +368,7 @@ export function MainPane({
           turns={chat.turns}
           steps={chat.steps}
           usage={chat.usage}
-          onCliChange={changeCli}
-          onChannelChange={pickChannel}
-          onModelChange={chat.applyModel}
+          onSelect={pickSelection}
           onModeChange={chat.applyPermissionMode}
           onEffortChange={chat.applyEffort}
           onClearConversation={clearConversation}

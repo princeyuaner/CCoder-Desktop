@@ -517,6 +517,104 @@
   background: rgba(224, 175, 104, .14);
   border-radius: 2px;
 }
+
+/* 搜索选项 / 替换行 */
+.ide-sreplace-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+  border-radius: 3px;
+}
+.ide-sreplace-toggle:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.ide-searchbox--replace {
+  margin-top: -2px;
+}
+.ide-searchbox--replace input {
+  font-family: var(--font-mono);
+}
+.ide-replaceall {
+  flex: none;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  color: #10151f;
+  background: #8ab4f8;
+  border: 1px solid #8ab4f8;
+  border-radius: 3px;
+}
+.ide-replaceall:hover:not(:disabled) {
+  background: #a3c5fa;
+}
+.ide-replaceall:disabled {
+  opacity: .4;
+  cursor: default;
+}
+.ide-sopts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 6px;
+}
+.ide-sopt {
+  height: 20px;
+  min-width: 24px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+.ide-sopt:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.ide-sopt.is-on {
+  color: #10151f;
+  background: #8ab4f8;
+  border-color: #8ab4f8;
+}
+.ide-sglob {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 7px;
+}
+.ide-sglob input {
+  height: 24px;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+.ide-sglob input:focus {
+  border-color: #8ab4f8;
+}
+.ide-searchsum.is-error {
+  color: #d98a8a;
+  overflow-wrap: anywhere;
+}
+.ide-searchsum.is-done {
+  color: #7fbf7f;
+}
+.ide-searchnote {
+  padding: 0 12px 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #c9a96a;
+  overflow-wrap: anywhere;
+}
 .ide-spin {
   width: 10px;
   height: 10px;
@@ -1583,6 +1681,32 @@
 [data-scheme='light'] .ide-sline {
   color: #a8a8b0;
 }
+[data-scheme='light'] .ide-sglob input {
+  background: #ffffff;
+  border-color: var(--border);
+}
+[data-scheme='light'] .ide-sopt.is-on {
+  color: #ffffff;
+  background: #2f6fc9;
+  border-color: #2f6fc9;
+}
+[data-scheme='light'] .ide-replaceall {
+  color: #ffffff;
+  background: #2f6fc9;
+  border-color: #2f6fc9;
+}
+[data-scheme='light'] .ide-replaceall:hover:not(:disabled) {
+  background: #3d7ed8;
+}
+[data-scheme='light'] .ide-searchsum.is-error {
+  color: #b03a32;
+}
+[data-scheme='light'] .ide-searchsum.is-done {
+  color: #2f8a45;
+}
+[data-scheme='light'] .ide-searchnote {
+  color: #8f6a09;
+}
 [data-scheme='light'] .ide-canvas {
   background-color: #f4f4f6;
   background-image:
@@ -1752,6 +1876,32 @@
 [data-theme='sepia'] .ide-dln,
 [data-theme='sepia'] .ide-sline {
   color: var(--text-faint);
+}
+[data-theme='sepia'] .ide-sglob input {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+[data-theme='sepia'] .ide-sopt.is-on {
+  color: #fffaf0;
+  background: #8f6a09;
+  border-color: #8f6a09;
+}
+[data-theme='sepia'] .ide-replaceall {
+  color: #fffaf0;
+  background: #8f6a09;
+  border-color: #8f6a09;
+}
+[data-theme='sepia'] .ide-replaceall:hover:not(:disabled) {
+  background: #a37c10;
+}
+[data-theme='sepia'] .ide-searchsum.is-error {
+  color: #a83242;
+}
+[data-theme='sepia'] .ide-searchsum.is-done {
+  color: #2f7a3e;
+}
+[data-theme='sepia'] .ide-searchnote {
+  color: #8f5116;
 }
 [data-theme='sepia'] .ide-canvas {
   background-color: var(--bg-app);
@@ -2103,6 +2253,7 @@
   border-radius: 3px;
 }
 .ide-vcs-mini:hover { color: var(--text); background: var(--bg-raised); }
+.ide-vcs-mini.is-primary { color: var(--accent); }
 .ide-vcs-mini.is-danger { color: var(--danger); }
 .ide-vcs-clean, .ide-vcs-empty-s { padding: 14px; font-size: 10.5px; line-height: 1.6; color: var(--text-faint); }
 .ide-vcs-empty {
@@ -2188,6 +2339,7 @@
   flex: none;
   display: flex;
   align-items: center;
+  gap: 6px;
   height: 33px;
   padding: 0 8px 0 12px;
   font-size: 10px;
@@ -2331,6 +2483,108 @@
 .ide-vcs-confirm-t { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .ide-vcs-confirm-b { margin: 7px 0 14px; font-size: 10.5px; line-height: 1.6; color: var(--text-muted); }
 .ide-vcs-confirm-f { display: flex; justify-content: flex-end; gap: 7px; }
+.ide-vcs-confirm.is-wide { width: 480px; }
+
+/* ── 工作树 ───────────────────────────────────────────── */
+.ide-vcs-wtlist {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.ide-vcs-wtrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.ide-vcs-wtrow:hover { background: var(--bg-hover); }
+.ide-vcs-wtrow.is-active { background: var(--bg-active); }
+.ide-vcs-wtbranch {
+  flex: none;
+  font: 600 10.5px var(--font-mono);
+  color: var(--text);
+}
+.ide-vcs-wttags { display: flex; gap: 3px; flex: none; }
+.ide-vcs-wttag {
+  font-style: normal;
+  font-size: 8.5px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-soft);
+}
+.ide-vcs-wttag.is-main { color: var(--text-muted); }
+.ide-vcs-wttag.is-current {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.ide-vcs-wttag.is-missing { color: var(--warn); }
+.ide-vcs-wttag.is-locked { color: var(--danger); }
+.ide-vcs-wtpath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 9.5px var(--font-mono);
+  color: var(--text-faint);
+}
+.ide-vcs-wtdetail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 14px;
+}
+.ide-vcs-wtactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 12px 2px;
+}
+.ide-vcs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 2px;
+}
+.ide-vcs-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+.ide-vcs-form input {
+  height: 28px;
+  padding: 0 8px;
+  font: 10px var(--font-mono);
+  color: var(--text);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.ide-vcs-form input:focus {
+  outline: none;
+  border-color: var(--text-faint);
+}
+.ide-vcs-formhint {
+  font-size: 9.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
 
 /* ── 资源管理器右键菜单 ───────────────────────────────── */
 .ide-ctx-overlay {

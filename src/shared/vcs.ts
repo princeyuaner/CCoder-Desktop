@@ -26,6 +26,8 @@ export interface VcsCapabilities {
   log: boolean
   commitDetail: boolean
   branches: boolean
+  /** Git worktree 管理（SVN 为 false） */
+  worktrees: boolean
 }
 
 export interface VcsRepo {
@@ -179,6 +181,37 @@ export interface VcsDetectData {
   reason?: 'no-repo' | 'no-cli'
 }
 
+/* ── Worktree（Git only） ──────────────────────────────── */
+
+export interface VcsWorktree {
+  /** 工作树目录的绝对路径 */
+  path: string
+  head: string
+  headShort: string
+  /** 分支短名；detached / bare 时为 null */
+  branch: string | null
+  detached: boolean
+  bare: boolean
+  /** `git worktree list` 的第一条 —— 主工作树 */
+  main: boolean
+  /** 当前 cwd 是否位于这个工作树内 */
+  current: boolean
+  /** 目录实际存在；false 表示只能在外部清理或用 prune 移除注册 */
+  exists: boolean
+  locked: boolean
+  lockReason?: string
+  /** 缺失且未锁定，可以用 prune 清掉注册 */
+  prunable: boolean
+}
+
+export interface VcsWorktreeListData {
+  worktrees: VcsWorktree[]
+  /** 主工作树同级的默认根目录，创建新工作树时用 */
+  defaultRoot: string
+  /** 主工作树路径 */
+  mainPath: string
+}
+
 /* ── 请求 ─────────────────────────────────────────────── */
 
 export interface VcsRequestBase {
@@ -242,6 +275,31 @@ export interface VcsUpdateRequest extends VcsRequestBase {
   revision?: string
 }
 
+export type VcsWorktreeListRequest = VcsRequestBase
+
+export interface VcsWorktreeAddRequest extends VcsRequestBase {
+  /** 新工作树的绝对路径 */
+  path: string
+  branch: string
+  /** 起点；缺省用当前工作区的分支 / HEAD */
+  base?: string
+  /** MVP 固定为 true；false 预留给将来检出已有分支 */
+  createBranch?: boolean
+}
+
+export interface VcsWorktreeRemoveRequest extends VcsRequestBase {
+  path: string
+  /** 有未提交改动时需要显式强制 */
+  force?: boolean
+}
+
+export type VcsWorktreePruneRequest = VcsRequestBase
+
+export interface VcsWorktreePruneData extends VcsWorktreeListData {
+  pruned: number
+  prunedPaths: string[]
+}
+
 export interface VcsCancelRequest {
   cwd: string
   opId: string
@@ -261,6 +319,7 @@ export type VcsErrorCode =
   | 'auth-required'
   | 'not-fast-forward'
   | 'dirty'
+  | 'branch-in-use'
   | 'timeout'
   | 'cancelled'
   | 'busy'
@@ -292,5 +351,9 @@ export interface VcsApi {
   pull(req: VcsPullRequest): Promise<VcsResult<VcsSyncData>>
   push(req: VcsPushRequest): Promise<VcsResult<VcsSyncData>>
   update(req: VcsUpdateRequest): Promise<VcsResult<VcsSyncData>>
+  worktreeList(req: VcsWorktreeListRequest): Promise<VcsResult<VcsWorktreeListData>>
+  worktreeAdd(req: VcsWorktreeAddRequest): Promise<VcsResult<VcsWorktreeListData>>
+  worktreeRemove(req: VcsWorktreeRemoveRequest): Promise<VcsResult<VcsWorktreeListData>>
+  worktreePrune(req: VcsWorktreePruneRequest): Promise<VcsResult<VcsWorktreePruneData>>
   cancel(req: VcsCancelRequest): Promise<VcsResult<{ cancelled: boolean }>>
 }

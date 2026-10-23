@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { mkdir, readFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type {
   VcsChange,
   VcsCommitData,
@@ -19,9 +21,17 @@ import type {
   VcsDiscardRequest,
   VcsStatus,
   VcsStatusRequest,
-  VcsSyncData
+  VcsSyncData,
+  VcsWorktree,
+  VcsWorktreeAddRequest,
+  VcsWorktreeListData,
+  VcsWorktreeListRequest,
+  VcsWorktreePruneData,
+  VcsWorktreePruneRequest,
+  VcsWorktreeRemoveRequest
 } from '../../shared/vcs'
-import { mapCliError, runGit, VcsOpError } from './exec'
+import { isSameOrInside, pathKey } from '../path-key'
+import { mapCliError, runGit, VcsOpError, type VcsExecResult } from './exec'
 import {
   absPath,
   assertRealInside,
@@ -577,4 +587,292 @@ export async function pushGit(
 
 export async function updateGit(): Promise<VcsSyncData> {
   throw new VcsOpError('unsupported', 'Git 使用 pull 更新')
+}
+
+/* ── Worktree ─────────────────────────────────────────── */
+
+interface WorktreeRecord {
+  path: string
+  head: string
+  branch: string | null
+  detached: boolean
+  bare: boolean
+  locked: boolean
+  lockReason?: string
+}
+
+function parseWorktreePorcelain(raw: string): WorktreeRecord[] {
+  const out: WorktreeRecord[] = []
+  let cur: WorktreeRecord | null = null
+
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.startsWith('worktree ')) {
+      if (cur) out.push(cur)
+      cur = {
+        path: line.slice('worktree '.length).trim(),
+        head: '',
+        branch: null,
+        detached: false,
+        bare: false,
+        locked: false
+      }
+      continue
+    }
+    if (!cur) continue
+
+    if (line.startsWith('HEAD ')) cur.head = line.slice(5).trim()
+    else if (line.startsWith('branch ')) {
+      cur.branch = line.slice(7).trim().replace(/^refs\/heads\//, '')
+    } else if (line === 'detached') cur.detached = true
+    else if (line === 'bare') cur.bare = true
+    else if (line === 'locked' || line.startsWith('locked ')) {
+      cur.locked = true
+      const reason = line.slice('locked'.length).trim()
+      if (reason) cur.lockReason = reason
+    }
+  }
+  if (cur) out.push(cur)
+  return out
+}
+
+function dirExists(p: string): boolean {
+  try {
+    return statSync(p).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+function defaultWorktreeRoot(mainPath: string): string {
+  const name = basename(mainPath) || 'repo'
+  return join(dirname(mainPath), `${name}.worktrees`)
+}
+
+async function listWorktreesGit(
+  repo: VcsRepo,
+  req: VcsWorktreeListRequest,
+  signal?: AbortSignal
+): Promise<VcsWorktreeListData> {
+  const r = await runGit(repo.root, ['worktree', 'list', '--porcelain'], {
+    timeoutMs: 15_000,
+    signal
+  })
+  if (r.code !== 0) throw mapCliError('git', r)
+
+  const records = parseWorktreePorcelain(r.stdout)
+  if (!records.length) throw new VcsOpError('unknown', 'git 没有返回任何工作树')
+
+  const cwdKey = pathKey(req.cwd || repo.root)
+  const worktrees: VcsWorktree[] = records.map((rec, index) => {
+    const key = pathKey(rec.path)
+    const exists = dirExists(rec.path)
+    const main = index === 0
+    return {
+      path: rec.path,
+      head: rec.head,
+      headShort: rec.head.slice(0, 7),
+      branch: rec.detached || rec.bare ? null : rec.branch,
+      detached: rec.detached,
+      bare: rec.bare,
+      main,
+      current: cwdKey === key || cwdKey.startsWith(`${key}/`),
+      exists,
+      locked: rec.locked,
+      ...(rec.lockReason ? { lockReason: rec.lockReason } : {}),
+      prunable: !exists && !rec.locked && !main
+    }
+  })
+
+  return {
+    worktrees,
+    defaultRoot: defaultWorktreeRoot(records[0].path),
+    mainPath: records[0].path
+  }
+}
+
+export async function worktreeListGit(
+  repo: VcsRepo,
+  req: VcsWorktreeListRequest
+): Promise<VcsWorktreeListData> {
+  return listWorktreesGit(repo, req)
+}
+
+function absoluteTarget(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new VcsOpError('invalid-path', '请输入工作树目录')
+  }
+  if (!isAbsolute(raw)) {
+    throw new VcsOpError('invalid-path', '工作树目录必须是绝对路径', raw)
+  }
+  if (raw.includes('\0') || /[\r\n]/.test(raw)) {
+    throw new VcsOpError('invalid-path', '路径不合法', raw)
+  }
+  const abs = resolve(raw)
+  if (abs === resolve('/') || /^[A-Za-z]:[\\/]?$/.test(abs)) {
+    throw new VcsOpError('invalid-path', '不能把磁盘根目录作为工作树', abs)
+  }
+  return abs
+}
+
+function assertTargetFree(target: string, worktrees: VcsWorktree[]): void {
+  for (const w of worktrees) {
+    if (isSameOrInside(target, w.path)) {
+      throw new VcsOpError('invalid-path', '目标目录不能位于已有工作树内部', target)
+    }
+    if (isSameOrInside(w.path, target)) {
+      throw new VcsOpError('invalid-path', '目标目录不能包含已有工作树', target)
+    }
+  }
+
+  if (!existsSync(target)) return
+  if (!dirExists(target)) {
+    throw new VcsOpError('invalid-path', '目标路径已存在且不是目录', target)
+  }
+  try {
+    if (readdirSync(target).length > 0) {
+      throw new VcsOpError('invalid-path', '目标目录已存在且非空', target)
+    }
+  } catch (err) {
+    if (err instanceof VcsOpError) throw err
+    throw new VcsOpError('invalid-path', '无法读取目标目录', target)
+  }
+}
+
+function checkBranchName(raw: unknown): string {
+  const name = typeof raw === 'string' ? raw.trim() : ''
+  if (!name) throw new VcsOpError('invalid-path', '请输入分支名')
+  if (
+    name.startsWith('-') ||
+    name.endsWith('/') ||
+    name.endsWith('.') ||
+    name.includes('..') ||
+    /[\s\0~^:?*\[\\]/.test(name)
+  ) {
+    throw new VcsOpError('invalid-path', '分支名不合法', name)
+  }
+  return name
+}
+
+/**
+ * 起点必须在**当前工作区**解析。
+ *
+ * 创建命令跑在主工作树上，如果直接传 `HEAD`，linked worktree 里创建的新分支
+ * 会从主工作树的 HEAD 分出来，而不是用户当前看到的那条。
+ */
+async function resolveWorktreeBase(repo: VcsRepo, base: string | undefined): Promise<string> {
+  const value = (base ?? '').trim() || (repo.detached ? repo.head : repo.branch) || 'HEAD'
+  if (value.startsWith('-') || /[\s\0]/.test(value)) {
+    throw new VcsOpError('invalid-path', '起点不合法', value)
+  }
+  const check = await runGit(repo.root, ['rev-parse', '--verify', '--end-of-options', `${value}^{commit}`], {
+    timeoutMs: 10_000
+  })
+  if (check.code !== 0) {
+    throw new VcsOpError('invalid-path', '起点不存在或不是一次提交', value)
+  }
+  return value
+}
+
+async function ensureParent(target: string): Promise<void> {
+  try {
+    await mkdir(dirname(target), { recursive: true })
+  } catch (err) {
+    throw new VcsOpError('invalid-path', '无法创建目标目录的父目录', String(err))
+  }
+}
+
+function mapWorktreeError(r: VcsExecResult): VcsOpError {
+  const generic = mapCliError('git', r)
+  if (generic.code !== 'unknown') return generic
+
+  const text = `${r.stderr}\n${r.stdout}`.trim()
+  const low = text.toLowerCase()
+
+  if (/already checked out at|a branch named .* already exists/.test(low)) {
+    return new VcsOpError('branch-in-use', '分支已存在或已在其他工作树检出', text)
+  }
+  if (/already exists|not an empty directory/.test(low)) {
+    return new VcsOpError('invalid-path', '目标目录已存在且非空', text)
+  }
+  if (/contains modified or untracked files/.test(low)) {
+    return new VcsOpError('dirty', '工作树里有未提交的改动', text)
+  }
+  return generic
+}
+
+export async function worktreeAddGit(
+  repo: VcsRepo,
+  req: VcsWorktreeAddRequest,
+  signal?: AbortSignal
+): Promise<VcsWorktreeListData> {
+  const before = await listWorktreesGit(repo, req, signal)
+  const target = absoluteTarget(req.path)
+  assertTargetFree(target, before.worktrees)
+
+  const branch = checkBranchName(req.branch)
+  await ensureParent(target)
+
+  const args =
+    req.createBranch === false
+      ? ['worktree', 'add', target, branch]
+      : ['worktree', 'add', '-b', branch, target, await resolveWorktreeBase(repo, req.base)]
+
+  const r = await runGit(before.mainPath, args, { timeoutMs: 120_000, signal })
+  if (r.code !== 0) throw mapWorktreeError(r)
+
+  return listWorktreesGit(repo, req, signal)
+}
+
+export async function worktreeRemoveGit(
+  repo: VcsRepo,
+  req: VcsWorktreeRemoveRequest,
+  signal?: AbortSignal
+): Promise<VcsWorktreeListData> {
+  const before = await listWorktreesGit(repo, req, signal)
+  const target = absoluteTarget(req.path)
+  const targetKey = pathKey(target)
+  const rec = before.worktrees.find((w) => pathKey(w.path) === targetKey)
+
+  if (!rec) throw new VcsOpError('invalid-path', '没有这个工作树的记录', target)
+  if (rec.main) throw new VcsOpError('invalid-path', '不能删除主工作树', target)
+  if (isSameOrInside(req.cwd, rec.path)) {
+    throw new VcsOpError('invalid-path', '不能删除当前工作树', target)
+  }
+  if (!rec.exists) {
+    throw new VcsOpError('invalid-path', '目录已不存在，请使用「清理失效」', target)
+  }
+
+  const args = ['worktree', 'remove']
+  if (req.force === true) args.push('--force')
+  args.push(rec.path)
+
+  const r = await runGit(before.mainPath, args, { timeoutMs: 120_000, signal })
+  if (r.code !== 0) throw mapWorktreeError(r)
+
+  return listWorktreesGit(repo, req, signal)
+}
+
+export async function worktreePruneGit(
+  repo: VcsRepo,
+  req: VcsWorktreePruneRequest,
+  signal?: AbortSignal
+): Promise<VcsWorktreePruneData> {
+  const before = await listWorktreesGit(repo, req, signal)
+
+  // --expire now 是必须的：gc.worktreePruneExpire 默认三个月，
+  // 不带它用户点完「清理」会以为没反应。
+  const r = await runGit(
+    before.mainPath,
+    ['worktree', 'prune', '--expire', 'now', '--verbose'],
+    { timeoutMs: 60_000, signal }
+  )
+  if (r.code !== 0) throw mapWorktreeError(r)
+
+  const after = await listWorktreesGit(repo, req, signal)
+  const afterKeys = new Set(after.worktrees.map((w) => pathKey(w.path)))
+  const prunedPaths = before.worktrees
+    .filter((w) => w.prunable && !afterKeys.has(pathKey(w.path)))
+    .map((w) => w.path)
+
+  return { ...after, pruned: prunedPaths.length, prunedPaths }
 }

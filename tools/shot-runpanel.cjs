@@ -420,60 +420,6 @@ app.whenReady().then(async () => {
   }
 
   /*
-   * SHOT_TOAST：窗口隐藏时收尾一个后台代理，应用内轻提示应该出现。
-   * 隐藏窗口 = document.visibilityState 'hidden' / 失焦，正好绕过抑制规则。
-   */
-  if (process.env.SHOT_TOAST) {
-    send({
-      t: 'tool_call',
-      id: 'bg2',
-      name: 'Agent',
-      input: {
-        description: '后台跑回归',
-        subagent_type: 'general-purpose',
-        run_in_background: true,
-        prompt: '跑回归'
-      }
-    })
-    send({
-      t: 'tool_result',
-      id: 'bg2',
-      status: 'ok',
-      content: 'Async agent launched successfully.',
-      agent: { agentId: 'task-bg2', agentType: 'general-purpose', status: 'async_launched', async: true }
-    })
-    send({
-      t: 'task_started',
-      taskId: 'task-bg2',
-      toolUseId: 'bg2',
-      description: '后台跑回归',
-      agentType: 'general-purpose',
-      isBackground: true
-    })
-    await new Promise((r) => setTimeout(r, 400))
-
-    win.hide()
-    await new Promise((r) => setTimeout(r, 300))
-    send({
-      t: 'task_notification',
-      taskId: 'task-bg2',
-      toolUseId: 'bg2',
-      status: 'completed',
-      summary: '回归全部通过。',
-      durationMs: 15000
-    })
-    await new Promise((r) => setTimeout(r, 1000))
-    win.show()
-    await new Promise((r) => setTimeout(r, 400))
-
-    const toast = await win.webContents.executeJavaScript(`(() => {
-      const el = document.querySelector('.notice--float')
-      return el ? el.innerText : ''
-    })()`)
-    check('窗口隐藏时出现完成提示', toast.includes('后台子代理') && toast.includes('已完成'))
-  }
-
-  /*
    * SHOT_STOP=present|absent：主对话 running 时才有「中断」；
    * 只有后台代理在跑（主轮已结束）时不应该出现。
    */

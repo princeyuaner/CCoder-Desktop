@@ -21,16 +21,12 @@ import type {
   SessionStatusPayload
 } from '@shared/session'
 import { MODE_LABEL } from './constants'
+import { emptyRunState, reduceRun, startRun, type RunState } from './run-state'
 import {
-  emptyRunState,
-  finishedBackgroundAgents,
-  reduceRun,
-  startRun,
-  type RunAgent,
-  type RunState
-} from './run-state'
-import { notify } from './notice'
-import { baseName } from '@shared/path'
+  approvalFromEvent,
+  clearPendingApproval,
+  setPendingApproval
+} from './pending-approvals'
 
 /**
  * 转写区的一项 = 一张卡。
@@ -42,7 +38,7 @@ import { baseName } from '@shared/path'
  * 改文件一张、回答一张，边跑边长出来。
  */
 /** 能被会话内切换、且需要留痕的设置项 */
-export type SystemKey = 'effort' | 'permissionMode' | 'model' | 'channel'
+export type SystemKey = 'effort' | 'permissionMode' | 'model' | 'channel' | 'auth'
 
 export type ChatItem =
   | { kind: 'user'; id: string; text: string; at: string; images?: ImageAttachment[] }
@@ -196,6 +192,8 @@ export interface ChatApi {
    * 两个参数只用于留痕（显示"旧渠道 → 新渠道"），主进程不需要。
    */
   applyChannel(from: string, to: string): void
+  /** 切换凭据来源（官方登录 ↔ 渠道）。和换渠道一样，下一轮换进程生效。 */
+  applyAuth(from: string, to: string): void
   notice: string | null
   clearNotice(): void
 }
@@ -245,26 +243,6 @@ function estimateTokens(s: string): number {
     if ((c >= 0x3400 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff)) cjk++
   }
   return cjk + Math.max(0, s.length - cjk) / 4
-}
-
-/** 子代理收尾提示。描述和原因都压短，一条轻提示放不下长篇 */
-function finishToastText(a: RunAgent, project: string): string {
-  const desc = a.description.replace(/\s+/g, ' ').trim()
-  const name = desc.length > 28 ? `${desc.slice(0, 28)}…` : desc
-  const reason = a.error
-    ? `：${a.error.length > 40 ? `${a.error.slice(0, 40)}…` : a.error}`
-    : ''
-  const tail = ` · ${project}`
-  switch (a.status) {
-    case 'error':
-      return `后台子代理「${name}」失败${reason}${tail}`
-    case 'denied':
-      return `后台子代理「${name}」被拒绝${reason}${tail}`
-    case 'stopped':
-      return `后台子代理「${name}」已停止${reason}${tail}`
-    default:
-      return `后台子代理「${name}」已完成${tail}`
-  }
 }
 
 /** 从工具入参里挑一句最能说明它在干什么的话，给工具卡当副标题 */
@@ -608,12 +586,6 @@ class ChatController {
   private startPromise: Promise<void> | null = null
   private disposed = false
   /**
-   * 后台子代理收尾提示。350ms 内的多个收尾合并成一条 ——
-   * 一次并行派 5 个代理时，不该弹 5 次。
-   */
-  private finishTimer: number | null = null
-  private pendingFinishes = new Map<string, string>()
-  /**
    * 本轮流式 token 估算点（时间戳 + 估算 token 数）。
    * 只留最近几秒，用来算滑动窗口速度；不做长期统计。
    */
@@ -803,6 +775,14 @@ class ChatController {
   handleEvent = (e: AgentEvent): void => {
     if (this.disposed) return
 
+    /*
+     * 侧栏要能提醒「不是当前会话、但卡在审批上」的那些行。
+     * 这里顺手按 CLI 自己的 session id 记下 —— 侧栏只认它。
+     */
+    if (e.t === 'permission_request' || e.t === 'question_request') {
+      setPendingApproval(this.providerSessionId, approvalFromEvent(e))
+    }
+
     // 流式增量顺手累计一下输出速度（正文和思考都算输出 token）
     if (e.t === 'text_delta' || e.t === 'thinking_delta') this.noteRate(e.text)
 
@@ -837,6 +817,8 @@ class ChatController {
 
     if (e.t === 'turn_end') {
       this.clearRate()
+      // 轮末一定没有还挂着的审批：答复、拒绝、被打断都走不到这里再等
+      clearPendingApproval(this.providerSessionId)
       /*
        * 步数在事件到来时已经实时加过了（见下面的 stepDelta），所以这里先
        * 减掉待校准的实时计数，再加主进程给的本轮权威值（turn_end.steps）。
@@ -867,40 +849,6 @@ class ChatController {
       this.pendingSteps += stepDelta
     }
     this.patch(patch)
-    this.announceFinishedAgents(prevRun, nextRun)
-  }
-
-  /**
-   * 后台子代理收尾时提一句。
-   *
-   * 只在「用户没盯着这个会话」时说：窗口失焦 / 最小化 / 切去了别的会话。
-   * 正看着的时候执行台和标题已经就地更新了，再弹一条只是噪音。
-   */
-  private announceFinishedAgents(prev: RunState, next: RunState): void {
-    if (this.userIsWatching()) return
-
-    const project = baseName(this.init.cwd) || '当前会话'
-    for (const a of finishedBackgroundAgents(prev, next)) {
-      this.pendingFinishes.set(a.id, finishToastText(a, project))
-    }
-    if (this.pendingFinishes.size === 0 || this.finishTimer != null) return
-
-    this.finishTimer = window.setTimeout(() => {
-      this.finishTimer = null
-      const texts = [...this.pendingFinishes.values()]
-      this.pendingFinishes.clear()
-      if (texts.length === 0) return
-      notify(texts.length === 1 ? texts[0] : `${texts.length} 个后台子代理已结束 · ${project}`)
-    }, 350)
-  }
-
-  private userIsWatching(): boolean {
-    return (
-      this.listeners.size > 0 &&
-      typeof document !== 'undefined' &&
-      document.visibilityState === 'visible' &&
-      document.hasFocus()
-    )
   }
 
   handleStatus = (p: SessionStatusPayload): void => {
@@ -914,6 +862,8 @@ class ChatController {
       // 被打断/异常退出时没有 turn_end，实时步数就此落定
       this.pendingSteps = 0
       this.turnOpen = false
+      // 进程都不跑了，侧栏那行别再挂着「待审批」
+      clearPendingApproval(this.providerSessionId)
     }
     if (p.message) next.notice = p.message
     this.patch(next)
@@ -1058,6 +1008,8 @@ class ChatController {
       { behavior: allow ? 'allow' : 'deny' },
       always
     )
+    // 已经答复：侧栏的跑马灯立刻收，不等这一轮跑完
+    clearPendingApproval(this.providerSessionId)
   }
 
   answerQuestion = (requestId: string, answer: QuestionAnswer): void => {
@@ -1075,6 +1027,7 @@ class ChatController {
       )
     })
     window.api?.session.respondQuestion(id, requestId, answer)
+    clearPendingApproval(this.providerSessionId)
   }
 
   /** liveId 还没就绪时把参数存起来，attach 后补发，别悄悄丢掉 */
@@ -1134,6 +1087,12 @@ class ChatController {
     this.reconfigure({})
   }
 
+  applyAuth = (from: string, to: string): void => {
+    this.patch({ items: pushSystem(this.snap.items, 'auth', from, to) })
+    // 来源变了，旧模型可能不属于新来源；主进程的 settingsChanged 会清掉它
+    this.reconfigure({})
+  }
+
   clearNotice = (): void => {
     this.patch({ notice: null })
   }
@@ -1150,12 +1109,7 @@ class ChatController {
     this.clearRate()
     this.pendingSteps = 0
     this.listeners.clear()
-    // 删会话 / 清空之后不该再弹一条「子代理完成」
-    if (this.finishTimer != null) {
-      window.clearTimeout(this.finishTimer)
-      this.finishTimer = null
-    }
-    this.pendingFinishes.clear()
+    clearPendingApproval(this.providerSessionId)
     const id = this.liveId
     this.liveId = null
     if (id) {
@@ -1290,6 +1244,7 @@ const noopModel = (_model: string): void => undefined
 const noopMode = (_mode: PermissionMode): void => undefined
 const noopEffort = (_level: EffortLevel): void => undefined
 const noopChannel = (_from: string, _to: string): void => undefined
+const noopAuth = (_from: string, _to: string): void => undefined
 
 export function useChat(opts: {
   /** 用哪个 CLI 跑；缺省 claude */
@@ -1383,6 +1338,7 @@ export function useChat(opts: {
       applyPermissionMode: controller ? controller.applyPermissionMode : noopMode,
       applyEffort: controller ? controller.applyEffort : noopEffort,
       applyChannel: controller ? controller.applyChannel : noopChannel,
+      applyAuth: controller ? controller.applyAuth : noopAuth,
       notice: s.notice,
       clearNotice: controller ? controller.clearNotice : noop
     }

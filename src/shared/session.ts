@@ -37,9 +37,8 @@ export interface StoredSession {
    * 这条会话是哪个 CLI 写的。
    *
    * 会话身份是 **(cli, cwd, id)** 三样：各家 CLI 读各自那份存储，
-   * 拿 claude 去 --resume 一条 codex 的会话是找不到的。
-   * 现在只接了 claude 一家，所以这个字段恒为 'claude'；
-   * Codex 的存储接进来之后，它就是从扫描结果里带出来的真值。
+   * 拿 claude 去 resume 一条 codex 的会话是找不到的。这个字段由
+   * 各自的扫描器带出来（~/.claude/projects 或 ~/.codex/sessions）。
    */
   cli: CliId
 }
@@ -49,6 +48,12 @@ export interface PermissionDecision {
   behavior: 'allow' | 'deny'
   /** deny 时给模型的原因，会显示在它的下一步里 */
   message?: string
+  /**
+   * 本会话内同类操作不再询问。由 SessionManager 在调用 provider 前补上；
+   * Claude 的控制协议里没有这个概念（它靠宿主侧的 autoAllow 代答），
+   * Codex 则能把它翻译成 `acceptForSession`。
+   */
+  always?: boolean
 }
 
 /**

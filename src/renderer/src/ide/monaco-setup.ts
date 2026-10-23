@@ -1,34 +1,40 @@
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
+import * as monaco from 'monaco-editor/editor'
 // 编辑器功能（查找替换、折叠、多光标、建议、括号匹配等）
-import 'monaco-editor/esm/vs/editor/editor.all'
+import 'monaco-editor/features/register.all'
 // 带语言服务的 JSON / CSS / HTML / TS
-import 'monaco-editor/esm/vs/language/json/monaco.contribution'
-import 'monaco-editor/esm/vs/language/css/monaco.contribution'
-import 'monaco-editor/esm/vs/language/html/monaco.contribution'
-import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-// 轻量 Monarch 语言；只引 IDE 会映射到的那部分，避免整包 basic-languages
-import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-import 'monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution'
-import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
-import 'monaco-editor/esm/vs/basic-languages/rust/rust.contribution'
-import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
-import 'monaco-editor/esm/vs/basic-languages/java/java.contribution'
-import 'monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution'
-import 'monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution'
-import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
-import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
-import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
-import 'monaco-editor/esm/vs/basic-languages/ini/ini.contribution'
-import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution'
-import 'monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.contribution'
-import 'monaco-editor/esm/vs/basic-languages/bat/bat.contribution'
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import * as typescript from 'monaco-editor/languages/features/typescript/register'
+// 注意：json 子路径需要显式 .js 后缀，否则 Vite 5.4 解析 exports 时会落空
+import 'monaco-editor/languages/features/json/register.js'
+import 'monaco-editor/languages/features/css/register'
+import 'monaco-editor/languages/features/html/register'
+// 轻量 Monarch 语言；只引 IDE 会映射到的那部分，避免整包语言定义。
+// 0.56 起语言服务与语言定义拆分，CSS / HTML 的 tokenizer 也要单独注册。
+import 'monaco-editor/languages/definitions/typescript/register'
+import 'monaco-editor/languages/definitions/javascript/register'
+import 'monaco-editor/languages/definitions/markdown/register'
+import 'monaco-editor/languages/definitions/python/register'
+import 'monaco-editor/languages/definitions/rust/register'
+import 'monaco-editor/languages/definitions/go/register'
+import 'monaco-editor/languages/definitions/java/register'
+import 'monaco-editor/languages/definitions/cpp/register'
+import 'monaco-editor/languages/definitions/csharp/register'
+import 'monaco-editor/languages/definitions/shell/register'
+import 'monaco-editor/languages/definitions/powershell/register'
+import 'monaco-editor/languages/definitions/yaml/register'
+import 'monaco-editor/languages/definitions/ini/register'
+import 'monaco-editor/languages/definitions/sql/register'
+import 'monaco-editor/languages/definitions/xml/register'
+import 'monaco-editor/languages/definitions/dockerfile/register'
+import 'monaco-editor/languages/definitions/bat/register'
+import 'monaco-editor/languages/definitions/css/register'
+import 'monaco-editor/languages/definitions/scss/register'
+import 'monaco-editor/languages/definitions/less/register'
+import 'monaco-editor/languages/definitions/html/register'
+import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
+import JsonWorker from 'monaco-editor/languages/features/json/json.worker.js?worker'
+import CssWorker from 'monaco-editor/languages/features/css/css.worker?worker'
+import HtmlWorker from 'monaco-editor/languages/features/html/html.worker?worker'
+import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker'
 
 /**
  * Monaco 的 worker 入口。
@@ -67,19 +73,19 @@ type WorkerEnv = {
  * 这里没有加载工作区的 tsconfig / node_modules，语义检查会把 import 和
  * process 一类全局标成红线。保留语法检查，关掉语义诊断；补全仍然可用。
  */
-monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+typescript.typescriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
   noSyntaxValidation: false
 })
-monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+typescript.javascriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
   noSyntaxValidation: false
 })
-monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+typescript.typescriptDefaults.setCompilerOptions({
   allowNonTsExtensions: true,
-  target: monaco.languages.typescript.ScriptTarget.ESNext,
-  moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-  jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+  target: typescript.ScriptTarget.ESNext,
+  moduleResolution: typescript.ModuleResolutionKind.NodeJs,
+  jsx: typescript.JsxEmit.ReactJSX,
   allowJs: true
 })
 

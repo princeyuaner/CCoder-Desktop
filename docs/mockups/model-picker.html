@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>模型切换器 · 四个方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #101012; }
+html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+body {
+  color: #eaeaf0;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; text-align: left; }
+code, .mono { font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace; }
+svg { display: block; }
+
+/* ══ 场景外壳 ═══════════════════════════════════════════ */
+.pane {
+  position: relative;
+  width: 1180px; height: 660px;
+  display: flex; flex-direction: column;
+  background: #171718;
+  overflow: hidden;
+}
+.chat {
+  flex: 1; min-height: 0;
+  padding: 44px 56px 0;
+  background:
+    radial-gradient(900px 300px at 50% -80px, rgba(255,255,255,.025), transparent 70%);
+}
+.chat__inner { max-width: 780px; margin: 0 auto; }
+.msg { margin-bottom: 22px; font-size: 14px; line-height: 1.75; }
+.msg--me { display: flex; justify-content: flex-end; }
+.msg--me span {
+  max-width: 460px; padding: 9px 14px;
+  color: #d9f5f9; background: rgba(34,211,238,.075);
+  border: 1px solid rgba(34,211,238,.17); border-radius: 11px 11px 3px 11px;
+}
+.msg--ai { color: #c9c9d4; }
+.msg--ai b { color: #ededf2; font-weight: 600; }
+.msg--ai .ic {
+  padding: 1px 5px; font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: .85em; color: #cfc4f5; background: #262630; border-radius: 5px;
+}
+
+/* 输入区 */
+.composer { flex: none; padding: 10px 56px 22px; }
+.cbox {
+  position: relative;
+  max-width: 780px; margin: 0 auto;
+  padding: 13px 13px 11px;
+  background: #222224;
+  border: 1px solid #38383c;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+.cinput { padding: 1px 4px 13px; font-size: 14px; line-height: 1.6; color: #64646e; }
+.caret {
+  display: inline-block; width: 1.5px; height: 15px; margin-left: 2px;
+  vertical-align: -2px; background: #8a8a96; animation: blink 1.1s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.cbar { display: flex; align-items: center; gap: 8px; }
+.spacer { flex: 1; }
+.iconbtn {
+  display: grid; place-items: center; width: 28px; height: 28px;
+  font-size: 17px; color: #70707a; border-radius: 8px;
+}
+.iconbtn:hover { color: #b8b8c2; background: #2b2b2e; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px;
+  font-size: 12.5px; color: #a6a6b2;
+  background: #232325; border: 1px solid #303034; border-radius: 999px;
+}
+.chip:hover { border-color: #424248; color: #e6e6ec; }
+.chip--model { gap: 7px; max-width: 400px; }
+.chip__channel { color: #84848f; font-size: 12px; }
+.chip__sep { color: #55555e; }
+.chip__model { color: #dcdce4; }
+.chip__cv { margin-left: 1px; font-size: 9px; color: #5d5d67; }
+.chip--perm { gap: 7px; }
+.dotOK { width: 7px; height: 7px; border-radius: 50%; background: #4d9e69; }
+.chip--eff { gap: 6px; color: #b9a9e8; border-color: rgba(167,139,250,.24); background: rgba(167,139,250,.06); }
+.chip--eff .sym { font-size: 10px; color: #a78bfa; }
+.send {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  font-size: 15px; color: #191919; background: #e6e6ea; border-radius: 50%;
+}
+
+/* 锚点 + 弹层位置 */
+.anchor { position: relative; display: inline-flex; }
+.pop {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 40;
+  background: #202023;
+  border: 1px solid rgba(255,255,255,.085);
+  border-radius: 15px;
+  box-shadow:
+    0 24px 64px rgba(0,0,0,.62),
+    0 2px 8px rgba(0,0,0,.45),
+    inset 0 1px 0 rgba(255,255,255,.035);
+}
+
+/* 通用行 */
+.item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; height: 34px; padding: 0 9px;
+  border-radius: 8px;
+  font-size: 13px; color: #c2c2cd;
+}
+.item:hover { background: rgba(255,255,255,.045); }
+.item.is-on {
+  color: #f1f1f5;
+  background: rgba(217,119,87,.105);
+  box-shadow: inset 2px 0 0 rgba(217,119,87,.85);
+}
+.item__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item__sub { flex: none; font-size: 11px; color: #6d6d79; }
+.tick {
+  flex: none; display: grid; place-items: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1px solid #45454e;
+  font-size: 10px; color: transparent;
+}
+.item.is-on .tick {
+  border-color: transparent;
+  background: #d97757; color: #21130e;
+}
+.cliIco { flex: none; width: 15px; height: 15px; }
+.cliIco--claude { color: #d97757; }
+.cliIco--codex { color: #ddddE4; }
+.avatar {
+  flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 6px;
+  font-size: 10px; font-weight: 600;
+  color: #b7b7c2; background: #303036;
+}
+.is-on .avatar { color: #eab19a; background: rgba(217,119,87,.17); }
+.pill {
+  flex: none;
+  padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; line-height: 16px; color: #8b8b98;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.06);
+}
+.colhead {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 5px 9px 8px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+  color: #64646f; text-transform: uppercase;
+}
+.colhead__ctx {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none;
+  color: #8a8a96;
+}
+.hr { height: 1px; background: rgba(255,255,255,.06); }
+
+/* ══ A · 柔和三栏 ═══════════════════════════════════════ */
+.pop--a { width: 668px; padding: 9px; }
+.a-cols { display: grid; grid-template-columns: 170px 1fr 1.45fr; gap: 8px; }
+.a-col {
+  min-width: 0; padding: 5px;
+  background: #26262a; border-radius: 11px;
+}
+.a-col--models { background: #29292e; }
+.a-note {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 9px; padding: 9px 10px 2px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  font-size: 11.5px; line-height: 1.55; color: #6f6f7b;
+}
+.a-note b { color: #a5a5b1; font-weight: 500; }
+.a-note .ico {
+  flex: none; display: grid; place-items: center;
+  width: 14px; height: 14px; margin-top: 1px;
+  font-size: 10px; color: #85858f;
+  border: 1px solid #46464e; border-radius: 50%;
+}
+.a-note .key { font-family: 'Cascadia Mono', Consolas, monospace; color: #9c9caa; }
+
+/* ══ B · 顶栏分段 + 双栏 ════════════════════════════════ */
+.pop--b { width: 604px; overflow: hidden; }
+.b-head { display: flex; align-items: center; padding: 11px 13px 9px; }
+.b-title { font-size: 13px; font-weight: 600; letter-spacing: .1px; color: #ededf2; }
+.b-sub { margin-left: 8px; font-size: 11.5px; color: #6f6f7b; }
+.seg {
+  display: flex; gap: 2px; margin-left: auto; padding: 3px;
+  background: #171719; border: 1px solid rgba(255,255,255,.055); border-radius: 10px;
+}
+.seg__it {
+  display: flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 10px; border-radius: 7px;
+  font-size: 12px; color: #8b8b97;
+}
+.seg__it:hover { color: #c9c9d3; }
+.seg__it.is-on {
+  color: #f2f2f6; background: #2e2e34;
+  box-shadow: 0 1px 3px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.b-body { display: grid; grid-template-columns: 202px 1fr; gap: 9px; padding: 0 12px 12px; }
+.b-col { min-width: 0; padding: 5px; background: #26262a; border-radius: 11px; }
+.b-col--models { background: #29292e; }
+.b-foot {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 14px 11px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  background: rgba(255,255,255,.014);
+  font-size: 11.5px; color: #73737f;
+}
+.b-hint { display: flex; align-items: center; gap: 6px; }
+.b-hint i { width: 6px; height: 6px; border-radius: 50%; }
+.b-hint i.green { background: #4d9e69; }
+.b-hint i.amber { background: #c99a4f; }
+.b-hint b { color: #a8a8b3; font-weight: 500; }
+.b-foot__r { margin-left: auto; color: #5e5e69; }
+.mrow {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; height: 42px; padding: 0 9px; border-radius: 8px;
+}
+.mrow:hover { background: rgba(255,255,255,.045); }
+.mrow.is-on { background: rgba(217,119,87,.105); box-shadow: inset 2px 0 0 rgba(217,119,87,.85); }
+.mrow__b { flex: 1; min-width: 0; }
+.mrow__n {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace;
+  font-size: 12.5px; color: #dcdce4;
+}
+.mrow.is-on .mrow__n { color: #f4f4f7; }
+.mrow__d { display: flex; align-items: center; gap: 5px; margin-top: 2px; font-size: 10.5px; color: #6c6c78; }
+
+/* ══ C · 命令面板 ═══════════════════════════════════════ */
+.pop--c { width: 462px; padding: 8px; }
+.c-search {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 10px;
+  background: #171719; border: 1px solid rgba(255,255,255,.07); border-radius: 9px;
+  color: #6c6c78; font-size: 12.5px;
+}
+.c-search .ph { flex: 1; color: #64646f; }
+.kbd {
+  display: inline-grid; place-items: center;
+  min-width: 22px; height: 18px; padding: 0 5px;
+  font-family: 'Cascadia Mono', Consolas, monospace; font-size: 10px;
+  color: #7e7e8a; background: #242428;
+  border: 1px solid rgba(255,255,255,.08); border-radius: 5px;
+}
+.c-path { display: flex; gap: 6px; padding: 9px 3px 2px; }
+.pathchip {
+  display: flex; align-items: center; gap: 6px;
+  height: 27px; padding: 0 8px;
+  font-size: 11.5px; color: #e3b5a3;
+  background: rgba(217,119,87,.1);
+  border: 1px solid rgba(217,119,87,.22); border-radius: 8px;
+}
+.pathchip--ch {
+  color: #9d9daa;
+  background: rgba(255,255,255,.035);
+  border-color: rgba(255,255,255,.07);
+}
+.pathchip .cv { font-size: 8.5px; color: currentColor; opacity: .6; }
+.c-sect {
+  display: flex; align-items: center; gap: 7px;
+  padding: 11px 9px 5px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .07em; color: #63636e;
+}
+.c-sect i { flex: 1; height: 1px; background: rgba(255,255,255,.055); }
+.c-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; height: 38px; padding: 0 10px; border-radius: 8px;
+  font-size: 13px; color: #c3c3ce;
+}
+.c-item:hover { background: rgba(255,255,255,.045); }
+.c-item.is-on { background: rgba(217,119,87,.105); color: #f2f2f6; }
+.c-item__n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-item__n.mono { font-size: 12.5px; }
+.c-item__meta { flex: none; font-size: 10.5px; color: #6d6d79; }
+.c-item .tick { width: 15px; height: 15px; }
+.c-foot {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 6px; padding: 9px 8px 4px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  font-size: 11px; color: #666671;
+}
+.c-foot__note { flex: 1; display: flex; align-items: center; gap: 5px; }
+.c-foot__note i { width: 5px; height: 5px; border-radius: 50%; background: #c99a4f; }
+
+/* ══ D · 手风琴 ═════════════════════════════════════════ */
+.pop--d { width: 392px; padding: 9px; }
+.d-head { display: flex; align-items: center; padding: 4px 5px 7px; }
+.d-title { font-size: 13px; font-weight: 600; color: #ededf2; }
+.d-cli {
+  display: flex; gap: 2px; margin-left: auto; padding: 3px;
+  background: #171719; border: 1px solid rgba(255,255,255,.055); border-radius: 9px;
+}
+.d-cli__it {
+  display: grid; place-items: center;
+  width: 29px; height: 25px; border-radius: 6px; color: #666671;
+}
+.d-cli__it.is-on { color: #d97757; background: #2e2e34; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.acc { padding: 1px 0; }
+.acc__ch {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; height: 38px; padding: 0 8px; border-radius: 8px;
+  color: #b9b9c5;
+}
+.acc__ch:hover { background: rgba(255,255,255,.04); }
+.acc__ch.is-open { color: #f0f0f4; background: rgba(255,255,255,.045); }
+.acc__ch .chev { margin-left: auto; font-size: 9px; color: #6c6c78; }
+.acc__ch .count { font-size: 10.5px; color: #61616c; }
+.acc__models {
+  margin: 2px 0 6px 19px; padding: 2px 0 2px 11px;
+  border-left: 1px solid rgba(255,255,255,.085);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.acc__m {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; height: 33px; padding: 0 9px; border-radius: 7px;
+  font-size: 12.5px; color: #bdbdc8;
+}
+.acc__m:hover { background: rgba(255,255,255,.045); }
+.acc__m.is-on { color: #f2f2f6; background: rgba(217,119,87,.105); }
+.acc__m .mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.acc__m .tick { width: 14px; height: 14px; font-size: 9px; }
+.d-note {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin-top: 7px; padding: 9px 8px 3px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  font-size: 10.8px; line-height: 1.55; color: #6f6f7b;
+}
+.d-note b { color: #a3a3af; font-weight: 500; }
+.d-note .key { font-family: 'Cascadia Mono', Consolas, monospace; color: #9999a7; }
+.d-note .ico {
+  flex: none; display: grid; place-items: center;
+  width: 13px; height: 13px; margin-top: 1px; font-size: 9px;
+  color: #85858f; border: 1px solid #46464e; border-radius: 50%;
+}
+
+/* ══ 四联总览 ═══════════════════════════════════════════ */
+body.sheet { background: #0f0f11; }
+.sheet { width: 1500px; padding: 34px 36px 44px; }
+.sheet__head { margin-bottom: 26px; }
+.sheet__h1 { font-size: 17px; font-weight: 600; color: #ededf2; }
+.sheet__sub { margin-top: 6px; font-size: 12.5px; color: #787884; }
+.sheet__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px 34px; align-items: start; }
+.cell__lab { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.cell__badge {
+  display: grid; place-items: center;
+  width: 24px; height: 24px; border-radius: 7px;
+  font-size: 12px; font-weight: 700; color: #111114; background: #d8d8e0;
+}
+.cell__t { font-size: 14px; font-weight: 600; color: #e8e8ee; }
+.cell__tag { margin-left: auto; font-size: 11px; color: #62626e; }
+.cell__pop { display: inline-block; }
+body.sheet .pop { position: static; }
+.cell__desc {
+  margin-top: 13px; max-width: 656px;
+  font-size: 12.5px; line-height: 1.75; color: #8a8a96;
+}
+.cell__desc b { color: #b7b7c2; font-weight: 500; }
+.cell__desc em { font-style: normal; color: #c99a4f; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<script>
+const claudeIco = (size = 15) => `
+  <svg class="cliIco cliIco--claude" viewBox="0 0 24 24" fill="currentColor" width="${size}" height="${size}">
+    <path d="M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z" />
+  </svg>`
+const openaiIco = (size = 15) => `
+  <svg class="cliIco cliIco--codex" viewBox="0 0 24 24" fill="currentColor" width="${size}" height="${size}">
+    <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
+  </svg>`
+
+const CHECK = '✓'
+
+/* ── 场景外壳 ─────────────────────────────────────────── */
+const pane = (pop) => `
+  <div class="pane">
+    <div class="chat"><div class="chat__inner">
+      <div class="msg msg--me"><span>把 sync.ts 里的重试逻辑抽成通用函数，别的调用点也换过去</span></div>
+      <div class="msg msg--ai">抽好了，放在 <b>lib/retry.ts</b>。三个调用点都换过去了，<span class="ic">npm test</span> 全绿。<br>顺手把原来写死的 3 次重试改成了可传参，默认值保持 3，行为不变。</div>
+      <div class="msg msg--me"><span>再把超时也一起参数化，然后看看还有没有漏掉的</span></div>
+    </div></div>
+    <div class="composer"><div class="cbox">
+      <div class="cinput">继续，把剩下的调用点也扫一遍<span class="caret"></span></div>
+      <div class="cbar">
+        <button class="iconbtn">+</button>
+        <span class="anchor">
+          <button class="chip chip--model">
+            ${claudeIco(14)}
+            <span class="chip__channel">deepseek</span>
+            <span class="chip__sep">·</span>
+            <span class="chip__model">deepseek-flash</span>
+            <span class="chip__cv">▾</span>
+          </button>
+          ${pop}
+        </span>
+        <span class="spacer"></span>
+        <button class="chip chip--eff"><span class="sym">◈</span>思考 · 中<span class="chip__cv">▾</span></button>
+        <button class="chip chip--perm"><span class="dotOK"></span>标准<span class="chip__cv">▾</span></button>
+        <button class="send">↑</button>
+      </div>
+    </div></div>
+  </div>`
+
+/* ══ A · 柔和三栏 ═══════════════════════════════════════ */
+const POP_A = `
+  <div class="pop pop--a">
+    <div class="a-cols">
+      <div class="a-col">
+        <div class="colhead">CLI</div>
+        <button class="item is-on">
+          ${claudeIco(15)}<span class="item__name">Claude Code</span><span class="tick">${CHECK}</span>
+        </button>
+        <button class="item">
+          ${openaiIco(15)}<span class="item__name">Codex CLI</span><span class="tick">${CHECK}</span>
+        </button>
+      </div>
+      <div class="a-col">
+        <div class="colhead">渠道 <span class="colhead__ctx">· Claude Code</span></div>
+        <button class="item is-on"><span class="avatar">D</span><span class="item__name">deepseek</span><span class="tick">${CHECK}</span></button>
+        <button class="item"><span class="avatar">火</span><span class="item__name">火山方舟</span><span class="tick">${CHECK}</span></button>
+        <button class="item"><span class="avatar">本</span><span class="item__name">本地中转</span><span class="tick">${CHECK}</span></button>
+      </div>
+      <div class="a-col a-col--models">
+        <div class="colhead">模型 <span class="colhead__ctx">· deepseek</span></div>
+        <button class="item is-on">
+          <span class="item__name mono">deepseek-flash</span><span class="pill">默认</span><span class="tick">${CHECK}</span>
+        </button>
+        <button class="item">
+          <span class="item__name mono">deepseek-pro</span><span class="tick">${CHECK}</span>
+        </button>
+        <button class="item">
+          <span class="item__name mono">deepseek-reasoner</span><span class="tick">${CHECK}</span>
+        </button>
+      </div>
+    </div>
+    <div class="a-note">
+      <span class="ico">i</span>
+      <span><b>换模型 / 渠道</b> 会换进程并用 <span class="key">--resume</span> 接回当前会话，上下文不丢；<b>换 CLI</b> 是另一套会话记录，会新开一条。</span>
+    </div>
+  </div>`
+const A = pane(POP_A)
+
+/* ══ B · 顶栏分段 + 双栏 ════════════════════════════════ */
+const POP_B = `
+  <div class="pop pop--b">
+    <div class="b-head">
+      <span class="b-title">切换模型</span>
+      <span class="b-sub">当前会话</span>
+      <div class="seg">
+        <button class="seg__it is-on">${claudeIco(13)} Claude Code</button>
+        <button class="seg__it">${openaiIco(13)} Codex CLI</button>
+      </div>
+    </div>
+    <div class="b-body">
+      <div class="b-col">
+        <div class="colhead">渠道</div>
+        <button class="item is-on"><span class="avatar">D</span><span class="item__name">deepseek</span><span class="tick">${CHECK}</span></button>
+        <button class="item"><span class="avatar">火</span><span class="item__name">火山方舟</span><span class="tick">${CHECK}</span></button>
+        <button class="item"><span class="avatar">本</span><span class="item__name">本地中转</span><span class="tick">${CHECK}</span></button>
+      </div>
+      <div class="b-col b-col--models">
+        <div class="colhead">模型 <span class="colhead__ctx">· deepseek</span></div>
+        <button class="mrow is-on">
+          <span class="tick">${CHECK}</span>
+          <span class="mrow__b">
+            <span class="mrow__n">deepseek-flash</span>
+            <span class="mrow__d">默认模型</span>
+          </span>
+          <span class="pill">当前</span>
+        </button>
+        <button class="mrow">
+          <span class="tick">${CHECK}</span>
+          <span class="mrow__b">
+            <span class="mrow__n">deepseek-pro</span>
+          </span>
+        </button>
+        <button class="mrow">
+          <span class="tick">${CHECK}</span>
+          <span class="mrow__b">
+            <span class="mrow__n">deepseek-reasoner</span>
+          </span>
+        </button>
+      </div>
+    </div>
+    <div class="b-foot">
+      <span class="b-hint"><i class="green"></i><span><b>模型 / 渠道</b> → 续接当前会话</span></span>
+      <span class="b-hint"><i class="amber"></i><span><b>CLI</b> → 开一条新会话</span></span>
+      <span class="b-foot__r">过程会自动切换</span>
+    </div>
+  </div>`
+const B = pane(POP_B)
+
+/* ══ C · 命令面板 ═══════════════════════════════════════ */
+const POP_C = `
+  <div class="pop pop--c">
+    <div class="c-search">
+      <span>⌕</span>
+      <span class="ph">搜索模型、渠道或 CLI…</span>
+      <span class="kbd">esc</span>
+    </div>
+    <div class="c-path">
+      <button class="pathchip">${claudeIco(12)} Claude Code <span class="cv">▼</span></button>
+      <button class="pathchip pathchip--ch">deepseek <span class="cv">▼</span></button>
+    </div>
+    <div class="c-sect">模型 · DEEPSEEK <i></i></div>
+    <button class="c-item is-on">
+      <span class="tick">${CHECK}</span>
+      <span class="c-item__n mono">deepseek-flash</span>
+      <span class="pill">默认</span>
+      <span class="c-item__meta">当前</span>
+    </button>
+    <button class="c-item">
+      <span class="tick">${CHECK}</span>
+      <span class="c-item__n mono">deepseek-pro</span>
+    </button>
+    <button class="c-item">
+      <span class="tick">${CHECK}</span>
+      <span class="c-item__n mono">deepseek-reasoner</span>
+    </button>
+    <div class="c-foot">
+      <span class="c-foot__note"><i></i>换 CLI 会新开会话，模型 / 渠道无缝接回</span>
+      <span class="kbd">↑</span><span class="kbd">↓</span><span class="kbd">↵</span>
+    </div>
+  </div>`
+const C = pane(POP_C)
+
+/* ══ D · 手风琴 ═════════════════════════════════════════ */
+const POP_D = `
+  <div class="pop pop--d">
+    <div class="d-head">
+      <span class="d-title">切换模型</span>
+      <div class="d-cli">
+        <button class="d-cli__it is-on">${claudeIco(14)}</button>
+        <button class="d-cli__it">${openaiIco(14)}</button>
+      </div>
+    </div>
+    <div class="acc">
+      <button class="acc__ch is-open">
+        <span class="avatar">D</span>
+        <span class="item__name">deepseek</span>
+        <span class="count">3 个模型</span>
+        <span class="chev">▲</span>
+      </button>
+      <div class="acc__models">
+        <button class="acc__m is-on">
+          <span class="tick">${CHECK}</span>
+          <span class="mono">deepseek-flash</span>
+          <span class="pill">默认</span>
+        </button>
+        <button class="acc__m">
+          <span class="tick">${CHECK}</span>
+          <span class="mono">deepseek-pro</span>
+        </button>
+        <button class="acc__m">
+          <span class="tick">${CHECK}</span>
+          <span class="mono">deepseek-reasoner</span>
+        </button>
+      </div>
+      <button class="acc__ch">
+        <span class="avatar">火</span>
+        <span class="item__name">火山方舟</span>
+        <span class="count">2 个模型</span>
+        <span class="chev">▼</span>
+      </button>
+      <button class="acc__ch">
+        <span class="avatar">本</span>
+        <span class="item__name">本地中转</span>
+        <span class="count">1 个模型</span>
+        <span class="chev">▼</span>
+      </button>
+    </div>
+    <div class="d-note">
+      <span class="ico">i</span>
+      <span><b>换模型 / 渠道</b> 会用 <span class="key">--resume</span> 接回当前会话；<b>换 CLI</b> 会新开一条。</span>
+    </div>
+  </div>`
+const D = pane(POP_D)
+
+const VARIANTS = {
+  a: { pane: A, pop: POP_A },
+  b: { pane: B, pop: POP_B },
+  c: { pane: C, pop: POP_C },
+  d: { pane: D, pop: POP_D }
+}
+
+const SHEET = [
+  {
+    k: 'a', name: 'A · 柔和三栏', tag: '改动最小',
+    desc: '<b>保留三列的操作习惯</b>，把表格线、勾选列和整段页脚换掉：每列变成一块圆角面板，选中项用珊瑚色细边 + 实心勾；页脚压成一行说明。<b>最贴现有代码，风险最低</b>；缺点是横向仍占 668px，层级靠读列头。'
+  },
+  {
+    k: 'b', name: 'B · 顶栏分段 + 双栏', tag: '推荐',
+    desc: '<b>CLI 收进顶部分段控件</b>，下面只留「渠道 / 模型」两栏，模型行给名字和默认标记。层级一眼看清，横向也比现在省 80px；页脚把「谁会开新会话」做成绿 / 琥珀两个色点，比整段小字好扫。'
+  },
+  {
+    k: 'c', name: 'C · 命令面板', tag: '模型多时最好用',
+    desc: '<b>搜索框 + 两个路径胶囊 + 单一模型列表</b>，像启动器。模型配到十几个时不用在三列里找，直接打字过滤；缺点是 CLI / 渠道的切换入口变小了，第一次用的人可能找不到。'
+  },
+  {
+    k: 'd', name: 'D · 手风琴', tag: '最省地方',
+    desc: '<b>渠道当分组、展开显示模型</b>，宽度只有 392px，最不挡对话。结构最扁平，切换渠道时模型就在下面；缺点是同一时间只能看一个渠道的模型，想横向比较要来回点。'
+  }
+]
+
+const params = new URLSearchParams(location.search)
+const v = params.get('v')
+const stage = document.getElementById('stage')
+
+if (params.get('sheet') === '1' || v === 'sheet') {
+  document.body.classList.add('sheet')
+  stage.innerHTML = `
+    <div class="sheet">
+      <div class="sheet__head">
+        <div class="sheet__h1">模型切换器 · 四个方向</div>
+        <div class="sheet__sub">同一份数据：Claude Code › deepseek › deepseek-flash。打开对应的单张图可以看它在输入框上的实际位置。</div>
+      </div>
+      <div class="sheet__grid">
+        ${SHEET.map((s) => `
+          <div class="cell">
+            <div class="cell__lab">
+              <span class="cell__badge">${s.k.toUpperCase()}</span>
+              <span class="cell__t">${s.name}</span>
+              <span class="cell__tag">${s.tag}</span>
+            </div>
+            <div class="cell__pop">${VARIANTS[s.k].pop}</div>
+            <p class="cell__desc">${s.desc}</p>
+          </div>`).join('')}
+      </div>
+    </div>`
+} else {
+  stage.innerHTML = (VARIANTS[v || 'a'] || VARIANTS.a).pane
+}
+</script>
+</body>
+</html>

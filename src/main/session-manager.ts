@@ -3,9 +3,11 @@ import { homedir } from 'node:os'
 import type { AgentEvent, PermissionMode } from '../shared/events'
 import {
   activeChannelOf,
+  cliConfig,
   cliDef,
   DEFAULT_EFFORT,
   type Channel,
+  type CliAuthMode,
   type CliId,
   type EffortLevel,
   type Settings
@@ -19,7 +21,9 @@ import type {
   SessionStartOptions,
   SessionStatusPayload
 } from '../shared/session'
+import { isSameOrInside } from './path-key'
 import { ClaudeProvider } from './providers/claude/adapter'
+import { CodexProvider } from './providers/codex/adapter'
 import type { Provider, ProviderSession } from './providers/types'
 import { diffWorkspace, snapshotWorkspace, type WorkspaceSnapshot } from './workspace-snapshot'
 
@@ -32,6 +36,15 @@ interface Live {
   model: string
   /** 思考深度（CLI 的 --effort）。跟模型一样是启动参数，改了要换进程 */
   effort: EffortLevel
+  /**
+   * 凭据来源。channel = 渠道；official = Claude 官方登录。
+   *
+   * 当前进程是用哪一种拉起来的 —— 设置里改了这一项就要换进程，
+   * 所以得记住"启动时"的值，不能每次现读 settings。
+   */
+  authMode: CliAuthMode
+  /** 启动时 officialModel 的值，用来判断设置变化要不要 respawn */
+  officialModel: string
   /** CLI 自己的会话 id，供将来 --resume 恢复 */
   providerSessionId: string | null
   /** 打开时指定要接着跑的那条会话（--resume 的初值） */
@@ -71,7 +84,8 @@ export class SessionManager {
    * 这样"多 CLI"不是靠 if 分支堆出来的，加一个 CLI 就是加一行。
    */
   private providers: Partial<Record<CliId, Provider>> = {
-    claude: new ClaudeProvider()
+    claude: new ClaudeProvider(),
+    codex: new CodexProvider()
   }
 
   constructor(
@@ -86,13 +100,18 @@ export class SessionManager {
 
   start(o: SessionStartOptions): string {
     const id = randomUUID()
+    const cli = o.cli ?? 'claude'
+    const cfg = cliConfig(this.getSettings(), cli)
     this.live.set(id, {
       id,
-      cli: o.cli ?? 'claude',
+      cli,
       cwd: o.cwd?.trim() || homedir(),
       permissionMode: o.permissionMode,
       model: o.model ?? '',
       effort: o.effort ?? DEFAULT_EFFORT,
+      // 只有 Claude 有官方登录；Codex 仍然按渠道走
+      authMode: cli === 'claude' ? cfg.authMode : 'channel',
+      officialModel: cli === 'claude' ? cfg.officialModel : '',
       providerSessionId: o.resumeId ?? null,
       initialResumeId: o.resumeId ?? null,
       session: null,
@@ -117,19 +136,30 @@ export class SessionManager {
       return { ok: false, message: '空消息' }
     }
 
-    const ch = activeChannelOf(this.getSettings(), s.cli)
-    if (!ch) {
-      return { ok: false, message: `还没有给 ${cliDef(s.cli).name} 配渠道 —— 请到「设置 → ${cliDef(s.cli).name}」新建一个` }
+    const auth = this.authFor(s)
+    if (!auth) {
+      return {
+        ok: false,
+        message: `还没有给 ${cliDef(s.cli).name} 配渠道 —— 请到「设置 → ${cliDef(s.cli).name}」新建一个`
+      }
     }
 
-    if (s.needsRespawn) this.respawn(s)
+    // 忙的时候**不能**因为 needsRespawn 就把正在跑的进程杀掉：改模型 / 权限
+    // 只应该在本轮结束后生效。这里只处理空闲会话；忙碌的交给 flushQueue。
+    if (s.needsRespawn && !s.busy) this.respawn(s)
 
     // 进程还没起来就是"要现拉一个" —— 这段时间是在连 CLI，不是在思考。
     // 必须在 ensureSession 之前判断：它一返回 s.session 就有值了。
     const spawning = !s.session
 
-    if (!this.ensureSession(s, ch)) {
-      return { ok: false, message: `CLI 启动失败，请检查 ${cliDef(s.cli).name} 的渠道与可执行文件` }
+    if (!this.ensureSession(s, auth.channel)) {
+      return {
+        ok: false,
+        message:
+          s.authMode === 'official'
+            ? 'CLI 启动失败，请确认 Claude Code 已登录官方账号（设置 → Claude Code）'
+            : `CLI 启动失败，请检查 ${cliDef(s.cli).name} 的渠道与可执行文件`
+      }
     }
 
     // 忙碌时排队而不是拒绝：用户打字不该被弹回去
@@ -166,7 +196,10 @@ export class SessionManager {
       s.autoAllow.add(s.lastAskedTool ?? '')
     }
     s.lastAskedTool = null
-    s.session.respondPermission(requestId, decision)
+    s.session.respondPermission(requestId, {
+      ...decision,
+      always: always && decision.behavior === 'allow'
+    })
   }
 
   /**
@@ -206,6 +239,29 @@ export class SessionManager {
     s.session?.dispose()
     s.session = null
     s.needsRespawn = false
+  }
+
+  /**
+   * 设置落盘后通知会话：凭据来源 / 官方默认模型都是启动参数。
+   *
+   * 空闲会话立刻换进程，忙碌的等本轮结束（`needsRespawn` 由 flushQueue 消费）。
+   * 切换来源时清掉本会话显式设过的模型 —— 旧来源的模型名放到新来源上未必存在。
+   */
+  settingsChanged(before: Settings, after: Settings): void {
+    const b = cliConfig(before, 'claude')
+    const a = cliConfig(after, 'claude')
+    const modeChanged = b.authMode !== a.authMode
+    const modelChanged = b.officialModel !== a.officialModel
+    if (!modeChanged && !modelChanged) return
+
+    for (const s of this.live.values()) {
+      if (s.cli !== 'claude') continue
+      s.authMode = a.authMode
+      s.officialModel = a.officialModel
+      if (modeChanged) s.model = ''
+      s.needsRespawn = true
+      if (!s.busy) this.respawn(s)
+    }
   }
 
   interrupt(sessionId: string): void {
@@ -263,8 +319,33 @@ export class SessionManager {
     return out
   }
 
+  /**
+   * 是否有活跃会话的 cwd 落在 dir 里。
+   *
+   * 还没发过消息的新会话也算 —— 它已经占着这个目录，删掉工作树之后
+   * 再发送只会失败。删除工作树前先让用户把它收掉。
+   */
+  hasLiveSessionIn(dir: string): boolean {
+    for (const s of this.live.values()) {
+      if (isSameOrInside(s.cwd, dir)) return true
+    }
+    return false
+  }
+
+  /**
+   * 这条会话现在该用什么凭据。
+   *
+   * official 模式返回 `channel: null` —— provider 据此不注入任何渠道环境；
+   * channel 模式没有渠道时返回 null，由调用方给出"去设置里配一个"的提示。
+   */
+  private authFor(s: Live): { channel: Channel | null } | null {
+    if (s.authMode === 'official') return { channel: null }
+    const ch = activeChannelOf(this.getSettings(), s.cli)
+    return ch ? { channel: ch } : null
+  }
+
   /** 首次发送时才把 CLI 拉起来 —— 这样没配渠道的会话不会白占一个进程 */
-  private ensureSession(s: Live, ch: Channel): boolean {
+  private ensureSession(s: Live, ch: Channel | null): boolean {
     if (s.session) return true
 
     const provider = this.providerFor(s.cli)
@@ -277,10 +358,13 @@ export class SessionManager {
     }
 
     try {
+      // 官方登录没有渠道，模型回落到设置里的 officialModel（空 = CLI 默认）
+      const fallbackModel =
+        ch?.model ?? (s.authMode === 'official' ? s.officialModel.trim() : '')
       s.session = provider.start({
         channel: ch,
         cwd: s.cwd,
-        model: s.model.trim() || ch.model,
+        model: s.model.trim() || fallbackModel,
         permissionMode: s.permissionMode,
         effort: s.effort,
         addDirs: [],
@@ -326,6 +410,18 @@ export class SessionManager {
       }
     } else if (ev.t === 'tool_call') {
       s.toolCount += 1
+    } else if (
+      ev.t === 'error' &&
+      !ev.fatal &&
+      s.cli === 'claude' &&
+      s.authMode === 'official' &&
+      /not logged in|please run \/login|unauthorized|401|authentication/i.test(ev.message)
+    ) {
+      // CLI 把"未登录"放在 result 里、以 is_error 结束；补一句去哪修
+      ev = {
+        ...ev,
+        message: `${ev.message}\n提示：当前使用官方账号，请到「设置 → Claude Code」登录，或切换回 API 渠道。`
+      }
     } else if (ev.t === 'turn_end') {
       // 步数只有管理器知道，在这里补齐
       ev = { ...ev, steps: s.toolCount }
@@ -374,8 +470,22 @@ export class SessionManager {
     if (!next) return
     if (s.needsRespawn) this.respawn(s)
     const spawning = !s.session
-    const ch = activeChannelOf(this.getSettings(), s.cli)
-    if (!ch || !this.ensureSession(s, ch)) return
+    const auth = this.authFor(s)
+    if (!auth || !this.ensureSession(s, auth.channel)) {
+      // 队列不能悄悄停住：告诉用户为什么这一条没发出去
+      this.emitEvent({
+        sessionId: s.id,
+        event: {
+          t: 'error',
+          message:
+            s.authMode === 'official'
+              ? '排队消息没能发出：请确认 Claude Code 已登录官方账号'
+              : `排队消息没能发出：${cliDef(s.cli).name} 没有可用渠道`,
+          fatal: false
+        }
+      })
+      return
+    }
     s.busy = true
     s.interrupted = false
     s.toolCount = 0
@@ -400,11 +510,17 @@ export class SessionManager {
 
     if (!s.interrupted && code !== null && code !== 0) {
       const tail = stderr.trim().slice(-400)
+      const authHint =
+        s.cli === 'claude' &&
+        s.authMode === 'official' &&
+        /not logged in|unauthorized|401|authentication/i.test(stderr)
+          ? '\n提示：当前使用官方账号，请到「设置 → Claude Code」登录，或切换回 API 渠道。'
+          : ''
       this.emitEvent({
         sessionId: s.id,
         event: {
           t: 'error',
-          message: `CLI 退出码 ${code}${tail ? `\n${tail}` : ''}`,
+          message: `CLI 退出码 ${code}${tail ? `\n${tail}` : ''}${authHint}`,
           fatal: true
         }
       })

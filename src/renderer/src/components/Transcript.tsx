@@ -130,6 +130,7 @@ export function Transcript({
   cwd
 }: Props): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
   /**
    * 是否跟随最新内容。
    * 用 ref 而不是 state：effect 里要读到**当前**值，state 更新是异步的，
@@ -147,6 +148,12 @@ export function Transcript({
    * 这正是"切换运行中的会话偶尔不定位到最后一行"的根因。
    */
   const autoTopRef = useRef(0)
+  /**
+   * 切会话后的短暂锁定：这段时间里 scrollTop 的变化基本都是布局造成的
+   * （内容高度还没算完、浏览器在夹紧越界的 scrollTop），不要当成用户翻页。
+   * 到期后恢复正常判定 —— 用户在这之后自己往上翻，仍然会被尊重。
+   */
+  const settleUntilRef = useRef(0)
   const [showJump, setShowJump] = useState(false)
 
   // 只在设置真的变了时换 context 值，避免每来一个 delta 都把消费方全部重渲染
@@ -192,7 +199,9 @@ export function Transcript({
          */
         const userMoved = Math.abs(el.scrollTop - autoTopRef.current) > 1
         if (near) pinnedRef.current = true
-        else if (userMoved) pinnedRef.current = false
+        else if (userMoved && performance.now() >= settleUntilRef.current) {
+          pinnedRef.current = false
+        }
         const jump = !pinnedRef.current
         setShowJump((prev) => (prev === jump ? prev : jump))
       })
@@ -204,9 +213,53 @@ export function Transcript({
   // 换会话：直接跳到底部，别让用户自己找
   useEffect(() => {
     pinnedRef.current = true
+    settleUntilRef.current = performance.now() + 400
     setShowJump(false)
     stickToBottom()
+
+    /*
+     * 这一次 effect 写下的位置往往不是终点。
+     *
+     * 新会话的内容刚挂进 DOM：content-visibility 的块要等进入视口才按真实
+     * 高度排版，历史里的图片要等解码，输入区那侧还可能多出待发送队列 /
+     * 提问抽屉 —— 它们都会在接下来的几帧里改高度。只贴一次的话，表现
+     * 就是停在倒数第几屏，而且因为 pinned 还是 true，「回到底部」都不出现。
+     *
+     * 后面靠 ResizeObserver 兜底；这两帧是补上 RO 回调之前的空档。
+     */
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      if (!pinnedRef.current) return
+      stickToBottom()
+      raf2 = requestAnimationFrame(() => {
+        if (pinnedRef.current) stickToBottom()
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
   }, [sessionKey, stickToBottom])
+
+  /**
+   * 视口或内容高度一变，只要还跟着底部就重新贴住。
+   *
+   * `items` 变引用只能覆盖"又来了新内容"；上面那几帧之后的高度变化
+   * （图片解码、字体、content-visibility 的块按真实高度重排、输入区
+   * 变高变矮）不会换 items，之前没有任何东西会重新滚动 ——
+   * 这就是切到运行中的会话后停在半路的原因。
+   */
+  useEffect(() => {
+    const el = scrollRef.current
+    const inner = innerRef.current
+    if (!el || !inner || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (pinnedRef.current) stickToBottom()
+    })
+    ro.observe(el)
+    ro.observe(inner)
+    return () => ro.disconnect()
+  }, [stickToBottom])
 
   // 轮到对面了、但它还没吐第一个字 —— 这段时间界面上什么都不长。
   // starting 和 running 都算"没结束"，但文案不一样（连 CLI / 想事情）。
@@ -239,7 +292,7 @@ export function Transcript({
     <DisplayContext.Provider value={display}>
       <div className="transcript-wrap">
         <div className="transcript" ref={scrollRef}>
-        <div className="transcript__inner">
+        <div className="transcript__inner" ref={innerRef}>
           {tab === 'trace' ? (
             <TraceView items={items} />
           ) : items.length === 0 ? (
@@ -252,7 +305,9 @@ export function Transcript({
              */
             <div className="tl">
               {chunks.map((c, i) => (
-                <RowChunk key={i} items={c} />
+                // 末尾两块不做 content-visibility 跳过：跳到底部时它们必须
+                // 按真实高度排版，否则会停在一片估算出来的空白上（见 CSS）
+                <RowChunk key={i} items={c} tail={i >= chunks.length - 2} />
               ))}
               {waiting && (
                 <PendingRow connecting={status === 'starting'} agentsRunning={agentsRunning} />
@@ -505,9 +560,9 @@ function UserRefCard({ item }: { item: ParsedIdeRef }): JSX.Element {
  * 分块边界不会错位。
  */
 const RowChunk = memo(
-  function RowChunk({ items }: { items: ChatItem[] }): JSX.Element {
+  function RowChunk({ items, tail }: { items: ChatItem[]; tail: boolean }): JSX.Element {
     return (
-      <div className="tl__chunk">
+      <div className={`tl__chunk${tail ? ' is-tail' : ''}`}>
         {items.map((it) => (
           <Row key={it.id} item={it} />
         ))}
@@ -515,8 +570,9 @@ const RowChunk = memo(
     )
   },
   (a, b) =>
-    a.items === b.items ||
-    (a.items.length === b.items.length && a.items.every((x, i) => x === b.items[i]))
+    a.tail === b.tail &&
+    (a.items === b.items ||
+      (a.items.length === b.items.length && a.items.every((x, i) => x === b.items[i])))
 )
 
 /* ── 思考 ───────────────────────────────────────────────── */
@@ -690,7 +746,8 @@ const SYS_META: Record<SystemKey, { label: string; glyph: string; tone: string }
   effort: { label: '思考深度', glyph: '◈', tone: 'eff' },
   permissionMode: { label: '权限模式', glyph: '◆', tone: 'perm' },
   model: { label: '模型', glyph: '◇', tone: 'model' },
-  channel: { label: '渠道', glyph: '⇄', tone: 'chan' }
+  channel: { label: '渠道', glyph: '⇄', tone: 'chan' },
+  auth: { label: '凭据来源', glyph: '◎', tone: 'chan' }
 }
 
 /**

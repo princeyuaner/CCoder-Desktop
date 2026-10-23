@@ -34,10 +34,12 @@ export interface ToolDisplay {
 
 const FAMILY: Record<string, ToolFamily> = {
   Bash: 'bash',
+  WriteStdin: 'bash',
   Read: 'read',
   Edit: 'edit',
   MultiEdit: 'edit',
   NotebookEdit: 'edit',
+  ApplyPatch: 'edit',
   Write: 'write',
   Grep: 'search',
   Glob: 'search',
@@ -202,8 +204,16 @@ export function toolDisplay(name: string, input: unknown): ToolDisplay {
     case 'Write':
     case 'Edit':
     case 'MultiEdit':
-    case 'NotebookEdit': {
-      const path = pick('file_path') || pick('notebook_path')
+    case 'NotebookEdit':
+    case 'ApplyPatch': {
+      // Codex 的 apply_patch 可能在一次调用里改多个文件，折叠行取第一个
+      const firstChange = Array.isArray(o.changes) ? o.changes[0] : undefined
+      const path =
+        pick('file_path') ||
+        pick('notebook_path') ||
+        (firstChange && typeof firstChange === 'object'
+          ? String((firstChange as Record<string, unknown>).path ?? '')
+          : '')
       let stat: ToolStat | undefined
       if (name === 'Write') {
         const n = countLines(pick('content'))

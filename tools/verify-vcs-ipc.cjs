@@ -5,6 +5,8 @@
  *     --external:electron --outfile=tools/_ide-window.cjs
  *   npx esbuild src/main/vcs/index.ts --bundle --platform=node --format=cjs \
  *     --outfile=tools/_vcs.cjs
+ *   npx esbuild src/main/chat-bridge.ts --bundle --platform=node --format=cjs \
+ *     --external:electron --outfile=tools/_chat-bridge.cjs
  *   node node_modules/electron/cli.js tools/verify-vcs-ipc.cjs
  */
 const { app, BrowserWindow, ipcMain } = require('electron')
@@ -21,7 +23,8 @@ process.env.ELECTRON_RENDERER_URL = pathToFileURL(
 process.env.CCODER_PRELOAD_PATH = path.join(ROOT, 'out', 'preload', 'index.js')
 
 const vcs = require('./_vcs.cjs')
-const { openIdeWindow, authorizeVcsSender } = require('./_ide-window.cjs')
+const { openIdeWindow, authorizeVcsSender, isIdeSender } = require('./_ide-window.cjs')
+const chatBridge = require('./_chat-bridge.cjs')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ccoder-vcs-ipc-'))
@@ -72,7 +75,20 @@ function register() {
   handle('vcs:pull', (req) => vcs.pull(req))
   handle('vcs:push', (req) => vcs.push(req))
   handle('vcs:update', (req) => vcs.update(req))
+  handle('vcs:worktree-list', (req) => vcs.worktreeList(req))
+  handle('vcs:worktree-add', (req) => vcs.worktreeAdd(req))
+  handle('vcs:worktree-remove', (req) => vcs.worktreeRemove(req))
+  handle('vcs:worktree-prune', (req) => vcs.worktreePrune(req))
   handle('vcs:cancel', (req) => vcs.cancel(req))
+
+  // 与生产 handler 同一套规则：只有绑定了工作区的 IDE 窗口能请求
+  ipcMain.handle('workspace:open-session', (e, cwd) => {
+    if (!isIdeSender(e.sender.id)) return { ok: false, message: '只有 IDE 窗口可以请求打开会话' }
+    if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) {
+      return { ok: false, message: '路径必须是绝对路径' }
+    }
+    return chatBridge.openSessionInChat(cwd)
+  })
 }
 
 async function waitLoad(win) {
@@ -90,6 +106,8 @@ app.whenReady().then(async () => {
   check('IDE 窗口已创建', !!ide)
   if (!ide) return app.exit(1)
   await waitLoad(ide)
+  // 测试窗口别弹到用户屏幕上；隐藏窗口照样能执行 JS / 渲染 DOM
+  ide.hide()
 
   const detect = await ide.webContents.executeJavaScript(`window.api.vcs.detect(${JSON.stringify(ws)})`)
   check('detect 成功', detect.ok && detect.data.repo?.kind === 'git', detect)
@@ -98,6 +116,23 @@ app.whenReady().then(async () => {
     `window.api.vcs.status({ cwd: ${JSON.stringify(ws)} })`
   )
   check('status 有 1 个改动', status.ok && status.data.counts.total === 1, status)
+
+  const trees = await ide.webContents.executeJavaScript(
+    `window.api.vcs.worktreeList({ cwd: ${JSON.stringify(ws)} })`
+  )
+  check('worktree list via IPC', trees.ok && trees.data.worktrees.length === 1, trees)
+
+  const wtPath = path.join(base, 'ws.worktrees', 'ipc-wt')
+  const added = await ide.webContents.executeJavaScript(
+    `window.api.vcs.worktreeAdd({ cwd: ${JSON.stringify(ws)}, opId: 'ipc-wt-add', path: ${JSON.stringify(wtPath)}, branch: 'ipc-wt', base: 'main' })`
+  )
+  check('worktree add via IPC', added.ok && added.data.worktrees.length === 2, added)
+  check('worktree checkout exists', fs.existsSync(path.join(wtPath, 'a.txt')))
+
+  const removedWt = await ide.webContents.executeJavaScript(
+    `window.api.vcs.worktreeRemove({ cwd: ${JSON.stringify(ws)}, opId: 'ipc-wt-rm', path: ${JSON.stringify(wtPath)}, force: true })`
+  )
+  check('worktree remove via IPC', removedWt.ok && removedWt.data.worktrees.length === 1, removedWt)
 
   const diff = await ide.webContents.executeJavaScript(
     `window.api.vcs.diff({ cwd: ${JSON.stringify(ws)}, rel: 'a.txt', source: 'working' })`
@@ -126,6 +161,98 @@ app.whenReady().then(async () => {
     `document.querySelectorAll('.ide-vcs-row').length`
   )
   check('VCS 行已渲染', rows > 0, rows)
+
+  const wtTab = await ide.webContents.executeJavaScript(`(() => {
+    const b = [...document.querySelectorAll('.ide-vcs-tabs > button')].find((x) =>
+      x.textContent.includes('工作树')
+    )
+    if (!b) return false
+    b.click()
+    return true
+  })()`)
+  check('工作树 tab 存在', wtTab === true, wtTab)
+  await sleep(900)
+  const wtRows = await ide.webContents.executeJavaScript(
+    `document.querySelectorAll('.ide-vcs-wtrow').length`
+  )
+  check('工作树行已渲染', wtRows === 1, wtRows)
+
+  const openedCreate = await ide.webContents.executeJavaScript(`(() => {
+    const b = [...document.querySelectorAll('.ide-vcs-sidehead .ide-vcs-mini')].find(
+      (x) => x.textContent.trim() === '新建'
+    )
+    if (!b) return false
+    b.click()
+    return true
+  })()`)
+  check('打开新建工作树对话框', openedCreate === true, openedCreate)
+  await sleep(300)
+
+  const filledBranch = await ide.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('.ide-vcs-form input')
+    if (!input) return false
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    set.call(input, 'ui-branch')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  check('填写分支名', filledBranch === true, filledBranch)
+  await sleep(300)
+
+  const autoPath = await ide.webContents.executeJavaScript(
+    `document.querySelectorAll('.ide-vcs-form input')[2]?.value || ''`
+  )
+  check('自动生成工作树路径', autoPath.includes('ui-branch'), autoPath)
+
+  const clickedCreate = await ide.webContents.executeJavaScript(`(() => {
+    const b = [...document.querySelectorAll('.ide-vcs-confirm .ide-vcs-btn')].find(
+      (x) => x.textContent.trim() === '创建'
+    )
+    if (!b || b.disabled) return false
+    b.click()
+    return true
+  })()`)
+  check('点击创建', clickedCreate === true, clickedCreate)
+  await sleep(1800)
+
+  const wtRowsAfterCreate = await ide.webContents.executeJavaScript(
+    `document.querySelectorAll('.ide-vcs-wtrow').length`
+  )
+  check('创建后工作树行增加', wtRowsAfterCreate === 2, wtRowsAfterCreate)
+  check('新工作树目录存在', fs.existsSync(autoPath))
+
+  const clickedDelete = await ide.webContents.executeJavaScript(`(() => {
+    const b = document.querySelector('.ide-vcs-wtdetail .ide-vcs-btn.is-danger')
+    if (!b) return false
+    b.click()
+    return true
+  })()`)
+  check('点击删除工作树', clickedDelete === true, clickedDelete)
+  await sleep(300)
+
+  const confirmedDelete = await ide.webContents.executeJavaScript(`(() => {
+    const b = [...document.querySelectorAll('.ide-vcs-confirm .ide-vcs-btn')].find(
+      (x) => x.textContent.trim() === '删除'
+    )
+    if (!b) return false
+    b.click()
+    return true
+  })()`)
+  check('确认删除工作树', confirmedDelete === true, confirmedDelete)
+  await sleep(1800)
+
+  const wtRowsAfterDelete = await ide.webContents.executeJavaScript(
+    `document.querySelectorAll('.ide-vcs-wtrow').length`
+  )
+  check('删除后工作树行恢复', wtRowsAfterDelete === 1, wtRowsAfterDelete)
+
+  await ide.webContents.executeJavaScript(`(() => {
+    const b = [...document.querySelectorAll('.ide-vcs-tabs > button')].find((x) =>
+      x.textContent.includes('更改')
+    )
+    if (b) b.click()
+  })()`)
+  await sleep(400)
 
   const clicked = await ide.webContents.executeJavaScript(`(() => {
     const row = [...document.querySelectorAll('.ide-vcs-row')].find((r) => r.textContent.includes('a.txt'))
@@ -199,6 +326,7 @@ app.whenReady().then(async () => {
         decodeURIComponent(w.webContents.getURL()).includes(svnWc)
       ) ?? BrowserWindow.getAllWindows()[BrowserWindow.getAllWindows().length - 1]
     await waitLoad(svnWin)
+    svnWin.hide()
     await svnWin.webContents.executeJavaScript(`document.querySelectorAll('.ide-act')[2].click()`)
     await sleep(1200)
     const kind = await svnWin.webContents.executeJavaScript(
@@ -262,6 +390,54 @@ app.whenReady().then(async () => {
   )
   check('未绑定窗口被拒绝', forbidden.ok === false && forbidden.error.code === 'forbidden', forbidden)
 
+  const forbiddenWt = await outsider.webContents.executeJavaScript(
+    `window.api.vcs.worktreeList({ cwd: ${JSON.stringify(ws)} })`
+  )
+  check(
+    '未绑定窗口不能读工作树',
+    forbiddenWt.ok === false && forbiddenWt.error.code === 'forbidden',
+    forbiddenWt
+  )
+
+  console.log('工作树 → 新会话桥')
+  const chatWin = new BrowserWindow({
+    width: 800,
+    height: 600,
+    show: false,
+    webPreferences: {
+      preload: process.env.CCODER_PRELOAD_PATH,
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  try {
+    await chatWin.loadURL('data:text/html,<html><body>chat</body></html>')
+    chatBridge.setChatMainWindow(chatWin)
+    // 末尾的 true 很重要：onOpenSession 返回取消订阅函数，
+    // executeJavaScript 会试图把返回值克隆回主进程，函数克隆失败会让脚本挂住。
+    await chatWin.webContents.executeJavaScript(
+      `window.__got = null; window.api.workspace.onOpenSession((cwd) => { window.__got = cwd }); true`
+    )
+
+    const requested = await ide.webContents.executeJavaScript(
+      `window.api.workspace.openSession(${JSON.stringify(ws)})`
+    )
+    chatWin.hide()
+    check('IDE 请求打开新会话', requested.ok === true, requested)
+    await sleep(400)
+    const got = await chatWin.webContents.executeJavaScript(`window.__got`)
+    check('主窗口收到目标目录', got === ws, got)
+
+    const deniedOpen = await outsider.webContents.executeJavaScript(
+      `window.api.workspace.openSession(${JSON.stringify(ws)})`
+    )
+    check('未绑定窗口不能请求新会话', deniedOpen.ok === false, deniedOpen)
+  } finally {
+    chatBridge.setChatMainWindow(null)
+    chatWin.destroy()
+  }
+
   outsider.destroy()
   ide.destroy()
   try {
@@ -269,4 +445,8 @@ app.whenReady().then(async () => {
   } catch {}
   console.log(`\n${failed === 0 ? '全部通过 ✓' : `${failed} 项失败 ✗`}`)
   app.exit(failed === 0 ? 0 : 1)
+}).catch((err) => {
+  // 任何 await 失败都要退出，别把测试进程挂在那里
+  console.error(err)
+  app.exit(1)
 })

@@ -1,8 +1,11 @@
 import type { Channel } from '../shared/settings'
 
 /**
- * 渠道 → CLI 环境变量。这是整个渠道功能的**唯一**翻译点：
- * 想支持新协议（如 openai 兼容）时，只在这里加一个分支。
+ * 渠道 → Claude Code 的环境变量。
+ *
+ * Codex 不走这里：它的 provider 配置是 app-server 的 `-c key=value` 覆盖，
+ * 见 codex-runner.ts 的 codexConfigOverrides()。两边都保留是因为一个用
+ * 进程环境、一个用 CLI 配置，没有共同的中间形态。
  */
 export function channelToEnv(ch: Channel): Record<string, string> {
   const env: Record<string, string> = {}
