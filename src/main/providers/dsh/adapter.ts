@@ -25,7 +25,9 @@ import type { Provider, ProviderSession, ProviderSessionOptions } from '../types
 import {
   checkDshStatus,
   dshChannelEnv,
+  dshHomeForChannel,
   ensureDshHome,
+  findDshHomeForSession,
   killDshTree,
   resolveNodeBin,
   spawnDsh
@@ -525,7 +527,14 @@ class DshSession implements ProviderSession {
   private disposed = false
 
   constructor(private o: ProviderSessionOptions) {
-    const home = ensureDshHome(o.dshHome)
+    /*
+     * resume 必须回到写这条会话的那个 home；新会话则用渠道自己的 home。
+     * 渠道 home 里没有 `.credentials.yaml`，dsh 才会真正采用我们注入的
+     * DEEPSEEK_API_KEY —— 共享 `~/.dsh` 里的同名凭据会把它顶掉。
+     */
+    const home = o.dshHome?.trim()
+      ? ensureDshHome(o.dshHome)
+      : findDshHomeForSession(o.resumeId) ?? dshHomeForChannel(o.channel)
     const child = spawnDsh(['--profile', 'acp'], {
       cwd: o.cwd,
       env: { ...dshChannelEnv(o.channel), DSH_HOME: home },
@@ -1185,7 +1194,7 @@ export async function testDshChannel(channel: Channel): Promise<ChannelTestResul
         effort: 'high',
         addDirs: [],
         resumeId: null,
-        dshHome: ensureDshHome(),
+        // 不传 dshHome：走渠道自己的 home，测的就是真实会话会用的那个目录
         onEvent: (e) => {
           if (e.t === 'session_started' && !sent) {
             sent = true

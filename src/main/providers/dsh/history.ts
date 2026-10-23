@@ -7,7 +7,7 @@ import type { ToolStat } from '../../../shared/tool'
 import { t } from '../../i18n'
 import { diffLines } from '../permission-preview'
 import { normalizeToolInput, toolFailed, uiToolName } from './adapter'
-import { ensureDshHome } from './runner'
+import { listDshHomes } from './runner'
 
 /**
  * DeepSeek Harness 的会话历史。
@@ -281,89 +281,95 @@ function titleFromTranscript(file: string, size: number): string {
 }
 
 export function listDshSessionFiles(): DshSessionFile[] {
-  const home = ensureDshHome()
-  const root = join(home, 'sessions')
-
-  let encodings: string[]
-  try {
-    encodings = readdirSync(root)
-  } catch {
-    return [] // 还没跑过 dsh
-  }
-
   const out: DshSessionFile[] = []
   const seenFiles = new Set<string>()
   const seenProj = new Set<string>()
 
-  for (const encoded of encodings) {
-    const encDir = join(root, encoded)
-    let ids: string[]
+  /*
+   * 每个渠道一个 home，另外还有共享的 `~/.dsh`（official 模式 / 旧会话）。
+   * 全部扫一遍，侧栏才不会因为换了渠道就"丢历史"。
+   */
+  const scan = (home: string): void => {
+    const root = join(home, 'sessions')
+    let encodings: string[]
     try {
-      ids = readdirSync(encDir)
+      encodings = readdirSync(root)
     } catch {
-      continue
+      return // 这个 home 还没跑过 dsh
     }
 
-    for (const id of ids) {
-      const dir = join(encDir, id)
-      let files: string[]
+    for (const encoded of encodings) {
+      const encDir = join(root, encoded)
+      let ids: string[]
       try {
-        files = readdirSync(dir)
+        ids = readdirSync(encDir)
       } catch {
         continue
       }
 
-      const name = TRANSCRIPT_NAMES.find((n) => files.includes(n))
-      if (!name) continue
-
-      const file = join(dir, name)
-      let st
-      try {
-        st = statSync(file)
-      } catch {
-        continue
-      }
-      if (!st.isFile()) continue
-      seenFiles.add(file)
-
-      const header = readHeader(file, st.size, st.mtimeMs)
-      if (!header) continue
-      // 子代理会话不是用户开的，混进侧栏只会让列表变脏
-      if (header.origin === 'subagent' || header.delegationDepth > 0) continue
-
-      const projFile = join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`)
-      seenProj.add(projFile)
-      const proj = readProjCache(projFile)
-
-      // 新建但一句话都没说的会话：dsh 自己的 session/list 也不列它
-      if (proj?.blank) continue
-
-      // dsh 自己写的 cwd 可能是 `C:/Users/...`，也可能是 `C:\Users\...`
-      // （TUI 和 ACP 两条路径不一样）。统一成系统分隔符，否则同一个工作区
-      // 会被拆成两组，其中一组在侧栏里根本点不到。
-      const cwd = normalize(proj?.cwd || header.cwd)
-      if (!cwd) continue
-
-      const title =
-        cleanTitle(proj?.title ?? '') ||
-        titleFromTranscript(file, st.size) ||
-        t('codexHistory.untitled')
-
-      out.push({
-        file,
-        dir,
-        session: {
-          id: header.id || id,
-          cwd,
-          title,
-          // 记录里没有创建时间就退回文件创建时间，再退 mtime
-          createdAt: proj?.createdAt || header.createdAt || st.birthtimeMs || st.mtimeMs,
-          updatedAt: st.mtimeMs,
-          cli: 'dsh'
+      for (const id of ids) {
+        const dir = join(encDir, id)
+        let files: string[]
+        try {
+          files = readdirSync(dir)
+        } catch {
+          continue
         }
-      })
+
+        const name = TRANSCRIPT_NAMES.find((n) => files.includes(n))
+        if (!name) continue
+
+        const file = join(dir, name)
+        let st
+        try {
+          st = statSync(file)
+        } catch {
+          continue
+        }
+        if (!st.isFile()) continue
+        seenFiles.add(file)
+
+        const header = readHeader(file, st.size, st.mtimeMs)
+        if (!header) continue
+        // 子代理会话不是用户开的，混进侧栏只会让列表变脏
+        if (header.origin === 'subagent' || header.delegationDepth > 0) continue
+
+        const projFile = join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`)
+        seenProj.add(projFile)
+        const proj = readProjCache(projFile)
+
+        // 新建但一句话都没说的会话：dsh 自己的 session/list 也不列它
+        if (proj?.blank) continue
+
+        // dsh 自己写的 cwd 可能是 `C:/Users/...`，也可能是 `C:\Users\...`
+        // （TUI 和 ACP 两条路径不一样）。统一成系统分隔符，否则同一个工作区
+        // 会被拆成两组，其中一组在侧栏里根本点不到。
+        const cwd = normalize(proj?.cwd || header.cwd)
+        if (!cwd) continue
+
+        const title =
+          cleanTitle(proj?.title ?? '') ||
+          titleFromTranscript(file, st.size) ||
+          t('codexHistory.untitled')
+
+        out.push({
+          file,
+          dir,
+          session: {
+            id: header.id || id,
+            cwd,
+            title,
+            // 记录里没有创建时间就退回文件创建时间，再退 mtime
+            createdAt: proj?.createdAt || header.createdAt || st.birthtimeMs || st.mtimeMs,
+            updatedAt: st.mtimeMs,
+            cli: 'dsh'
+          }
+        })
+      }
     }
   }
+
+  for (const home of listDshHomes()) scan(home)
 
   // 已经删掉的会话别在缓存里留一辈子
   for (const k of headerCache.keys()) if (!seenFiles.has(k)) headerCache.delete(k)

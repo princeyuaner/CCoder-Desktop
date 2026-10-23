@@ -75,6 +75,21 @@ html[data-scheme='light'] .badge--ok {
   background: #e9f7ed;
 }
 
+/* 状态卡的图标底色是写死的深色值，浅色下要单独换掉 */
+html[data-scheme='light'] .statuscard--bad {
+  border-color: #e7b9b5;
+}
+html[data-scheme='light'] .statuscard__icon--ok {
+  color: var(--ok);
+  background: #e9f7ed;
+  border-color: #b7dfc2;
+}
+html[data-scheme='light'] .statuscard__icon--bad {
+  color: var(--danger);
+  background: #fdeceb;
+  border-color: #e7b9b5;
+}
+
 html[data-scheme='light'] .input:focus {
   border-color: #8a8a92;
 }

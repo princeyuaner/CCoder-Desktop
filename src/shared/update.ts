@@ -32,6 +32,8 @@ export interface UpdateState {
    * 只有下载失败需要让用户知道。
    */
   errorScope?: 'check' | 'download'
+  /** 上次检查完成的时间（毫秒时间戳）。从没检查过就没有这个字段 */
+  checkedAt?: number
   /** 不支持自动更新的原因：开发模式 / 便携版 */
   reason?: 'dev' | 'portable'
 }

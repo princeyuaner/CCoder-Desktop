@@ -35,6 +35,7 @@ export const zh = {
   'settings.nav.permissions': '权限',
   'settings.nav.cli': 'CLI',
   'settings.nav.notReady': '未接入',
+  'settings.nav.about': '关于',
   'settings.title': '设置',
   'settings.save.saving': '保存中…',
   'settings.save.saved': '已自动保存',
@@ -397,7 +398,7 @@ export const zh = {
     '缩放整个界面（含侧栏与设置页）。100% 为标准，觉得字小可以先调这个。',
   'settings.chatFontSize': '对话字号',
   'settings.chatFontSizeHint':
-    '影响对话正文、输入框和 Markdown；代码块会跟着小一档。',
+    '影响对话正文、输入框、Markdown，以及思考内容和工具调用；代码块等细节会跟着小一档。',
   'settings.uiFont': '界面字体',
   'settings.custom': '自定义…',
   'settings.uiFontPlaceholder':
@@ -606,7 +607,7 @@ export const zh = {
     'Harness 凭据模式下新会话使用的模型；留空则用 dsh 自己的默认值。',
   'dsh.installTitle': '安装 DeepSeek Harness',
   'dsh.installBody':
-    '安装完成后点上面的「重新检测」，不需要重启 CCoder。凭据、插件和历史都在 DSH_HOME 里，和终端里跑的 dsh 共享。',
+    '安装完成后点上面的「重新检测」，不需要重启 CCoder。Harness 凭据模式共享终端里的 DSH_HOME；API 渠道模式每个渠道有独立的 DSH_HOME，互不影响。',
   'dsh.installNode':
     '注意：dsh 的 bin.js 使用 import.meta.main 自启动，必须用系统 Node 24+；Electron 内置的 Node 20 无法运行它。',
   'dsh.copy': '复制',
@@ -616,6 +617,46 @@ export const zh = {
   'dsh.nodeBadTitle': '需要 Node 24+',
   'dsh.nodeBadBody':
     '已经找到 DeepSeek Harness，但当前的 Node 不支持 import.meta.main（dsh 用它判断是否启动）。安装 Node 24 或设置 NODE_BIN 指向它，然后重新检测。',
+
+  /* ── 关于 / 更新 ────────────────────────────────────────── */
+  'about.tagline': '把 Claude Code、Codex CLI 和 DeepSeek Harness 装进一个桌面窗口。',
+  'about.builtWith': 'Electron 33 · React 18 · TypeScript · 本地优先',
+  'about.update.section': '软件更新',
+  'about.update.idle': '等待检查更新',
+  'about.update.autoHint': '启动时和每 4 小时自动检查一次',
+  'about.update.checkedAt': '上次检查：{time} · {hint}',
+  'about.update.check': '检查更新',
+  'about.update.checking': '正在检查更新…',
+  'about.update.checkingAction': '检查中…',
+  'about.update.checkingMeta': '正在连接 GitHub Releases…',
+  'about.update.downloadingAction': '下载中…',
+  'about.update.upToDate': '已是最新版本',
+  'about.update.available': '发现新版本 {version}',
+  'about.update.availableBadge': '可更新',
+  'about.update.availableHint': '新版本已发布，点击下载。',
+  'about.update.download': '下载',
+  'about.update.downloading': '正在下载 {version}',
+  'about.update.downloadingPercent': '下载中… {percent}%',
+  'about.update.downloaded': '新版本 {version} 已就绪',
+  'about.update.readyBadge': '待安装',
+  'about.update.readyHint': '重启应用即可完成安装，正在运行的会话会被中断。',
+  'about.update.install': '重启并安装',
+  'about.update.checkFailed': '检查更新失败',
+  'about.update.downloadFailed': '更新下载失败',
+  'about.update.errorFallback': '请检查网络后重试。',
+  'about.update.unsupportedDev': '开发模式下不检查更新',
+  'about.update.unsupportedPortable': '便携版不支持自动更新',
+  'about.update.unsupportedHint': '请使用 NSIS 安装版以接收更新。',
+  'about.update.note':
+    '更新从 GitHub Releases 获取。下载完成后会提示重启安装；重启会中断正在运行的会话。',
+  'about.links': '链接',
+  'about.links.repo': 'GitHub 仓库',
+  'about.links.releases': '更新日志',
+  'about.links.releasesMeta': '查看版本历史',
+  'about.links.issues': '问题反馈',
+  'about.links.issuesMeta': '报告问题或提出建议',
+  'about.footer': '© 2026 CCoder',
+  'about.footerHint': '本地优先 · 数据只经过你配置的 CLI 与服务商',
 
   /* ── 更新提示 ───────────────────────────────────────────── */
   'update.newVersion': '新版本',

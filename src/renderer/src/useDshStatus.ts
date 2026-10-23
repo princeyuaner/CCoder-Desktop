@@ -14,8 +14,14 @@ export interface DshStatusApi {
  *
  * 只在打开 dsh 设置页时探测（enabled=true）—— 探测会解析 npm 全局包并跑一次
  * `dsh --version`，没必要在应用启动时给每个用户都付这份成本。
+ *
+ * channelId 决定显示哪个 home：每个渠道各有一个 DSH_HOME，official 模式
+ * （channelId=null）显示共享的 `~/.dsh`。
  */
-export function useDshStatus(enabled: boolean): DshStatusApi {
+export function useDshStatus(
+  enabled: boolean,
+  channelId: string | null = null
+): DshStatusApi {
   const [status, setStatus] = useState<DshStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -29,13 +35,13 @@ export function useDshStatus(enabled: boolean): DshStatusApi {
     setLoading(true)
     setError(null)
     try {
-      setStatus(await api.dsh.status())
+      setStatus(await api.dsh.status(channelId))
     } catch (e) {
       setError(String(e))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [channelId])
 
   useEffect(() => {
     if (enabled) void refresh()

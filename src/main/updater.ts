@@ -109,7 +109,8 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
         releaseName: notesOf(info),
         percent: undefined,
         error: undefined,
-        errorScope: undefined
+        errorScope: undefined,
+        checkedAt: Date.now()
       })
     })
 
@@ -120,7 +121,8 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
         releaseName: undefined,
         percent: undefined,
         error: undefined,
-        errorScope: undefined
+        errorScope: undefined,
+        checkedAt: Date.now()
       })
     })
 
@@ -185,7 +187,7 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
       await autoUpdater.checkForUpdates()
     } catch (e) {
       // 自动检查（断网 / 还没发 Release）不该打扰用户；手动检查的人能看到错误
-      publish({ phase: 'error', error: messageOf(e), errorScope: 'check' })
+      publish({ phase: 'error', error: messageOf(e), errorScope: 'check', checkedAt: Date.now() })
     }
     return state
   }

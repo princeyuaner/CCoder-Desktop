@@ -4,6 +4,7 @@ import { tr } from './i18n'
 
 export interface UpdaterUi {
   state: UpdateState | null
+  check(): void
   download(): void
   install(): Promise<UpdateInstallResult>
 }
@@ -34,6 +35,10 @@ export function useUpdater(): UpdaterUi {
     }
   }, [])
 
+  const check = useCallback((): void => {
+    void window.api?.updater.check().catch(() => undefined)
+  }, [])
+
   const download = useCallback((): void => {
     void window.api?.updater.download()
   }, [])
@@ -49,5 +54,5 @@ export function useUpdater(): UpdaterUi {
     }
   }, [])
 
-  return { state, download, install }
+  return { state, check, download, install }
 }

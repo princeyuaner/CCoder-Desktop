@@ -222,8 +222,13 @@ export interface WindowApi {
   }
 
   dsh: {
-    /** 探测 DeepSeek Harness 是否安装、Node 是否兼容、DSH_HOME 在哪 */
-    status(): Promise<DshStatus>
+    /**
+     * 探测 DeepSeek Harness 是否安装、Node 是否兼容、DSH_HOME 在哪。
+     *
+     * 传 channelId 时返回该渠道自己的 home（每个渠道一个 DSH_HOME）；
+     * 不传则是共享的 `~/.dsh`（official 模式）。
+     */
+    status(channelId?: string | null): Promise<DshStatus>
   }
 
   /**

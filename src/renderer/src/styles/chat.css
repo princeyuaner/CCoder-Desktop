@@ -445,6 +445,21 @@
    */
   padding: 18px calc(var(--pane-pad-x) - var(--scrollbar-w)) 10px var(--pane-pad-x);
   scrollbar-gutter: stable;
+
+  /*
+   * 思考 / 工具调用这类「次级文字」的字号阶梯。
+   *
+   * 全部从 --chat-font-size 派生，但各自比正文小一档 —— 用「减」不用「乘」，
+   * 和 .md .code 同一套算法：字号调大时各层级的差值不变，缩到 12px 也不会
+   * 糊成一团。每个变量后面的注释是默认 14px 时的原值，调阶梯时照着对；
+   * 前面的 max() 是下限，字号调到最小时仍保证看得清。
+   */
+  --chat-font-sub: max(11px, calc(var(--chat-font-size, 14px) - 1.5px)); /* 12.5px 思考标题 / 工具主题 */
+  --chat-font-body: max(10.5px, calc(var(--chat-font-size, 14px) - 2px)); /* 12px 思考正文 / 折叠预览 */
+  --chat-font-mono: max(10.5px, calc(var(--chat-font-size, 14px) - 2.5px)); /* 11.5px 工具命令行 */
+  --chat-font-out: max(10px, calc(var(--chat-font-size, 14px) - 3px)); /* 11px 工具输出 / 等待计时 */
+  --chat-font-meta: max(9.5px, calc(var(--chat-font-size, 14px) - 3.5px)); /* 10.5px 目录 / 耗时 / 增删行数 */
+  --chat-font-meta-xs: max(9px, calc(var(--chat-font-size, 14px) - 4px)); /* 10px 工具族标签 */
 }
 
 .jump-bottom {
@@ -874,7 +889,7 @@
   gap: 5px;
   width: 100%;
   padding: 3px 0;
-  font-size: 12.5px;
+  font-size: var(--chat-font-sub);
   color: #7a7a8c;
   text-align: left;
 }
@@ -896,7 +911,7 @@
   min-width: 0;
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--chat-font-body);
   color: #6a6a7c;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -926,7 +941,7 @@
 .tl__waittime {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--chat-font-out);
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
 }
@@ -950,7 +965,7 @@
   max-height: 300px;
   overflow-y: auto;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--chat-font-body);
   line-height: 1.6;
   color: #9a9aac;
   background: rgba(0, 0, 0, 0.28);
@@ -1038,7 +1053,7 @@
 .tool__subject {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: var(--chat-font-sub);
   color: #d2d2dc;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1106,7 +1121,7 @@
   display: inline-flex;
   gap: 4px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--chat-font-meta);
   font-variant-numeric: tabular-nums;
 }
 .tool__stat .is-add {
@@ -1118,7 +1133,7 @@
 .tool__dir {
   flex: none;
   max-width: 160px;
-  font-size: 10.5px;
+  font-size: var(--chat-font-meta);
   color: #4f4f5c;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1127,7 +1142,7 @@
 .tool__name {
   flex: none;
   max-width: 72px;
-  font-size: 10px;
+  font-size: var(--chat-font-meta-xs);
   letter-spacing: 0.06em;
   color: #5c5c6e;
   overflow: hidden;
@@ -1138,7 +1153,7 @@
   flex: none;
   min-width: 30px;
   text-align: right;
-  font-size: 10.5px;
+  font-size: var(--chat-font-meta);
   color: #55555f;
 }
 .tool__row svg {
@@ -1154,7 +1169,7 @@
 .tool__cmd {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--chat-font-mono);
   line-height: 1.65;
   color: #a8a8bc;
   white-space: pre-wrap;
@@ -1167,7 +1182,7 @@
 .tool__out {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--chat-font-out);
   line-height: 1.6;
   color: #6f6f80;
   white-space: pre-wrap;
@@ -1201,7 +1216,8 @@
   }
 }
 .pulse {
-  font-size: 11.5px;
+  /* 这行「等待…」长在思考行里，跟着那一档走；.pulse 本身是通用类，留个兜底 */
+  font-size: var(--chat-font-mono, 11.5px);
   color: #fcd34d;
   animation: pulse 1.4s ease-in-out infinite;
 }

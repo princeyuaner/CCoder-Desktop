@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-scheme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CCoder — 关于页预览</title>
+    <!--
+      预览稿：直接复用应用里的真实样式文件，DOM 结构与 SettingsPage.tsx 一致。
+      浏览器里打开即可；在地址后加 ?theme=light 可看浅色主题。
+    -->
+    <link rel="stylesheet" href="../../src/renderer/src/styles/tokens.css" />
+    <link rel="stylesheet" href="../../src/renderer/src/styles/global.css" />
+    <link rel="stylesheet" href="../../src/renderer/src/styles/shell.css" />
+    <link rel="stylesheet" href="../../src/renderer/src/styles/chat.css" />
+    <link rel="stylesheet" href="../../src/renderer/src/styles/settings.css" />
+    <link rel="stylesheet" href="../../src/renderer/src/styles/theme-light.css" />
+  </head>
+  <body>
+    <div id="root">
+      <div class="app">
+        <!-- ── 自绘标题栏 ─────────────────────────────────── -->
+        <div class="titlebar">
+          <div class="titlebar__brand">
+            <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="0" class="titlebar__brand-mark">
+              <path d="M2 9.2c0-3.2 2.6-5.8 5.8-5.8 1.2 0 2.3.4 3.2 1 .5-.4 1.2-.6 1.9-.5l1.6.2-.9 1.5c.4.8.6 1.7.6 2.6 0 3.2-2.6 5.8-5.8 5.8-1.6 0-3-.6-4.1-1.7-.3-.3-.6-.6-.8-1l-.6.2.3-1.2A5.7 5.7 0 0 1 2 9.2z" fill="currentColor" />
+            </svg>
+            <span class="titlebar__brand-name">CCoder</span>
+          </div>
+          <div class="titlebar__right">
+            <button class="titlebar__panel" title="切换侧栏">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="3" width="11" height="10" rx="1.6" />
+                <path d="M10.5 3v10" />
+              </svg>
+            </button>
+            <button class="wctl" title="最小化">
+              <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
+            </button>
+            <button class="wctl" title="最大化">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x="0.5" y="0.5" width="9" height="9" /></svg>
+            </button>
+            <button class="wctl wctl--close" title="关闭">
+              <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="app__body">
+          <!-- ── 侧栏 ─────────────────────────────────────── -->
+          <aside class="sidebar">
+            <nav class="sidebar__nav">
+              <button class="navitem">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 2.5v2M10 2.5v2" />
+                  <rect x="3" y="4.5" width="10" height="9" rx="1.6" />
+                  <path d="M6.2 8.2v2.4M9.8 8.2v2.4" />
+                </svg>
+                <span>Plugins</span>
+              </button>
+              <button class="navitem">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="8" cy="8" r="5.6" />
+                  <path d="M8 5v3.2l2 1.3" />
+                </svg>
+                <span>Automation</span>
+              </button>
+            </nav>
+
+            <div class="sidebar__section-head">
+              <span class="sidebar__section-title">Workspaces</span>
+              <div class="sidebar__section-tools">
+                <button class="iconbtn" title="搜索">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                    <circle cx="7" cy="7" r="4.5" />
+                    <path d="M10.5 10.5 14 14" />
+                  </svg>
+                </button>
+                <button class="iconbtn" title="排序">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 3v10M4 13l-2-2M4 13l2-2M12 13V3M12 3l-2 2M12 3l2 2" />
+                  </svg>
+                </button>
+                <button class="iconbtn" title="添加工作区">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z" />
+                    <path d="M7.5 7.6v3M6 9.1h3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="sidebar__scroll">
+              <div class="wsgroup">
+                <div class="wsgroup__head" title="C:/proj/ccoder-demo">
+                  <button class="wsgroup__iconbtn" title="在 IDE 中打开">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="wsgroup__icon">
+                      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z" />
+                    </svg>
+                  </button>
+                  <span class="wsgroup__name">ccoder-demo</span>
+                  <span class="wsgroup__count">0</span>
+                  <span class="wsgroup__acts">
+                    <button class="wsact" title="在这里新建会话">
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <path d="M8 3v10M3 8h10" />
+                      </svg>
+                    </button>
+                    <button class="wsact wsact--del" title="关闭工作区">×</button>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <button class="sidebar__settings">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="8" cy="8" r="2.2" />
+                <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2 3.6 12.4" />
+              </svg>
+              <span>Settings</span>
+            </button>
+          </aside>
+
+          <!-- ── 设置页 ───────────────────────────────────── -->
+          <main class="mainpane settings">
+            <header class="settings__head">
+              <button class="btn btn--ghost">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9.5 4 5.5 8l4 4" />
+                </svg>
+                返回
+              </button>
+              <h1 class="settings__title">设置</h1>
+              <div class="settings__head-right">
+                <span class="saved-flash">已自动保存</span>
+              </div>
+            </header>
+
+            <div class="settings__body">
+              <nav class="settings__nav">
+                <div class="settings__navgroup">系统</div>
+                <button class="settings__navitem">通用</button>
+                <button class="settings__navitem">权限</button>
+
+                <div class="settings__navgroup">CLI</div>
+                <button class="settings__navitem">Claude Code</button>
+                <button class="settings__navitem">Codex CLI</button>
+                <button class="settings__navitem">DeepSeek Harness</button>
+                <button class="settings__navitem is-active">关于</button>
+              </nav>
+
+              <div class="settings__content">
+                <!-- 品牌区 -->
+                <section class="abouthero">
+                  <div class="abouthero__mark">
+                    <img src="../../build/icon.png" alt="" />
+                  </div>
+                  <div class="abouthero__main">
+                    <h2 class="abouthero__name">
+                      CCoder <span class="abouthero__ver">v1.0.4</span>
+                    </h2>
+                    <p class="abouthero__tagline">
+                      把 Claude Code、Codex CLI 和 DeepSeek Harness 装进一个桌面窗口。
+                    </p>
+                    <p class="abouthero__meta">Electron 33 · React 18 · TypeScript · 本地优先</p>
+                  </div>
+                </section>
+
+                <!-- 软件更新 -->
+                <section class="chform chform--sep">
+                  <div class="chform__head">
+                    <h2 class="chform__title">软件更新</h2>
+                  </div>
+                  <div class="statuscard" id="aboutStatus">
+                    <div class="statuscard__icon statuscard__icon--ok" id="aboutStatusIcon">
+                      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m3.5 8.5 3 3 6-7" />
+                      </svg>
+                    </div>
+                    <div class="statuscard__main">
+                      <div class="statuscard__title" id="aboutStatusTitle">
+                        已是最新版本 <span class="badge badge--ok">v1.0.4</span>
+                      </div>
+                      <div class="statuscard__meta" id="aboutStatusMeta">
+                        上次检查：2 分钟前 · 启动时和每 4 小时自动检查一次
+                      </div>
+                    </div>
+                    <div class="statuscard__actions" id="aboutStatusActions">
+                      <button class="btn btn--ghost btn--xs">检查更新</button>
+                    </div>
+                  </div>
+                  <p class="aboutnote">
+                    更新从 GitHub Releases 获取。下载完成后会提示重启安装；重启会中断正在运行的会话。
+                  </p>
+                </section>
+
+                <!-- 链接 -->
+                <section class="chform chform--sep">
+                  <div class="chform__head">
+                    <h2 class="chform__title">链接</h2>
+                  </div>
+                  <div class="aboutlinks">
+                    <a class="aboutlink" href="https://github.com/princeyuaner/CCoder-Desktop" target="_blank" rel="noreferrer">
+                      <span class="aboutlink__icon">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                        </svg>
+                      </span>
+                      <span class="aboutlink__label">GitHub 仓库</span>
+                      <span class="aboutlink__meta">princeyuaner/CCoder-Desktop</span>
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="aboutlink__ext">
+                        <path d="M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" />
+                        <path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5" />
+                      </svg>
+                    </a>
+                    <a class="aboutlink" href="https://github.com/princeyuaner/CCoder-Desktop/releases" target="_blank" rel="noreferrer">
+                      <span class="aboutlink__icon">
+                        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M8 2.5v7.5M5 7l3 3 3-3M3 13.5h10" />
+                        </svg>
+                      </span>
+                      <span class="aboutlink__label">更新日志</span>
+                      <span class="aboutlink__meta">查看版本历史</span>
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="aboutlink__ext">
+                        <path d="M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" />
+                        <path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5" />
+                      </svg>
+                    </a>
+                    <a class="aboutlink" href="https://github.com/princeyuaner/CCoder-Desktop/issues" target="_blank" rel="noreferrer">
+                      <span class="aboutlink__icon">
+                        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" />
+                          <path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5" />
+                        </svg>
+                      </span>
+                      <span class="aboutlink__label">问题反馈</span>
+                      <span class="aboutlink__meta">报告问题或提出建议</span>
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="aboutlink__ext">
+                        <path d="M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" />
+                        <path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5" />
+                      </svg>
+                    </a>
+                  </div>
+                </section>
+
+                <footer class="aboutfoot">
+                  <span>© 2026 CCoder</span>
+                  <span>本地优先 · 数据只经过你配置的 CLI 与服务商</span>
+                </footer>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ?theme=light 看浅色主题；default 深色
+      const q = new URLSearchParams(location.search)
+      if (q.get('theme') === 'light') {
+        document.documentElement.dataset.theme = 'light'
+        document.documentElement.dataset.scheme = 'light'
+      }
+
+      /* ── 预览专用：模拟「检查 → 下载 → 安装」的状态变化 ──
+       * 正式实现里这些状态来自主进程，这里只是在静态稿上演示卡片长什么样。 */
+      const iconCheck = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7" /></svg>'
+      const iconDownload = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7.5M5 7l3 3 3-3M3 13.5h10" /></svg>'
+      const card = document.getElementById('aboutStatus')
+      const icon = document.getElementById('aboutStatusIcon')
+      const title = document.getElementById('aboutStatusTitle')
+      const meta = document.getElementById('aboutStatusMeta')
+      const actions = document.getElementById('aboutStatusActions')
+
+      function paint(cls, iconCls, iconHtml, titleHtml, metaHtml, actionHtml) {
+        card.className = 'statuscard ' + cls
+        icon.className = 'statuscard__icon ' + iconCls
+        icon.innerHTML = iconHtml
+        title.innerHTML = titleHtml
+        meta.innerHTML = metaHtml
+        actions.innerHTML = actionHtml
+      }
+
+      function upToDate() {
+        paint(
+          '',
+          'statuscard__icon--ok',
+          iconCheck,
+          '已是最新版本 <span class="badge badge--ok">v1.0.4</span>',
+          '上次检查：刚刚 · 启动时和每 4 小时自动检查一次',
+          '<button class="btn btn--ghost btn--xs" id="aboutCheck">检查更新</button>'
+        )
+        document.getElementById('aboutCheck').onclick = checking
+      }
+
+      function checking() {
+        paint(
+          'statuscard--muted',
+          '',
+          '<span class="spinner"></span>',
+          '正在检查更新…',
+          '正在连接 GitHub Releases…',
+          '<button class="btn btn--ghost btn--xs" disabled>检查中…</button>'
+        )
+        setTimeout(available, 1100)
+      }
+
+      function available() {
+        paint(
+          '',
+          'statuscard__icon--ok',
+          iconDownload,
+          '发现新版本 v1.0.4 <span class="badge badge--ok">可更新</span>',
+          '新版本已发布，点击下载。',
+          '<button class="btn btn--primary btn--xs" id="aboutDownload">下载</button>'
+        )
+        document.getElementById('aboutDownload').onclick = downloading
+      }
+
+      function downloading() {
+        let percent = 0
+        const render = () => {
+          paint(
+            'statuscard--muted',
+            '',
+            '<span class="spinner"></span>',
+            '正在下载 v1.0.4',
+            '<span class="aboutprogress" aria-hidden="true"><span style="width:' +
+              percent +
+              '%"></span></span>下载中… ' +
+              percent +
+              '%',
+            '<button class="btn btn--ghost btn--xs" disabled>下载中…</button>'
+          )
+        }
+        render()
+        const timer = setInterval(() => {
+          percent = Math.min(100, percent + 12)
+          render()
+          if (percent >= 100) {
+            clearInterval(timer)
+            setTimeout(downloaded, 350)
+          }
+        }, 140)
+      }
+
+      function downloaded() {
+        paint(
+          '',
+          'statuscard__icon--ok',
+          iconCheck,
+          '新版本 v1.0.4 已就绪 <span class="badge badge--ok">待安装</span>',
+          '重启应用即可完成安装，正在运行的会话会被中断。',
+          '<button class="btn btn--primary btn--xs" id="aboutInstall">重启并安装</button>'
+        )
+        document.getElementById('aboutInstall').onclick = () => {
+          meta.textContent = '预览稿：正式版本会在这里退出应用并安装更新。'
+        }
+      }
+
+      upToDate()
+    </script>
+  </body>
+</html>

@@ -2,7 +2,7 @@
 
 把 **Claude Code**、**Codex CLI** 和 **DeepSeek Harness** 装进一个桌面窗口：多会话并行、独立 IDE 窗口、Git / SVN 面板、执行台与自动更新。
 
-[下载安装包](https://github.com/princeyuaner/CCoder-Desktop/releases) · [问题反馈](https://github.com/princeyuaner/CCoder-Desktop/issues)
+[下载安装包](https://github.com/princeyuaner/CCoder-Desktop/releases) · [问题反馈](https://github.com/princeyuaner/CCoder-Desktop/issues) · [English](#english)
 
 > 本项目是第三方桌面客户端，不是 Anthropic / OpenAI / DeepSeek 官方产品。使用前需要自行安装并登录对应的 CLI。
 
@@ -303,7 +303,7 @@ src/
 - 历史会话回放受 CLI 记录内容限制：旧记录里没有每轮耗时 / 输出 token，界面会显示 `0 tok` 或只显示「已完成」。
 - 便携版不支持自动更新。
 - Monaco 编辑器自带的下拉菜单 / 查找控件仍为英文；应用自己的 IDE 外壳、搜索面板和提示已跟随界面语言。
-- 只提供简体中文；`zh-TW` 等繁体系统语言会回落到简体中文。
+- 界面提供简体中文 / English；系统语言为中文（含繁体）时用简体中文，其余语言用 English。
 
 ---
 
@@ -315,3 +315,323 @@ src/
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 与 [Codex CLI](https://github.com/openai/codex) 提供底层能力；相关商标归各自所有者。
 - [Electron](https://www.electronjs.org/)、[React](https://react.dev/)、[Monaco Editor](https://microsoft.github.io/monaco-editor/)、[electron-vite](https://electron-vite.org/)。
+
+---
+
+# English
+
+[简体中文](#ccoder-desktop)
+
+A desktop client that puts **Claude Code**, **Codex CLI**, and **DeepSeek Harness** in one window: parallel sessions, a standalone IDE window, Git / SVN panels, a run panel, and automatic updates.
+
+[Download](https://github.com/princeyuaner/CCoder-Desktop/releases) · [Issues](https://github.com/princeyuaner/CCoder-Desktop/issues)
+
+> This is a third-party desktop client, not an official Anthropic / OpenAI / DeepSeek product. Install and sign in to the corresponding CLI before using it.
+
+## Screenshots
+
+### Chat, task list, and subagents
+
+![Chat and run panel](docs/screenshots/chat.en.png)
+
+The run panel on the right keeps the current task list, subagent progress, tool / token / elapsed-time counts, and the full report together. The transcript stays focused on messages, thinking blocks, and tool cards.
+
+### Tool calls and turn summary
+
+![Tool calls and turn summary](docs/screenshots/chat-end.en.png)
+
+Tool calls collapse into cards; editing tools show added / removed line counts. Each turn ends with a summary and token usage.
+
+### Standalone IDE window
+
+![IDE window](docs/screenshots/ide.en.png)
+
+One window per workspace: file tree, Monaco editor, quick open, workspace search and replace, and external change watching.
+
+### Settings and channels
+
+![Settings](docs/screenshots/settings.en.png)
+
+Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, models, and credentials.
+
+> Sessions, models, channels, and the demo project in the screenshots are sample data.
+
+---
+
+## Features
+
+### Sessions
+
+- **Three CLIs side by side**: Claude Code (Anthropic protocol), Codex CLI (OpenAI protocol), and DeepSeek Harness (ACP), with independent channels, models, and credentials.
+- **Multiple workspaces / sessions**: each workspace can host several sessions; they keep running in the background while the sidebar updates their status incrementally.
+- **Reuse CLI session storage**: reads `~/.claude/projects`, `~/.codex/sessions`, `~/.dsh/sessions`, and other CLI-owned records. Terminal sessions and the app see the same history — no re-import needed.
+- **Resume historical sessions**: continue an old session and the CLI reconnects with `--resume`.
+- **Permissions and questions**: approve permissions and answer `AskUserQuestion` directly in the UI; modes include standard / accept edits / auto / plan / don't ask / bypass.
+
+### Chat and run panel
+
+- Streaming output, thinking blocks, tool cards, syntax highlighting, and diffs.
+- Image paste, `@` file references, `/` slash commands, and a send queue.
+- **Run panel**: task list (`TaskCreate` / `TaskUpdate` / `TodoWrite`), subagent (`Agent` / `Task`) status, activity summary, tool counts, tokens, and elapsed time; open the full report when a subagent finishes.
+- Per-turn stats: steps, added / removed lines, context usage, cache hit rate, and output tokens.
+
+### Standalone IDE
+
+- One window per workspace; window position and size are remembered in `ide-windows.json`.
+- Monaco editor, file tree, quick open (`Ctrl+P`), workspace search, and replace all.
+- Unsaved-change protection; external changes (agent / terminal / another editor) are pushed to the window live.
+- A forced-close escape hatch when an oversized file makes the renderer unresponsive — it does not depend on the renderer.
+- File and VCS writes are authorized against the workspace bound to the window; out-of-tree paths are rejected.
+
+### Version control
+
+- **Git and SVN** in one panel: status, diff, log, commit details, stage / unstage, discard / revert, conflict resolution, fetch / pull / push / update.
+- **Git worktrees**: create, list, remove, and prune; removal checks for open IDE windows or active sessions first.
+- A workspace can be the repository root or a subdirectory of it (`workspacePrefix`).
+
+### IDE ↔ chat
+
+- Send the current file or selection as a reference to a chosen session.
+- Start a new session from the working tree without switching back to the main window.
+
+### Appearance and UX
+
+- **Interface language**: Chinese / English / follow system, defaulting to follow system. Changes apply immediately, including open IDE windows.
+- 9 themes (dark, midnight, forest, mist, coffee, moss, high contrast, light, warm paper) plus follow system.
+- UI zoom, chat font size, UI / mono fonts, send key, timestamps, expanded thinking by default, and tool-detail granularity.
+- Custom frameless title bar; the main and IDE windows share the theme and background.
+
+### Auto-update
+
+- The NSIS installer checks GitHub Releases; disabled in development and portable builds.
+- After an update is found, the user explicitly clicks Download and then Restart & Install; nothing is replaced silently.
+- Restart is refused while a session is running; all CLI child processes are stopped before installing to avoid locked files on Windows.
+
+### Diagnostics
+
+- Main-process exceptions, renderer errors, preload failures, page load failures, GPU / utility process crashes, updater phases, and session process start / exit are all written to disk.
+- Log rotation, per-entry truncation, and error-storm throttling: logging cannot take the app down.
+- See [Logs and troubleshooting](#logs-and-troubleshooting).
+
+---
+
+## Quick start
+
+### Requirements
+
+- **Node.js 20+** (22 LTS recommended)
+- **Windows 10 / 11 x64** (current packaging target; the code itself is not Windows-specific, but `electronDist` in `electron-builder.yml` only ships win32-x64)
+- **Claude Code CLI** (`claude`) and / or **Codex CLI** (`codex`) installed
+
+### Install dependencies
+
+```bash
+npm install
+```
+
+### Development
+
+```bash
+npm run dev
+```
+
+`electron-vite` starts the main process, preload, and renderer together with instant reload.
+
+### Typecheck and build
+
+```bash
+npm run typecheck
+npm run build
+npm run verify:dsh   # offline ACP self-check in an isolated DSH_HOME; no API key needed
+```
+
+### Packaging
+
+```bash
+npm run package
+```
+
+Artifacts land in `release/`:
+
+- `CCoder-Setup-<version>-x64.exe`: NSIS installer
+- `CCoder-Portable-<version>-x64.exe`: portable build
+- `latest.yml` / `*.blockmap`: auto-update metadata
+
+Packaging uses the Electron already installed in `node_modules/electron/dist` and never downloads it. `files` only ships `out/` and `package.json`; main / preload / renderer are bundled by electron-vite, so `node_modules` is not needed at runtime.
+
+> No extra `electron-rebuild` step is required; the project has no native modules.
+
+### CLI setup
+
+The app resolves CLI paths itself, regardless of the terminal you launch it from.
+
+- **Claude Code**: looks in `%APPDATA%\npm`, `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\claude`, and `PATH` for `claude.cmd` / `claude.exe`. Set `CLAUDE_BIN` to pin an absolute path.
+- **Codex CLI**: looks in `%APPDATA%\npm`, `%LOCALAPPDATA%\Programs\codex`, `%LOCALAPPDATA%\codex\bin`, `%USERPROFILE%\.codex\bin`, `%ProgramFiles%\codex`, and `PATH`. Set `CODEX_BIN` to pin a path.
+- **DeepSeek Harness**: after `npm i -g @deepseek-ai/dsh`, resolves `lib/bin.js` inside the global package and starts it with the **system Node 24+** in `--profile acp` mode (Electron's bundled Node 20 lacks `import.meta.main` and exits silently). Set `DSH_BIN` / `NODE_BIN` for paths and `DSH_HOME` for the data directory (defaults to `~/.dsh`).
+
+On Windows, `.cmd` files run through `cmd.exe`; prompt content goes over stdin and is never spliced into the command line. dsh is started directly with node, not through a shell.
+
+---
+
+## Configuration
+
+Settings are grouped by CLI:
+
+- **Channels**: base URL, key, model, small / fast model, and extra environment variables. Claude accepts only Anthropic-compatible endpoints; Codex only OpenAI-compatible ones.
+- **Official login**: Claude Code can use its own OAuth login (status, account, and credential type are shown in Settings). DeepSeek Harness uses the credentials already configured in `~/.dsh` by default, or an API channel with `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`.
+- **Harness model / effort**: sent through ACP `session/set_config_option`; the model catalog comes from dsh itself and is not hard-coded in the app.
+- **Permission mode**: standard, accept edits, auto, plan, don't ask, bypass.
+- **Effort**: low / medium / high / xhigh / max, mapped to the CLI's `--effort`; can be overridden per session.
+
+### Data locations
+
+| Item | Location |
+| --- | --- |
+| Settings | `%APPDATA%\ccoder-desktop\settings.json` |
+| Secrets | Same file; encrypted with Electron `safeStorage` (Windows DPAPI) when available, otherwise plaintext marked in the `v` field |
+| IDE window geometry | `%APPDATA%\ccoder-desktop\ide-windows.json` |
+| Session records | Owned by the CLIs (e.g. `~/.claude/projects/<cwd>/<session-id>.jsonl`, `~/.codex/sessions/`, `~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd`) |
+| Logs | `%APPDATA%\ccoder-desktop\logs\main.log` |
+| Native crash dumps | `%APPDATA%\ccoder-desktop\Crashpad` |
+
+Deleting a session deletes the CLI's own record and cannot be undone; the UI asks first and stops running processes to avoid locked files on Windows.
+
+---
+
+## Auto-update
+
+The update source lives in the `publish` section of `electron-builder.yml`:
+
+```yaml
+publish:
+  provider: github
+  owner: princeyuaner
+  repo: CCoder-Desktop
+  releaseType: release
+```
+
+Release flow:
+
+1. Bump `version` in `package.json` (for example `1.0.3`).
+2. Run `npm run package`.
+3. Create a non-draft GitHub Release and upload:
+   - `CCoder-Setup-<version>-x64.exe`
+   - `CCoder-Setup-<version>-x64.exe.blockmap`
+   - `latest.yml`
+4. Installed clients check 8 seconds after launch and every 4 hours afterwards; they download only after the user clicks Download, and install after Restart & Install.
+
+Notes:
+
+- Only the NSIS **installer** supports auto-update; portable and development builds report that updates are unsupported.
+- The version must change, or clients will not see an update.
+- Pushing source and publishing Release assets are separate: the updater only reads `latest.yml` and the installer from the Release.
+
+---
+
+## Logs and troubleshooting
+
+Packaged builds have no terminal. Start with:
+
+```
+%APPDATA%\ccoder-desktop\logs\main.log
+```
+
+The log rotates to `main.log.old` at 2 MB and keeps one old file.
+
+### What is logged
+
+| scope | Content |
+| --- | --- |
+| `app.start` | Version, packaged flag, pid, Electron / Chrome / Node versions, platform, locale, exe path, userData, log path, Crashpad path |
+| `window.created` / `window.ready-to-show` / `window.closed` | Window lifecycle, tagged `chat` or `ide:<cwd>` |
+| `window.unresponsive` / `window.responsive` | Whether the window is hung |
+| `window.did-fail-load` | Main frame load failure (normal `-3` aborts are filtered) |
+| `preload-error` | Preload script failure (the page may still render, but `window.api` is incomplete) |
+| `window.console` | Renderer `console.error`, at most 30 lines per 10 seconds |
+| `renderer` | Uncaught renderer exceptions / promise rejections with full stack, URL, and window identity; at most 20 per minute |
+| `render-process-gone` / `child-process-gone` | Reason and exit code for renderer / GPU / utility process exits |
+| `updater.*` | Check, download, install, refused install, phase changes, and errors |
+| `session.spawn` / `session.exit` | CLI, cwd, model, permission mode, resume id, exit code, and stderr tail (abnormal exits only) |
+| `uncaughtException` / `unhandledRejection` | Main-process fallback; logged, then the app keeps running |
+| `process-warning` / `process.exit` / `will-quit` / `quit` | Node warnings and the shutdown path |
+
+### Reading the log
+
+- **`uncaughtException` / `unhandledRejection` present**: a JS-level error; follow the stack.
+- **`render-process-gone` present**: renderer / GPU crash; look at `reason` (`crashed` / `oom` / `killed`).
+- **`window.unresponsive` present**: the window is hung, usually from an oversized file / diff.
+- **No new lines at all**: native crash or the process was killed externally (antivirus, Task Manager). Check `%APPDATA%\ccoder-desktop\Crashpad` and the "Application Error" entries in Windows Event Viewer.
+- **Update issues**: search for `updater`; phase changes and errors are both recorded.
+
+All log writes are synchronous appends wrapped in `try/catch`; renderer reports and console output are rate-limited, so logging cannot slow the app down or crash it.
+
+---
+
+## Project structure
+
+```
+src/
+  main/                    Electron main process
+    index.ts               Windows, IPC registration, app lifecycle
+    session-manager.ts     Session orchestration, queue, process restart
+    providers/
+      claude/              Claude Code adapter (stream-json, history replay, login)
+      codex/               Codex app-server adapter and history
+      dsh/                 DeepSeek Harness adapter (ACP, zstd history replay, install detection)
+    ide-window.ts          Standalone IDE window and window authorization
+    ide-fs.ts / ide-watch.ts  File IO, path escape checks, directory watching
+    vcs/                   Git / SVN backends
+    updater.ts             Auto-update state machine
+    crash-log.ts           Main-process logging / fallback handlers
+    window-log.ts          Window identity, lifecycle, renderer console
+    safe-send.ts           Safe send across window-destroy races
+    settings-store.ts      Settings persistence and safeStorage encryption
+    session-store.ts       Read-only access to CLI session storage
+  preload/index.ts         contextBridge allowlist
+  renderer/src/            React UI
+    App.tsx                Main chat UI
+    ide/                   IDE UI (Monaco)
+    components/            Run panel, transcript, settings, approval modals, etc.
+    report-errors.ts       Renderer error reporting
+  shared/                  Types and pure functions shared by both sides
+```
+
+### Process model
+
+- **Main process**: the single source of truth. Windows, CLI child processes, VCS, updates, and logging all live here.
+- **Preload**: exposes only allowlisted capabilities; the renderer never gets `ipcRenderer`.
+- **Renderer**: `contextIsolation: true`, `nodeIntegration: false`, no Node API access.
+- **Security boundary**: IDE file writes and VCS operations are authorized against the workspace bound to the window; paths are checked for `..` escapes.
+
+---
+
+## Tech stack
+
+- Electron 33 + React 18 + TypeScript 5.7
+- electron-vite 2 / Vite 5 (main, preload, and renderer bundled separately)
+- Monaco Editor (IDE and diffs)
+- electron-updater (GitHub Releases)
+- micromatch (workspace file matching)
+
+---
+
+## Known limitations
+
+- Only **Windows x64** installers are produced for now; `electronDist` points at `node_modules/electron/dist`, so other platforms need their own packaging config.
+- The app is a GUI frontend for the CLIs. It **does not bundle models or proxy requests**; without an installed and signed-in CLI you cannot start a session.
+- Installers are not code-signed, so Windows SmartScreen may warn about an unknown publisher.
+- Historical replay is limited by what the CLIs record: older entries may lack per-turn duration / output tokens, in which case the UI shows `0 tok` or only "Completed".
+- The portable build does not support auto-update.
+- Monaco's built-in menus and find widget remain English-only; the app's own IDE shell, search panel, and prompts follow the interface language.
+- The UI ships Simplified Chinese and English; Chinese system locales (including Traditional Chinese) resolve to Simplified Chinese, and all others resolve to English.
+
+---
+
+## License
+
+The repository does not have a `LICENSE` file yet. Until a license is added, do not use it for commercial distribution or redistribution. If you have a suggestion (MIT / Apache-2.0), open an Issue to discuss it.
+
+## Credits
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex CLI](https://github.com/openai/codex) provide the underlying capabilities; their trademarks belong to their respective owners.
+- [Electron](https://www.electronjs.org/), [React](https://react.dev/), [Monaco Editor](https://microsoft.github.io/monaco-editor/), [electron-vite](https://electron-vite.org/).

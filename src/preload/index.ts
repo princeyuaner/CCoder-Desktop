@@ -112,7 +112,8 @@ const api: WindowApi = {
   },
 
   dsh: {
-    status: (): Promise<DshStatus> => ipcRenderer.invoke(IPC.dshStatus)
+    status: (channelId?: string | null): Promise<DshStatus> =>
+      ipcRenderer.invoke(IPC.dshStatus, channelId)
   },
 
   updater: {

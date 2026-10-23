@@ -10,6 +10,8 @@ const fs = require('node:fs')
 
 const out = process.argv[2] || path.join(__dirname, '..', 'shot.png')
 const clickSelectors = process.argv.slice(3)
+const lang = process.env.SHOT_LANG === 'en' ? 'en' : 'zh'
+const L = (zh, en) => (lang === 'en' ? en : zh)
 
 const ch = (id, name, baseUrl, model, authMode) => ({
   id,
@@ -26,8 +28,9 @@ const ch = (id, name, baseUrl, model, authMode) => ({
 // 截图环境没有真正的主进程，给几个桩让页面能渲染出来
 const DEMO = {
   permissionMode: 'standard',
-  defaultCwd: '',
-  openedCwds: [],
+  defaultCwd: 'C:/proj/ccoder-demo',
+  openedCwds: ['C:/proj/ccoder-demo'],
+  language: lang,
   // 外观 / 对话 / 输入的默认值 —— 截图桩也要给全，否则设置页拿不到这些字段
   theme: process.env.SHOT_THEME || 'dark',
   uiZoom: 1,
@@ -43,14 +46,14 @@ const DEMO = {
       enabled: true,
       activeChannelId: 'demo-1',
       channels: [
-        ch('demo-1', 'DeepSeek 中转', 'https://api.deepseek.com/anthropic', 'deepseek-chat', 'token'),
-        ch('demo-2', '公司网关', 'https://gw.corp.internal/anthropic', 'claude-sonnet-4-5', 'key')
+        ch('demo-1', L('DeepSeek 中转', 'DeepSeek Relay'), 'https://api.deepseek.com/anthropic', 'deepseek-chat', 'token'),
+        ch('demo-2', L('公司网关', 'Company Gateway'), 'https://gw.corp.internal/anthropic', 'claude-sonnet-4-5', 'key')
       ]
     },
     codex: {
       enabled: false,
       activeChannelId: 'demo-x1',
-      channels: [ch('demo-x1', 'OpenAI 中转', 'https://api.openai.com/v1', 'gpt-5-codex', 'token')]
+      channels: [ch('demo-x1', L('OpenAI 中转', 'OpenAI Relay'), 'https://api.openai.com/v1', 'gpt-5-codex', 'token')]
     },
     dsh: {
       enabled: true,
@@ -64,12 +67,53 @@ const DEMO = {
 }
 
 let saveCount = 0
+ipcMain.handle('locale:info', () => ({
+  systemLocale: lang === 'en' ? 'en-US' : 'zh-CN',
+  resolved: lang
+}))
 ipcMain.handle('win:is-maximized', () => false)
 ipcMain.handle('settings:get', () => DEMO)
 ipcMain.handle('settings:save', (_e, s) => {
   saveCount += 1
   return s
 })
+// 让页面有个能跑的会话桩，不然启动时弹「主进程没有响应」
+ipcMain.handle('sessions:list', () => [])
+ipcMain.handle('sessions:transcript', () => [])
+ipcMain.handle('sessions:pick-dir', () => null)
+ipcMain.handle('sessions:delete', () => ({ ok: true }))
+ipcMain.handle('session:running', () => null)
+ipcMain.handle('session:start', () => 'demo-session')
+ipcMain.handle('session:send', () => ({ ok: true }))
+ipcMain.handle('session:reconfigure', () => undefined)
+ipcMain.on('session:interrupt', () => undefined)
+ipcMain.on('session:stop', () => undefined)
+ipcMain.on('session:respond-permission', () => undefined)
+// 截图用的更新状态：版本号与 package.json 一致，检查时间设成 2 分钟前
+const UPD_STATE = {
+  phase: 'up-to-date',
+  currentVersion: '1.0.4',
+  version: '1.0.4',
+  checkedAt: Date.now() - 2 * 60 * 1000
+}
+ipcMain.handle('updater:status', () => UPD_STATE)
+ipcMain.handle('updater:check', () => UPD_STATE)
+ipcMain.handle('updater:download', () => UPD_STATE)
+ipcMain.handle('claude:auth-status', () => ({
+  installed: true,
+  path: 'C:\\Users\\CY\\AppData\\Roaming\\npm\\claude.cmd',
+  version: '2.1.303 (Claude Code)',
+  loggedIn: true,
+  authMethod: 'oauth_token',
+  apiProvider: 'firstParty',
+  checkedAt: Date.now()
+}))
+ipcMain.handle('claude:auth-login-state', () => ({
+  phase: 'idle',
+  url: null,
+  running: false,
+  output: ''
+}))
 ipcMain.handle('channel:test', () => ({
   ok: true,
   message: 'pong',

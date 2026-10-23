@@ -34,6 +34,7 @@ export const en = {
   'settings.nav.permissions': 'Permissions',
   'settings.nav.cli': 'CLI',
   'settings.nav.notReady': 'Not integrated',
+  'settings.nav.about': 'About',
   'settings.title': 'Settings',
   'settings.save.saving': 'Saving…',
   'settings.save.saved': 'Saved automatically',
@@ -400,7 +401,7 @@ export const en = {
     'Scales the entire UI, including the sidebar and settings. 100% is standard.',
   'settings.chatFontSize': 'Chat font size',
   'settings.chatFontSizeHint':
-    'Affects chat text, the composer and Markdown; code blocks are one step smaller.',
+    'Affects chat text, the composer, Markdown, plus thinking and tool calls; code blocks stay one step smaller.',
   'settings.uiFont': 'UI font',
   'settings.custom': 'Custom…',
   'settings.uiFontPlaceholder':
@@ -612,7 +613,7 @@ export const en = {
     'Model used by new sessions in Harness-credentials mode; leave empty to use dsh own default.',
   'dsh.installTitle': 'Install DeepSeek Harness',
   'dsh.installBody':
-    'Click "Re-check" after installing; no restart needed. Credentials, plugins and history live in DSH_HOME and are shared with the terminal dsh.',
+    'Click "Re-check" after installing; no restart needed. Harness-credentials mode shares the terminal DSH_HOME; API-channel mode gives every channel its own DSH_HOME, fully isolated.',
   'dsh.installNode':
     'Note: dsh bin.js starts itself via import.meta.main, which requires system Node 24+. Electron bundled Node 20 cannot run it.',
   'dsh.copy': 'Copy',
@@ -624,6 +625,47 @@ export const en = {
   'dsh.nodeBadTitle': 'Node 24+ required',
   'dsh.nodeBadBody':
     'DeepSeek Harness was found, but the current Node does not support import.meta.main (dsh uses it to decide whether to start). Install Node 24 or set NODE_BIN to point at it, then re-check.',
+
+  /* ── About / updates ────────────────────────────────────── */
+  'about.tagline': 'Claude Code, Codex CLI and DeepSeek Harness in one desktop window.',
+  'about.builtWith': 'Electron 33 · React 18 · TypeScript · Local-first',
+  'about.update.section': 'Software update',
+  'about.update.idle': 'Waiting for an update check',
+  'about.update.autoHint': 'Checked at startup and every 4 hours',
+  'about.update.checkedAt': 'Last checked {time} · {hint}',
+  'about.update.check': 'Check for updates',
+  'about.update.checking': 'Checking for updates…',
+  'about.update.checkingAction': 'Checking…',
+  'about.update.checkingMeta': 'Connecting to GitHub Releases…',
+  'about.update.downloadingAction': 'Downloading…',
+  'about.update.upToDate': 'You are up to date',
+  'about.update.available': 'Version {version} available',
+  'about.update.availableBadge': 'Update',
+  'about.update.availableHint': 'A new version has been published. Download it now.',
+  'about.update.download': 'Download',
+  'about.update.downloading': 'Downloading {version}',
+  'about.update.downloadingPercent': 'Downloading… {percent}%',
+  'about.update.downloaded': 'Version {version} is ready',
+  'about.update.readyBadge': 'Ready',
+  'about.update.readyHint':
+    'Restart the app to finish installing. Running sessions will be interrupted.',
+  'about.update.install': 'Restart and install',
+  'about.update.checkFailed': 'Update check failed',
+  'about.update.downloadFailed': 'Update download failed',
+  'about.update.errorFallback': 'Check your network and try again.',
+  'about.update.unsupportedDev': 'Update checks are off in development mode',
+  'about.update.unsupportedPortable': 'Portable builds cannot auto-update',
+  'about.update.unsupportedHint': 'Use the NSIS installer to receive updates.',
+  'about.update.note':
+    'Updates come from GitHub Releases. After downloading you will be prompted to restart; restarting interrupts running sessions.',
+  'about.links': 'Links',
+  'about.links.repo': 'GitHub repository',
+  'about.links.releases': 'Release notes',
+  'about.links.releasesMeta': 'Version history',
+  'about.links.issues': 'Report an issue',
+  'about.links.issuesMeta': 'Bugs and feature requests',
+  'about.footer': '© 2026 CCoder',
+  'about.footerHint': 'Local-first · Data only goes to the CLIs and providers you configure',
 
   /* ── Update toast ───────────────────────────────────────── */
   'update.newVersion': 'New version',

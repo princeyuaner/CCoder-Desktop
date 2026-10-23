@@ -19,8 +19,15 @@ export interface DshStatus {
   /** Node 是否支持 import.meta.main（Node 24+） */
   nodeOk: boolean
   version?: string
-  /** 显式选定的 Harness home（凭据、插件、会话都在这下面） */
+  /**
+   * 当前凭据来源实际使用的 Harness home。
+   *
+   * API 渠道模式是 `dsh-homes/<channelId>`（每个渠道独立，渠道 key 才不会被
+   * 共享凭据顶掉）；Harness 凭据 / official 模式是共享的 `~/.dsh`。
+   */
   home: string
+  /** 共享 home（`~/.dsh`）—— Harness 凭据卡片始终指向它 */
+  sharedHome: string
   error?: string
   checkedAt: number
 }

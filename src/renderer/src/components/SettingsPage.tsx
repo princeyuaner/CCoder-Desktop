@@ -37,14 +37,20 @@ import { useSettings } from '../useSettings'
 import { useCodexStatus } from '../useCodexStatus'
 import { useClaudeAuth } from '../useClaudeAuth'
 import { useDshStatus } from '../useDshStatus'
+import { useUpdater } from '../useUpdater'
+import { AboutPanel } from './AboutPanel'
 import { ChannelForm } from './ChannelForm'
 import { ClaudeAuthPanel } from './ClaudeAuthPanel'
 import { CodexStatusPanel } from './CodexStatusPanel'
 import { DshStatusPanel } from './DshStatusPanel'
 import { IconChevronLeft, IconPlus } from './Icons'
 
-/** 设置页的两类页面：某个 CLI 的渠道配置，或与 CLI 无关的系统设置 */
-type Page = { kind: 'cli'; id: CliId } | { kind: 'general' } | { kind: 'permissions' }
+/** 设置页的几类页面：某个 CLI 的渠道配置、与 CLI 无关的系统设置，或关于/更新 */
+type Page =
+  | { kind: 'cli'; id: CliId }
+  | { kind: 'general' }
+  | { kind: 'permissions' }
+  | { kind: 'about' }
 
 export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
   const { t } = useI18n()
@@ -57,8 +63,20 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
   const codexStatus = useCodexStatus(page.kind === 'cli' && page.id === 'codex')
   /** Claude 的官方登录状态。同样只在停在 Claude 页时探测。 */
   const claudeAuth = useClaudeAuth(page.kind === 'cli' && page.id === 'claude')
-  /** DeepSeek Harness 的安装 / Node / DSH_HOME 状态 */
-  const dshStatus = useDshStatus(page.kind === 'cli' && page.id === 'dsh')
+  /**
+   * DeepSeek Harness 的安装 / Node / DSH_HOME 状态。
+   *
+   * 每个渠道一个 DSH_HOME，所以状态卡要跟着凭据来源走：channel 模式显示
+   * 当前渠道的 home，official 模式（Harness 自己的凭据）显示共享的 `~/.dsh`。
+   * 用已保存的 settings 而不是 draft —— 渠道增删会自动落盘，状态卡晚一拍刷新
+   * 没关系，没必要跟着每次击键重新探测。
+   */
+  const storedDshCfg = settings ? cliConfig(settings, 'dsh') : null
+  const dshChannelId =
+    storedDshCfg?.authMode === 'channel' ? storedDshCfg.activeChannelId : null
+  const dshStatus = useDshStatus(page.kind === 'cli' && page.id === 'dsh', dshChannelId)
+  /** 版本与更新状态。和右下角的更新提醒共用主进程里的同一份状态。 */
+  const updater = useUpdater()
   /** 退出登录前提醒用：当前有多少条会话在跑 */
   const [runningSessions, setRunningSessions] = useState(0)
 
@@ -320,6 +338,10 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
               )}
             </NavItem>
           ))}
+
+          <NavItem active={page.kind === 'about'} onClick={() => setPage({ kind: 'about' })}>
+            {t('settings.nav.about')}
+          </NavItem>
         </nav>
 
         <div className="settings__content">
@@ -790,6 +812,8 @@ export function SettingsPage({ onBack }: { onBack: () => void }): JSX.Element {
               </div>
             </section>
           )}
+
+          {page.kind === 'about' && <AboutPanel updater={updater} />}
         </div>
       </div>
     </main>

@@ -140,7 +140,7 @@ export function DshStatusPanel({
             >
               <span className="authpick__t">{t('dsh.harnessCredentials')}</span>
               <span className="authpick__d">
-                {t('dsh.harnessCredentialsBody', { home: status?.home || '' })}
+                {t('dsh.harnessCredentialsBody', { home: status?.sharedHome || status?.home || '' })}
               </span>
             </button>
             <button

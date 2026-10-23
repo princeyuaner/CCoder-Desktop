@@ -4,6 +4,7 @@ dist/
 release/
 # 打包时临时 TMP（%TEMP% 被安全软件锁住时绕开）
 .buildtmp/
+.tmp-build/
 # 本地测试证书，不入库
 certs/
 # 临时诊断截图
