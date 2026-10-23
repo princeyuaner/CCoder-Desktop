@@ -218,6 +218,10 @@ export class CodexRpc {
       env: o.channel ? channelEnv(o.channel) : undefined
     })
 
+    // 子进程退出后再写 stdin 会异步抛 EPIPE；没有监听就是未捕获的流错误，
+    // 会直接结束主进程。收尾交给 close 事件。
+    this.child.stdin?.on('error', () => undefined)
+
     this.child.stdout?.on('data', (d: Buffer) => this.onStdout(d.toString()))
     this.child.stderr?.on('data', (d: Buffer) => {
       this.stderr += d.toString()
@@ -231,7 +235,11 @@ export class CodexRpc {
       }
     })
     this.child.on('close', (code) => {
-      for (const line of this.decoder.flush()) this.onLine(line)
+      try {
+        for (const line of this.decoder.flush()) this.onLine(line)
+      } catch {
+        // 收尾解析失败不改变退出事实
+      }
       this.failAll(new Error(`Codex app-server 已退出（${code ?? 'signal'}）`))
       if (!this.closed) {
         this.closed = true
@@ -259,7 +267,13 @@ export class CodexRpc {
   }
 
   private onStdout(chunk: string): void {
-    for (const line of this.decoder.push(chunk)) this.onLine(line)
+    try {
+      for (const line of this.decoder.push(chunk)) this.onLine(line)
+    } catch (e) {
+      // app-server 的输出不可信；坏掉一行最多丢一个通知
+      this.stderr += `\n[parse error] ${e instanceof Error ? e.message : String(e)}`
+      if (this.stderr.length > 16_000) this.stderr = this.stderr.slice(-16_000)
+    }
   }
 
   private onLine(line: string): void {

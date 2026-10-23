@@ -8,6 +8,7 @@ import type {
 } from '../shared/ide-chat'
 import { sameCwd } from '../shared/settings'
 import { listStoredSessions } from './session-store'
+import { safeSend } from './safe-send'
 
 /**
  * IDE → 聊天的中转站。
@@ -103,7 +104,7 @@ export function sendRefsToChat(payload: IdeSendPayload): IdeSendResult {
   if (!mainWin || mainWin.isDestroyed()) {
     return { ok: false, message: '聊天窗口没有打开' }
   }
-  mainWin.webContents.send(IPC.chatAttachRefs, payload)
+  safeSend(mainWin, IPC.chatAttachRefs, payload)
   return { ok: true }
 }
 
@@ -120,6 +121,6 @@ export function openSessionInChat(cwd: string): { ok: boolean; message?: string 
   if (mainWin.isMinimized()) mainWin.restore()
   mainWin.show()
   mainWin.focus()
-  mainWin.webContents.send(IPC.chatOpenSession, cwd)
+  safeSend(mainWin, IPC.chatOpenSession, cwd)
   return { ok: true }
 }

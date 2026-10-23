@@ -7,9 +7,11 @@ import { Sidebar } from './components/Sidebar'
 import { MainPane } from './components/MainPane'
 import { SettingsPage } from './components/SettingsPage'
 import { ConfirmModal } from './components/ConfirmModal'
+import { UpdateToast } from './components/UpdateToast'
 import { baseName } from '@shared/path'
 import { useSessions, type WorkspaceView } from './useSessions'
 import { useSettings } from './useSettings'
+import { useUpdater } from './useUpdater'
 import { applyAppearance } from './appearance'
 import { onNotice } from './notice'
 import type { ChatActiveInfo, IdeCodeRef, IdeSendPayload } from '@shared/ide-chat'
@@ -17,6 +19,7 @@ import './styles/shell.css'
 import './styles/chat.css'
 import './styles/settings.css'
 import './styles/panel.css'
+import './styles/update.css'
 /* 浅色覆盖必须最后加载（或靠选择器权重压过组件样式），这里放最后一行 */
 import './styles/theme-light.css'
 
@@ -56,6 +59,7 @@ export function App(): JSX.Element {
     refresh
   } = useSessions()
   const { settings, save } = useSettings()
+  const updater = useUpdater()
 
   // 设置落盘（或启动时读完）后立刻应用主题 / 缩放 / 字体
   useEffect(() => {
@@ -298,6 +302,12 @@ export function App(): JSX.Element {
           </button>
         </div>
       )}
+
+      <UpdateToast
+        state={updater.state}
+        onDownload={updater.download}
+        onInstall={updater.install}
+      />
 
       {pendingDelete && (
         <ConfirmModal

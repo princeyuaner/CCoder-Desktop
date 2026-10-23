@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
-import { app, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, crashReporter, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { PermissionMode } from '../shared/events'
 import type { Channel, Settings } from '../shared/settings'
@@ -86,6 +86,24 @@ import {
 import type { ChatActiveInfo, IdeSendPayload } from '../shared/ide-chat'
 import { pathKey } from './path-key'
 import { applyNativeTheme, windowBg } from './window-theme'
+import { createUpdater, registerUpdaterIpc } from './updater'
+import { installCrashHandlers, logFilePath, logMain } from './crash-log'
+import { labelOf, labelWindow } from './window-log'
+import { safeSend } from './safe-send'
+import type { RendererLogReport } from '../shared/log'
+
+/*
+ * 崩溃现场：主进程的 JS 异常、渲染进程 / GPU 进程消失都会写进
+ * userData/logs/main.log。必须先装处理器再碰任何会抛的东西。
+ *
+ * crashReporter 只落本地 dump、不上传，原生崩溃时也能拿到堆栈。
+ */
+installCrashHandlers()
+try {
+  crashReporter.start({ uploadToServer: false, compress: false })
+} catch (e) {
+  logMain('crashReporter.start', e)
+}
 
 /**
  * 无边框窗口（frame: false）。标题栏由渲染进程自绘，
@@ -113,6 +131,9 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  // 日志里的窗口身份（崩溃时能分清是聊天窗口还是 IDE 窗口）
+  labelWindow(win, 'chat')
+
   // IDE 的「发送到聊天」需要把引用投递到主窗口；主窗口只有一个
   setChatMainWindow(win)
   win.on('closed', () => setChatMainWindow(null))
@@ -121,22 +142,23 @@ function createWindow(): BrowserWindow {
 
   // 最大化状态要推给渲染进程，标题栏才能换图标（□ ↔ ❐）
   const pushMaximized = (): void => {
-    win.webContents.send(IPC.winMaximizedChanged, win.isMaximized())
+    safeSend(win, IPC.winMaximizedChanged, win.isMaximized())
   }
   win.on('maximize', pushMaximized)
   win.on('unmaximize', pushMaximized)
 
   // 页面里的外链一律交给系统浏览器，绝不在应用窗口里导航
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    void shell.openExternal(url).catch((e) => logMain('openExternal', e))
     return { action: 'deny' }
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  // loadURL / loadFile 返回 Promise：失败（dev server 没起来、产物缺失）
+  // 若没人接就会变成 unhandledRejection，直接结束主进程。
+  const loading = process.env.ELECTRON_RENDERER_URL
+    ? win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    : win.loadFile(join(__dirname, '../renderer/index.html'))
+  loading.catch((e) => logMain('main-window.load', e))
 
   return win
 }
@@ -144,6 +166,30 @@ function createWindow(): BrowserWindow {
 function registerWindowIpc(): void {
   const target = (e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null =>
     BrowserWindow.fromWebContents(e.sender)
+
+  /*
+   * 渲染进程的未捕获异常 / Promise 拒绝。
+   *
+   * payload 来自渲染层，按不可信处理：字段类型和长度都要拦，避免一条坏消息
+   * 把日志写爆或者把异常带进主进程。只落盘，不回复。
+   */
+  ipcMain.on(IPC.rendererLog, (e, raw: unknown) => {
+    if (!raw || typeof raw !== 'object') return
+    const r = raw as Partial<RendererLogReport>
+    const clip = (v: unknown, max: number): string | undefined =>
+      typeof v === 'string' && v ? (v.length > max ? `${v.slice(0, max)}…` : v) : undefined
+    logMain('renderer', {
+      window: labelOf(e.sender),
+      id: e.sender.id,
+      kind: clip(r.kind, 40),
+      message: clip(r.message, 4000),
+      stack: clip(r.stack, 8000),
+      source: clip(r.source, 1000),
+      line: typeof r.line === 'number' ? r.line : undefined,
+      column: typeof r.column === 'number' ? r.column : undefined,
+      url: clip(r.url, 1000)
+    })
+  })
 
   ipcMain.on(IPC.winMinimize, (e) => target(e)?.minimize())
   ipcMain.on(IPC.winClose, (e) => target(e)?.close())
@@ -162,8 +208,12 @@ function pushSettings(fresh: Settings): void {
   applyNativeTheme(fresh.theme)
   const bg = windowBg()
   for (const w of BrowserWindow.getAllWindows()) {
-    w.setBackgroundColor(bg)
-    w.webContents.send(IPC.settingsChanged, fresh)
+    try {
+      w.setBackgroundColor(bg)
+    } catch {
+      // 窗口正在销毁，跳过
+    }
+    safeSend(w, IPC.settingsChanged, fresh)
   }
 }
 
@@ -430,7 +480,7 @@ function registerChatBridgeIpc(): void {
 
 /** 会话事件广播给所有窗口 —— 多窗口时天然同步 */
 function broadcast(channel: string, payload: unknown): void {
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
+  for (const w of BrowserWindow.getAllWindows()) safeSend(w, channel, payload)
 }
 
 function registerSessionIpc(sessions: SessionManager): void {
@@ -482,7 +532,51 @@ app.whenReady().then(() => {
   // 「跟随系统」时 Windows 切换深浅色，窗口底色也要跟着换（渲染层的 CSS 由 matchMedia 处理）
   nativeTheme.on('updated', () => {
     const bg = windowBg()
-    for (const w of BrowserWindow.getAllWindows()) w.setBackgroundColor(bg)
+    for (const w of BrowserWindow.getAllWindows()) {
+      try {
+        w.setBackgroundColor(bg)
+      } catch {
+        // 窗口正在销毁
+      }
+    }
+  })
+
+  /*
+   * 启动头信息：日志被用户单独发过来时，至少能知道是哪台机器、哪个版本、
+   * 装在哪儿、日志和崩溃 dump 在哪。排查时省掉一轮追问。
+   */
+  let crashDumps = ''
+  try {
+    crashDumps = app.getPath('crashDumps')
+  } catch {
+    // 个别环境不支持这个路径，不影响其余信息
+  }
+  logMain('app.start', {
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    pid: process.pid,
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    platform: `${process.platform} ${process.arch}`,
+    locale: app.getLocale(),
+    execPath: process.execPath,
+    appPath: app.getAppPath(),
+    userData: app.getPath('userData'),
+    logs: logFilePath(),
+    crashDumps
+  })
+
+  // 渲染进程 / GPU / 工具进程消失：先落盘再让应用继续
+  app.on('render-process-gone', (_e, contents, details) => {
+    logMain('render-process-gone', {
+      window: labelOf(contents),
+      id: contents.id,
+      ...details
+    })
+  })
+  app.on('child-process-gone', (_e, details) => {
+    logMain('child-process-gone', details)
   })
 
   const sessions = new SessionManager(
@@ -494,8 +588,17 @@ app.whenReady().then(() => {
   // 登录状态机不直接碰 electron：事件出口和"打开浏览器"都从这里注入
   initClaudeAuth({
     emit: (e) => broadcast(IPC.claudeAuthEvent, e),
-    openUrl: (url) => void shell.openExternal(url)
+    openUrl: (url) => void shell.openExternal(url).catch((e) => logMain('openExternal', e))
   })
+
+  // 自动更新：检查 / 下载 / 安装都由主进程做，状态广播给界面。
+  // 开发模式与便携版会自己进入 unsupported，不发起任何网络请求。
+  const updater = createUpdater({
+    emit: (state) => broadcast(IPC.updaterEvent, state),
+    hasBusySessions: () => sessions.hasBusySessions(),
+    beforeInstall: () => sessions.stopAll()
+  })
+  registerUpdaterIpc(updater)
 
   registerWindowIpc()
   registerSettingsIpc(sessions)
@@ -513,11 +616,17 @@ app.whenReady().then(() => {
 
   // 退出前收掉所有 CLI 子进程（包括还在等授权码的登录进程），别留孤儿
   app.on('before-quit', () => {
+    logMain('app', 'before-quit')
     sessions.stopAll()
     disposeClaudeAuth()
   })
+
+  // 和 before-quit 配对：有 before-quit 没 will-quit / quit 说明退出卡在收尾阶段
+  app.on('will-quit', () => logMain('app', 'will-quit'))
+  app.on('quit', (_e, code) => logMain('app', `quit code=${code}`))
 })
 
 app.on('window-all-closed', () => {
+  logMain('app', 'window-all-closed')
   if (process.platform !== 'darwin') app.quit()
 })

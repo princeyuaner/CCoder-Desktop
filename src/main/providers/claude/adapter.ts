@@ -156,7 +156,26 @@ class ClaudeSession implements ProviderSession {
       providerManaged: !!o.channel
     })
 
-    this.child.stdout?.on('data', (d: Buffer) => this.onStdout(d.toString()))
+    /*
+     * 子进程先退出时，stdin 上的写入会异步抛 EPIPE。没有 error 监听时
+     * 这是**未捕获的流错误**，会把整个主进程带走 —— 表现就是应用闪退。
+     * 退出本身由下面的 close 事件收尾，这里只需吞掉这条竞态错误。
+     */
+    this.child.stdin?.on('error', () => undefined)
+
+    this.child.stdout?.on('data', (d: Buffer) => {
+      try {
+        this.onStdout(d.toString())
+      } catch (e) {
+        // CLI 输出不可信；解析失败最多丢一条事件，不能让它杀掉主进程
+        if (this.done) return
+        this.o.onEvent({
+          t: 'error',
+          message: `解析 CLI 输出失败：${e instanceof Error ? e.message : String(e)}`,
+          fatal: false
+        })
+      }
+    })
     this.child.stderr?.on('data', (d: Buffer) => {
       this.stderr += d.toString()
       if (this.stderr.length > 8000) this.stderr = this.stderr.slice(-8000)
@@ -172,7 +191,11 @@ class ClaudeSession implements ProviderSession {
     this.child.on('close', (code) => {
       if (this.done) return
       this.done = true
-      for (const line of this.decoder.flush()) this.handleLine(line)
+      try {
+        for (const line of this.decoder.flush()) this.handleLine(line)
+      } catch {
+        // 收尾时的解析错误不改变退出事实，交给 onExit 报给会话
+      }
       o.onExit(code, this.stderr)
     })
   }

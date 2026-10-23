@@ -10,7 +10,7 @@
 export type VcsKind = 'git' | 'svn'
 
 /** 文件状态字母。C = SVN 冲突；Git 的 copied 也会是 C，但 conflict 字段区分。 */
-export type VcsChange = 'M' | 'A' | 'D' | 'R' | 'C' | '?' | '!' | 'I' | 'X' | '~' | 'U'
+export type VcsChange = 'M' | 'A' | 'D' | 'R' | 'C' | '?' | '!' | 'I' | '~' | 'U'
 
 export interface VcsCapabilities {
   stage: boolean
@@ -79,6 +79,10 @@ export interface VcsFile {
   revision?: string
   /** SVN 只有属性变化 */
   propertyChange?: boolean
+  /** SVN 外链：这个改动属于某个 svn:externals 工作副本 */
+  external?: boolean
+  /** SVN 外链工作副本根（相对当前工作区）；提交时按它分组、各自提交 */
+  externalRoot?: string
 }
 
 export interface VcsCounts {
@@ -160,6 +164,8 @@ export interface VcsCommitData {
   id: string
   shortId: string
   revision?: number
+  /** SVN 一次提交可能跨多个工作副本（外链），每个副本一个 revision */
+  revisions?: number[]
   summary: string
   files: number
 }

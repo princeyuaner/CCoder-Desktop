@@ -2193,6 +2193,14 @@
   background: var(--bg-hover);
   border-radius: 7px;
 }
+.ide-vcs-gnote {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 8.5px;
+  color: var(--text-faint);
+}
 .ide-vcs-row {
   display: flex;
   align-items: center;

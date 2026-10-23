@@ -70,6 +70,11 @@ function statusLabel(f: VcsFile): string {
   return f.status
 }
 
+function baseName(rel: string): string {
+  const i = rel.lastIndexOf('/')
+  return i >= 0 ? rel.slice(i + 1) : rel
+}
+
 /** 两个路径是不是同一个目录（只做字符串归一，不碰 fs） */
 function samePath(a: string, b: string): boolean {
   const n = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
@@ -111,7 +116,14 @@ interface Props {
 
 type Tab = 'changes' | 'history' | 'repo' | 'worktrees'
 type Active = { rel: string; source: VcsDiffSource }
-type Group = { key: string; title: string; files: VcsFile[]; source: VcsDiffSource }
+type Group = {
+  key: string
+  title: string
+  files: VcsFile[]
+  source: VcsDiffSource
+  /** 组标题右侧的短说明（目前只有外链用） */
+  note?: string
+}
 
 interface OpState {
   id: string
@@ -205,19 +217,33 @@ export function VcsWorkspace({
         { key: 'conflicts', title: '冲突', source: 'working' as VcsDiffSource, files: fs.filter((f) => f.conflict) }
       ].filter((g) => g.files.length > 0)
     }
+    // 外链是独立的工作副本：单独成组，提交时会分别写进它们自己的仓库
+    const externalRoots = [
+      ...new Set(fs.filter((f) => f.external && !f.conflict).map((f) => f.externalRoot || ''))
+    ]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+
     return [
       {
         key: 'changes',
         title: '待提交',
         source: 'working' as VcsDiffSource,
-        files: fs.filter((f) => !f.untracked && !f.conflict)
+        files: fs.filter((f) => !f.external && !f.untracked && !f.conflict)
       },
       {
         key: 'untracked',
         title: '未纳入版本控制',
         source: 'working' as VcsDiffSource,
-        files: fs.filter((f) => f.untracked && !f.conflict)
+        files: fs.filter((f) => !f.external && f.untracked && !f.conflict)
       },
+      ...externalRoots.map((root) => ({
+        key: `external:${root}`,
+        title: `外链 · ${baseName(root)}`,
+        note: '独立工作副本',
+        source: 'working' as VcsDiffSource,
+        files: fs.filter((f) => f.external && (f.externalRoot || '') === root && !f.conflict)
+      })),
       { key: 'conflicts', title: '冲突', source: 'working' as VcsDiffSource, files: fs.filter((f) => f.conflict) }
     ].filter((g) => g.files.length > 0)
   }, [status])
@@ -235,6 +261,9 @@ export function VcsWorkspace({
     [status]
   )
   const commitCount = isGit ? stagedCount : selectedCount
+  /** 选中的外链文件数：它们会提交到各自的工作副本，产生单独的 revision */
+  const externalSelected =
+    status?.files.filter((f) => f.external && selected.has(f.rel)).length ?? 0
   const canCommit =
     !!status &&
     !op &&
@@ -254,7 +283,10 @@ export function VcsWorkspace({
         )
       )
       if (!selectionInit.current && status.repo.kind === 'svn' && selectable.length > 0) {
-        for (const f of selectable) next.add(f.rel)
+        for (const f of selectable) {
+          // 外链属于别的仓库：默认不勾选，避免顺手把外链也提交出去
+          if (!f.external) next.add(f.rel)
+        }
         selectionInit.current = true
       }
       return next
@@ -391,7 +423,8 @@ export function VcsWorkspace({
       label: string,
       network: boolean,
       fn: (id: string) => Promise<VcsResult<T>>,
-      filesChanged = true
+      filesChanged = true,
+      describe?: (data: T) => string
     ): Promise<boolean> => {
       if (op) return false
       const id = makeOpId()
@@ -407,7 +440,7 @@ export function VcsWorkspace({
           setOpError(r.error)
           return false
         }
-        onNotice(`${label}成功`)
+        onNotice(describe ? describe(r.data) : `${label}成功`)
         onMutated(filesChanged)
         onRefresh()
         if (tab === 'history') void loadLog(true)
@@ -459,13 +492,19 @@ export function VcsWorkspace({
 
   const doCommit = async (): Promise<void> => {
     if (!canCommit) return
-    const ok = await run('提交', false, (id) =>
-      window.api!.vcs.commit({
-        cwd,
-        opId: id,
-        message,
-        ...(isGit ? { amend } : { paths: [...selected] })
-      })
+    const ok = await run(
+      '提交',
+      false,
+      (id) =>
+        window.api!.vcs.commit({
+          cwd,
+          opId: id,
+          message,
+          ...(isGit ? { amend } : { paths: [...selected] })
+        }),
+      true,
+      // SVN 含外链时会分成多次提交，把每个工作副本的 revision 都显示出来
+      (d) => (d.shortId ? `提交成功 ${d.shortId}` : '提交成功')
     )
     if (ok) {
       setMessage('')
@@ -872,7 +911,9 @@ export function VcsWorkspace({
                         ? isGit
                           ? '先暂存文件'
                           : '先选择文件'
-                        : ''
+                        : externalSelected > 0
+                          ? `${externalSelected} 个外链文件会提交到它们各自的工作副本，产生单独的 revision`
+                          : ''
                 }
                 onClick={() => void doCommit()}
               >
@@ -889,13 +930,27 @@ export function VcsWorkspace({
                       <span className="ide-vcs-gchev">▾</span>
                       <span>{g.title}</span>
                       <span className="ide-vcs-gcount">{g.files.length}</span>
+                      {g.note && (
+                        <span
+                          className="ide-vcs-gnote"
+                          title="svn:externals 工作副本，提交会写入它自己的仓库"
+                        >
+                          {g.note}
+                        </span>
+                      )}
                       <span className="ide-spacer" />
                       {((status.repo.kind === 'git' && g.key !== 'conflicts' && g.key !== 'staged') ||
-                        (status.repo.kind === 'svn' && g.key === 'untracked')) && (
+                        (status.repo.kind === 'svn' && g.files.some((f) => f.untracked))) && (
                         <button
                           className="ide-vcs-mini"
                           title="全部暂存 / 添加"
-                          onClick={() => void doStage(g.files.map((f) => f.rel))}
+                          onClick={() =>
+                            void doStage(
+                              g.files
+                                .filter((f) => status.repo.kind === 'git' || f.untracked)
+                                .map((f) => f.rel)
+                            )
+                          }
                         >
                           <Ico d={P.plus} size={10} />
                         </button>
@@ -1245,7 +1300,7 @@ function VcsRow({
     <div
       className={`ide-vcs-row ${active ? 'is-active' : ''} ${file.conflict ? 'is-conflict' : ''}`}
       onClick={onOpen}
-      title={file.rel}
+      title={file.external ? `${file.rel}（外链工作副本）` : file.rel}
     >
       {kind === 'svn' &&
       !file.untracked &&

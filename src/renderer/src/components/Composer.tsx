@@ -1350,6 +1350,19 @@ function EffortPicker({
 }
 
 /**
+ * 三列的行高 / 表头高度 / 内边距，用来把弹层高度锁死。
+ * 跟 chat.css 里 `.mpick__it`（34px）、`.mpick__h`（23px）、`.mpick__col`（5px 内边距）
+ * 保持一致 —— 改样式时记得一起改。
+ */
+const MPICK_ROW_H = 34
+const MPICK_HEAD_H = 23
+const MPICK_COL_PAD = 10
+/** 三列最多长到多高（沿用原来的 300px 上限），超出后列内滚动 */
+const MPICK_COL_MAX_H = 300
+/** 官方登录模式的模型列：默认 + sonnet / opus / haiku */
+const OFFICIAL_MODEL_ROWS = 4
+
+/**
  * CLI › 渠道 › 模型 三级选择器，三列并排。
  *
  * 为什么不做成一层层点进去：这三样是**同一个决定**的三个部分
@@ -1476,12 +1489,35 @@ function ModelPicker({
       .map((m) => ({ value: m, label: m }))
   ]
 
+  /**
+   * 弹层高度锁成「所有预览里最长的那一列」。
+   *
+   * 悬停会切换右边两列的内容。弹层贴着输入框**向上**展开（bottom 定位），
+   * 高度一变，整块内容就在指针下面上下平移 —— 指针落到别的行上，预览又切回去，
+   * 真实鼠标的 1px 漂移就足够让它来回抖。锁死高度后，悬停只换内容不换尺寸。
+   */
+  const modelRowCount = (c: Channel): number =>
+    new Set([c.model, ...c.models].map((s) => s.trim()).filter(Boolean)).size
+  const previewRows = Math.max(
+    CLIS.length,
+    ...CLIS.map((c) => {
+      const chans = cliConfigs[c.id]?.channels ?? []
+      let rows = chans.length + (c.id === 'claude' ? 1 : 0)
+      for (const chn of chans) rows = Math.max(rows, modelRowCount(chn))
+      return c.id === 'claude' ? Math.max(rows, OFFICIAL_MODEL_ROWS) : rows
+    })
+  )
+  const colsHeight = Math.min(
+    MPICK_COL_MAX_H,
+    MPICK_COL_PAD + MPICK_HEAD_H + previewRows * MPICK_ROW_H
+  )
+
   /** 渠道列的方形头像：取名字首字，英文大写。比放一排一样的云朵图标好认。 */
   const avatarOf = (name: string): string => name.trim().slice(0, 1).toUpperCase() || '?'
 
   return (
     <div className="mpick" onMouseLeave={clearHover}>
-      <div className="mpick__cols">
+      <div className="mpick__cols" style={{ height: colsHeight }}>
         <div className="mpick__col">
           <div className="mpick__h">CLI</div>
           {CLIS.map((c) => (
@@ -1495,6 +1531,8 @@ function ModelPicker({
                 if (!c.ready) return
                 setHoverCli(c.id)
                 setHoverChannel(null)
+                // 官方行只在 Claude 这一列；换到别的 CLI 时别把上次的预览带过去
+                setHoverOfficial(false)
               }}
               onClick={() => pickCli(c.id)}
             >

@@ -2849,11 +2849,14 @@
   display: grid;
   grid-template-columns: 170px minmax(0, 1fr) minmax(0, 1.45fr);
   gap: 8px;
+  /* 高度由 JS 锁死（悬停预览时不变），列自己按内容高，空的只是面板底色 */
+  align-items: start;
 }
 .mpick__col {
   min-width: 0;
   padding: 5px;
-  max-height: 300px;
+  /* 内容多时在列内滚动；少时列自己变矮，不把底色拉满整个锁死的高度 */
+  max-height: 100%;
   overflow-y: auto;
   background: rgba(255, 255, 255, 0.035);
   border-radius: 11px;

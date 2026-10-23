@@ -22,6 +22,7 @@ import type {
   SessionStatusPayload
 } from '../shared/session'
 import { isSameOrInside } from './path-key'
+import { logMain } from './crash-log'
 import { ClaudeProvider } from './providers/claude/adapter'
 import { CodexProvider } from './providers/codex/adapter'
 import type { Provider, ProviderSession } from './providers/types'
@@ -302,6 +303,19 @@ export class SessionManager {
   }
 
   /**
+   * 是否有正在跑一轮的会话。
+   *
+   * 更新安装要重启应用，**不能**打断还在出字的回合；空闲的会话可以放心
+   * 关掉 —— 它们的内容已经落盘，重启后还能接着打开。
+   */
+  hasBusySessions(): boolean {
+    for (const s of this.live.values()) {
+      if (s.busy) return true
+    }
+    return false
+  }
+
+  /**
    * 此刻正在跑的会话，按 **CLI 自己的 session id** 给。
    *
    * 侧栏要用它决定哪一行该显示「运行中」—— 而侧栏手里只有 CLI 的 session id
@@ -361,21 +375,33 @@ export class SessionManager {
       // 官方登录没有渠道，模型回落到设置里的 officialModel（空 = CLI 默认）
       const fallbackModel =
         ch?.model ?? (s.authMode === 'official' ? s.officialModel.trim() : '')
+      const model = s.model.trim() || fallbackModel
+      const resume = s.providerSessionId ?? s.initialResumeId ?? null
       s.session = provider.start({
         channel: ch,
         cwd: s.cwd,
-        model: s.model.trim() || fallbackModel,
+        model,
         permissionMode: s.permissionMode,
         effort: s.effort,
         addDirs: [],
         // 进程活着就用它自己的 id；进程重启后回落到最初要接的那条
-        resumeId: s.providerSessionId ?? s.initialResumeId,
+        resumeId: resume,
         onEvent: (e) => this.onEvent(s, e),
         onExit: (code, stderr) => this.onExit(s, code, stderr)
+      })
+      // 只记启动参数，不记 prompt / 用户输入
+      logMain('session.spawn', {
+        id: s.id,
+        cli: s.cli,
+        cwd: s.cwd,
+        model,
+        permissionMode: s.permissionMode,
+        resume
       })
       return true
     } catch (err) {
       s.session = null
+      logMain('session.spawn-failed', { id: s.id, cli: s.cli, cwd: s.cwd, error: err })
       this.emitEvent({
         sessionId: s.id,
         event: { t: 'error', message: `启动 CLI 失败：${String(err)}`, fatal: true }
@@ -500,6 +526,17 @@ export class SessionManager {
   }
 
   private onExit(s: Live, code: number | null, stderr: string): void {
+    logMain('session.exit', {
+      id: s.id,
+      cli: s.cli,
+      cwd: s.cwd,
+      code,
+      interrupted: s.interrupted,
+      // 正常退出不记 stderr（可能夹带用户内容），只留长度；异常退出留个尾部
+      stderrBytes: stderr.length,
+      stderrTail: !s.interrupted && code !== 0 ? stderr.trim().slice(-400) : undefined
+    })
+
     s.session = null
     s.busy = false
     /*

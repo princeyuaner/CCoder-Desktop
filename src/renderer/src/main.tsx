@@ -1,3 +1,5 @@
+// 必须放在最前面：先装错误上报，再加载其余模块，模块求值阶段的异常才不会漏
+import './report-errors'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { defaultSettings, type Settings } from '@shared/settings'

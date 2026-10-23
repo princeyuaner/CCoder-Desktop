@@ -6,6 +6,9 @@ import type { IdeFsChanged, IdeOpenResult, IdeTarget } from '../shared/ide'
 import { startWorkspaceWatch } from './ide-watch'
 import { pathKey } from './path-key'
 import { windowBg } from './window-theme'
+import { logMain } from './crash-log'
+import { labelWindow } from './window-log'
+import { safeSend } from './safe-send'
 
 /**
  * 独立 IDE 窗口。
@@ -139,7 +142,12 @@ function rendererUrl(
  */
 function revealInWindow(win: BrowserWindow, target: IdeTarget): void {
   const send = (): void => {
-    if (!win.isDestroyed()) win.webContents.send(IPC.ideReveal, target)
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return
+    try {
+      win.webContents.send(IPC.ideReveal, target)
+    } catch (e) {
+      logMain('ide-window.reveal', e)
+    }
   }
   if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', send)
   else send()
@@ -220,6 +228,8 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
     }
   })
 
+  labelWindow(win, `ide:${cwd}`)
+
   windows.set(key, win)
   const senderId = win.webContents.id
   senderCwds.set(senderId, key)
@@ -245,9 +255,7 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
     watchLoadQueued = false
     const batch = pendingWatch
     pendingWatch = null
-    if (batch && !win.isDestroyed() && !win.webContents.isDestroyed()) {
-      win.webContents.send(IPC.ideFsChanged, batch)
-    }
+    if (batch) safeSend(win, IPC.ideFsChanged, batch)
   }
   const pushWatch = (batch: IdeFsChanged): void => {
     if (win.isDestroyed() || win.webContents.isDestroyed()) return
@@ -259,7 +267,7 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
       }
       return
     }
-    win.webContents.send(IPC.ideFsChanged, batch)
+    safeSend(win, IPC.ideFsChanged, batch)
   }
   const stopWatch = startWorkspaceWatch(cwd, pushWatch)
 
@@ -269,7 +277,12 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
   })
 
   const pushMaximized = (): void => {
-    win.webContents.send(IPC.winMaximizedChanged, win.isMaximized())
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return
+    try {
+      win.webContents.send(IPC.winMaximizedChanged, win.isMaximized())
+    } catch (e) {
+      logMain('ide-window.maximized', e)
+    }
   }
   // 拖动窗口会连续触发 move/resize，攒一下再落盘
   let saveTimer: NodeJS.Timeout | null = null
@@ -315,7 +328,7 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
     saveState(key, win)
     if (dirtySenders.has(senderId) && !closeConfirmed.has(senderId)) {
       e.preventDefault()
-      if (!win.webContents.isDestroyed()) win.webContents.send(IPC.ideCloseRequest)
+      safeSend(win, IPC.ideCloseRequest)
     }
   })
   win.on('closed', () => {
@@ -330,11 +343,17 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
 
   // 外链交给系统浏览器，IDE 窗口本身不做导航
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    void shell.openExternal(url).catch((e) => logMain('openExternal', e))
     return { action: 'deny' }
   })
 
   const target = rendererUrl(cwd, initialTarget)
-  if (target.url) void win.loadURL(target.url)
-  else if (target.file) void win.loadFile(target.file, { query: target.query })
+  // loadURL / loadFile 的 Promise 必须有人接，否则加载失败会变成
+  // unhandledRejection —— 在打包版里等于主进程静默退出。
+  const loading = target.url
+    ? win.loadURL(target.url)
+    : target.file
+      ? win.loadFile(target.file, { query: target.query })
+      : Promise.resolve()
+  loading.catch((e) => logMain('ide-window.load', e))
 }

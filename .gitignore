@@ -2,6 +2,8 @@ node_modules/
 out/
 dist/
 release/
+# CodeGraph 本地索引（体积大且随机器变化，不入库）
+.codegraph/
 .idea/
 .DS_Store
 *.log

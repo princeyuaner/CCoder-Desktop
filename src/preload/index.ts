@@ -27,6 +27,8 @@ import type {
   IdeSendResult
 } from '../shared/ide-chat'
 import type { VcsApi } from '../shared/vcs'
+import type { UpdateInstallResult, UpdateState } from '../shared/update'
+import type { RendererLogReport } from '../shared/log'
 
 /**
  * IDE 窗口的「打开文件」推送。
@@ -83,6 +85,11 @@ const api: WindowApi = {
   },
   platform: process.platform,
 
+  log: {
+    // 只发不收：主进程收到后直接落盘，渲染进程不需要回执
+    report: (report: RendererLogReport): void => ipcRenderer.send(IPC.rendererLog, report)
+  },
+
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke(IPC.settingsGet),
     save: (s: Settings): Promise<Settings> => ipcRenderer.invoke(IPC.settingsSave, s),
@@ -96,6 +103,18 @@ const api: WindowApi = {
 
   codex: {
     status: (): Promise<CodexStatus> => ipcRenderer.invoke(IPC.codexStatus)
+  },
+
+  updater: {
+    status: (): Promise<UpdateState> => ipcRenderer.invoke(IPC.updaterStatus),
+    check: (): Promise<UpdateState> => ipcRenderer.invoke(IPC.updaterCheck),
+    download: (): Promise<UpdateState> => ipcRenderer.invoke(IPC.updaterDownload),
+    install: (): Promise<UpdateInstallResult> => ipcRenderer.invoke(IPC.updaterInstall),
+    onState: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, state: UpdateState): void => cb(state)
+      ipcRenderer.on(IPC.updaterEvent, listener)
+      return () => ipcRenderer.off(IPC.updaterEvent, listener)
+    }
   },
 
   claude: {

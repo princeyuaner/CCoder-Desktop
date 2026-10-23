@@ -24,6 +24,17 @@ npmRebuild: false
 # 注意：这个 dist 是 win32-x64 的；将来加 macOS 目标时要按平台换掉。
 electronDist: node_modules/electron/dist
 
+# 自动更新源：GitHub Releases。
+# 构建时 electron-builder 会把 provider / owner / repo 写进
+# resources/app-update.yml，客户端据此找 latest.yml 和安装包 ——
+# 这里的 owner/repo 必须和真正存放 Release 的仓库一致。
+publish:
+  provider: github
+  owner: princeyuaner
+  repo: CCoder-Desktop
+  # 默认会建草稿 Release；固定成正式 Release，客户端才看得到
+  releaseType: release
+
 win:
   icon: build/icon.ico
   target:

@@ -47,6 +47,8 @@ import type {
   IdeSendResult
 } from './ide-chat'
 import type { VcsApi } from './vcs'
+import type { UpdateInstallResult, UpdateState } from './update'
+import type { RendererLogReport } from './log'
 
 export const IPC = {
   winMinimize: 'win:minimize',
@@ -73,6 +75,17 @@ export const IPC = {
   claudeAuthEvent: 'claude:auth-event',
   /** 主进程 → 渲染进程：设置被他处改动 */
   settingsChanged: 'settings:changed',
+
+  /** 渲染进程 → 主进程：未捕获错误 / Promise 拒绝，只用于写本地日志 */
+  rendererLog: 'log:renderer',
+
+  /* ── 自动更新 ───────────────────────────────────────────── */
+  updaterStatus: 'updater:status',
+  updaterCheck: 'updater:check',
+  updaterDownload: 'updater:download',
+  updaterInstall: 'updater:install',
+  /** 主进程 → 渲染进程：检查 / 下载 / 安装状态变化 */
+  updaterEvent: 'updater:event',
 
   sessionStart: 'session:start',
   sessionSend: 'session:send',
@@ -171,6 +184,16 @@ export interface WindowApi {
   setZoom(factor: number): void
   platform: NodeJS.Platform
 
+  /**
+   * 渲染进程的异常上报。
+   *
+   * 打包版没有 DevTools，渲染层的未捕获异常 / Promise 拒绝不写出来就永远
+   * 查不到。这里只发一条 IPC，主进程落进 main.log；不参与业务逻辑。
+   */
+  log: {
+    report(report: RendererLogReport): void
+  }
+
   settings: {
     get(): Promise<Settings>
     save(settings: Settings): Promise<Settings>
@@ -182,6 +205,21 @@ export interface WindowApi {
   codex: {
     /** 探测 CLI 是否安装、app-server 是否可用、当前登录的是哪个账号 */
     status(): Promise<CodexStatus>
+  }
+
+  /**
+   * 自动更新。主进程负责检查、下载与安装，渲染层只展示状态。
+   *
+   * 下载和安装都不会自动发生：检查到新版本后由用户点「下载」，
+   * 下载完成后再由用户点「重启并安装」。
+   */
+  updater: {
+    status(): Promise<UpdateState>
+    check(): Promise<UpdateState>
+    download(): Promise<UpdateState>
+    install(): Promise<UpdateInstallResult>
+    /** 订阅状态变化，返回取消订阅函数 */
+    onState(cb: (state: UpdateState) => void): () => void
   }
 
   /**
