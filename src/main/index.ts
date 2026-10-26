@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { app, crashReporter, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { PermissionMode } from '../shared/events'
@@ -587,11 +588,88 @@ function registerClaudeAuthIpc(): void {
   ipcMain.handle(IPC.claudeAuthLoginState, () => claudeLoginSnapshot())
 }
 
+/**
+ * 对话里的链接只允许打开这些类型。
+ *
+ * 必须是白名单而不是黑名单：`shell.openPath` 走系统关联，`.bat` / `.js` /
+ * `.exe` 在 Windows 上会被直接执行 —— 而链接目标可能来自模型输出，也就
+ * 可能来自提示注入。
+ */
+const CHAT_OPENABLE_EXTS = new Set([
+  // 网页 / 图片
+  '.html', '.htm', '.xhtml', '.svg',
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.ico',
+  // 文档 / 数据
+  '.pdf', '.md', '.markdown', '.txt', '.log', '.csv', '.json', '.jsonc',
+  // 源码（交给默认编辑器，不会执行）
+  '.ts', '.tsx', '.jsx', '.css', '.scss', '.less', '.vue', '.svelte',
+  '.yml', '.yaml', '.toml', '.ini', '.xml', '.sql'
+])
+
 /** @ 文件引用：主进程异步扫描工作区，渲染进程只拿相对路径 */
 function registerWorkspaceIpc(): void {
   ipcMain.handle(IPC.workspaceSearchFiles, (_e, cwd: string, query: string, limit?: number) =>
     searchWorkspaceFiles(cwd, query, limit)
   )
+
+  /**
+   * 打开对话里点到的地址。
+   *
+   * 渲染层只负责把 Markdown 链接送过来，路径解析与安全检查全在这里：
+   * 相对路径按会话 cwd 解析，绝对路径必须是本机文件，外链只放行 http(s)。
+   */
+  ipcMain.handle(IPC.workspaceOpenPath, async (_e, cwdRaw: unknown, targetRaw: unknown) => {
+    const target = typeof targetRaw === 'string' ? targetRaw.trim() : ''
+    if (!target) return { ok: false, error: t('workspace.openPath.empty') }
+    if (target.length > 4096) return { ok: false, error: t('workspace.openPath.invalid') }
+
+    if (/^https?:\/\//i.test(target)) {
+      try {
+        const url = new URL(target)
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('protocol')
+        await shell.openExternal(url.toString())
+        return { ok: true }
+      } catch {
+        return { ok: false, error: t('workspace.openPath.invalid') }
+      }
+    }
+
+    let file = target
+    if (/^file:/i.test(target)) {
+      try {
+        file = fileURLToPath(target)
+      } catch {
+        return { ok: false, error: t('workspace.openPath.invalid') }
+      }
+    } else if (!isAbsolute(target) && /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+      // javascript: / ms-msdt: / smb: … 一律不接
+      return { ok: false, error: t('workspace.openPath.unsupported') }
+    }
+
+    // UNC 会触发 SMB 认证，不让聊天里的链接碰网络路径
+    if (/^[\\/]{2}/.test(file)) {
+      return { ok: false, error: t('workspace.openPath.unsupported') }
+    }
+
+    const cwd = typeof cwdRaw === 'string' ? cwdRaw.trim() : ''
+    if (!isAbsolute(file) && !cwd) {
+      return { ok: false, error: t('workspace.openPath.noCwd') }
+    }
+    const abs = isAbsolute(file) ? resolve(file) : resolve(cwd, file)
+
+    let isDir = false
+    try {
+      isDir = statSync(abs).isDirectory()
+    } catch {
+      return { ok: false, error: t('workspace.openPath.missing') }
+    }
+    if (!isDir && !CHAT_OPENABLE_EXTS.has(extname(abs).toLowerCase())) {
+      return { ok: false, error: t('workspace.openPath.unsupported') }
+    }
+
+    const err = await shell.openPath(abs)
+    return err ? { ok: false, error: err } : { ok: true }
+  })
 
   /**
    * IDE 请求主窗口在某个目录开新会话。

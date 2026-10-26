@@ -1,0 +1,3937 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-scheme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CCoder · 技能管理</title>
+<style>
+  /* ── 设计 token（与 src/renderer/src/styles/tokens.css 对齐） ── */
+  :root {
+    color-scheme: dark;
+    --bg-app: #191919;
+    --bg-sidebar: #141414;
+    --bg-raised: #232323;
+    --bg-hover: #1f1f1f;
+    --bg-active: #2a2a2a;
+
+    --border: #2c2c2c;
+    --border-soft: #242424;
+
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+
+    --accent: #e8e8e8;
+    --accent-fg: #191919;
+    --ok: #4b9e5f;
+    --warn: #c9a227;
+    --danger: #e5534b;
+    --running: #d97757;
+
+    /* 技能页唯一的彩色强调：技能标记与触发命令的金色。
+       其余界面保持原有的中性灰，让「触发」成为页面的记忆点。 */
+    --skill: #d8b26a;
+    --skill-strong: #e8cb92;
+    --skill-soft: rgba(216, 178, 106, .085);
+    --skill-line: rgba(216, 178, 106, .27);
+    --plugin: #b8a1e0;
+    --plugin-soft: rgba(184, 161, 224, .08);
+    --plugin-line: rgba(184, 161, 224, .26);
+    --br-text: #a9c6e2;
+    --br-bg: rgba(122, 162, 200, .1);
+    --br-border: rgba(122, 162, 200, .24);
+
+    --radius-card: 12px;
+    --radius-chip: 8px;
+    --radius-sm: 6px;
+    --radius-pill: 999px;
+
+    --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+    --titlebar-h: 36px;
+    --sidebar-w: 280px;
+    --pane-pad-x: 40px;
+    --scrollbar-w: 10px;
+
+    --panel: #1c1c1c;
+    --panel-hover: #222222;
+    --panel-active: #292929;
+    --panel-line: #313131;
+    --ok-soft: #16241a;
+    --ok-line: #2c4a34;
+    --danger-soft: #2a1a19;
+    --danger-line: #4a2a28;
+    --warn-soft: #2a2418;
+    --warn-line: #4a3f22;
+  }
+
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg-app: #f6f6f7;
+    --bg-sidebar: #efeff1;
+    --bg-raised: #ffffff;
+    --bg-hover: #e9e9ec;
+    --bg-active: #e2e2e6;
+
+    --border: #d7d7dc;
+    --border-soft: #e5e5e8;
+
+    --text: #1d1d1f;
+    --text-dim: #4c4c53;
+    --text-muted: #6c6c75;
+    --text-faint: #95959e;
+
+    --accent: #1d1d1f;
+    --accent-fg: #ffffff;
+    --ok: #2f8a45;
+    --warn: #a97b0b;
+    --danger: #c83b32;
+    --running: #b04a28;
+
+    --skill: #8c6722;
+    --skill-strong: #755618;
+    --skill-soft: rgba(140, 103, 34, .07);
+    --skill-line: rgba(140, 103, 34, .22);
+    --plugin: #6b4fa0;
+    --plugin-soft: rgba(107, 79, 160, .07);
+    --plugin-line: rgba(107, 79, 160, .22);
+    --br-text: #2f5f8a;
+    --br-bg: rgba(63, 111, 157, .08);
+    --br-border: rgba(63, 111, 157, .28);
+
+    --panel: #ffffff;
+    --panel-hover: #f3f3f5;
+    --panel-active: #ebebef;
+    --panel-line: #dcdce1;
+    --ok-soft: #eef8f0;
+    --ok-line: #cce5d2;
+    --danger-soft: #fdf0ef;
+    --danger-line: #f0cfcc;
+    --warn-soft: #fbf6e7;
+    --warn-line: #eadcaf;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    display: grid;
+    place-items: center;
+    min-width: 1360px;
+    min-height: 860px;
+    background: #0c0c0c;
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  button, input, select, textarea { font: inherit; }
+  button {
+    padding: 0;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  input, textarea, select { color: inherit; }
+  a { color: inherit; text-decoration: none; }
+  code { font-family: var(--font-mono); }
+
+  ::-webkit-scrollbar { width: var(--scrollbar-w); height: var(--scrollbar-w); }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-faint) 55%, transparent);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--text-muted) 70%, transparent);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .icon,
+  .session__cli svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* ── 窗口骨架 ─────────────────────────────────────────── */
+  .window {
+    position: relative;
+    width: 1360px;
+    height: 860px;
+    display: grid;
+    grid-template-rows: var(--titlebar-h) 1fr;
+    background: var(--bg-app);
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--titlebar-h);
+    padding-left: 12px;
+    background: var(--bg-app);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .titlebar__brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    padding: 0 12px;
+  }
+  .titlebar__brand-mark { color: #d8d8d8; }
+  :root[data-theme='light'] .titlebar__brand-mark { color: #333338; }
+  .titlebar__brand-name { font-size: 15px; font-weight: 650; letter-spacing: 0.2px; }
+  .titlebar__right { display: flex; align-items: center; height: 100%; margin-left: auto; }
+  .titlebar__panel {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 100%;
+    color: var(--text-muted);
+  }
+  .titlebar__panel:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 100%;
+    color: var(--text-dim);
+  }
+  .wctl:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl--close:hover { background: #c42b1c; color: #fff; }
+
+  .app__body {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    min-height: 0;
+  }
+
+  /* ── 左侧栏 ───────────────────────────────────────────── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 10px 10px 6px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-soft);
+  }
+  .sidebar__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-bottom: 8px;
+  }
+  .navitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .navitem:hover { background: var(--bg-hover); color: var(--text); }
+
+  .sidebar__section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px 6px;
+  }
+  .sidebar__section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.4px;
+  }
+  .sidebar__section-tools { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+  .sidebar__section-head:hover .sidebar__section-tools { opacity: 1; }
+  .iconbtn {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .iconbtn:hover { background: var(--bg-raised); color: var(--text); }
+
+  .sidebar__scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 8px;
+  }
+  .wsgroup { margin-bottom: 6px; padding-bottom: 8px; }
+  .wsgroup + .wsgroup {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .wsgroup__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    color: var(--text-dim);
+  }
+  .wsgroup__iconbtn {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin: 0 -2px 0 -4px;
+    border-radius: 5px;
+  }
+  .wsgroup__iconbtn:hover { background: var(--bg-active); }
+  .wsgroup__icon { color: var(--text-muted); }
+  .wsgroup__name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wsgroup__count {
+    flex: none;
+    padding: 1px 6px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-active);
+    border-radius: var(--radius-pill);
+  }
+  .session {
+    display: flex;
+    align-items: center;
+    margin-left: 16px;
+    border-radius: var(--radius-sm);
+  }
+  .session:hover { background: var(--bg-hover); }
+  .session__main {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px 5px 12px;
+    text-align: left;
+  }
+  .session__cli {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+  }
+  .session__cli svg { display: block; width: 14px; height: 14px; }
+  .session__title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session__time { flex: none; font-size: 11.5px; color: var(--text-faint); }
+  .session__time--run { color: var(--running); }
+  .session--run .session__title { color: var(--text); }
+
+  .sidebar__settings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-top: 4px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .sidebar__settings:hover { background: var(--bg-hover); color: var(--text); }
+  .sidebar__settings.is-active { background: var(--bg-active); color: var(--text); }
+
+  /* ── 设置页骨架 ───────────────────────────────────────── */
+  .settings {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg-app);
+  }
+  .settings__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px var(--pane-pad-x) 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .settings__title { margin: 0; font-size: 15px; font-weight: 600; }
+  .settings__head-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .saved-flash { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-faint); }
+  .saved-flash .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+
+  .settings__body {
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    min-height: 0;
+  }
+  .settings__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 12px;
+    border-right: 1px solid var(--border-soft);
+  }
+  .settings__navgroup {
+    padding: 12px 12px 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text-faint);
+  }
+  .settings__navgroup:first-child { padding-top: 2px; }
+  .settings__navitem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .settings__navitem:hover { background: var(--bg-hover); color: var(--text); }
+  .settings__navitem.is-active { background: var(--bg-active); color: var(--text); }
+  .settings__navcount {
+    margin-left: auto;
+    min-width: 18px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 16px;
+    color: var(--text-faint);
+    text-align: center;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+
+  .settings__content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 18px 32px 22px var(--pane-pad-x);
+    overflow: hidden;
+  }
+
+  /* ── 通用按钮 / 标签 ─────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
+    white-space: nowrap;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .btn .icon { width: 14px; height: 14px; }
+  .btn--ghost { color: var(--text-dim); border-color: var(--border); }
+  .btn--ghost:hover { background: var(--bg-raised); color: var(--text); }
+  .btn--primary { color: var(--accent-fg); background: var(--accent); font-weight: 500; }
+  .btn--primary:hover { filter: brightness(.94); }
+  .btn--danger { color: var(--danger); border-color: var(--danger-line); }
+  .btn--danger:hover { background: var(--danger-soft); }
+  .btn--xs { padding: 3px 9px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn:disabled:hover { background: none; color: var(--text-dim); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    font-size: 10.5px;
+    line-height: 17px;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .badge--ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+  .badge--bad { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+  .badge--warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .badge--mono { font-family: var(--font-mono); font-size: 10px; letter-spacing: .25px; }
+  .badge__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .switch input {
+    appearance: none;
+    position: relative;
+    width: 32px;
+    height: 18px;
+    margin: 0;
+    background: #3b3b3b;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .switch input::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: #929292;
+    border-radius: 50%;
+    transition: transform .12s, background .12s;
+  }
+  .switch input:checked { background: var(--accent); }
+  .switch input:checked::after { transform: translateX(14px); background: var(--bg-app); }
+  .switch input:disabled { opacity: .4; cursor: default; }
+  .switch--sm input { width: 28px; height: 16px; }
+  .switch--sm input::after { width: 12px; height: 12px; }
+  .switch--sm input:checked::after { transform: translateX(12px); }
+
+  .state-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .state-dot--ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent); }
+  .state-dot--bad { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent); }
+  .state-dot--warn { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent); }
+  .state-dot--off { background: var(--text-faint); box-shadow: none; }
+
+  .skills-page {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ── 页头 ─────────────────────────────────────────────── */
+  .intro {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    flex: none;
+    min-height: 60px;
+  }
+  .intro__main { flex: 1; min-width: 0; }
+  .intro__title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 0;
+    font-size: 18px;
+    font-weight: 650;
+    letter-spacing: -.15px;
+  }
+  .intro__title .badge { transform: translateY(1px); }
+  .intro__lead {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+  .intro__lead a { color: var(--text-dim); border-bottom: 1px solid var(--border); }
+  .intro__lead a:hover { color: var(--text); border-color: var(--text-muted); }
+  .intro__meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 7px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+  }
+  .intro__meta > span { display: inline-flex; align-items: center; gap: 5px; }
+  .intro__meta .sep { color: var(--border); }
+  .intro__actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-top: 3px;
+    flex: none;
+  }
+  .intro__actions .btn { height: 31px; }
+  .intro__actions .btn .icon { width: 13px; height: 13px; }
+  .spin { animation: spin .7s linear infinite; }
+
+  /* ── CLI 页签 ─────────────────────────────────────────── */
+  .cli-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    flex: none;
+  }
+  .cli-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 49px;
+    padding: 0 9px;
+    text-align: left;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    transition: background .12s, border-color .12s;
+  }
+  .cli-tab:hover { background: var(--bg-hover); border-color: #3d3d3d; }
+  .cli-tab.is-active { background: var(--bg-active); border-color: #464646; }
+  .cli-tab__mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    color: var(--text-muted);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+  .cli-tab__mark .icon { width: 14px; height: 14px; }
+  .cli-tab__body { flex: 1; min-width: 0; }
+  .cli-tab__name {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .cli-tab.is-active .cli-tab__name { color: var(--text); }
+  .cli-tab__warn {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    background: var(--warn);
+    border-radius: 50%;
+  }
+  .cli-tab__n {
+    padding: 0 4px;
+    font-size: 9.5px;
+    line-height: 14px;
+    font-weight: 500;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+  .cli-tab__meta {
+    display: block;
+    margin-top: 1px;
+    font-size: 9.8px;
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cli-tab__check {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--ok);
+    opacity: 0;
+  }
+  .cli-tab.is-active .cli-tab__check { opacity: 1; }
+
+  /* ── 主从布局 ─────────────────────────────────────────── */
+  .skills-layout {
+    display: grid;
+    grid-template-columns: 306px minmax(0, 1fr);
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
+  }
+  .panel {
+    min-height: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+  }
+
+  /* 左：技能列表 */
+  .list-panel { display: flex; flex-direction: column; }
+  .list-panel__head {
+    flex: none;
+    padding: 13px 12px 9px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .list-head-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 9px;
+  }
+  .list-panel__title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .25px;
+    color: var(--text-muted);
+  }
+  .list-panel__title > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source-select {
+    flex: none;
+    width: 92px;
+    height: 23px;
+    padding: 0 4px;
+    font-size: 9.5px;
+    color: var(--text-muted);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    outline: none;
+  }
+  .source-select:focus { border-color: var(--panel-line); }
+  .count {
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 16px;
+    font-weight: 500;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+  .searchbox { position: relative; display: flex; align-items: center; }
+  .searchbox .icon {
+    position: absolute;
+    left: 9px;
+    width: 13px;
+    height: 13px;
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+  .searchbox input {
+    width: 100%;
+    height: 31px;
+    padding: 0 28px 0 28px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+  }
+  .searchbox input::placeholder { color: var(--text-faint); }
+  .searchbox input:focus { border-color: var(--panel-line); background: var(--bg-raised); }
+  .searchbox__clear {
+    position: absolute;
+    right: 5px;
+    display: none;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    color: var(--text-faint);
+    border-radius: 4px;
+  }
+  .searchbox__clear:hover { color: var(--text); background: var(--bg-active); }
+  .searchbox.has-value .searchbox__clear { display: grid; }
+
+  .filter-row { display: flex; gap: 4px; margin-top: 8px; }
+  .filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    font-size: 11px;
+    color: var(--text-faint);
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+  }
+  .filter:hover { color: var(--text-dim); background: var(--bg-hover); }
+  .filter.is-active { color: var(--text); background: var(--bg-active); border-color: var(--border); }
+  .filter__n { font-size: 10px; color: var(--text-faint); }
+  .filter.is-active .filter__n { color: var(--text-muted); }
+  .filter[data-filter="warn"] .filter__n { color: var(--warn); }
+
+  .skill-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
+  .skill-row {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 8px 7px 9px;
+    margin-bottom: 2px;
+    text-align: left;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    transition: background .12s, border-color .12s;
+  }
+  .skill-row:hover { background: var(--bg-hover); }
+  .skill-row.is-active { background: var(--panel-active); border-color: var(--panel-line); }
+  .skill-row.is-active::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    background: var(--skill);
+    border-radius: 2px;
+  }
+  .skill-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    margin-top: 1px;
+    color: var(--skill);
+    background: var(--skill-soft);
+    border: 1px solid var(--skill-line);
+    border-radius: 8px;
+  }
+  .skill-mark .icon { width: 15px; height: 15px; }
+  .skill-mark--off { color: var(--text-faint); background: var(--bg-app); border-color: var(--border); }
+  .skill-row__main { flex: 1; min-width: 0; }
+  .skill-row__line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .skill-row__name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .skill-row.is-off .skill-row__name { color: var(--text-muted); }
+  .skill-row__sub {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 2px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .skill-row__trigger {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--skill-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .skill-row__trigger--auto { font-family: var(--font-ui); color: var(--text-faint); }
+  .skill-row__desc {
+    display: block;
+    margin-top: 1px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .skill-row.is-off .skill-row__desc { opacity: .72; }
+  .skill-row__chev { flex: none; align-self: center; color: var(--text-faint); opacity: 0; }
+  .skill-row:hover .skill-row__chev, .skill-row.is-active .skill-row__chev { opacity: 1; }
+
+  .source-tag {
+    flex: none;
+    padding: 0 5px;
+    font-size: 9px;
+    line-height: 14px;
+    letter-spacing: .2px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .source-tag--global,
+  .source-tag--home { color: var(--skill-strong); background: var(--skill-soft); border-color: var(--skill-line); }
+  .source-tag--project,
+  .source-tag--shared { color: var(--br-text); background: var(--br-bg); border-color: var(--br-border); }
+  .source-tag--plugin { color: var(--plugin); background: var(--plugin-soft); border-color: var(--plugin-line); }
+
+  .list-empty { display: none; padding: 30px 18px; text-align: center; color: var(--text-faint); font-size: 12.5px; }
+  .list-empty.is-visible { display: block; }
+  .list-empty .icon { width: 22px; height: 22px; margin: 0 auto 8px; color: var(--text-faint); }
+  .list-empty strong { display: block; margin-bottom: 2px; color: var(--text-dim); font-weight: 500; }
+
+  .dir-card {
+    flex: none;
+    padding: 9px 11px 8px;
+    background: color-mix(in srgb, var(--bg-app) 58%, var(--panel));
+    border-top: 1px solid var(--border-soft);
+  }
+  .dir-card__head { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .dir-card__head .icon { width: 12px; height: 12px; color: var(--text-faint); }
+  .dir-card__info { width: 11px !important; height: 11px !important; flex: none; cursor: help; }
+  .dir-card__title { font-size: 9.5px; font-weight: 600; letter-spacing: .4px; color: var(--text-faint); }
+  .dir-card__spacer { flex: 1; }
+  .dir-card__rescan { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-faint); }
+  .dir-card__rescan:hover { color: var(--text-dim); }
+  .dir-card__rescan .icon { width: 10px; height: 10px; }
+  .dir-line { display: flex; align-items: center; gap: 6px; padding: 0; min-height: 21px; }
+  .dir-line__main { display: flex; align-items: baseline; gap: 6px; flex: 1; min-width: 0; }
+  .dir-line__path {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dir-line__meta { display: inline; flex: none; font-size: 9px; line-height: 1.4; color: var(--text-faint); white-space: nowrap; }
+  .dir-line__state {
+    flex: none;
+    font-size: 9px;
+    color: var(--text-faint);
+    padding: 0 4px;
+    line-height: 14px;
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+  }
+  .dir-open {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    color: var(--text-faint);
+    border-radius: 4px;
+  }
+  .dir-open:hover { color: var(--text); background: var(--bg-active); }
+  .dir-open .icon { width: 10px; height: 10px; }
+  .dsh-home-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 5px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .dsh-home-row[hidden] { display: none; }
+  .dsh-home-row > span {
+    flex: none;
+    font-size: 9px;
+    color: var(--text-faint);
+  }
+  .dsh-home-row select {
+    flex: 1;
+    min-width: 0;
+    height: 22px;
+    padding: 0 4px;
+    font-size: 9.5px;
+    color: var(--text-muted);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    outline: none;
+  }
+  .dsh-home-row select:focus { border-color: var(--panel-line); }
+
+  .list-panel__foot {
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 9px 12px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-faint);
+    border-top: 1px solid var(--border-soft);
+  }
+  .list-panel__foot .icon { width: 12px; height: 12px; margin-top: 2px; color: var(--text-faint); }
+
+  /* ── 右：技能详情 ─────────────────────────────────────── */
+  .detail-panel { display: flex; flex-direction: column; }
+  .detail-head { flex: none; padding: 15px 17px 0; }
+  .detail-head__row { display: flex; align-items: flex-start; gap: 10px; }
+  .detail-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 38px;
+    height: 38px;
+    margin-top: 1px;
+    color: var(--skill);
+    background:
+      linear-gradient(145deg, color-mix(in srgb, var(--skill) 13%, var(--bg-app)), var(--bg-app));
+    border: 1px solid var(--skill-line);
+    border-radius: 10px;
+  }
+  .detail-mark .icon { width: 18px; height: 18px; }
+  .detail-titlebox { flex: 1; min-width: 0; }
+  .detail-titleline { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .detail-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -.1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .detail-sub {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--text-faint);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .detail-sub .icon { width: 11px; height: 11px; flex: none; }
+  .detail-sub code { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
+  .detail-sub .dotsep { color: var(--border); }
+  .detail-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+  .detail-actions > .switch { margin-right: 2px; }
+  .detail-action {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    color: var(--text-muted);
+    border-radius: 6px;
+  }
+  .detail-action:hover { color: var(--text); background: var(--bg-hover); }
+  .detail-action:disabled { opacity: .35; cursor: default; }
+  .detail-action:disabled:hover { background: none; color: var(--text-muted); }
+
+  .trigger-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 11px;
+    padding: 6px 8px;
+    background: var(--skill-soft);
+    border: 1px solid var(--skill-line);
+    border-radius: 8px;
+  }
+  .trigger-bar__label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    padding-right: 8px;
+    font-size: 9.5px;
+    letter-spacing: .3px;
+    color: var(--text-faint);
+    border-right: 1px solid var(--skill-line);
+  }
+  .trigger-bar__label .icon { width: 11px; height: 11px; color: var(--skill); }
+  .trigger-cmd {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 550;
+    color: var(--skill-strong);
+    letter-spacing: -.1px;
+  }
+  .trigger-cmd--auto { font-family: var(--font-ui); font-size: 11px; font-weight: 400; color: var(--text-muted); }
+  .trigger-copy {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    color: var(--text-faint);
+    border-radius: 4px;
+  }
+  .trigger-copy:hover { color: var(--skill-strong); background: color-mix(in srgb, var(--skill) 10%, transparent); }
+  .trigger-copy .icon { width: 11px; height: 11px; }
+  .trigger-bar__spacer { flex: 1; }
+  .trigger-bar__auto {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    font-size: 9.5px;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .trigger-bar__auto .icon { width: 10px; height: 10px; color: var(--skill); }
+
+  .meta-row { display: flex; align-items: center; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+  .meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+  }
+  .meta-chip .icon { width: 11px; height: 11px; color: var(--text-faint); }
+  .meta-chip strong { font-weight: 500; color: var(--text-dim); }
+  .meta-chip--warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .meta-chip--warn .icon { color: var(--warn); }
+
+  .tabs {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;
+    margin-top: 12px;
+    padding: 0 14px;
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 9px 8px;
+    font-size: 12px;
+    color: var(--text-faint);
+    border-bottom: 1.5px solid transparent;
+  }
+  .tab:hover { color: var(--text-dim); }
+  .tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab__n { font-size: 9.5px; color: var(--text-faint); }
+  .tab.is-active .tab__n { color: var(--text-muted); }
+  .tab__warn { width: 5px; height: 5px; border-radius: 50%; background: var(--warn); }
+
+  .tab-body { flex: 1; min-height: 0; overflow: auto; }
+  .tab-body--pad { padding: 13px 16px 16px; }
+
+  /* 概览 */
+  .overview { display: flex; flex-direction: column; gap: 15px; }
+  .notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 9px 10px;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--warn);
+    background: var(--warn-soft);
+    border: 1px solid var(--warn-line);
+    border-radius: 7px;
+  }
+  .notice .icon { width: 13px; height: 13px; flex: none; margin-top: 1px; }
+  .notice__main { flex: 1; min-width: 0; }
+  .notice strong { display: block; font-weight: 600; }
+  .notice button { flex: none; align-self: center; font-size: 10.5px; color: var(--warn); text-decoration: underline; text-underline-offset: 2px; }
+
+  .ov-section { display: flex; flex-direction: column; gap: 7px; }
+  .ov-head { display: flex; align-items: center; gap: 7px; }
+  .ov-head__title { font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--text-muted); }
+  .ov-head__n { font-size: 10px; color: var(--text-faint); }
+  .ov-head__spacer { flex: 1; }
+  .skill-summary {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text-dim);
+  }
+  .trigger-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--text-faint);
+  }
+  .trigger-note .icon { width: 11px; height: 11px; flex: none; margin-top: 1px; color: var(--skill); }
+
+  .usage-card {
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-app);
+  }
+  .usage-row {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 9px;
+    align-items: baseline;
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+  .usage-row + .usage-row { border-top: 1px solid var(--border-soft); }
+  .usage-key { font-size: 10px; color: var(--text-faint); }
+  .usage-val { color: var(--text-dim); line-height: 1.5; }
+  .usage-val code {
+    font-size: 10.5px;
+    color: var(--skill-strong);
+    background: var(--skill-soft);
+    border: 1px solid var(--skill-line);
+    border-radius: 4px;
+    padding: 0 4px;
+  }
+  .usage-val code.plain { color: var(--text-muted); background: var(--bg-raised); border-color: var(--border); }
+
+  .fm-card {
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-app);
+  }
+  .fm-row {
+    display: grid;
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 9px;
+    align-items: baseline;
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+  .fm-row + .fm-row { border-top: 1px solid var(--border-soft); }
+  .fm-key { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); }
+  .fm-val { color: var(--text-dim); line-height: 1.5; word-break: break-word; }
+  .fm-val code { font-size: 10.5px; color: var(--text-muted); }
+  .tool-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tool-chip {
+    padding: 0 5px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    line-height: 17px;
+    color: var(--text-dim);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .tool-chip--none { font-family: var(--font-ui); color: var(--text-faint); background: none; border-color: var(--border-soft); }
+
+  .file-list { display: flex; flex-direction: column; gap: 1px; }
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+  }
+  .file-row:hover { background: var(--panel-hover); }
+  .file-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 23px;
+    height: 23px;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+  }
+  .file-icon .icon { width: 11px; height: 11px; }
+  .file-icon--script { color: var(--skill); border-color: var(--skill-line); background: var(--skill-soft); }
+  .file-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+  .file-main code {
+    flex: 1;
+    min-width: 0;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-size { flex: none; font-family: var(--font-mono); font-size: 9px; color: var(--text-faint); }
+  .file-open {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    color: var(--text-faint);
+    border-radius: 4px;
+  }
+  .file-open:hover { color: var(--text); background: var(--bg-active); }
+  .file-open .icon { width: 11px; height: 11px; }
+
+  .ov-foot {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding-top: 10px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-faint);
+    border-top: 1px solid var(--border-soft);
+  }
+  .ov-foot .icon { width: 12px; height: 12px; flex: none; margin-top: 1px; }
+
+  /* SKILL.md */
+  .code-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: none;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    background: color-mix(in srgb, var(--bg-app) 58%, var(--panel));
+  }
+  .code-toolbar .icon { width: 12px; height: 12px; color: var(--text-faint); }
+  .code-toolbar code { font-size: 10.5px; color: var(--text-muted); }
+  .code-toolbar__spacer { flex: 1; }
+  .code-toolbar__lines { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); }
+  .code-view {
+    padding: 9px 0 14px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.78;
+    user-select: text;
+  }
+  .code-line { display: flex; gap: 10px; padding-right: 16px; white-space: pre; }
+  .code-line:hover { background: color-mix(in srgb, var(--text) 2.5%, transparent); }
+  .code-ln {
+    flex: none;
+    width: 36px;
+    padding-right: 8px;
+    text-align: right;
+    color: var(--text-faint);
+    opacity: .55;
+    user-select: none;
+  }
+  .code-lc { color: var(--text-dim); }
+  .tok-key { color: var(--skill-strong); }
+  .tok-str { color: #a8c7a0; }
+  .tok-head { color: var(--text); font-weight: 600; }
+  .tok-code {
+    color: #8ab4f8;
+    background: rgba(138, 180, 248, .07);
+    border-radius: 3px;
+    padding: 0 3px;
+  }
+  .tok-dim { color: var(--text-faint); }
+  .tok-bullet { color: var(--skill); }
+  :root[data-theme='light'] .tok-str { color: #44703c; }
+  :root[data-theme='light'] .tok-code { color: #2f5f9e; background: rgba(47, 95, 158, .07); }
+
+  /* 资源 */
+  .res-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+  }
+  .res-toolbar__title { font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+  .res-toolbar__spacer { flex: 1; }
+  .res-group { margin-top: 10px; }
+  .res-group:first-child { margin-top: 0; }
+  .res-group__name {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 3px;
+    padding: 0 6px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--text-faint);
+  }
+  .res-group__name .icon { width: 11px; height: 11px; }
+
+  /* 诊断 */
+  .diag-status {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 11px;
+    margin-bottom: 13px;
+    background: var(--ok-soft);
+    border: 1px solid var(--ok-line);
+    border-radius: 8px;
+  }
+  .diag-status--warn { background: var(--warn-soft); border-color: var(--warn-line); }
+  .diag-status__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 10%, transparent);
+    border-radius: 7px;
+  }
+  .diag-status--warn .diag-status__icon { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+  .diag-status__icon .icon { width: 14px; height: 14px; }
+  .diag-status__main { flex: 1; min-width: 0; }
+  .diag-status__title { display: block; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--text-dim); }
+  .diag-status--warn .diag-status__title { color: var(--warn); }
+  .diag-status__sub { display: block; margin-top: 1px; font-size: 10px; line-height: 1.45; color: var(--text-faint); }
+  .diag-status .btn { height: 25px; font-size: 10px; padding: 0 8px; }
+
+  .diag-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    overflow: hidden;
+    background: var(--border-soft);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+  }
+  .diag-cell { padding: 8px 10px; background: var(--bg-app); }
+  .diag-cell--wide { grid-column: 1 / -1; }
+  .diag-cell span { display: block; font-size: 9.5px; color: var(--text-faint); }
+  .diag-cell code, .diag-cell strong {
+    display: block;
+    margin-top: 1px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .diag-actions { display: flex; gap: 6px; margin-top: 12px; }
+  .diag-actions .btn { height: 27px; font-size: 11px; }
+  .diag-actions .icon { width: 11px; height: 11px; }
+  .diag-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 12px 0 0;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--text-faint);
+  }
+  .diag-note .icon { width: 12px; height: 12px; flex: none; margin-top: 1px; }
+
+  .detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 8px;
+    padding: 36px;
+    text-align: center;
+    color: var(--text-faint);
+  }
+  .detail-empty .icon { width: 28px; height: 28px; opacity: .45; }
+  .detail-empty strong { font-size: 13px; font-weight: 500; color: var(--text-dim); }
+  .detail-empty p { margin: 0; font-size: 11.5px; }
+
+  /* ── 新建 / 编辑抽屉 ─────────────────────────────────── */
+  .drawer-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    justify-content: flex-end;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity .16s ease, visibility .16s;
+  }
+  .drawer-layer.is-open { visibility: visible; opacity: 1; }
+  .drawer-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .44);
+    backdrop-filter: blur(1px);
+  }
+  .drawer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 478px;
+    height: 100%;
+    background: var(--bg-app);
+    border-left: 1px solid var(--border);
+    box-shadow: -24px 0 70px rgba(0, 0, 0, .45);
+    transform: translateX(16px);
+    transition: transform .18s ease;
+  }
+  .drawer-layer.is-open .drawer { transform: translateX(0); }
+  .drawer__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex: none;
+    padding: 20px 22px 15px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .drawer__kicker {
+    margin: 0 0 2px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .55px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+  .drawer__title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.1px; }
+  .drawer__close {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    margin: 2px -5px 0 auto;
+    color: var(--text-muted);
+    border-radius: 6px;
+  }
+  .drawer__close:hover { color: var(--text); background: var(--bg-hover); }
+
+  .drawer__body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 22px 22px; }
+  .drawer-context {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 17px;
+    padding: 9px 10px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+  }
+  .drawer-context__mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    color: var(--skill);
+    background: var(--skill-soft);
+    border: 1px solid var(--skill-line);
+    border-radius: 7px;
+  }
+  .drawer-context__mark .icon { width: 14px; height: 14px; }
+  .drawer-context__main { flex: 1; min-width: 0; }
+  .drawer-context__main strong { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
+  .drawer-context__main code {
+    display: block;
+    margin-top: 1px;
+    font-size: 9.5px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .form-field { margin-bottom: 17px; }
+  .form-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+  }
+  .form-label .required { color: var(--danger); font-size: 11px; }
+  .form-label .optional { font-size: 10.5px; font-weight: 400; color: var(--text-faint); }
+  .form-input, .form-textarea {
+    width: 100%;
+    padding: 7px 9px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+    user-select: text;
+  }
+  .form-input { height: 33px; }
+  .form-textarea { min-height: 62px; resize: vertical; line-height: 1.6; }
+  .form-textarea--code {
+    min-height: 168px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.65;
+  }
+  .form-input:focus, .form-textarea:focus {
+    border-color: var(--panel-line);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 4%, transparent);
+  }
+  .form-input::placeholder, .form-textarea::placeholder { color: var(--text-faint); }
+  .form-input.is-error, .form-textarea.is-error, .slug-input.is-error { border-color: var(--danger); }
+  .form-hint { margin: 5px 0 0; font-size: 10.5px; line-height: 1.55; color: var(--text-faint); }
+  .form-hint code { color: var(--text-muted); }
+  .form-error { display: none; margin: 5px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--danger); }
+  .form-error.is-visible { display: block; }
+  .form-input:disabled, .form-textarea:disabled { opacity: .55; cursor: default; }
+
+  .slug-input {
+    display: flex;
+    align-items: center;
+    height: 33px;
+    padding-left: 9px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .slug-input > span {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .slug-input input {
+    flex: 1;
+    min-width: 0;
+    height: 31px;
+    padding: 0 9px 0 1px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text);
+    background: transparent;
+    border: none;
+    outline: none;
+    user-select: text;
+  }
+  .slug-input input::placeholder { color: var(--text-faint); }
+  .slug-input:focus-within { border-color: var(--panel-line); }
+  .slug-input.is-locked { opacity: .62; }
+  .slug-input__suffix {
+    flex: none;
+    padding: 0 9px 0 2px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  .slug-input__suffix:empty { display: none; }
+
+  .desc-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 9.5px;
+    color: var(--text-faint);
+  }
+
+  .segmented {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 3px;
+    padding: 3px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .segmented button {
+    padding: 4px 8px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    border-radius: 5px;
+  }
+  .segmented button:hover { color: var(--text-dim); }
+  .segmented button.is-active { color: var(--text); background: var(--bg-active); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .segmented button:disabled { opacity: .45; cursor: default; }
+  .segmented button:disabled:hover { color: var(--text-faint); }
+
+  .scope-hint {
+    display: flex;
+    gap: 7px;
+    margin-top: 7px;
+    padding: 8px 9px;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+  }
+  .scope-hint .icon { width: 12px; height: 12px; margin-top: 1px; flex: none; }
+  .scope-hint code { color: var(--text-muted); }
+
+  .trigger-preview {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 9px;
+    background: var(--skill-soft);
+    border: 1px solid var(--skill-line);
+    border-radius: 7px;
+  }
+  .trigger-preview__label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    padding-right: 8px;
+    font-size: 9.5px;
+    color: var(--text-faint);
+    border-right: 1px solid var(--skill-line);
+  }
+  .trigger-preview__label .icon { width: 11px; height: 11px; color: var(--skill); }
+  .trigger-preview code { font-size: 11.5px; font-weight: 550; color: var(--skill-strong); }
+  .trigger-preview__spacer { flex: 1; }
+  .trigger-preview__auto { font-size: 9.5px; color: var(--text-faint); white-space: nowrap; }
+
+  .chip-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    min-height: 35px;
+    padding: 4px 6px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+  .chip-field:focus-within { border-color: var(--panel-line); }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 4px 1px 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 19px;
+    color: var(--text-dim);
+    background: var(--bg-active);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+  }
+  .chip button {
+    display: grid;
+    place-items: center;
+    width: 14px;
+    height: 14px;
+    color: var(--text-faint);
+    border-radius: 3px;
+  }
+  .chip button:hover { color: var(--text); background: var(--bg-app); }
+  .chip button .icon { width: 9px; height: 9px; }
+  .chip-field > input {
+    flex: 1;
+    min-width: 96px;
+    height: 23px;
+    padding: 0 3px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text);
+    background: transparent;
+    border: none;
+    outline: none;
+    user-select: text;
+  }
+  .chip-field > input::placeholder { font-family: var(--font-ui); color: var(--text-faint); }
+
+  .option-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border-soft);
+  }
+  .option-row__main { flex: 1; min-width: 0; }
+  .option-row__title { font-size: 12px; color: var(--text-dim); }
+  .option-row__hint { margin: 1px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--text-faint); }
+
+  .drawer__foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 13px 22px;
+    background: var(--bg-app);
+    border-top: 1px solid var(--border-soft);
+  }
+  .drawer__foot .btn { height: 32px; }
+  .drawer__spacer { flex: 1; }
+  .drawer__save { min-width: 96px; }
+
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid color-mix(in srgb, var(--text-faint) 50%, transparent);
+    border-top-color: var(--text-muted);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 删除确认 ─────────────────────────────────────────── */
+  .modal-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    place-items: center;
+  }
+  .modal-layer.is-open { display: grid; }
+  .modal-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    backdrop-filter: blur(1px);
+  }
+  .modal {
+    position: relative;
+    width: 408px;
+    padding: 18px 19px 16px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .55);
+  }
+  .modal__head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .modal__title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.1px; }
+  .modal__body {
+    margin: 0 0 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+  .modal__body code {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 1px 4px;
+    word-break: break-all;
+  }
+  .modal__hint {
+    margin: 0;
+    padding: 8px 9px;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+  }
+  .modal__foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .modal__foot .btn { height: 30px; }
+  .modal__spacer { flex: 1; }
+
+  /* ── Toast ────────────────────────────────────────────── */
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 24px;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 13px;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+    opacity: 0;
+    transform: translate(-50%, 7px);
+    pointer-events: none;
+    transition: opacity .16s, transform .16s;
+  }
+  .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+  .toast .icon { width: 13px; height: 13px; color: var(--ok); }
+
+  :root[data-theme='light'] .switch input { background: #c8c8ce; }
+  :root[data-theme='light'] .switch input:checked { background: #2a2a2e; }
+  :root[data-theme='light'] .switch input:checked::after { background: #fff; }
+  :root[data-theme='light'] .segmented { background: #ececf0; }
+  :root[data-theme='light'] .segmented button.is-active { background: #fff; }
+  :root[data-theme='light'] .cli-tab:hover { border-color: #b9b9c0; }
+  :root[data-theme='light'] .cli-tab.is-active { border-color: #a9a9b2; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-brand" viewBox="0 0 16 16">
+    <path d="M2 9.2c0-3.2 2.6-5.8 5.8-5.8 1.2 0 2.3.4 3.2 1 .5-.4 1.2-.6 1.9-.5l1.6.2-.9 1.5c.4.8.6 1.7.6 2.6 0 3.2-2.6 5.8-5.8 5.8-1.6 0-3-.6-4.1-1.7-.3-.3-.6-.6-.8-1l-.6.2.3-1.2A5.7 5.7 0 0 1 2 9.2z" fill="currentColor" stroke="none"/>
+    <circle cx="6.4" cy="8.2" r=".75" fill="var(--bg-app)" stroke="none"/>
+  </symbol>
+  <symbol id="i-spark" viewBox="0 0 16 16"><path d="M8 1.7l1.55 4.75L14.3 8l-4.75 1.55L8 14.3l-1.55-4.75L1.7 8l4.75-1.55z"/><path d="M12.9 2.2v2.6M11.6 3.5h2.6" stroke-width="1.1" opacity=".6"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1.6"/><path d="M10.5 3v10"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 2.5v2M10 2.5v2"/><rect x="3" y="4.5" width="10" height="9" rx="1.6"/><path d="M6.2 8.2v2.4M9.8 8.2v2.4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.2l2 1.3"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2 3.6 12.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 16 16"><path d="M4 3v10M4 13l-2-2M4 13l2-2M12 13V3M12 3l-2 2M12 3l2 2"/></symbol>
+  <symbol id="i-folder-plus" viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/><path d="M7.5 7.6v3M6 9.1h3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 16 16"><path d="M9.5 4 5.5 8l4 4"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="M4 6.5 8 10.5l4-4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13.2 6.4A5.4 5.4 0 1 0 13 10"/><path d="M13.4 2.8v3.7H9.7"/></symbol>
+  <symbol id="i-external" viewBox="0 0 16 16"><path d="M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3"/><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><path d="M8 7.2v3.4"/><circle cx="8" cy="4.9" r=".65" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-code" viewBox="0 0 16 16"><path d="M5.8 4.2 2.6 8l3.2 3.8M10.2 4.2 13.4 8l-3.2 3.8"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c1.5 1.6 2.2 3.5 2.2 5.6S9.5 12 8 13.6C6.5 12 5.8 10.1 5.8 8S6.5 4 8 2.4z"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 16 16"><path d="M8 2.2 14 5.4 8 8.6 2 5.4z"/><path d="m2 8.2 6 3.2 6-3.2M2 11l6 3.1 6-3.1"/></symbol>
+  <symbol id="i-slash" viewBox="0 0 16 16"><path d="M10.8 2.8 5.2 13.2"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.4"/><path d="M10.5 3.5H4A1.5 1.5 0 0 0 2.5 5v6"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 16 16"><path d="M10.5 2.7 13.3 5.5 5.8 13H3v-2.8z"/><path d="M9.2 4l2.8 2.8"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.7 14 13H2z"/><path d="M8 6.2v3.1"/><circle cx="8" cy="11.2" r=".65" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8 13 3.6v4.2c0 3-2 5.2-5 6.4-3-1.2-5-3.4-5-6.4V3.6z"/><path d="m5.7 7.9 1.5 1.5 3-3.2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.8z"/><path d="M9.2 1.8v4h3.8"/></symbol>
+  <symbol id="i-book" viewBox="0 0 16 16"><path d="M2.5 3.2A1.2 1.2 0 0 1 3.7 2H13v11.4H3.7a1.2 1.2 0 0 0-1.2 1.2z"/><path d="M2.5 12.4A1.2 1.2 0 0 1 3.7 11.2H13"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="m5 6 2 2-2 2M8.5 10H11"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.8 4.5h10.4M6 2.8h4M4.2 4.5l.6 8.1a1.2 1.2 0 0 0 1.2 1.1h4a1.2 1.2 0 0 0 1.2-1.1l.6-8.1M6.6 7v3.6M9.4 7v3.6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="m6.5 5.4 3.7 2.6-3.7 2.6z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 16 16"><circle cx="8" cy="5.3" r="2.5"/><path d="M3.3 13.5c.5-2.3 2.3-3.5 4.7-3.5s4.2 1.2 4.7 3.5"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 16 16"><path d="M2.5 8.2V3.7a1.2 1.2 0 0 1 1.2-1.2h4.5l5.3 5.3a1 1 0 0 1 0 1.4l-4.3 4.3a1 1 0 0 1-1.4 0z"/><circle cx="5.6" cy="5.6" r=".8"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 16 16"><path d="M8 10V2.5M5 5.5l3-3 3 3M2.8 10v2.3a1.2 1.2 0 0 0 1.2 1.2h8a1.2 1.2 0 0 0 1.2-1.2V10"/></symbol>
+  <symbol id="i-claude" viewBox="0 0 16 16"><path d="M8 1.8v12.4M1.8 8h12.4M3.6 3.6l8.8 8.8M12.4 3.6l-8.8 8.8" stroke-width="1.8"/></symbol>
+  <symbol id="i-openai" viewBox="0 0 16 16"><path d="M8 2.3 12.9 5v6L8 13.7 3.1 11V5z"/><path d="M8 5.2 10.4 6.6v2.8L8 10.8 5.6 9.4V6.6z"/></symbol>
+  <symbol id="i-whale" viewBox="0 0 16 16"><path d="M2 9.1c0-3 2.5-5.4 5.5-5.4 1.2 0 2.2.4 3.1 1 .5-.4 1.1-.6 1.8-.5l1.6.2-.9 1.4c.4.8.6 1.6.6 2.5 0 3-2.5 5.4-5.5 5.4-1.5 0-2.9-.6-3.9-1.6-.3-.3-.5-.6-.7-.9l-.6.2.3-1.1A5.4 5.4 0 0 1 2 9.1z" fill="currentColor" stroke="none"/><circle cx="6.1" cy="8.2" r=".7" fill="var(--bg-sidebar)" stroke="none"/></symbol>
+</svg>
+
+<div class="window">
+  <!-- ── 标题栏 ─────────────────────────────────────────── -->
+  <header class="titlebar">
+    <div class="titlebar__brand">
+      <svg width="22" height="22" class="titlebar__brand-mark"><use href="#i-brand"/></svg>
+      <span class="titlebar__brand-name">CCoder</span>
+    </div>
+    <div class="titlebar__right">
+      <button class="titlebar__panel" title="切换侧栏"><svg class="icon" width="15" height="15"><use href="#i-panel"/></svg></button>
+      <button class="wctl" title="最小化"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="wctl" title="最大化"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9"/></svg></button>
+      <button class="wctl wctl--close" title="关闭"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></button>
+    </div>
+  </header>
+
+  <div class="app__body">
+    <!-- ── 侧栏 ─────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <nav class="sidebar__nav">
+        <button class="navitem"><svg class="icon" width="15" height="15"><use href="#i-plug"/></svg><span>插件</span></button>
+        <button class="navitem"><svg class="icon" width="15" height="15"><use href="#i-clock"/></svg><span>自动化任务</span></button>
+      </nav>
+
+      <div class="sidebar__section-head">
+        <span class="sidebar__section-title">工作区</span>
+        <div class="sidebar__section-tools">
+          <button class="iconbtn" title="搜索会话"><svg class="icon" width="14" height="14"><use href="#i-search"/></svg></button>
+          <button class="iconbtn" title="排序"><svg class="icon" width="14" height="14"><use href="#i-sort"/></svg></button>
+          <button class="iconbtn" title="添加工作区"><svg class="icon" width="14" height="14"><use href="#i-folder-plus"/></svg></button>
+        </div>
+      </div>
+
+      <div class="sidebar__scroll">
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">CCoder-Desktop</span>
+            <span class="wsgroup__count">3</span>
+          </div>
+          <div class="session session--run">
+            <button class="session__main">
+              <span class="session__cli" style="color:#d97757"><svg><use href="#i-claude"/></svg></span>
+              <span class="session__title">技能管理界面</span>
+              <span class="session__time session__time--run">运行中</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#9a9a9a"><svg><use href="#i-openai"/></svg></span>
+              <span class="session__title">修复工具调用超时</span>
+              <span class="session__time">1 小时</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#5b9dff"><svg><use href="#i-whale"/></svg></span>
+              <span class="session__title">整理 MCP 配置文件</span>
+              <span class="session__time">昨天</span>
+            </button>
+          </div>
+        </div>
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">docs-site</span>
+            <span class="wsgroup__count">0</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="sidebar__settings is-active">
+        <svg class="icon" width="15" height="15"><use href="#i-gear"/></svg>
+        <span>设置</span>
+      </button>
+    </aside>
+
+    <!-- ── 设置 / 技能管理 ───────────────────────────────── -->
+    <main class="settings">
+      <header class="settings__head">
+        <button class="btn btn--ghost"><svg class="icon"><use href="#i-chevron-left"/></svg>返回</button>
+        <h1 class="settings__title">设置</h1>
+        <div class="settings__head-right">
+          <span class="saved-flash"><i class="dot"></i>技能目录已同步</span>
+        </div>
+      </header>
+
+      <div class="settings__body">
+        <nav class="settings__nav">
+          <div class="settings__navgroup">系统</div>
+          <button class="settings__navitem">通用</button>
+          <button class="settings__navitem">权限</button>
+          <button class="settings__navitem">MCP 服务器</button>
+
+          <div class="settings__navgroup">能力</div>
+          <button class="settings__navitem is-active">技能<span class="settings__navcount" id="navSkillCount">13</span></button>
+
+          <div class="settings__navgroup">CLI</div>
+          <button class="settings__navitem">Claude Code</button>
+          <button class="settings__navitem">Codex CLI</button>
+          <button class="settings__navitem">DeepSeek Harness</button>
+
+          <div class="settings__navgroup">其他</div>
+          <button class="settings__navitem">关于</button>
+        </nav>
+
+        <div class="settings__content">
+          <div class="skills-page">
+            <header class="intro">
+              <div class="intro__main">
+                <h2 class="intro__title">
+                  技能
+                  <span class="badge badge--mono">SKILLS</span>
+                </h2>
+                <p class="intro__lead">
+                  按 CLI 管理技能与可复用提示词，保存后下一轮会话生效。
+                  <a href="#" data-action="docs">了解 Agent Skills ↗</a>
+                </p>
+                <div class="intro__meta">
+                  <span><i class="state-dot state-dot--ok"></i><span id="statTotal">7 个技能</span></span>
+                  <span class="sep">·</span>
+                  <span id="statEnabled">5 个已启用</span>
+                  <span class="sep">·</span>
+                  <span id="statWarn">1 个需要关注</span>
+                  <span class="sep">·</span>
+                  <span>2 分钟前扫描</span>
+                </div>
+              </div>
+              <div class="intro__actions">
+                <button class="btn btn--ghost" data-action="rescan" title="重新读取技能目录">
+                  <svg class="icon" id="rescanIcon"><use href="#i-refresh"/></svg>重新扫描
+                </button>
+                <button class="btn btn--primary" data-action="new-skill" id="newSkillBtn">
+                  <svg class="icon"><use href="#i-plus"/></svg><span id="newSkillLabel">新建技能</span>
+                </button>
+              </div>
+            </header>
+
+            <div class="cli-tabs" id="cliTabs"></div>
+
+            <div class="skills-layout">
+              <!-- 左：技能列表 -->
+              <section class="panel list-panel" aria-label="技能列表">
+                <div class="list-panel__head">
+                  <div class="list-head-row">
+                    <h3 class="list-panel__title"><span id="listTitle">全部技能</span><span class="count" id="listCount">7</span></h3>
+                    <select class="source-select" id="sourceFilter" title="筛选来源"></select>
+                  </div>
+                  <div class="searchbox" id="searchBox">
+                    <svg class="icon"><use href="#i-search"/></svg>
+                    <input id="skillSearch" type="search" placeholder="搜索技能、触发词或工具…" autocomplete="off" spellcheck="false" />
+                    <button class="searchbox__clear" data-action="clear-search" title="清空"><svg class="icon" width="12" height="12"><use href="#i-x"/></svg></button>
+                  </div>
+                  <div class="filter-row" id="filters">
+                    <button class="filter is-active" data-filter="all">全部 <span class="filter__n" id="nAll">7</span></button>
+                    <button class="filter" data-filter="enabled">已启用 <span class="filter__n" id="nEnabled">5</span></button>
+                    <button class="filter" data-filter="disabled">已停用 <span class="filter__n" id="nDisabled">2</span></button>
+                    <button class="filter" data-filter="warn">需关注 <span class="filter__n" id="nWarn">1</span></button>
+                  </div>
+                </div>
+
+                <div class="skill-list" id="skillList"></div>
+                <div class="list-empty" id="listEmpty">
+                  <svg class="icon"><use href="#i-search"/></svg>
+                  <strong>没有匹配的技能</strong>
+                  <span>换个关键词，或新建一个技能。</span>
+                </div>
+
+                <div class="dir-card">
+                  <div class="dir-card__head">
+                    <svg class="icon"><use href="#i-folder"/></svg>
+                    <span class="dir-card__title" id="dirCardTitle">技能目录</span>
+                    <svg class="icon dir-card__info" id="dirFootIcon"><use href="#i-info"/></svg>
+                    <span class="dir-card__spacer"></span>
+                    <button class="dir-card__rescan" data-action="rescan"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+                  </div>
+                  <div class="dsh-home-row" id="dshHomeRow" hidden>
+                    <span>DSH home</span>
+                    <select id="dshHomeSelect" title="选择 DSH home"></select>
+                  </div>
+                  <div id="dirLines"></div>
+                </div>
+              </section>
+
+              <!-- 右：技能详情 -->
+              <section class="panel detail-panel" id="detailPanel" aria-label="技能详情"></section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ── 新建 / 编辑抽屉 ─────────────────────────────────── -->
+  <div class="drawer-layer" id="drawerLayer" aria-hidden="true">
+    <div class="drawer-scrim" data-action="close-drawer"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+      <header class="drawer__head">
+        <div>
+          <p class="drawer__kicker" id="drawerKicker">新建技能 · Claude</p>
+          <h2 class="drawer__title" id="drawerTitle">新建技能</h2>
+        </div>
+        <button class="drawer__close" data-action="close-drawer" title="关闭"><svg class="icon" width="15" height="15"><use href="#i-x"/></svg></button>
+      </header>
+
+      <div class="drawer__body">
+        <div class="drawer-context">
+          <span class="drawer-context__mark"><svg class="icon"><use href="#i-spark"/></svg></span>
+          <span class="drawer-context__main">
+            <strong id="drawerContextTitle">写入全局技能目录</strong>
+            <code id="drawerContextPath">~/.claude/skills/</code>
+          </span>
+          <span class="badge" id="drawerContextBadge">全局</span>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="formSlug"><span id="slugLabel">目录名</span> <span class="required">*</span></label>
+          <div class="slug-input" id="slugWrap">
+            <span id="slugPrefix">~/.claude/skills/</span>
+            <input id="formSlug" placeholder="my-skill" autocomplete="off" spellcheck="false" />
+            <span class="slug-input__suffix" id="slugSuffix"></span>
+          </div>
+          <p class="form-hint" id="slugHint">只能包含小写字母、数字和连字符。保存后会创建 <code>my-skill/SKILL.md</code>。</p>
+          <p class="form-error" id="slugError"></p>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="formDisplay">显示名称 <span class="optional">可选</span></label>
+          <input class="form-input" id="formDisplay" placeholder="例如 代码审查" autocomplete="off" />
+          <p class="form-hint" id="displayHint">只用于界面展示；调用时仍使用目录名。</p>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="formDesc">描述 <span class="required">*</span></label>
+          <textarea class="form-textarea" id="formDesc" placeholder="写清楚什么时候该用它。Claude 依赖这句话判断是否自动触发。"></textarea>
+          <div class="desc-meta">
+            <span id="descMetaNote">自动触发依据这段描述</span>
+            <span id="descCount">0 字</span>
+          </div>
+          <p class="form-error" id="descError"></p>
+        </div>
+
+        <div class="form-field" id="scopeField">
+          <span class="form-label">作用域</span>
+          <div class="segmented" id="scopeSeg"></div>
+          <div class="scope-hint">
+            <svg class="icon"><use href="#i-info"/></svg>
+            <span id="scopeHint">所有工作区都可用，写入 ~/.claude/skills。</span>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <span class="form-label">触发方式</span>
+          <div class="trigger-preview">
+            <span class="trigger-preview__label"><svg class="icon"><use href="#i-slash"/></svg>斜杠命令</span>
+            <code id="triggerPreview">/my-skill</code>
+            <span class="trigger-preview__spacer"></span>
+            <span class="trigger-preview__auto" id="triggerAuto">同时允许描述自动触发</span>
+          </div>
+          <p class="form-hint" id="triggerHint">创建后会自动出现在斜杠命令列表中；描述足够具体时也会由 Claude 自行调用。</p>
+        </div>
+
+        <div class="form-field" id="toolsField">
+          <span class="form-label">允许的工具 <span class="optional">可选</span></span>
+          <div class="chip-field" id="toolChips">
+            <input id="toolInput" placeholder="输入工具名后回车，例如 Read" autocomplete="off" spellcheck="false" />
+          </div>
+          <p class="form-hint">留空表示不限制。写进 frontmatter 的 <code>allowed-tools</code>。</p>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="formCode"><span id="codeLabel">SKILL.md</span> <span class="optional">可编辑</span></label>
+          <textarea class="form-textarea form-textarea--code" id="formCode" spellcheck="false"></textarea>
+          <p class="form-hint" id="codeHint">frontmatter 与正文都会写入技能目录；后续可以直接编辑磁盘上的文件。</p>
+        </div>
+
+        <div class="option-row">
+          <div class="option-row__main">
+            <div class="option-row__title">创建后启用</div>
+            <p class="option-row__hint" id="enabledHint">停用的技能不会出现在斜杠命令或自动调用中。</p>
+          </div>
+          <label class="switch"><input type="checkbox" id="formEnabled" checked /></label>
+        </div>
+      </div>
+
+      <footer class="drawer__foot">
+        <button class="btn btn--ghost" data-action="close-drawer">取消</button>
+        <span class="drawer__spacer"></span>
+        <button class="btn btn--ghost" id="importBtn"><svg class="icon"><use href="#i-upload"/></svg><span id="importLabel">从文件夹导入</span></button>
+        <button class="btn btn--primary drawer__save" id="saveBtn">创建技能</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- ── 删除确认 ────────────────────────────────────────── -->
+  <div class="modal-layer" id="confirmLayer" aria-hidden="true">
+    <div class="modal-scrim" data-action="close-confirm"></div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal__head">
+        <span class="badge badge--warn" id="confirmBadge">删除技能</span>
+        <h2 class="modal__title" id="confirmTitle">删除技能？</h2>
+      </div>
+      <p class="modal__body" id="confirmBody"></p>
+      <p class="modal__hint" id="confirmHint">技能目录会先备份到本地备份文件夹，可以通过「打开备份」找回。</p>
+      <div class="modal__foot">
+        <button class="btn btn--ghost" data-action="close-confirm">取消</button>
+        <span class="modal__spacer"></span>
+        <button class="btn btn--danger" id="confirmDelete"><span id="confirmDeleteLabel">删除技能</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"><svg class="icon"><use href="#i-check"/></svg><span id="toastText"></span></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── 数据 ─────────────────────────────────────────────── */
+
+  var SOURCES = {
+    all: { label: '全部' },
+    global: { label: '全局' },
+    project: { label: '项目' },
+    plugin: { label: '插件' },
+    home: { label: 'Home' },
+    shared: { label: '共享' }
+  };
+
+  var SOURCE_SELECT_LABEL = {
+    all: '全部来源',
+    global: '全局',
+    project: '项目',
+    plugin: '插件',
+    home: '当前 home',
+    shared: '共享'
+  };
+
+  var SOURCE_DETAIL = {
+    global: '用户目录',
+    project: '当前工作区',
+    plugin: '只读缓存',
+    home: '当前 home',
+    shared: '共享 home'
+  };
+
+  function R(path, size, kind) {
+    return { path: path, size: size, kind: kind || 'file' };
+  }
+
+  var CLAUDE_SKILLS = [
+    {
+      id: 'code-review',
+      display: '代码审查',
+      desc: '审查当前改动或指定 PR，按正确性、安全、性能与可维护性输出可执行的发现。',
+      source: 'global',
+      enabled: true,
+      trigger: '/code-review',
+      auto: '当用户要求审查代码、检查改动或评估一个 Pull Request 时',
+      argHint: '[PR 编号 | 路径 | 分支]',
+      tools: ['Read', 'Grep', 'Glob', 'Bash'],
+      model: 'inherit',
+      version: '2.1.0',
+      updated: '2 小时前',
+      warn: false,
+      resources: [
+        R('SKILL.md', '4.2 KB', 'md'),
+        R('references/checklist.md', '1.8 KB', 'md'),
+        R('scripts/collect-diff.sh', '0.9 KB', 'script')
+      ],
+      code: [
+        '---',
+        'name: code-review',
+        'description: 审查当前改动或指定 PR，按正确性、安全、性能与可维护性输出可执行的发现。',
+        'allowed-tools:',
+        '  - Read',
+        '  - Grep',
+        '  - Glob',
+        '  - Bash',
+        'argument-hint: "[PR 编号 | 路径 | 分支]"',
+        'model: inherit',
+        '---',
+        '',
+        '# 代码审查',
+        '',
+        '当用户要求审查代码、检查改动或评估一个 Pull Request 时使用本技能。',
+        '',
+        '## 步骤',
+        '',
+        '1. 收集改动：优先使用 `git diff`，PR 场景使用 `gh pr diff`。',
+        '2. 从正确性、安全、性能、可维护性四个维度检查。',
+        '3. 只报告确定的问题，附上文件与行号。',
+        '4. 按严重程度排序，并给出最小修复建议。',
+        '',
+        '## 边界',
+        '',
+        '- 不修改代码，除非用户明确要求。',
+        '- 不把风格偏好当成缺陷。',
+        '- 没有发现时直接说明，不要凑数。'
+      ].join('\n')
+    },
+    {
+      id: 'frontend-design',
+      display: '界面设计',
+      desc: '为新建或重塑的界面提供配色、字体与版式方向，避免模板化的默认样式。',
+      source: 'global',
+      enabled: true,
+      trigger: '',
+      auto: '当用户要求做界面、改视觉风格或设计一个页面时',
+      argHint: '',
+      tools: ['Read', 'Write', 'Edit'],
+      model: 'inherit',
+      version: '1.4.2',
+      updated: '昨天',
+      warn: false,
+      resources: [
+        R('SKILL.md', '6.1 KB', 'md'),
+        R('references/palette.md', '2.4 KB', 'md'),
+        R('references/typography.md', '3.0 KB', 'md'),
+        R('examples/hero.html', '4.8 KB', 'code')
+      ]
+    },
+    {
+      id: 'skill-creator',
+      display: '技能创作器',
+      desc: '创建、修改并评测技能，包括优化 description 的触发准确率。',
+      source: 'global',
+      enabled: true,
+      trigger: '/skill-creator',
+      auto: '当用户要新建技能、改写 SKILL.md 或为技能跑评测时',
+      argHint: '[技能名 | 路径]',
+      tools: ['Read', 'Write', 'Edit', 'Bash', 'Glob'],
+      model: 'inherit',
+      version: '3.0.1',
+      updated: '3 天前',
+      warn: false,
+      resources: [
+        R('SKILL.md', '5.4 KB', 'md'),
+        R('references/evals.md', '2.7 KB', 'md'),
+        R('references/description-guide.md', '3.2 KB', 'md'),
+        R('scripts/run-evals.mjs', '2.1 KB', 'script'),
+        R('assets/template.md', '1.2 KB', 'md')
+      ]
+    },
+    {
+      id: 'release-notes',
+      display: '版本说明',
+      desc: '从 Git 历史生成版本说明。',
+      source: 'project',
+      enabled: false,
+      trigger: '/release-notes',
+      auto: '当用户要发布版本或整理更新日志时',
+      argHint: '[版本号]',
+      tools: ['Read', 'Bash'],
+      model: 'inherit',
+      version: '0.3.0',
+      updated: '5 天前',
+      warn: true,
+      warnText: 'description 只有 12 个字，自动触发可能不稳定。补一句「什么时候该用它」会更容易命中。',
+      resources: [
+        R('SKILL.md', '1.6 KB', 'md'),
+        R('references/template.md', '1.1 KB', 'md')
+      ]
+    },
+    {
+      id: 'ccgui-plugin-creator',
+      display: '插件创作器',
+      desc: '为 CCoder 创建或修改插件：声明式 CSS/JSON，或单文件 ESM。',
+      source: 'plugin',
+      enabled: true,
+      trigger: '/ccgui-plugin-creator',
+      auto: '当用户要做一个插件、改输入框或界面样式时',
+      argHint: '',
+      tools: ['Read', 'Write', 'Edit'],
+      model: 'inherit',
+      version: '1.0.3',
+      updated: '1 周前',
+      warn: false,
+      plugin: 'ccgui',
+      resources: [
+        R('SKILL.md', '4.6 KB', 'md'),
+        R('references/plugin-api.md', '3.1 KB', 'md'),
+        R('examples/tier0.json', '1.4 KB', 'code'),
+        R('examples/tier1.js', '2.2 KB', 'code')
+      ]
+    },
+    {
+      id: 'react-doctor',
+      display: 'React 体检',
+      desc: '检查 React 代码的无障碍、包体积与架构问题，并给出修复建议。',
+      source: 'plugin',
+      enabled: true,
+      trigger: '/react-doctor',
+      auto: '当用户要检查 React 代码质量或在提交前做体检时',
+      argHint: '[路径]',
+      tools: ['Read', 'Grep', 'Glob', 'Bash'],
+      model: 'sonnet',
+      version: '2.4.0',
+      updated: '2 周前',
+      warn: false,
+      plugin: 'ccgui',
+      resources: [
+        R('SKILL.md', '5.2 KB', 'md'),
+        R('references/playbook.md', '4.0 KB', 'md'),
+        R('scripts/scan.mjs', '2.8 KB', 'script')
+      ]
+    },
+    {
+      id: 'caveman',
+      display: '原始人模式',
+      desc: '用极简、去修饰的语言回复。适合快速浏览，不适合正式文档。',
+      source: 'plugin',
+      enabled: false,
+      trigger: '/caveman',
+      auto: '当用户明确要求简短、直接或原始人风格的回复时',
+      argHint: '',
+      tools: [],
+      model: 'inherit',
+      version: '1.1.0',
+      updated: '1 个月前',
+      warn: false,
+      plugin: 'community',
+      resources: [R('SKILL.md', '1.8 KB', 'md')]
+    }
+  ];
+  CLAUDE_SKILLS.forEach(function (s) { s.cli = 'claude'; });
+
+  var CODEX_SKILLS = [
+    {
+      id: 'codex-review',
+      display: '代码审查',
+      desc: '审查当前工作区改动，输出按严重程度排序的问题清单。',
+      source: 'global',
+      enabled: true,
+      trigger: '/codex-review',
+      auto: '当用户要求审查代码或检查当前改动时',
+      argHint: '[路径 | 提交范围]',
+      tools: [],
+      model: 'inherit',
+      version: '1.2.0',
+      updated: '昨天',
+      warn: false,
+      cli: 'codex',
+      resources: [R('prompt.md', '2.8 KB', 'md')],
+      code: [
+        '# 代码审查',
+        '',
+        '审查目标：$ARGUMENTS',
+        '',
+        '请完成以下工作：',
+        '',
+        '1. 读取改动范围内的文件，优先查看 `git diff`。',
+        '2. 按正确性、安全、性能、可维护性检查。',
+        '3. 只报告确定的问题，附文件与行号。',
+        '4. 按严重程度排序，给出最小修复建议。',
+        '',
+        '不要修改代码，除非我明确要求。'
+      ].join('\n')
+    },
+    {
+      id: 'commit-message',
+      display: '提交信息',
+      desc: '根据暂存区改动生成符合 Conventional Commits 的提交信息。',
+      source: 'global',
+      enabled: true,
+      trigger: '/commit-message',
+      auto: '当用户要求生成或改写提交信息时',
+      argHint: '[scope]',
+      tools: [],
+      model: 'inherit',
+      version: '1.0.4',
+      updated: '3 天前',
+      warn: false,
+      cli: 'codex',
+      resources: [R('prompt.md', '1.6 KB', 'md')],
+      code: [
+        '# 生成提交信息',
+        '',
+        '附加范围：$ARGUMENTS',
+        '',
+        '查看暂存区改动：',
+        '',
+        '    git diff --cached',
+        '',
+        '生成一条 Conventional Commits 风格的提交信息：',
+        '',
+        '- 第一行不超过 72 个字符',
+        '- 使用中文描述改了什么',
+        '- 必要时在正文说明为什么改',
+        '',
+        '只输出提交信息，不要加解释。'
+      ].join('\n')
+    },
+    {
+      id: 'explain-diff',
+      display: '改动讲解',
+      desc: '用初学者能理解的方式解释这次改动做了什么、为什么这样改。',
+      source: 'global',
+      enabled: false,
+      trigger: '/explain-diff',
+      auto: '当用户要求解释一段 diff 或某次提交时',
+      argHint: '[提交 | 路径]',
+      tools: [],
+      model: 'inherit',
+      version: '0.9.2',
+      updated: '1 周前',
+      warn: false,
+      cli: 'codex',
+      resources: [R('prompt.md', '2.1 KB', 'md')],
+      code: [
+        '# 解释改动',
+        '',
+        '解释目标：$ARGUMENTS',
+        '',
+        '请按下面的结构说明：',
+        '',
+        '1. 这次改动解决了什么问题',
+        '2. 关键文件分别做了什么',
+        '3. 有哪些行为变化',
+        '4. 可能的风险与回滚方式',
+        '',
+        '用初学者能理解的语言，避免逐行翻译代码。'
+      ].join('\n')
+    }
+  ];
+
+  var DSH_SKILLS = [
+    {
+      id: 'context-budget',
+      display: '上下文预算',
+      desc: '压缩长会话上下文，保留关键决策、未完成项和下一步。',
+      source: 'home',
+      enabled: true,
+      trigger: '/context-budget',
+      auto: '当会话变长、上下文接近上限时',
+      argHint: '[保留重点]',
+      tools: ['Read', 'Bash'],
+      model: 'inherit',
+      version: '1.3.0',
+      updated: '2 小时前',
+      warn: false,
+      cli: 'dsh',
+      resources: [
+        R('SKILL.md', '3.8 KB', 'md'),
+        R('references/compaction.md', '1.9 KB', 'md')
+      ]
+    },
+    {
+      id: 'task-decompose',
+      display: '任务拆解',
+      desc: '把多步骤请求拆成可执行、可验证的任务清单，并标注依赖。',
+      source: 'home',
+      enabled: true,
+      trigger: '/task-decompose',
+      auto: '当用户给出复杂、多步骤任务时',
+      argHint: '[目标]',
+      tools: ['Read', 'Glob'],
+      model: 'inherit',
+      version: '1.1.0',
+      updated: '昨天',
+      warn: false,
+      cli: 'dsh',
+      resources: [R('SKILL.md', '2.9 KB', 'md')]
+    },
+    {
+      id: 'team-style',
+      display: '团队风格',
+      desc: '让回复遵循团队的中文写作与代码风格约定。',
+      source: 'shared',
+      enabled: false,
+      trigger: '',
+      auto: '当用户要求按团队规范回复或改写文档时',
+      argHint: '',
+      tools: [],
+      model: 'inherit',
+      version: '1.0.0',
+      updated: '2 周前',
+      warn: false,
+      cli: 'dsh',
+      resources: [R('SKILL.md', '1.5 KB', 'md')]
+    }
+  ];
+
+  var SKILLS = CLAUDE_SKILLS.concat(CODEX_SKILLS, DSH_SKILLS);
+
+  var CLI_META = {
+    claude: {
+      name: 'Claude Code',
+      short: 'Claude',
+      icon: 'i-claude',
+      color: '#d97757',
+      unit: '技能',
+      noun: '技能',
+      fileLabel: 'SKILL.md',
+      hasTools: true,
+      sourceOptions: ['all', 'global', 'project', 'plugin'],
+      sourceTitles: { all: '全部技能', global: '全局技能', project: '项目技能', plugin: '插件技能' },
+      scopes: [{ id: 'global', label: '全局' }, { id: 'project', label: '当前项目' }]
+    },
+    codex: {
+      name: 'Codex CLI',
+      short: 'Codex',
+      icon: 'i-openai',
+      color: 'var(--text)',
+      unit: '提示词',
+      noun: '提示词',
+      fileLabel: 'prompt.md',
+      hasTools: false,
+      sourceOptions: ['all', 'global'],
+      sourceTitles: { all: '全部提示词', global: '全局提示词' },
+      scopes: [{ id: 'global', label: '全局' }]
+    },
+    dsh: {
+      name: 'DeepSeek Harness',
+      short: 'DSH',
+      icon: 'i-whale',
+      color: '#6aa8ff',
+      unit: '技能',
+      noun: '技能',
+      fileLabel: 'SKILL.md',
+      hasTools: true,
+      sourceOptions: ['all', 'home', 'shared'],
+      sourceTitles: { all: '全部技能', home: '当前 home', shared: '共享技能' },
+      scopes: [{ id: 'home', label: '当前 home' }, { id: 'shared', label: '共享' }]
+    }
+  };
+
+  var DSH_HOMES = {
+    channel: { label: 'DeepSeek 中转', path: '%APPDATA%/ccoder-desktop/dsh-homes/deepseek' },
+    official: { label: '官方 API', path: '%APPDATA%/ccoder-desktop/dsh-homes/official' }
+  };
+
+  var activeCli = 'claude';
+  var activeSource = 'all';
+  var filter = 'all';
+  var query = '';
+  var selectedByCli = { claude: 'code-review', codex: 'codex-review', dsh: 'context-budget' };
+  var detailTab = 'overview';
+  var dshHomeKey = 'channel';
+  var drawerMode = null;
+  var editingId = null;
+  var draftSource = 'global';
+  var draftTools = [];
+  var codeTouched = false;
+  var saving = false;
+  var toastTimer = null;
+
+  /* ── 基础工具 ─────────────────────────────────────────── */
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function attr(value) {
+    return esc(value).replace(/"/g, '&quot;');
+  }
+
+  function currentMeta() { return CLI_META[activeCli]; }
+
+  function cliSkills(cli) {
+    var key = cli || activeCli;
+    return SKILLS.filter(function (s) { return s.cli === key; });
+  }
+
+  function sourceSkills() {
+    var list = cliSkills();
+    return activeSource === 'all'
+      ? list
+      : list.filter(function (s) { return s.source === activeSource; });
+  }
+
+  function selectedSkill() {
+    var id = selectedByCli[activeCli];
+    return cliSkills().find(function (s) { return s.id === id; }) || null;
+  }
+
+  function ensureSelection(pool) {
+    var list = pool || sourceSkills();
+    if (list.some(function (s) { return s.id === selectedByCli[activeCli]; })) return;
+    selectedByCli[activeCli] = list.length ? list[0].id : '';
+  }
+
+  function dshHomePath() { return DSH_HOMES[dshHomeKey].path; }
+
+  function skillPath(skill) {
+    if (skill.cli === 'claude') {
+      if (skill.source === 'plugin') {
+        return '~/.claude/plugins/cache/' + (skill.plugin || 'plugins') + '/skills/' + skill.id + '/SKILL.md';
+      }
+      return (skill.source === 'project' ? '.claude/skills' : '~/.claude/skills') + '/' + skill.id + '/SKILL.md';
+    }
+    if (skill.cli === 'codex') return '~/.codex/prompts/' + skill.id + '.md';
+    var home = skill.source === 'shared' ? '~/.dsh' : dshHomePath();
+    return home + '/skills/' + skill.id + '/SKILL.md';
+  }
+
+  function dirPath(skill) {
+    if (skill.cli === 'codex') return '~/.codex/prompts';
+    return skillPath(skill).replace(/\/SKILL\.md$/, '');
+  }
+
+  function shortPath(path) {
+    if (!path) return '—';
+    var prefix = '%APPDATA%/ccoder-desktop/dsh-homes/';
+    if (path.indexOf(prefix) === 0) {
+      return '…/dsh-homes/' + path.slice(prefix.length);
+    }
+    return path;
+  }
+
+  function detailPath(path) {
+    if (!path) return '—';
+    if (path.length <= 56) return path;
+    return '…/' + path.split('/').slice(-3).join('/');
+  }
+
+  function sourceDetailFor(skill) {
+    if (skill.cli === 'codex') return 'Codex 提示词';
+    if (skill.cli === 'dsh') {
+      if (skill.source === 'shared') return '共享 home';
+      return DSH_HOMES[dshHomeKey].label;
+    }
+    return SOURCE_DETAIL[skill.source];
+  }
+
+  function sourceIcon(skill) {
+    if (skill.source === 'plugin' || skill.source === 'shared') return 'i-layers';
+    if (skill.source === 'project') return 'i-folder';
+    if (skill.cli === 'codex') return 'i-code';
+    return 'i-user';
+  }
+
+  function countsFor(list) {
+    return {
+      all: list.length,
+      enabled: list.filter(function (s) { return s.enabled; }).length,
+      disabled: list.filter(function (s) { return !s.enabled; }).length,
+      warn: list.filter(function (s) { return s.warn; }).length
+    };
+  }
+
+  function warnFor(desc) {
+    var text = String(desc || '').trim();
+    return text.length < 20
+      ? 'description 只有 ' + text.length + ' 个字，自动触发可能不稳定。补一句「什么时候该用它」会更容易命中。'
+      : '';
+  }
+
+  function sumKB(resources) {
+    return resources.reduce(function (n, r) {
+      return n + (parseFloat(r.size) || 0);
+    }, 0).toFixed(1);
+  }
+
+  function approxSize(text) {
+    return Math.max(0.1, String(text || '').length / 1024).toFixed(1) + ' KB';
+  }
+
+  function toast(text) {
+    $('toastText').textContent = text;
+    $('toast').classList.add('is-visible');
+    if (toastTimer !== null) window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () {
+      $('toast').classList.remove('is-visible');
+    }, 2200);
+  }
+
+  function copyText(text) {
+    if (!text) return;
+    function fallback() {
+      var area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand('copy'); } catch (err) { /* 忽略 */ }
+      document.body.removeChild(area);
+      toast('已复制 ' + text);
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          toast('已复制 ' + text);
+        }, fallback);
+      } else {
+        fallback();
+      }
+    } catch (err) {
+      fallback();
+    }
+  }
+
+  /* ── 代码 ─────────────────────────────────────────────── */
+
+  function codeOf(skill) {
+    return skill.code || defaultCode(skill);
+  }
+
+  function defaultCode(skill) {
+    if (skill.cli === 'codex') {
+      return [
+        '# ' + skill.display,
+        '',
+        '参数：$ARGUMENTS',
+        '',
+        skill.desc,
+        '',
+        '## 要求',
+        '',
+        '1. 读取相关文件与上下文。',
+        '2. 按上述目标完成工作。',
+        '3. 输出结果并说明关键决定。'
+      ].join('\n');
+    }
+    var lines = [
+      '---',
+      'name: ' + skill.id,
+      'description: ' + skill.desc,
+      'allowed-tools:'
+    ];
+    if (skill.tools.length) {
+      skill.tools.forEach(function (tool) { lines.push('  - ' + tool); });
+    } else {
+      lines.push('  []');
+    }
+    if (skill.argHint) lines.push('argument-hint: "' + skill.argHint + '"');
+    lines.push('model: ' + skill.model);
+    lines.push('---', '', '# ' + skill.display, '');
+    lines.push(skill.desc, '', '## 什么时候使用', '', skill.auto + '.', '');
+    lines.push('## 步骤', '', '1. 读取任务相关的文件和上下文。', '2. 按技能约定完成工作。', '3. 在结束时汇报改动与结果。');
+    return lines.join('\n');
+  }
+
+  function newSkillTemplate(cli, slug, desc, display, tools) {
+    var name = slug || (cli === 'codex' ? 'my-prompt' : 'my-skill');
+    var description = desc || (cli === 'codex' ? '写清楚这个提示词做什么。' : '写清楚什么时候该用它。');
+    var title = display || (cli === 'codex' ? '我的提示词' : '我的技能');
+
+    if (cli === 'codex') {
+      return [
+        '# ' + title,
+        '',
+        '参数：$ARGUMENTS',
+        '',
+        description,
+        '',
+        '## 要求',
+        '',
+        '1. 读取相关文件与上下文。',
+        '2. 按目标完成工作。',
+        '3. 输出结果并说明关键决定。'
+      ].join('\n');
+    }
+
+    var lines = [
+      '---',
+      'name: ' + name,
+      'description: ' + description,
+      'allowed-tools:'
+    ];
+    if (tools && tools.length) {
+      tools.forEach(function (tool) { lines.push('  - ' + tool); });
+    } else {
+      lines.push('  []');
+    }
+    lines.push('model: inherit');
+    lines.push('---', '', '# ' + title, '');
+    lines.push(description, '', '## 什么时候使用', '', description, '');
+    lines.push('## 步骤', '', '1. 读取相关文件与上下文。', '2. 完成工作并汇报结果。');
+    return lines.join('\n');
+  }
+
+  function inlineCode(text) {
+    return text.replace(/`([^`]+)`/g, '<span class="tok-code">`$1`</span>');
+  }
+
+  function highlight(line) {
+    if (!line) return '';
+    if (/^---\s*$/.test(line)) return '<span class="tok-dim">' + esc(line) + '</span>';
+    if (/^#{1,4}\s/.test(line)) return '<span class="tok-head">' + esc(line) + '</span>';
+
+    var fm = line.match(/^(\s*)([A-Za-z0-9_-]+):(.*)$/);
+    if (fm) {
+      var value = esc(fm[3]);
+      if (fm[3].trim()) value = '<span class="tok-str">' + value + '</span>';
+      return esc(fm[1]) + '<span class="tok-key">' + esc(fm[2]) + '</span>:' + value;
+    }
+
+    var bullet = line.match(/^(\s*-\s)(.*)$/);
+    if (bullet) {
+      return '<span class="tok-bullet">' + esc(bullet[1]) + '</span>' + inlineCode(esc(bullet[2]));
+    }
+
+    return inlineCode(esc(line));
+  }
+
+  /* ── 列表 / 页签 ──────────────────────────────────────── */
+
+  function renderIntro() {
+    var meta = currentMeta();
+    var c = countsFor(cliSkills());
+    $('statTotal').textContent = c.all + ' 个' + meta.unit;
+    $('statEnabled').textContent = c.enabled + ' 个已启用';
+    $('statWarn').textContent = c.warn ? c.warn + ' 个需要关注' : '全部正常';
+    $('statWarn').style.color = c.warn ? 'var(--warn)' : 'var(--ok)';
+    $('newSkillLabel').textContent = '新建' + meta.noun;
+    $('newSkillBtn').title = '新建' + meta.noun;
+    $('navSkillCount').textContent = String(SKILLS.length);
+  }
+
+  function renderCliTabs() {
+    $('cliTabs').innerHTML = Object.keys(CLI_META).map(function (key) {
+      var meta = CLI_META[key];
+      var c = countsFor(cliSkills(key));
+      return '<button class="cli-tab' + (activeCli === key ? ' is-active' : '') + '" data-cli="' + key + '">' +
+        '<span class="cli-tab__mark" style="color:' + meta.color + '"><svg class="icon"><use href="#' + meta.icon + '"/></svg></span>' +
+        '<span class="cli-tab__body">' +
+          '<span class="cli-tab__name">' + esc(meta.name) +
+            (c.warn ? '<i class="cli-tab__warn" title="' + c.warn + ' 个需要关注"></i>' : '') +
+          '</span>' +
+          '<span class="cli-tab__meta">' + c.all + ' 个' + meta.unit + ' · ' + c.enabled + ' 个已启用</span>' +
+        '</span>' +
+        '<span class="cli-tab__check"><svg class="icon"><use href="#i-check"/></svg></span>' +
+      '</button>';
+    }).join('');
+  }
+
+  function renderSourceSelect() {
+    var meta = currentMeta();
+    if (meta.sourceOptions.indexOf(activeSource) === -1) activeSource = 'all';
+    $('sourceFilter').innerHTML = meta.sourceOptions.map(function (id) {
+      var label = id === 'all' ? '全部来源' : SOURCE_SELECT_LABEL[id];
+      return '<option value="' + id + '"' + (activeSource === id ? ' selected' : '') + '>' +
+        esc(label) + '</option>';
+    }).join('');
+  }
+
+  function dirLine(path, metaText, state, titlePath) {
+    return '<div class="dir-line">' +
+      '<span class="dir-line__main">' +
+        '<code class="dir-line__path" title="' + attr(titlePath || path) + '">' + esc(path) + '</code>' +
+        '<span class="dir-line__meta">' + esc(metaText) + '</span>' +
+      '</span>' +
+      '<span class="dir-line__state">' + esc(state) + '</span>' +
+      '<button class="dir-open" data-action="open-dir" title="打开目录"><svg class="icon"><use href="#i-external"/></svg></button>' +
+    '</div>';
+  }
+
+  function renderDirs() {
+    var list = cliSkills();
+    var counts = {};
+    list.forEach(function (s) { counts[s.source] = (counts[s.source] || 0) + 1; });
+
+    var html = '';
+    if (activeCli === 'claude') {
+      var claudeDirs = [
+        { source: 'global', path: '~/.claude/skills' },
+        { source: 'project', path: '.claude/skills' },
+        { source: 'plugin', path: '~/.claude/plugins/cache' }
+      ];
+      claudeDirs.forEach(function (dir) {
+        if (activeSource !== 'all' && activeSource !== dir.source) return;
+        html += dirLine(
+          dir.path,
+          SOURCES[dir.source].label + ' · ' + (counts[dir.source] || 0) + ' 个技能',
+          dir.source === 'plugin' ? '只读' : '可写'
+        );
+      });
+    } else if (activeCli === 'codex') {
+      html = dirLine('~/.codex/prompts', '全局 · ' + (counts.global || 0) + ' 个提示词', '可写');
+    } else {
+      var home = dshHomePath();
+      if (activeSource === 'all' || activeSource === 'home') {
+        html += dirLine(
+          'DSH_HOME/skills',
+          'Home · ' + (counts.home || 0) + ' 个',
+          '可写',
+          home + '/skills'
+        );
+      }
+      if (activeSource === 'all' || activeSource === 'shared') {
+        html += dirLine('~/.dsh/skills', '共享 · ' + (counts.shared || 0) + ' 个', '可写');
+      }
+    }
+
+    $('dirLines').innerHTML = html;
+    $('dirCardTitle').textContent = activeCli === 'codex' ? '提示词目录' : '技能目录';
+    $('dshHomeRow').hidden = activeCli !== 'dsh';
+    if (activeCli === 'dsh') {
+      $('dshHomeSelect').innerHTML = Object.keys(DSH_HOMES).map(function (key) {
+        return '<option value="' + key + '"' + (dshHomeKey === key ? ' selected' : '') + '>' +
+          esc(DSH_HOMES[key].label) + '</option>';
+      }).join('');
+    }
+    $('dirFootIcon').setAttribute('title', activeCli === 'codex'
+      ? '提示词在下一轮会话开始时加载，修改后无需重启。'
+      : activeCli === 'dsh'
+        ? '技能在下一轮会话开始时加载；切换 home 后读取对应目录。'
+        : '技能在下一轮会话开始时加载，修改后无需重启。');
+  }
+
+  function statusDot(skill) {
+    if (skill.warn) return 'state-dot--warn';
+    return skill.enabled ? 'state-dot--ok' : 'state-dot--off';
+  }
+
+  function visibleSkills() {
+    var q = query.trim().toLowerCase();
+    return sourceSkills().filter(function (s) {
+      if (filter === 'enabled' && !s.enabled) return false;
+      if (filter === 'disabled' && s.enabled) return false;
+      if (filter === 'warn' && !s.warn) return false;
+      if (!q) return true;
+      return [s.id, s.display, s.desc, s.auto, s.trigger, s.tools.join(' ')]
+        .join(' ')
+        .toLowerCase()
+        .indexOf(q) !== -1;
+    });
+  }
+
+  function renderList() {
+    var meta = currentMeta();
+    var scoped = sourceSkills();
+    var counts = countsFor(scoped);
+    var visible = visibleSkills();
+
+    $('listTitle').textContent = meta.sourceTitles[activeSource];
+    $('listCount').textContent = String(scoped.length);
+    $('nAll').textContent = counts.all;
+    $('nEnabled').textContent = counts.enabled;
+    $('nDisabled').textContent = counts.disabled;
+    $('nWarn').textContent = counts.warn;
+    $('sourceFilter').value = activeSource;
+
+    Array.prototype.forEach.call(document.querySelectorAll('#filters .filter'), function (button) {
+      button.classList.toggle('is-active', button.getAttribute('data-filter') === filter);
+    });
+
+    $('searchBox').classList.toggle('has-value', !!$('skillSearch').value);
+
+    $('skillList').innerHTML = visible.map(function (skill) {
+      var trigger = skill.trigger
+        ? '<span class="skill-row__trigger">' + esc(skill.trigger) + '</span>'
+        : '<span class="skill-row__trigger skill-row__trigger--auto">自动触发</span>';
+      return '<button class="skill-row' + (skill.id === selectedByCli[activeCli] ? ' is-active' : '') +
+        (skill.enabled ? '' : ' is-off') + '" data-id="' + attr(skill.id) + '">' +
+        '<span class="skill-mark' + (skill.enabled ? '' : ' skill-mark--off') + '"><svg class="icon"><use href="#i-spark"/></svg></span>' +
+        '<span class="skill-row__main">' +
+          '<span class="skill-row__line">' +
+            '<span class="skill-row__name">' + esc(skill.display) + '</span>' +
+            '<i class="state-dot ' + statusDot(skill) + '"></i>' +
+          '</span>' +
+          '<span class="skill-row__sub">' +
+            '<span class="source-tag source-tag--' + skill.source + '">' + SOURCES[skill.source].label + '</span>' +
+            '<span class="dotsep">·</span>' + trigger +
+          '</span>' +
+          '<span class="skill-row__desc">' + esc(skill.desc) + '</span>' +
+        '</span>' +
+        '<svg class="icon skill-row__chev" width="13" height="13"><use href="#i-chevron-down"/></svg>' +
+      '</button>';
+    }).join('');
+
+    $('listEmpty').classList.toggle('is-visible', visible.length === 0);
+    $('listEmpty').querySelector('strong').textContent = '没有匹配的' + meta.noun;
+    $('listEmpty').querySelector('span').textContent = '换个关键词，或新建一个' + meta.noun + '。';
+  }
+
+  /* ── 详情 ─────────────────────────────────────────────── */
+
+  function tabButton(id, label, count, warn) {
+    return '<button class="tab' + (detailTab === id ? ' is-active' : '') + '" data-tab="' + id + '">' +
+      label +
+      (count == null ? '' : '<span class="tab__n">' + count + '</span>') +
+      (warn ? '<i class="tab__warn"></i>' : '') +
+    '</button>';
+  }
+
+  function fileIcon(resource) {
+    if (/(^|\/)(SKILL|prompt)\.md$/.test(resource.path)) return 'i-book';
+    if (/\.(sh|mjs|js|ts)$/.test(resource.path)) return 'i-terminal';
+    if (/\.(html|json)$/.test(resource.path)) return 'i-code';
+    return 'i-file';
+  }
+
+  function isScript(resource) {
+    return /\.(sh|mjs|js|ts)$/.test(resource.path);
+  }
+
+  function fileRow(resource) {
+    return '<div class="file-row">' +
+      '<span class="file-icon' + (isScript(resource) ? ' file-icon--script' : '') + '"><svg class="icon"><use href="#' + fileIcon(resource) + '"/></svg></span>' +
+      '<span class="file-main"><code title="' + attr(resource.path) + '">' + esc(resource.path) + '</code><span class="file-size">' + esc(resource.size) + '</span></span>' +
+      '<button class="file-open" data-action="open-file" title="打开文件"><svg class="icon"><use href="#i-external"/></svg></button>' +
+    '</div>';
+  }
+
+  function toolChips(tools) {
+    if (!tools.length) return '<span class="tool-chip tool-chip--none">不限制</span>';
+    return tools.map(function (tool) {
+      return '<span class="tool-chip">' + esc(tool) + '</span>';
+    }).join('');
+  }
+
+  function overviewTab(skill) {
+    var meta = CLI_META[skill.cli];
+    var codex = skill.cli === 'codex';
+    var fields = codex ? 4 : (4 + (skill.argHint ? 1 : 0));
+
+    var warn = (!codex && skill.warn)
+      ? '<div class="notice">' +
+          '<svg class="icon"><use href="#i-alert"/></svg>' +
+          '<span class="notice__main"><strong>自动触发可能不稳定</strong>' + esc(skill.warnText || warnFor(skill.desc)) + '</span>' +
+          '<button data-action="fix-desc">编辑 description</button>' +
+        '</div>'
+      : '';
+
+    var note = codex
+      ? '<div class="trigger-note"><svg class="icon"><use href="#i-slash"/></svg><span>使用场景：' + esc(skill.auto) + '。</span></div>'
+      : '<div class="trigger-note"><svg class="icon"><use href="#i-spark"/></svg><span>' + esc(skill.auto) + '。</span></div>';
+
+    var usage = '<div class="usage-card">' +
+      '<div class="usage-row"><span class="usage-key">斜杠命令</span><span class="usage-val">' +
+        (skill.trigger ? '<code>' + esc(skill.trigger) + '</code>' : '<span style="color:var(--text-faint)">无，仅自动触发</span>') +
+      '</span></div>' +
+      '<div class="usage-row"><span class="usage-key">参数提示</span><span class="usage-val">' +
+        (skill.argHint ? '<code class="plain">' + esc(skill.argHint) + '</code>' : (codex ? '<code class="plain">$ARGUMENTS</code>' : '<span style="color:var(--text-faint)">—</span>')) +
+      '</span></div>' +
+      '<div class="usage-row"><span class="usage-key">运行模型</span><span class="usage-val"><code class="plain">' + esc(skill.model) + '</code></span></div>' +
+    '</div>';
+
+    var info;
+    if (codex) {
+      info = '<div class="fm-card">' +
+        '<div class="fm-row"><span class="fm-key">file</span><span class="fm-val"><code>prompt.md</code></span></div>' +
+        '<div class="fm-row"><span class="fm-key">arguments</span><span class="fm-val"><code>$ARGUMENTS</code></span></div>' +
+        '<div class="fm-row"><span class="fm-key">argument-hint</span><span class="fm-val">' + (skill.argHint ? '<code>' + esc(skill.argHint) + '</code>' : '<span style="color:var(--text-faint)">—</span>') + '</span></div>' +
+        '<div class="fm-row"><span class="fm-key">model</span><span class="fm-val"><code>' + esc(skill.model) + '</code></span></div>' +
+      '</div>';
+    } else {
+      info = '<div class="fm-card">' +
+        '<div class="fm-row"><span class="fm-key">name</span><span class="fm-val"><code>' + esc(skill.id) + '</code></span></div>' +
+        '<div class="fm-row"><span class="fm-key">description</span><span class="fm-val">' + esc(skill.desc) + '</span></div>' +
+        '<div class="fm-row"><span class="fm-key">allowed-tools</span><span class="fm-val"><span class="tool-chips">' + toolChips(skill.tools) + '</span></span></div>' +
+        '<div class="fm-row"><span class="fm-key">argument-hint</span><span class="fm-val">' + (skill.argHint ? '<code>' + esc(skill.argHint) + '</code>' : '<span style="color:var(--text-faint)">—</span>') + '</span></div>' +
+        '<div class="fm-row"><span class="fm-key">model</span><span class="fm-val"><code>' + esc(skill.model) + '</code></span></div>' +
+      '</div>';
+    }
+
+    return '<div class="overview">' +
+      warn +
+      '<section class="ov-section">' +
+        '<div class="ov-head"><span class="ov-head__title">何时使用</span></div>' +
+        '<p class="skill-summary">' + esc(skill.desc) + '</p>' +
+        note +
+      '</section>' +
+      '<section class="ov-section">' +
+        '<div class="ov-head"><span class="ov-head__title">调用方式</span></div>' +
+        usage +
+      '</section>' +
+      '<section class="ov-section">' +
+        '<div class="ov-head"><span class="ov-head__title">' + (codex ? '提示词信息' : 'Frontmatter') + '</span><span class="ov-head__spacer"></span><span class="ov-head__n">' + fields + ' 个字段</span></div>' +
+        info +
+      '</section>' +
+      '<section class="ov-section">' +
+        '<div class="ov-head"><span class="ov-head__title">' + (codex ? '提示词文件' : '包含文件') + '</span><span class="ov-head__n">' + skill.resources.length + '</span></div>' +
+        '<div class="file-list">' + skill.resources.map(fileRow).join('') + '</div>' +
+      '</section>' +
+      '<div class="ov-foot"><svg class="icon"><use href="#i-shield"/></svg><span>' +
+        (codex
+          ? 'Codex 自定义提示词是单个 Markdown 文件；修改后下一轮会话生效。'
+          : '技能只读取目录内的文件；修改 ' + meta.fileLabel + ' 后，下一轮会话会自动重新加载。') +
+      '</span></div>' +
+    '</div>';
+  }
+
+  function codeTab(skill) {
+    var meta = CLI_META[skill.cli];
+    var code = codeOf(skill);
+    var lines = code.split('\n');
+    var mainFile = skill.resources.find(function (r) { return r.path === meta.fileLabel; });
+    var size = mainFile ? mainFile.size : approxSize(code);
+    var body = lines.map(function (line, index) {
+      return '<div class="code-line"><span class="code-ln">' + (index + 1) + '</span><span class="code-lc">' + (highlight(line) || ' ') + '</span></div>';
+    }).join('');
+    return '<div class="code-toolbar">' +
+        '<svg class="icon"><use href="#i-book"/></svg><code>' + meta.fileLabel + '</code>' +
+        '<span class="badge badge--mono">只读</span>' +
+        '<span class="code-toolbar__spacer"></span>' +
+        '<span class="code-toolbar__lines">' + lines.length + ' 行 · ' + size + '</span>' +
+      '</div>' +
+      '<div class="code-view">' + body + '</div>';
+  }
+
+  function resourcesTab(skill) {
+    var codex = skill.cli === 'codex';
+    var root = skill.resources.filter(function (r) { return r.path.indexOf('/') === -1; });
+    var groups = {};
+    skill.resources.filter(function (r) { return r.path.indexOf('/') !== -1; }).forEach(function (r) {
+      var dir = r.path.split('/')[0];
+      if (!groups[dir]) groups[dir] = [];
+      groups[dir].push(r);
+    });
+
+    var html = '<div class="res-toolbar">' +
+      '<span class="res-toolbar__title">包含文件</span>' +
+      '<span>' + skill.resources.length + ' 个 · ' + sumKB(skill.resources) + ' KB</span>' +
+      '<span class="res-toolbar__spacer"></span>' +
+      '<button class="btn btn--ghost btn--xs" data-action="open-dir"><svg class="icon"><use href="#i-folder"/></svg>打开目录</button>' +
+    '</div>';
+
+    if (root.length) html += '<div class="file-list">' + root.map(fileRow).join('') + '</div>';
+    Object.keys(groups).forEach(function (dir) {
+      html += '<div class="res-group">' +
+        '<div class="res-group__name"><svg class="icon"><use href="#i-folder"/></svg>' + esc(dir) + '/</div>' +
+        '<div class="file-list">' + groups[dir].map(fileRow).join('') + '</div>' +
+      '</div>';
+    });
+    html += '<div class="ov-foot"><svg class="icon"><use href="#i-shield"/></svg><span>' +
+      (codex
+        ? 'Codex 自定义提示词是单个 Markdown 文件，不需要额外资源。'
+        : '技能只读取该目录内的文件；新增资源会在下一轮会话被加载。') +
+    '</span></div>';
+    return html;
+  }
+
+  function diagnosticsTab(skill) {
+    var meta = CLI_META[skill.cli];
+    var codex = skill.cli === 'codex';
+    var lines = codeOf(skill).split('\n').length;
+    var writable = skill.source !== 'plugin';
+    var status = skill.warn
+      ? '<div class="diag-status diag-status--warn">' +
+          '<span class="diag-status__icon"><svg class="icon"><use href="#i-alert"/></svg></span>' +
+          '<span class="diag-status__main"><span class="diag-status__title">frontmatter 可用，但自动触发不稳定</span><span class="diag-status__sub">description 过短 · 2 分钟前扫描</span></span>' +
+          '<button class="btn btn--ghost" data-action="rescan"><svg class="icon"><use href="#i-refresh"/></svg>重新扫描</button>' +
+        '</div>'
+      : '<div class="diag-status">' +
+          '<span class="diag-status__icon"><svg class="icon"><use href="#i-check"/></svg></span>' +
+          '<span class="diag-status__main"><span class="diag-status__title">解析正常</span><span class="diag-status__sub">' + meta.fileLabel + ' 可读 · 2 分钟前扫描</span></span>' +
+          '<button class="btn btn--ghost" data-action="rescan"><svg class="icon"><use href="#i-refresh"/></svg>重新扫描</button>' +
+        '</div>';
+
+    var infos = codex
+      ? '<div class="diag-cell"><span>格式</span><strong>Markdown</strong></div>' +
+        '<div class="diag-cell"><span>编码</span><strong>UTF-8</strong></div>' +
+        '<div class="diag-cell"><span>正文行数</span><strong>' + lines + ' 行</strong></div>' +
+        '<div class="diag-cell"><span>目录权限</span><strong>可写</strong></div>' +
+        '<div class="diag-cell"><span>参数</span><strong>$ARGUMENTS</strong></div>' +
+        '<div class="diag-cell"><span>最后更新</span><strong>' + esc(skill.updated) + '</strong></div>'
+      : '<div class="diag-cell"><span>Frontmatter</span><strong>' + (4 + (skill.argHint ? 1 : 0)) + ' 个字段 · ' + (skill.warn ? '需关注' : '正常') + '</strong></div>' +
+        '<div class="diag-cell"><span>编码</span><strong>UTF-8</strong></div>' +
+        '<div class="diag-cell"><span>正文行数</span><strong>' + lines + ' 行</strong></div>' +
+        '<div class="diag-cell"><span>目录权限</span><strong>' + (writable ? '可写' : '只读（插件）') + '</strong></div>' +
+        '<div class="diag-cell"><span>允许工具</span><strong>' + (skill.tools.length ? skill.tools.length + ' 个' : '不限制') + '</strong></div>' +
+        '<div class="diag-cell"><span>最后更新</span><strong>' + esc(skill.updated) + '</strong></div>';
+
+    var note = codex
+      ? '提示词在下一轮会话生效，不需要重启 CCoder。'
+      : skill.cli === 'dsh'
+        ? '下一轮会话开始时重新读取；切换 home 后读取对应目录。'
+        : '下一轮会话开始时重新读取；插件技能只读，修改请重新安装。';
+
+    return status +
+      '<div class="diag-grid">' +
+        '<div class="diag-cell diag-cell--wide"><span>源文件</span><code title="' + attr(skillPath(skill)) + '">' + esc(skillPath(skill)) + '</code></div>' +
+        infos +
+      '</div>' +
+      '<div class="diag-actions">' +
+        '<button class="btn btn--ghost" data-action="open-skill-file"><svg class="icon"><use href="#i-book"/></svg>打开 ' + meta.fileLabel + '</button>' +
+        '<button class="btn btn--ghost" data-action="open-dir"><svg class="icon"><use href="#i-folder"/></svg>在文件夹中显示</button>' +
+      '</div>' +
+      '<p class="diag-note"><svg class="icon"><use href="#i-info"/></svg><span>' + note + '</span></p>';
+  }
+
+  function renderDetail() {
+    var skill = selectedSkill();
+    var panel = $('detailPanel');
+    var meta = currentMeta();
+
+    if (!skill) {
+      panel.innerHTML = '<div class="detail-empty">' +
+        '<svg class="icon"><use href="#i-spark"/></svg>' +
+        '<strong>选择一个' + meta.noun + '</strong>' +
+        '<p>从左侧列表里挑一个' + meta.noun + '，查看它的文件、触发方式和诊断信息。</p>' +
+        '</div>';
+      return;
+    }
+
+    var cliMeta = CLI_META[skill.cli];
+    var readOnly = skill.source === 'plugin';
+    var badge = skill.warn
+      ? '<span class="badge badge--warn"><i class="badge__dot"></i>需要关注</span>'
+      : skill.enabled
+        ? '<span class="badge badge--ok"><i class="badge__dot"></i>已启用</span>'
+        : '<span class="badge"><i class="badge__dot"></i>已停用</span>';
+
+    var trigger = skill.trigger
+      ? '<span class="trigger-bar__label"><svg class="icon"><use href="#i-slash"/></svg>触发</span>' +
+        '<code class="trigger-cmd">' + esc(skill.trigger) + '</code>' +
+        '<button class="trigger-copy" data-action="copy-trigger" title="复制命令"><svg class="icon"><use href="#i-copy"/></svg></button>'
+      : '<span class="trigger-bar__label"><svg class="icon"><use href="#i-spark"/></svg>触发</span>' +
+        '<span class="trigger-cmd trigger-cmd--auto">由描述自动触发</span>';
+
+    var autoLabel = skill.cli === 'codex'
+      ? '手动调用'
+      : (skill.trigger ? '也可自动触发' : '仅自动触发');
+    var autoIcon = skill.cli === 'codex' ? 'i-slash' : 'i-spark';
+
+    var actions =
+      '<label class="switch" title="' + (skill.enabled ? '停用' : '启用') + cliMeta.noun + '">' +
+        '<input type="checkbox" data-act="toggle" data-id="' + attr(skill.id) + '"' + (skill.enabled ? ' checked' : '') + ' />' +
+      '</label>' +
+      '<button class="detail-action" data-action="edit" title="' + (readOnly ? '插件技能为只读' : '编辑' + cliMeta.noun) + '"' + (readOnly ? ' disabled' : '') + '>' +
+        '<svg class="icon"><use href="#i-pencil"/></svg></button>' +
+      '<button class="detail-action" data-action="delete" title="' + (readOnly ? '插件技能为只读' : '删除' + cliMeta.noun) + '"' + (readOnly ? ' disabled' : '') + '>' +
+        '<svg class="icon"><use href="#i-trash"/></svg></button>';
+
+    var metaChips = [
+      '<span class="meta-chip"><svg class="icon"><use href="#' + sourceIcon(skill) + '"/></svg>' +
+        SOURCES[skill.source].label + ' <strong>' + esc(sourceDetailFor(skill)) + '</strong></span>',
+      '<span class="meta-chip"><svg class="icon"><use href="#i-file"/></svg>' + skill.resources.length + ' 个文件</span>',
+      cliMeta.hasTools
+        ? '<span class="meta-chip"><svg class="icon"><use href="#i-code"/></svg>' + (skill.tools.length ? skill.tools.length + ' 个工具' : '工具不限制') + '</span>'
+        : '<span class="meta-chip"><svg class="icon"><use href="#i-slash"/></svg>手动调用</span>',
+      '<span class="meta-chip"><svg class="icon"><use href="#i-clock"/></svg>更新于 ' + esc(skill.updated) + '</span>',
+      '<span class="meta-chip"><svg class="icon"><use href="#i-tag"/></svg>v' + esc(skill.version) + '</span>'
+    ];
+    if (readOnly) metaChips.push('<span class="meta-chip"><svg class="icon"><use href="#i-shield"/></svg>插件只读</span>');
+    if (skill.warn) metaChips.push('<span class="meta-chip meta-chip--warn"><svg class="icon"><use href="#i-alert"/></svg>需要关注</span>');
+
+    var body;
+    if (detailTab === 'overview') body = overviewTab(skill);
+    else if (detailTab === 'code') body = codeTab(skill);
+    else if (detailTab === 'resources') body = resourcesTab(skill);
+    else body = diagnosticsTab(skill);
+
+    var isCode = detailTab === 'code';
+
+    panel.innerHTML =
+      '<div class="detail-head">' +
+        '<div class="detail-head__row">' +
+          '<span class="detail-mark"><svg class="icon"><use href="#i-spark"/></svg></span>' +
+          '<div class="detail-titlebox">' +
+            '<div class="detail-titleline"><h3 class="detail-title">' + esc(skill.display) + '</h3>' + badge + '</div>' +
+            '<p class="detail-sub"><svg class="icon"><use href="#i-file"/></svg><code title="' + attr(skillPath(skill)) + '">' + esc(detailPath(skillPath(skill))) + '</code><span class="dotsep">·</span><span>' + SOURCES[skill.source].label + '</span></p>' +
+          '</div>' +
+          '<div class="detail-actions">' + actions + '</div>' +
+        '</div>' +
+        '<div class="trigger-bar">' +
+          trigger +
+          '<span class="trigger-bar__spacer"></span>' +
+          '<span class="trigger-bar__auto"><svg class="icon"><use href="#' + autoIcon + '"/></svg>' + autoLabel + '</span>' +
+        '</div>' +
+        '<div class="meta-row">' + metaChips.join('') + '</div>' +
+        '<div class="tabs">' +
+          tabButton('overview', '概览') +
+          tabButton('code', cliMeta.fileLabel) +
+          tabButton('resources', '资源', skill.resources.length) +
+          tabButton('diagnostics', '诊断', null, skill.warn) +
+        '</div>' +
+      '</div>' +
+      '<div class="tab-body' + (isCode ? '' : ' tab-body--pad') + '">' + body + '</div>';
+  }
+
+  function renderAll() {
+    renderIntro();
+    renderCliTabs();
+    renderSourceSelect();
+    renderDirs();
+    renderList();
+    renderDetail();
+  }
+
+  /* ── 抽屉 ─────────────────────────────────────────────── */
+
+  function clearErrors() {
+    ['slugError', 'descError'].forEach(function (id) {
+      var el = $(id);
+      el.textContent = '';
+      el.classList.remove('is-visible');
+    });
+    $('formSlug').classList.remove('is-error');
+    $('formDesc').classList.remove('is-error');
+    $('slugWrap').classList.remove('is-error');
+  }
+
+  function setError(id, text) {
+    var el = $(id);
+    el.textContent = text;
+    el.classList.add('is-visible');
+  }
+
+  function renderScopeButtons(isEdit) {
+    var meta = currentMeta();
+    $('scopeSeg').innerHTML = meta.scopes.map(function (scope) {
+      return '<button type="button" data-scope="' + scope.id + '"' +
+        (draftSource === scope.id ? ' class="is-active"' : '') +
+        (isEdit ? ' disabled' : '') + '>' + esc(scope.label) + '</button>';
+    }).join('');
+    $('scopeSeg').style.display = meta.scopes.length > 1 ? '' : 'none';
+  }
+
+  function syncDrawerContext() {
+    var meta = currentMeta();
+    var isEdit = drawerMode === 'edit';
+    var codex = activeCli === 'codex';
+    var isProject = draftSource === 'project';
+    var isShared = draftSource === 'shared';
+    var prefix;
+    var fullPrefix;
+
+    if (activeCli === 'claude') {
+      prefix = isProject ? '.claude/skills/' : '~/.claude/skills/';
+      fullPrefix = prefix;
+    } else if (codex) {
+      prefix = '~/.codex/prompts/';
+      fullPrefix = prefix;
+    } else {
+      prefix = isShared ? '~/.dsh/skills/' : 'DSH_HOME/skills/';
+      fullPrefix = isShared ? '~/.dsh/skills/' : dshHomePath() + '/skills/';
+    }
+
+    var slug = $('formSlug').value.trim().toLowerCase();
+    var fallback = codex ? 'my-prompt' : 'my-skill';
+    var shown = isEdit ? (editingId || '') : (slug || fallback);
+    var fileName = shown + (codex ? '.md' : '/SKILL.md');
+
+    $('slugPrefix').textContent = prefix;
+    $('slugSuffix').textContent = codex ? '.md' : '';
+    $('drawerContextPath').textContent = prefix + shown + (codex ? '.md' : '');
+    $('drawerContextPath').title = fullPrefix + shown + (codex ? '.md' : '');
+    $('drawerContextBadge').textContent = activeCli === 'claude'
+      ? (isProject ? '项目' : '全局')
+      : codex ? '全局' : (isShared ? '共享' : DSH_HOMES[dshHomeKey].label);
+
+    $('drawerContextTitle').textContent = activeCli === 'claude'
+      ? (isProject ? '写入项目技能目录' : '写入全局技能目录')
+      : codex
+        ? '写入 Codex 全局提示词目录'
+        : (isShared ? '写入共享技能目录' : '写入当前 home 技能目录');
+
+    $('slugLabel').textContent = codex ? '文件名' : '目录名';
+    $('formSlug').placeholder = codex ? 'my-prompt' : 'my-skill';
+    $('codeLabel').textContent = meta.fileLabel;
+
+    if (isEdit) {
+      $('slugHint').textContent = (codex ? '文件名' : '目录名') +
+        '与作用域保存后不可修改；需要改名请新建后删除旧' + meta.noun + '。';
+    } else {
+      $('slugHint').innerHTML = '只能包含小写字母、数字和连字符。保存后会创建 <code>' +
+        esc(fileName) + '</code>。';
+    }
+
+    $('displayHint').textContent = codex
+      ? '只用于界面展示；调用时仍使用文件名。'
+      : '只用于界面展示；调用时仍使用目录名。';
+    $('descMetaNote').textContent = codex ? '用于 CCoder 内的展示与搜索' : '自动触发依据这段描述';
+    $('formDesc').placeholder = codex
+      ? '写清楚这个提示词做什么；用于 CCoder 内的展示与搜索。'
+      : activeCli === 'dsh'
+        ? '写清楚什么时候该用它。DSH 依赖这句话判断是否自动触发。'
+        : '写清楚什么时候该用它。Claude 依赖这句话判断是否自动触发。';
+
+    $('triggerPreview').textContent = '/' + shown;
+    $('triggerAuto').textContent = codex ? '文件名即命令名' : '同时允许描述自动触发';
+    $('triggerHint').textContent = codex
+      ? '创建后会出现在 Codex 的斜杠命令里；文件名就是命令名。'
+      : activeCli === 'dsh'
+        ? '创建后会出现在 DSH 的斜杠命令里；描述足够具体时也会自动调用。'
+        : '创建后会自动出现在斜杠命令列表中；描述足够具体时也会由 Claude 自行调用。';
+
+    $('scopeHint').textContent = activeCli === 'claude'
+      ? (isProject ? '仅在当前工作区可用，写入 .claude/skills。' : '所有工作区都可用，写入 ~/.claude/skills。')
+      : codex
+        ? 'Codex 自定义提示词只支持全局目录，所有工作区共享。'
+        : (isShared ? '写入共享 home，所有渠道首次启动时会播种。' : '写入当前 DSH home，仅该渠道可见。');
+
+    $('enabledHint').textContent = codex
+      ? '停用的提示词不会出现在斜杠命令中。'
+      : '停用的技能不会出现在斜杠命令或自动调用中。';
+    $('importLabel').textContent = codex ? '导入 .md 文件' : '从文件夹导入';
+    $('codeHint').textContent = codex
+      ? '提示词正文会写入 prompt.md；后续可以直接编辑磁盘上的文件。'
+      : 'frontmatter 与正文都会写入技能目录；后续可以直接编辑磁盘上的文件。';
+    $('toolsField').style.display = meta.hasTools ? '' : 'none';
+  }
+
+  function renderChips() {
+    var input = $('toolInput');
+    Array.prototype.forEach.call($('toolChips').querySelectorAll('.chip'), function (chip) {
+      chip.parentNode.removeChild(chip);
+    });
+    draftTools.forEach(function (tool, index) {
+      input.insertAdjacentHTML('beforebegin',
+        '<span class="chip">' + esc(tool) +
+          '<button type="button" data-remove-tool="' + index + '" title="移除"><svg class="icon"><use href="#i-x"/></svg></button>' +
+        '</span>');
+    });
+  }
+
+  function addTool(value) {
+    var tool = String(value || '').trim();
+    if (!tool) return;
+    var exists = draftTools.some(function (t) { return t.toLowerCase() === tool.toLowerCase(); });
+    if (!exists) draftTools.push(tool);
+    $('toolInput').value = '';
+    renderChips();
+  }
+
+  function updateDescCount() {
+    $('descCount').textContent = $('formDesc').value.trim().length + ' 字';
+  }
+
+  function maybeRefreshTemplate() {
+    if (drawerMode !== 'add' || codeTouched) return;
+    $('formCode').value = newSkillTemplate(
+      activeCli,
+      $('formSlug').value.trim().toLowerCase(),
+      $('formDesc').value.trim(),
+      $('formDisplay').value.trim(),
+      draftTools
+    );
+  }
+
+  function openDrawer(mode) {
+    drawerMode = mode;
+    editingId = mode === 'edit' ? selectedByCli[activeCli] : null;
+    clearErrors();
+
+    var meta = currentMeta();
+    var isEdit = mode === 'edit';
+    var skill = isEdit ? selectedSkill() : null;
+
+    if (isEdit) {
+      draftSource = skill.source;
+      draftTools = meta.hasTools ? skill.tools.slice() : [];
+      $('formSlug').value = skill.id;
+      $('formSlug').disabled = true;
+      $('slugWrap').classList.add('is-locked');
+      $('formDisplay').value = skill.display;
+      $('formDesc').value = skill.desc;
+      $('formEnabled').checked = skill.enabled;
+      $('formCode').value = codeOf(skill);
+      codeTouched = true;
+    } else {
+      draftSource = meta.scopes[0].id;
+      draftTools = meta.hasTools ? ['Read', 'Grep'] : [];
+      $('formSlug').value = '';
+      $('formSlug').disabled = false;
+      $('slugWrap').classList.remove('is-locked');
+      $('formDisplay').value = '';
+      $('formDesc').value = '';
+      $('formEnabled').checked = true;
+      $('formCode').value = newSkillTemplate(activeCli, '', '', '', draftTools);
+      codeTouched = false;
+    }
+
+    renderScopeButtons(isEdit);
+    renderChips();
+    updateDescCount();
+    syncDrawerContext();
+
+    $('drawerKicker').textContent = (isEdit ? '编辑' : '新建') + meta.noun + ' · ' + meta.short;
+    $('drawerTitle').textContent = (isEdit ? '编辑' : '新建') + meta.noun;
+    $('saveBtn').textContent = isEdit ? '保存更改' : '创建' + meta.noun;
+    $('drawerLayer').classList.add('is-open');
+    $('drawerLayer').setAttribute('aria-hidden', 'false');
+
+    window.setTimeout(function () {
+      (isEdit ? $('formDesc') : $('formSlug')).focus();
+    }, 180);
+  }
+
+  function closeDrawer() {
+    $('drawerLayer').classList.remove('is-open');
+    $('drawerLayer').setAttribute('aria-hidden', 'true');
+    drawerMode = null;
+    editingId = null;
+    saving = false;
+    $('saveBtn').disabled = false;
+  }
+
+  function saveDrawer() {
+    if (!drawerMode || saving) return;
+    clearErrors();
+
+    var meta = currentMeta();
+    var isEdit = drawerMode === 'edit';
+    var slug = $('formSlug').value.trim().toLowerCase();
+    var desc = $('formDesc').value.trim();
+    var display = $('formDisplay').value.trim() || slug;
+    var bad = false;
+
+    if (!slug) {
+      setError('slugError', '请输入' + (activeCli === 'codex' ? '文件名' : '目录名') + '。');
+      $('slugWrap').classList.add('is-error');
+      bad = true;
+    } else if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
+      setError('slugError', '只能使用小写字母、数字和连字符，并以字母或数字开头。');
+      $('slugWrap').classList.add('is-error');
+      bad = true;
+    } else if (cliSkills().some(function (s) {
+      return s.id === slug && s.source === draftSource && s.id !== editingId;
+    })) {
+      setError('slugError', '同名' + meta.noun + '已存在，请换一个' + (activeCli === 'codex' ? '文件名' : '目录名') + '。');
+      $('slugWrap').classList.add('is-error');
+      bad = true;
+    }
+    if (!desc) {
+      setError('descError', '请写一句描述，方便在 CCoder 里识别这个' + meta.noun + '。');
+      $('formDesc').classList.add('is-error');
+      bad = true;
+    }
+    if (bad) return;
+
+    var code = $('formCode').value.trim() ||
+      newSkillTemplate(activeCli, slug, desc, display, draftTools);
+    var enabled = $('formEnabled').checked;
+    var warn = activeCli !== 'codex' && desc.length < 20;
+    var warnText = warnFor(desc);
+
+    saving = true;
+    $('saveBtn').disabled = true;
+    $('saveBtn').innerHTML = '<span class="spinner"></span>正在写入…';
+
+    window.setTimeout(function () {
+      if (isEdit) {
+        var target = selectedSkill();
+        if (target) {
+          target.display = display;
+          target.desc = desc;
+          target.auto = desc;
+          target.enabled = enabled;
+          if (meta.hasTools) target.tools = draftTools.slice();
+          target.code = code;
+          target.updated = '刚刚';
+          target.warn = warn;
+          target.warnText = warnText;
+          var mainFile = target.resources.find(function (r) { return r.path === meta.fileLabel; });
+          if (mainFile) mainFile.size = approxSize(code);
+        }
+      } else {
+        SKILLS.push({
+          cli: activeCli,
+          id: slug,
+          display: display,
+          desc: desc,
+          source: draftSource,
+          enabled: enabled,
+          trigger: '/' + slug,
+          auto: desc,
+          argHint: '',
+          tools: meta.hasTools ? draftTools.slice() : [],
+          model: 'inherit',
+          version: '0.1.0',
+          updated: '刚刚',
+          warn: warn,
+          warnText: warnText,
+          plugin: null,
+          resources: [R(meta.fileLabel, approxSize(code), 'md')],
+          code: code
+        });
+        selectedByCli[activeCli] = slug;
+        activeSource = draftSource;
+        filter = 'all';
+        query = '';
+        $('skillSearch').value = '';
+      }
+
+      var message = isEdit
+        ? '已保存 ' + display
+        : '已创建' + meta.noun + ' ' + display;
+      detailTab = 'overview';
+      saving = false;
+      $('saveBtn').disabled = false;
+      closeDrawer();
+      renderAll();
+      toast(message);
+    }, 420);
+  }
+
+  /* ── 删除 ─────────────────────────────────────────────── */
+
+  function openConfirm() {
+    var skill = selectedSkill();
+    if (!skill || skill.source === 'plugin') return;
+    var meta = CLI_META[skill.cli];
+    $('confirmTitle').textContent = '删除 ' + skill.display + '？';
+    $('confirmBadge').textContent = '删除' + meta.noun;
+    $('confirmDeleteLabel').textContent = '删除' + meta.noun;
+    if (skill.cli === 'codex') {
+      $('confirmBody').innerHTML = '将删除提示词文件 <code>' + esc(skillPath(skill)) + '</code>。此操作不可撤销。';
+      $('confirmHint').textContent = '提示词文件会先备份到本地备份文件夹，可以通过「打开备份」找回。';
+    } else {
+      $('confirmBody').innerHTML = '将删除 <code>' + esc(dirPath(skill)) + '</code> 及其中的 ' +
+        skill.resources.length + ' 个文件。此操作不可撤销。';
+      $('confirmHint').textContent = '技能目录会先备份到本地备份文件夹，可以通过「打开备份」找回。';
+    }
+    $('confirmLayer').classList.add('is-open');
+    $('confirmLayer').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeConfirm() {
+    $('confirmLayer').classList.remove('is-open');
+    $('confirmLayer').setAttribute('aria-hidden', 'true');
+  }
+
+  function confirmDelete() {
+    var skill = selectedSkill();
+    if (!skill || skill.source === 'plugin') return;
+    var meta = CLI_META[skill.cli];
+    var index = SKILLS.indexOf(skill);
+    if (index !== -1) SKILLS.splice(index, 1);
+    closeConfirm();
+
+    var scoped = sourceSkills();
+    ensureSelection(scoped);
+    if (!scoped.length) selectedByCli[activeCli] = '';
+    detailTab = 'overview';
+    renderAll();
+    toast('已删除' + meta.noun + ' ' + skill.display);
+  }
+
+  /* ── 事件 ─────────────────────────────────────────────── */
+
+  document.addEventListener('click', function (event) {
+    var actionEl = event.target.closest('[data-action]');
+    if (actionEl) {
+      var action = actionEl.getAttribute('data-action');
+      var meta = currentMeta();
+      var skill = selectedSkill();
+
+      if (action === 'rescan') {
+        var icons = document.querySelectorAll('#rescanIcon, .dir-card__rescan .icon');
+        Array.prototype.forEach.call(icons, function (icon) { icon.classList.add('spin'); });
+        window.setTimeout(function () {
+          Array.prototype.forEach.call(icons, function (icon) { icon.classList.remove('spin'); });
+          toast('已扫描 ' + meta.name + ' 的目录，发现 ' + cliSkills().length + ' 个' + meta.unit);
+        }, 700);
+        return;
+      }
+      if (action === 'docs') {
+        event.preventDefault();
+        toast('演示：打开 Agent Skills 文档');
+        return;
+      }
+      if (action === 'new-skill') { openDrawer('add'); return; }
+      if (action === 'clear-search') {
+        $('skillSearch').value = '';
+        query = '';
+        renderList();
+        return;
+      }
+      if (action === 'close-drawer') { closeDrawer(); return; }
+      if (action === 'close-confirm') { closeConfirm(); return; }
+      if (action === 'copy-trigger') { copyText(skill && skill.trigger); return; }
+      if (action === 'edit') { openDrawer('edit'); return; }
+      if (action === 'delete') { openConfirm(); return; }
+      if (action === 'fix-desc') {
+        openDrawer('edit');
+        window.setTimeout(function () { $('formDesc').focus(); }, 220);
+        return;
+      }
+      if (action === 'open-file') {
+        toast('演示：打开 ' + (skill ? skill.id + '/' + CLI_META[skill.cli].fileLabel : '文件'));
+        return;
+      }
+      if (action === 'open-skill-file') {
+        toast('演示：打开 ' + (skill ? shortPath(skillPath(skill)) : '文件'));
+        return;
+      }
+      if (action === 'open-dir') {
+        toast('演示：在文件管理器中打开 ' + meta.noun + '目录');
+        return;
+      }
+    }
+
+    var cliButton = event.target.closest('[data-cli]');
+    if (cliButton) {
+      activeCli = cliButton.getAttribute('data-cli');
+      activeSource = 'all';
+      filter = 'all';
+      query = '';
+      detailTab = 'overview';
+      $('skillSearch').value = '';
+      ensureSelection(cliSkills());
+      renderAll();
+      return;
+    }
+
+    var filterButton = event.target.closest('[data-filter]');
+    if (filterButton) {
+      filter = filterButton.getAttribute('data-filter');
+      renderList();
+      return;
+    }
+
+    var row = event.target.closest('[data-id]');
+    if (row && row.classList.contains('skill-row')) {
+      selectedByCli[activeCli] = row.getAttribute('data-id');
+      detailTab = 'overview';
+      renderList();
+      renderDetail();
+      return;
+    }
+
+    var tab = event.target.closest('[data-tab]');
+    if (tab) {
+      detailTab = tab.getAttribute('data-tab');
+      renderDetail();
+      return;
+    }
+
+    var removeChip = event.target.closest('[data-remove-tool]');
+    if (removeChip) {
+      var chipIndex = parseInt(removeChip.getAttribute('data-remove-tool'), 10);
+      draftTools.splice(chipIndex, 1);
+      renderChips();
+      return;
+    }
+
+    var scopeButton = event.target.closest('[data-scope]');
+    if (scopeButton && !scopeButton.disabled) {
+      draftSource = scopeButton.getAttribute('data-scope');
+      renderScopeButtons(drawerMode === 'edit');
+      syncDrawerContext();
+      return;
+    }
+  });
+
+  $('sourceFilter').addEventListener('change', function () {
+    activeSource = this.value;
+    filter = 'all';
+    query = '';
+    detailTab = 'overview';
+    $('skillSearch').value = '';
+    ensureSelection(sourceSkills());
+    renderAll();
+  });
+
+  $('skillSearch').addEventListener('input', function () {
+    query = this.value;
+    $('searchBox').classList.toggle('has-value', !!this.value);
+    renderList();
+  });
+
+  $('detailPanel').addEventListener('change', function (event) {
+    var input = event.target;
+    if (!input.matches('[data-act="toggle"]')) return;
+    var id = input.getAttribute('data-id');
+    var skill = SKILLS.find(function (s) { return s.cli === activeCli && s.id === id; });
+    if (!skill) return;
+    skill.enabled = input.checked;
+    skill.updated = '刚刚';
+    renderAll();
+    toast((skill.enabled ? '已启用 ' : '已停用 ') + skill.display);
+  });
+
+  document.addEventListener('change', function (event) {
+    if (event.target.id === 'dshHomeSelect') {
+      dshHomeKey = event.target.value;
+      renderDirs();
+      renderList();
+      renderDetail();
+    }
+  });
+
+  $('formSlug').addEventListener('input', function () {
+    syncDrawerContext();
+    maybeRefreshTemplate();
+  });
+  $('formDesc').addEventListener('input', function () {
+    updateDescCount();
+    maybeRefreshTemplate();
+    if (this.value.trim()) this.classList.remove('is-error');
+  });
+  $('formDisplay').addEventListener('input', maybeRefreshTemplate);
+  $('formCode').addEventListener('input', function () {
+    codeTouched = true;
+  });
+
+  $('toolInput').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      addTool(this.value);
+    }
+  });
+
+  $('saveBtn').addEventListener('click', saveDrawer);
+  $('importBtn').addEventListener('click', function () {
+    toast(activeCli === 'codex'
+      ? '演示：选择一个 .md 提示词文件'
+      : '演示：选择文件夹后会读取其中的 SKILL.md 与 frontmatter');
+  });
+  $('confirmDelete').addEventListener('click', confirmDelete);
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    if ($('confirmLayer').classList.contains('is-open')) {
+      closeConfirm();
+      return;
+    }
+    if ($('drawerLayer').classList.contains('is-open')) closeDrawer();
+  });
+
+  renderAll();
+})();
+
+</script>
+</body>
+</html>
+</body>
+</html>

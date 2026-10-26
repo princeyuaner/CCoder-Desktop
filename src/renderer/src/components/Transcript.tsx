@@ -568,7 +568,7 @@ function UserImages({ images }: { images: ImageAttachment[] }): JSX.Element {
  * reduce 只替换变化的那一条，其余 item 的对象身份不变，浅比较就够了。
  */
 const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null {
-  const { showTimestamps, toolDetail } = useContext(DisplayContext)
+  const { showTimestamps, toolDetail, cwd } = useContext(DisplayContext)
   const { t, locale, text } = useI18n()
 
   switch (item.kind) {
@@ -590,7 +590,7 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
       return (
         <div className="tl__row">
           <div className="tl__say">
-            <RichText text={item.text} />
+            <RichText text={item.text} cwd={cwd} />
             {item.streaming && <span className="cursor" />}
           </div>
         </div>

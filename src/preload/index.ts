@@ -259,6 +259,7 @@ const api: WindowApi = {
   workspace: {
     searchFiles: (cwd: string, query: string, limit?: number) =>
       ipcRenderer.invoke(IPC.workspaceSearchFiles, cwd, query, limit),
+    openPath: (cwd, target) => ipcRenderer.invoke(IPC.workspaceOpenPath, cwd, target),
     openSession: (cwd: string): Promise<{ ok: boolean; message?: string }> =>
       ipcRenderer.invoke(IPC.workspaceOpenSession, cwd),
     onOpenSession: (cb) => {

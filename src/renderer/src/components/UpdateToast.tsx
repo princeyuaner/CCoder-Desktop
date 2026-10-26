@@ -43,6 +43,20 @@ export function UpdateToast({
 
   const version = state.version ? `v${state.version}` : t('update.newVersion')
   const percent = Math.round(state.percent ?? 0)
+  // 差分下载和整包下载的百分比基数不同（差分只算变更块），必须分开显示，
+  // 否则「差分走到 100% 后回退整包从 0 开始」会被误读成下载完又重来。
+  const downloadingTitle =
+    state.downloadMode === 'differential'
+      ? t('update.downloadingDifferential', { version })
+      : state.downloadMode === 'full'
+        ? t('update.downloadingFull', { version })
+        : t('update.downloading', { version })
+  const downloadingPercent =
+    state.downloadMode === 'differential'
+      ? t('update.differentialPercent', { percent })
+      : state.downloadMode === 'full'
+        ? t('update.fullPercent', { percent })
+        : t('update.downloadingPercent', { percent })
 
   const install = async (): Promise<void> => {
     setInstalling(true)
@@ -63,7 +77,7 @@ export function UpdateToast({
         </span>
         <span className="updtoast__title">
           {phase === 'available' && t('update.available', { version })}
-          {phase === 'downloading' && t('update.downloading', { version })}
+          {phase === 'downloading' && downloadingTitle}
           {phase === 'downloaded' && t('update.downloaded', { version })}
           {phase === 'error' && t('update.downloadFailed')}
         </span>
@@ -100,9 +114,7 @@ export function UpdateToast({
           <div className="updtoast__bar" aria-hidden="true">
             <span style={{ width: `${percent}%` }} />
           </div>
-          <p className="updtoast__hint">
-            {t('update.downloadingPercent', { percent })}
-          </p>
+          <p className="updtoast__hint">{downloadingPercent}</p>
         </>
       )}
 

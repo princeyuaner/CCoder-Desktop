@@ -11,10 +11,27 @@
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
+import { notify } from '../notice'
 
 /* ── 行内 ───────────────────────────────────────────────── */
 
-function inlineNodes(text: string, key: string): ReactNode[] {
+/**
+ * 把链接交给主进程打开。
+ *
+ * 渲染层不做路径判断：相对路径要用会话 cwd 才能解析，而且必须由主进程
+ * 拦住可执行文件 —— 链接目标可能来自模型读到的文件内容（提示注入）。
+ */
+function openLinkedTarget(cwd: string, target: string): void {
+  if (!target) return
+  void window.api?.workspace
+    ?.openPath(cwd, target)
+    .then((r) => {
+      if (!r?.ok && r?.error) notify(r.error)
+    })
+    .catch((err) => notify(err instanceof Error ? err.message : String(err)))
+}
+
+function inlineNodes(text: string, key: string, cwd = ''): ReactNode[] {
   // **每次新建**，不能用模块级共享的 g 正则 —— 这个函数会递归（粗体里还有行内代码），
   // 递归会把共享正则的 lastIndex 重置掉，外层的游标跟着回到 0，直接死循环。
   const re =
@@ -36,15 +53,37 @@ function inlineNodes(text: string, key: string): ReactNode[] {
         </code>
       )
     } else if (m[2]) {
-      out.push(<strong key={k}>{inlineNodes(tok.slice(2, -2), k)}</strong>)
+      out.push(<strong key={k}>{inlineNodes(tok.slice(2, -2), k, cwd)}</strong>)
     } else if (m[3]) {
-      out.push(<em key={k}>{inlineNodes(tok.slice(1, -1), k)}</em>)
+      out.push(<em key={k}>{inlineNodes(tok.slice(1, -1), k, cwd)}</em>)
     } else if (m[4]) {
-      // 链接：文字染色，但**不给 href** —— 渲染层里点一个外链会把整个应用导航走
+      /*
+       * 不给 href：点击由主进程打开。直接放 `<a href>` 的话，`file:` 链接
+       * 会把整个应用窗口导航走；`javascript:` 更不用说了。
+       */
       const cut = tok.lastIndexOf('](')
+      const target = tok.slice(cut + 2, -1).trim()
       out.push(
-        <span key={k} className="lnk" title={tok.slice(cut + 2, -1)}>
-          {inlineNodes(tok.slice(1, cut), k)}
+        <span
+          key={k}
+          className="lnk"
+          role="link"
+          tabIndex={0}
+          title={target}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            // 拖选文字时也会触发 click；别让"复制一段话"变成打开链接
+            if (window.getSelection()?.toString()) return
+            openLinkedTarget(cwd, target)
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return
+            e.preventDefault()
+            openLinkedTarget(cwd, target)
+          }}
+        >
+          {inlineNodes(tok.slice(1, cut), k, cwd)}
         </span>
       )
     } else {
@@ -322,21 +361,21 @@ function CodeCard({ lang, code }: { lang: string; code: string }): JSX.Element {
  * 层次全靠背景明度 —— 段落透明、代码深一档、表格浅一档。
  * 因此这里每个块直接是 `.md` 的子元素（没有 wrapper），块间节奏交给 `.md > * + *`。
  */
-function BlockView({ b, i }: { b: Block; i: number }): JSX.Element {
+function BlockView({ b, i, cwd }: { b: Block; i: number; cwd: string }): JSX.Element {
   const k = `b${i}`
 
   switch (b.kind) {
     case 'heading': {
       const Tag = (b.level <= 2 ? 'h2' : b.level === 3 ? 'h3' : 'h4') as 'h2' | 'h3' | 'h4'
-      return <Tag className="md-h">{inlineNodes(b.text, k)}</Tag>
+      return <Tag className="md-h">{inlineNodes(b.text, k, cwd)}</Tag>
     }
 
     case 'para':
-      return <p className="md-p">{inlineNodes(b.text, k)}</p>
+      return <p className="md-p">{inlineNodes(b.text, k, cwd)}</p>
 
     case 'list': {
       const items = b.items.map((it, j) => (
-        <li key={j}>{inlineNodes(it, `${k}-${j}`)}</li>
+        <li key={j}>{inlineNodes(it, `${k}-${j}`, cwd)}</li>
       ))
       // start 只对 <ol> 有意义；分开写，别把非法属性塞给 <ul>
       return b.ordered ? (
@@ -358,7 +397,7 @@ function BlockView({ b, i }: { b: Block; i: number }): JSX.Element {
             <thead>
               <tr>
                 {b.head.map((h, j) => (
-                  <th key={j}>{inlineNodes(h, `${k}-h${j}`)}</th>
+                  <th key={j}>{inlineNodes(h, `${k}-h${j}`, cwd)}</th>
                 ))}
               </tr>
             </thead>
@@ -366,7 +405,7 @@ function BlockView({ b, i }: { b: Block; i: number }): JSX.Element {
               {b.rows.map((row, r) => (
                 <tr key={r}>
                   {row.map((cell, j) => (
-                    <td key={j}>{inlineNodes(cell, `${k}-${r}-${j}`)}</td>
+                    <td key={j}>{inlineNodes(cell, `${k}-${r}-${j}`, cwd)}</td>
                   ))}
                 </tr>
               ))}
@@ -380,14 +419,14 @@ function BlockView({ b, i }: { b: Block; i: number }): JSX.Element {
   }
 }
 
-export function RichText({ text }: { text: string }): JSX.Element {
+export function RichText({ text, cwd = '' }: { text: string; cwd?: string }): JSX.Element {
   // 流式时每个 delta 都会重渲染，解析结果没变的话别重复做
   const blocks = useMemo(() => parseBlocks(text), [text])
 
   return (
     <div className="md selectable">
       {blocks.map((b, i) => (
-        <BlockView key={i} b={b} i={i} />
+        <BlockView key={i} b={b} i={i} cwd={cwd} />
       ))}
     </div>
   )

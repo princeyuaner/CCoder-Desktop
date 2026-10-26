@@ -48,6 +48,14 @@ function notesOf(info: UpdateInfo): string | undefined {
   return name || undefined
 }
 
+/** latest.yml 里记录的安装包大小，用来区分差分下载和整包下载 */
+function installerSizeOf(info: UpdateInfo): number | undefined {
+  const sizes = (info.files ?? [])
+    .map((f) => f.size)
+    .filter((n): n is number => typeof n === 'number' && n > 0)
+  return sizes.length ? Math.max(...sizes) : undefined
+}
+
 export function createUpdater(opts: UpdaterOptions): UpdaterControl {
   let state: UpdateState = {
     phase: 'idle',
@@ -55,6 +63,8 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
   }
   /** 最近一次操作：出错时据此决定要不要在界面上提示 */
   let lastAction: 'check' | 'download' = 'check'
+  /** 本次新版本的安装包完整大小；未知时退回按进度回落判断 */
+  let installerSize: number | undefined
   let firstTimer: ReturnType<typeof setTimeout> | null = null
   let intervalTimer: ReturnType<typeof setInterval> | null = null
 
@@ -103,11 +113,13 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
     })
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
+      installerSize = installerSizeOf(info)
       publish({
         phase: 'available',
         version: info.version,
         releaseName: notesOf(info),
         percent: undefined,
+        downloadMode: undefined,
         error: undefined,
         errorScope: undefined,
         checkedAt: Date.now()
@@ -127,9 +139,28 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
     })
 
     autoUpdater.on('download-progress', (p: ProgressInfo) => {
+      // 差分下载的 total 只是「有变化的块」的总量；校验失败回退整包时，
+      // 进度会从 100% 归零，total 变成安装包全长。界面据此区分两者，
+      // 否则整包重下看起来就像「下载完成后又从头开始」。
+      let downloadMode = state.downloadMode
+      if (installerSize != null && p.total > 0) {
+        downloadMode = p.total >= installerSize - 1024 ? 'full' : 'differential'
+      } else if (state.phase === 'downloading' && (state.percent ?? 0) - p.percent > 10) {
+        // latest.yml 没带 size 时，至少能靠进度回落认出「差分失败、回退整包」
+        downloadMode = 'full'
+      }
+      if (downloadMode !== state.downloadMode) {
+        logMain('updater.downloadMode', {
+          from: state.downloadMode,
+          to: downloadMode,
+          total: p.total,
+          installerSize
+        })
+      }
       publish({
         phase: 'downloading',
-        percent: Math.min(100, Math.max(0, p.percent))
+        percent: Math.min(100, Math.max(0, p.percent)),
+        downloadMode
       })
     })
 
@@ -208,7 +239,13 @@ export function createUpdater(opts: UpdaterOptions): UpdaterControl {
     }
     lastAction = 'download'
     logMain('updater.download', { version: state.version })
-    publish({ phase: 'downloading', percent: 0, error: undefined, errorScope: undefined })
+    publish({
+      phase: 'downloading',
+      percent: 0,
+      downloadMode: undefined,
+      error: undefined,
+      errorScope: undefined
+    })
     try {
       await autoUpdater.downloadUpdate()
     } catch (e) {

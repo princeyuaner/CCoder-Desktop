@@ -75,16 +75,26 @@ export function AboutPanel({ updater }: { updater: UpdaterUi }): JSX.Element {
 
     if (phase === 'downloading') {
       const percent = Math.round(state?.percent ?? 0)
+      const mode = state?.downloadMode
       return {
         tone: 'statuscard--muted',
         icon: <span className="spinner" />,
-        title: t('about.update.downloading', { version }),
+        title:
+          mode === 'differential'
+            ? t('about.update.downloadingDifferential', { version })
+            : mode === 'full'
+              ? t('about.update.downloadingFull', { version })
+              : t('about.update.downloading', { version }),
         meta: (
           <>
             <span className="aboutprogress" aria-hidden="true">
               <span style={{ width: `${percent}%` }} />
             </span>
-            {t('about.update.downloadingPercent', { percent })}
+            {mode === 'differential'
+              ? t('about.update.differentialPercent', { percent })
+              : mode === 'full'
+                ? t('about.update.fullPercent', { percent })
+                : t('about.update.downloadingPercent', { percent })}
           </>
         ),
         action: checkButton()

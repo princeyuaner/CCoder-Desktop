@@ -148,6 +148,8 @@ export const IPC = {
   sessionsPickDir: 'sessions:pick-dir',
   /** 搜索当前工作区里的文件，供 @ 引用使用 */
   workspaceSearchFiles: 'workspace:search-files',
+  /** 打开对话里点到的地址：外链交给浏览器，本地文件交给系统默认程序 */
+  workspaceOpenPath: 'workspace:open-path',
   /** 主进程 → 渲染进程：一条 AgentEvent */
   sessionEvent: 'session:event',
   /** 主进程 → 渲染进程：会话状态变化 */
@@ -431,6 +433,14 @@ export interface WindowApi {
   /** 工作区文件检索 —— @ 引用用。主进程异步扫描并缓存，返回相对路径。 */
   workspace: {
     searchFiles(cwd: string, query: string, limit?: number): Promise<FileMatch[]>
+    /**
+     * 打开对话里点到的地址。
+     *
+     * `http(s)` 交给系统浏览器；本地文件交给默认程序，相对路径按 `cwd`
+     * 解析。主进程只放行可直接查看的文件类型 —— 模型输出可能被提示注入，
+     * 不能让它写个可执行文件路径就把进程拉起来。
+     */
+    openPath(cwd: string, target: string): Promise<{ ok: boolean; error?: string }>
     /**
      * IDE：请主窗口在这个目录下开一条新会话。
      *

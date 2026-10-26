@@ -26,6 +26,13 @@ export interface UpdateState {
   releaseName?: string
   /** 下载进度 0–100 */
   percent?: number
+  /**
+   * 下载方式：
+   * - differential：差分下载，只下与旧安装包不同的块（进度按差分总量算）；
+   * - full：整包下载（首次下载，或差分校验失败后回退重下）。
+   * 第一个进度事件到达前未知。
+   */
+  downloadMode?: 'differential' | 'full'
   error?: string
   /**
    * 出错发生在哪一步。自动检查失败（例如断网）不该弹提示，
