@@ -7,6 +7,7 @@ import type {
 import { isFileEditTool, statFromPatch, toolDisplay, toolFamily } from '../../../shared/tool'
 import { agentRunInfo, taskResultInfo } from './tool-result-meta'
 import { taskSystemEvent } from './task-events'
+import { claudeCommands } from './commands'
 import { t } from '../../i18n'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -34,7 +35,7 @@ const CLI_TO_OURS: Record<string, PermissionMode> = {
   bypassPermissions: 'bypassPermissions'
 }
 
-function normalizeMode(v: unknown): PermissionMode {
+export function normalizePermissionMode(v: unknown): PermissionMode {
   return CLI_TO_OURS[str(v)] ?? 'standard'
 }
 
@@ -118,6 +119,15 @@ export class ClaudeStreamTranslator {
     number,
     { id: string; name: string; json: string; pathDone: boolean }
   >()
+  /**
+   * init 里的技能名 / 终端专用指令名。
+   *
+   * initialize 控制请求的响应可能比 init 先到；那时这两个集合还是空的，
+   * 分组只能按 `builtin` 退回。init 到达后 adapter 会用完整集合重新映射
+   * 并再发一次 native_commands。
+   */
+  readonly skillNames = new Set<string>()
+  readonly terminalNames = new Set<string>()
 
   translate(raw: Record<string, unknown>): AgentEvent[] {
     /*
@@ -152,9 +162,45 @@ export class ClaudeStreamTranslator {
     const task = taskSystemEvent(o)
     if (task) return [task]
 
-    // 其余只关心 init。status / commands_changed（16KB 的命令表）/ api_retry
-    // 一律丢弃 —— 尤其 commands_changed 绝不能原样转给渲染进程。
+    /*
+     * 技能/插件变化时 CLI 会整份推送新的指令表。原始载荷约 16KB，
+     * 不能原样丢给渲染进程；这里只保留弹层要用的字段，作为
+     * native_commands 事件上抛（替换语义）。
+     */
+    if (o.subtype === 'commands_changed') {
+      return [
+        {
+          t: 'native_commands',
+          commands: claudeCommands(o.commands, {
+            skillNames: this.skillNames,
+            terminalNames: this.terminalNames
+          })
+        }
+      ]
+    }
+
+    /*
+     * 权限模式变了：宿主通过控制协议切换成功，或 CLI 自己回落到别的模式
+     * （例如 auto 不可用）。其它 status（compacting 等）仍然丢弃。
+     */
+    if (o.subtype === 'status') {
+      return typeof o.permissionMode === 'string' && o.permissionMode
+        ? [{ t: 'permission_mode_changed', mode: normalizePermissionMode(o.permissionMode) }]
+        : []
+    }
+
+    // 其余只关心 init。api_retry 一律丢弃。
     if (o.subtype !== 'init') return []
+
+    for (const name of Array.isArray(o.skills) ? o.skills : []) {
+      if (typeof name === 'string' && name.trim()) this.skillNames.add(name.trim().toLowerCase())
+    }
+    for (const name of Array.isArray(o.terminal_slash_commands) ? o.terminal_slash_commands : []) {
+      if (typeof name === 'string' && name.trim()) {
+        this.terminalNames.add(name.trim().toLowerCase())
+      }
+    }
+
     return [
       {
         t: 'session_started',
@@ -163,7 +209,7 @@ export class ClaudeStreamTranslator {
         model: str(o.model),
         cwd: str(o.cwd),
         tools: Array.isArray(o.tools) ? o.tools.filter((x): x is string => typeof x === 'string') : [],
-        permissionMode: normalizeMode(o.permissionMode)
+        permissionMode: normalizePermissionMode(o.permissionMode)
       }
     ]
   }

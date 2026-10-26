@@ -313,8 +313,15 @@ export function clampChatFontSize(v: unknown): number {
  */
 export type CliId = 'claude' | 'codex' | 'dsh'
 
-/** DeepSeek Harness 在没配渠道时使用的默认模型 */
-export const DSH_DEFAULT_MODEL = 'deepseek-v4-flash'
+/**
+ * DeepSeek Harness 在没配渠道时使用的默认模型。
+ *
+ * 值是 dsh 运行时目录里的**模型 id**，不是显示名：0.2 的目录里 V4.1 Flash
+ * 的 id 是 `deepseek-flash`（显示名「DeepSeek-V4.1-Flash」），Pro 是
+ * `deepseek-v4-pro`。写错 id 的话 dsh 会回一句「没有这个模型」然后静默用
+ * 它自己的默认值。
+ */
+export const DSH_DEFAULT_MODEL = 'deepseek-flash'
 
 export interface CliDef {
   id: CliId

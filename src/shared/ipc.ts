@@ -9,12 +9,25 @@ import type {
   ClaudeAuthStatus,
   ClaudeLoginSnapshot
 } from './claude'
-import type { Channel, ChannelTestResult, EffortLevel, Settings } from './settings'
+import type { Channel, ChannelTestResult, CliId, EffortLevel, Settings } from './settings'
+import type {
+  DshHomeOption,
+  McpListResult,
+  McpMigrationPreview,
+  McpMigrationResult,
+  McpMutationResult,
+  McpScope,
+  McpServerInput,
+  McpTestResult
+} from './mcp'
 import type { AgentEvent, PermissionMode } from './events'
 import type {
   PermissionDecision,
   QuestionAnswer,
   SessionEventPayload,
+  SessionMetaMap,
+  SessionMetaUpdate,
+  SessionSearchResult,
   SessionSendInput,
   SessionSendResult,
   SessionStartOptions,
@@ -38,6 +51,9 @@ import type {
   IdeSaveRequest,
   IdeSearchRequest,
   IdeSearchResult,
+  IdeSearchStartRequest,
+  IdeSearchStartResult,
+  IdeSearchStreamEvent,
   IdeTarget,
   IdeTextFile
 } from './ide'
@@ -48,6 +64,7 @@ import type {
   IdeSendResult
 } from './ide-chat'
 import type { VcsApi } from './vcs'
+import type { SyncApi } from './sync'
 import type { UpdateInstallResult, UpdateState } from './update'
 import type { RendererLogReport } from './log'
 import type { LocaleInfo } from './i18n/locale'
@@ -82,6 +99,20 @@ export const IPC = {
   /** 主进程 → 渲染进程：设置被他处改动 */
   settingsChanged: 'settings:changed',
 
+  /* ── MCP（直接管理各 CLI 原生配置） ─────────────────────── */
+  mcpList: 'mcp:list',
+  mcpSave: 'mcp:save',
+  mcpRemove: 'mcp:remove',
+  mcpSetEnabled: 'mcp:set-enabled',
+  mcpTest: 'mcp:test',
+  mcpTestAll: 'mcp:test-all',
+  mcpDshHomes: 'mcp:dsh-homes',
+  mcpOpenConfig: 'mcp:open-config',
+  mcpRevealConfig: 'mcp:reveal-config',
+  mcpOpenBackups: 'mcp:open-backups',
+  mcpMigration: 'mcp:migration',
+  mcpMigrate: 'mcp:migrate',
+
   /** 渲染进程 → 主进程：未捕获错误 / Promise 拒绝，只用于写本地日志 */
   rendererLog: 'log:renderer',
 
@@ -95,6 +126,8 @@ export const IPC = {
 
   sessionStart: 'session:start',
   sessionSend: 'session:send',
+  /** 执行 CLI 原生指令（Codex 的 compact 等），不是发给模型 */
+  sessionCommand: 'session:command',
   sessionInterrupt: 'session:interrupt',
   sessionStop: 'session:stop',
   sessionRespondPermission: 'session:respond-permission',
@@ -106,6 +139,11 @@ export const IPC = {
   sessionsList: 'sessions:list',
   sessionsTranscript: 'sessions:transcript',
   sessionsDelete: 'sessions:delete',
+  /** 应用本地的会话元数据（重命名 / 置顶 / 归档） */
+  sessionsMeta: 'sessions:meta',
+  sessionsSetMeta: 'sessions:set-meta',
+  /** 跨会话搜索对话内容；标题匹配在渲染层用已有的列表完成 */
+  sessionsSearch: 'sessions:search',
   /** 弹系统目录选择器，返回选中的目录（取消 = null） */
   sessionsPickDir: 'sessions:pick-dir',
   /** 搜索当前工作区里的文件，供 @ 引用使用 */
@@ -125,6 +163,10 @@ export const IPC = {
   ideReadFile: 'ide:read-file',
   ideReadImage: 'ide:read-image',
   ideSearchCode: 'ide:search-code',
+  /** 流式搜索：启动 / 取消 / 主进程推送批次 */
+  ideSearchStart: 'ide:search-start',
+  ideSearchCancel: 'ide:search-cancel',
+  ideSearchEvent: 'ide:search-event',
   ideReplaceInWorkspace: 'ide:replace-in-workspace',
   ideSaveFile: 'ide:save-file',
   ideCreateEntry: 'ide:create-entry',
@@ -164,11 +206,28 @@ export const IPC = {
   vcsPull: 'vcs:pull',
   vcsPush: 'vcs:push',
   vcsUpdate: 'vcs:update',
+  vcsBranches: 'vcs:branches',
+  vcsWorktreeMap: 'vcs:worktree-map',
   vcsWorktreeList: 'vcs:worktree-list',
   vcsWorktreeAdd: 'vcs:worktree-add',
+  vcsMergeWorktree: 'vcs:merge-worktree',
   vcsWorktreeRemove: 'vcs:worktree-remove',
   vcsWorktreePrune: 'vcs:worktree-prune',
   vcsCancel: 'vcs:cancel',
+
+  /* ── 目录同步（单向镜像） ───────────────────────────── */
+  syncGet: 'sync:get',
+  syncSave: 'sync:save',
+  /** 弹系统目录选择器给源 / 目标目录用 */
+  syncPickDir: 'sync:pick-dir',
+  /** 立刻跑一轮完整核对 */
+  syncNow: 'sync:now',
+  /** 在系统文件管理器里打开目标目录 */
+  syncOpenTarget: 'sync:open-target',
+  /** 主进程 → IDE 渲染进程：状态快照 */
+  syncStatus: 'sync:status',
+  /** 主进程 → IDE 渲染进程：系统通知点击后切到同步视图 */
+  syncFocus: 'sync:focus',
 
   /* ── 工作树 → 新会话 ───────────────────────────────── */
   /** IDE → 主进程：请求在主窗口里用这个目录开一条新会话 */
@@ -214,6 +273,49 @@ export interface WindowApi {
     /** 用给定渠道跑一发真实请求，回报成功或端点给的原话 */
     test(channel: Channel): Promise<ChannelTestResult>
     onChanged(cb: (settings: Settings) => void): () => void
+  }
+
+  /**
+   * 直接管理各 CLI 的原生 MCP 配置。
+   *
+   * 写入前由主进程解析路径并做备份；`dshHome` 只对 DSH 有意义，
+   * 且必须是主进程列出的可用 home 之一。
+   */
+  mcp: {
+    list(cli: CliId, cwd: string, dshHome?: string): Promise<McpListResult>
+    save(
+      cli: CliId,
+      server: McpServerInput,
+      cwd: string,
+      dshHome?: string
+    ): Promise<McpMutationResult>
+    remove(cli: CliId, id: string, cwd: string, dshHome?: string): Promise<McpMutationResult>
+    setEnabled(
+      cli: CliId,
+      id: string,
+      enabled: boolean,
+      cwd: string,
+      dshHome?: string
+    ): Promise<McpMutationResult>
+    test(cli: CliId, server: McpServerInput): Promise<McpTestResult>
+    testAll(cli: CliId, cwd: string, dshHome?: string): Promise<McpListResult>
+    dshHomes(): Promise<DshHomeOption[]>
+    openConfig(
+      cli: CliId,
+      scope: McpScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }>
+    revealConfig(
+      cli: CliId,
+      scope: McpScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }>
+    openBackups(): Promise<{ ok: boolean; error?: string }>
+    /** 旧 `mcp-servers.json` 的迁移预览；count = 0 时不显示提示 */
+    migration(dshHome?: string): Promise<McpMigrationPreview>
+    migrate(ids: string[], dshHome?: string): Promise<McpMigrationResult>
   }
 
   codex: {
@@ -267,6 +369,8 @@ export interface WindowApi {
     start(options: SessionStartOptions): Promise<string>
     /** 文本 + 可选图片；只有图片没有文本也合法 */
     send(sessionId: string, input: SessionSendInput): Promise<SessionSendResult>
+    /** 执行 CLI 原生指令；unsupported 时返回 ok=false，由渲染层提示 */
+    command(sessionId: string, name: string, args?: string): Promise<SessionSendResult>
     interrupt(sessionId: string): void
     stop(sessionId: string): void
     /** 答复一条审批请求。always=true 表示本会话内同名工具不再询问。 */
@@ -308,6 +412,15 @@ export interface WindowApi {
      * 正在跑的那条会先把 CLI 进程收掉，否则 Windows 上文件被占着删不掉。
      */
     delete(cwd: string, id: string): Promise<{ ok: boolean; message?: string }>
+    /** 会话的本地元数据（重命名 / 置顶 / 归档），按 (cli, cwd, id) 索引 */
+    meta(): Promise<SessionMetaMap>
+    /** 修改一条会话的元数据，返回更新后的整份 map */
+    setMeta(update: SessionMetaUpdate): Promise<SessionMetaMap>
+    /**
+     * 搜索会话内容。主进程扫描各 CLI 的记录文件，只回命中片段；
+     * 标题匹配由渲染层用本地列表完成（那边才知道用户改过的标题）。
+     */
+    search(query: string, limit?: number, offset?: number): Promise<SessionSearchResult>
     /** 弹系统目录选择器给「打开工作区」用。取消返回 null */
     pickDir(): Promise<string | null>
   }
@@ -333,6 +446,12 @@ export interface WindowApi {
   vcs: VcsApi
 
   /**
+   * 目录同步。只有绑定到该工作区的 IDE 窗口能调用 —— 和 VCS 一样，
+   * 主进程按窗口绑定的工作区校验 `cwd`。
+   */
+  sync: SyncApi
+
+  /**
    * 独立 IDE 窗口的文件能力。
    *
    * 所有 `rel` 都是相对工作区的路径；主进程会做越界检查。
@@ -353,6 +472,12 @@ export interface WindowApi {
     readFile(cwd: string, rel: string): Promise<IdeFsResult<IdeTextFile>>
     readImage(cwd: string, rel: string): Promise<IdeFsResult<IdeImage>>
     searchCode(req: IdeSearchRequest): Promise<IdeSearchResult>
+    /** 启动流式搜索；结果通过 onSearchEvent 推送 */
+    startSearch(req: IdeSearchStartRequest): Promise<IdeSearchStartResult>
+    /** 取消自己发起的某个搜索；不传 requestId 时取消当前搜索 */
+    cancelSearch(requestId?: string): void
+    /** 订阅流式搜索结果；返回取消订阅函数 */
+    onSearchEvent(cb: (event: IdeSearchStreamEvent) => void): () => void
     /** 工作区全部替换；有未保存修改的文件由 dirtyRels 指定并跳过 */
     replaceInWorkspace(req: IdeReplaceRequest): Promise<IdeReplaceResult>
     saveFile(req: IdeSaveRequest): Promise<IdeFsResult<IdeTextFile>>

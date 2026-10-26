@@ -11,6 +11,7 @@ import {
   type ReactNode
 } from 'react'
 import type { PermissionMode, Usage } from '@shared/events'
+import type { NativeCommand } from '@shared/commands'
 import {
   CLIS,
   cliDef,
@@ -25,9 +26,10 @@ import {
   type SendKey
 } from '@shared/settings'
 import type { MessageKey } from '@shared/i18n'
+import { sameModel } from '@shared/model'
 import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
-import type { SessionSendInput } from '@shared/session'
+import type { SessionSendInput, SessionSendResult } from '@shared/session'
 import type { QueuedMessage, SendMeta } from '../useChat'
 import type { FileMatch } from '@shared/workspace'
 import { composeIdeMessage } from '../ideRef'
@@ -37,7 +39,7 @@ import { baseName } from '@shared/path'
 import type { ChangedFile } from '../changedFiles'
 import { ChangedFiles } from './ChangedFiles'
 import { CommandPopup, MentionPopup } from './ComposerPopups'
-import { filterCommands, type SlashCommand } from '../commands'
+import { buildCommandItems, filterCommands, type PopupCommand } from '../commands'
 import {
   IconBrain,
   IconChevronDown,
@@ -146,6 +148,10 @@ interface Props {
   cwd: string
   /** 本轮改过的文件。空数组 = 这一轮还没动过文件，那颗按钮就不出现 */
   changedFiles: ChangedFile[]
+  /** 当前 CLI 上报的原生指令；Codex / dsh 的静态表在渲染层直接合入 */
+  nativeCommands: NativeCommand[]
+  /** 宿主动作做不了的 CLI 原生指令（如 Codex compact）交给主进程 */
+  onRunCommand: (name: string, args?: string) => Promise<SessionSendResult>
   /** 发送快捷键：Enter 或 Ctrl/Cmd+Enter */
   sendKey: SendKey
   /** 当前会话里有没有内容 —— 换 CLI 会丢，有内容才值得拦一下 */
@@ -186,6 +192,8 @@ export function Composer({
   effort,
   cwd,
   changedFiles,
+  nativeCommands,
+  onRunCommand,
   sendKey,
   hasConversation,
   turns,
@@ -311,9 +319,13 @@ export function Composer({
   /** @ 检索的请求序号：慢请求回来时如果已经不是最新一次，就丢掉 */
   const mentionSeq = useRef(0)
 
+  const allCommands = useMemo(
+    () => buildCommandItems(t, cli, nativeCommands),
+    [t, cli, nativeCommands]
+  )
   const commandItems = useMemo(
-    () => (command ? filterCommands(command.query, t) : []),
-    [command, t]
+    () => (command ? filterCommands(allCommands, command.query) : []),
+    [command, allCommands]
   )
 
   /**
@@ -484,14 +496,76 @@ export function Composer({
     })
   }
 
+  /** 把一段文本塞进输入框；命令参数和 @ 引用共用一套聚焦逻辑 */
+  const insertCommandText = (value: string, caret = value.length): void => {
+    setText(value)
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+
+  /** CLI 原生指令：能直接发给 CLI 的发，宿主动作映射不了的走 app 动作 */
+  const runNativeCommand = (c: PopupCommand): void => {
+    if (c.run === 'send') {
+      /*
+       * 有参数提示的先填 `/name `，让用户补完再发送；没有提示的直接执行。
+       * 直接发送会走普通用户消息通道，CLI 自己识别 slash 指令。
+       */
+      if (c.argumentHint) insertCommandText(`${c.name} `)
+      else onSend({ text: c.name })
+      return
+    }
+
+    switch (c.action) {
+      case 'plan':
+        onModeChange('plan')
+        break
+      case 'insert':
+        if (c.insert === '@') {
+          setText('@')
+          setMention({ query: '', start: 0, active: 0, items: [], loading: true })
+          requestAnimationFrame(() => {
+            const el = inputRef.current
+            el?.focus()
+            el?.setSelectionRange(1, 1)
+          })
+        } else if (c.insert) {
+          insertCommandText(c.insert)
+        }
+        break
+      default:
+        break
+    }
+  }
+
+  /** 宿主动作做不了的指令交给主进程（目前是 Codex 的 compact） */
+  const runProviderCommand = (name: string): void => {
+    void onRunCommand(name)
+      .then((r) => {
+        if (!r.ok) {
+          showToast(r.message ?? t('composer.toast.commandUnsupported'))
+          return
+        }
+        if (name === 'compact') showToast(t('composer.toast.compactStarted'))
+      })
+      .catch(() => showToast(t('composer.toast.commandUnsupported')))
+  }
+
   /** 执行 / 指令。能本地做的本地做，需要 CLI 的才发出去 */
-  const runCommand = (c: SlashCommand): void => {
+  const runCommand = (c: PopupCommand): void => {
     if (c.disabled) {
       showToast(t('composer.toast.notReady', { name: c.name }))
       return
     }
     setCommand(null)
     setText('')
+
+    if (c.run === 'send') {
+      runNativeCommand(c)
+      return
+    }
 
     switch (c.action) {
       case 'clear':
@@ -500,7 +574,14 @@ export function Composer({
         showToast(t('composer.toast.cleared'))
         break
       case 'compact':
-        onSend({ text: c.name })
+        /*
+         * Claude 自己会分发 /compact；Codex 需要 app-server 的
+         * thread/compact/start；dsh 的 ACP 没有这个能力 —— 直接提示，
+         * 不能为了报错先白拉起一个 dsh 进程。
+         */
+        if (cli === 'claude') onSend({ text: c.name })
+        else if (cli === 'codex') runProviderCommand('compact')
+        else showToast(t('composer.toast.commandUnsupported'))
         break
       case 'model':
         setOpenPicker('model')
@@ -522,14 +603,15 @@ export function Composer({
           })
         )
         break
+      case 'plan':
+        onModeChange('plan')
+        break
+      case 'insert':
+        runNativeCommand(c)
+        break
       case 'help':
-        setText('/')
+        insertCommandText('/', 1)
         setCommand({ query: '', active: 0 })
-        requestAnimationFrame(() => {
-          const el = inputRef.current
-          el?.focus()
-          el?.setSelectionRange(1, 1)
-        })
         break
       default:
         break
@@ -732,6 +814,7 @@ export function Composer({
             items={commandItems}
             active={command.active}
             query={command.query}
+            cli={cli}
             onPick={runCommand}
             onHover={(index) =>
               setCommand((c) => (c ? { ...c, active: index } : c))
@@ -1527,17 +1610,30 @@ function ModelPicker({
     new Set([ch?.model ?? '', ...(ch?.models ?? [])].map((s) => s.trim()).filter(Boolean))
   )
 
-  /** 无渠道模式的模型列：设置里的默认模型 + 几个常用别名 */
+  /**
+   * 无渠道模式的模型列：设置里的默认模型 + 几个常用别名。
+   *
+   * 还要把**这条会话自己正在用的模型**塞进去 —— 模型是会话级的，
+   * 它可能和设置里的默认值不同（甚至是个不在常用列表里的自定义名）。
+   * 不补这一项，选择器就画不出「当前用它」的勾。
+   */
   const officialModel = (viewCfg.officialModel ?? '').trim()
-  const officialOptions = [
-    { value: officialModel, label: officialModel || t('composer.picker.default') },
-    ...(viewCli === 'dsh'
-      ? ['deepseek-v4-flash', 'deepseek-v4-pro']
-      : ['sonnet', 'opus', 'haiku']
-    )
-      .filter((m) => m !== officialModel)
-      .map((m) => ({ value: m, label: m }))
-  ]
+  const sessionModel = (viewCli === cli ? model : '').trim()
+  const officialOptions = Array.from(
+    new Set([
+      officialModel,
+      ...(viewCli === 'dsh'
+        ? ['deepseek-flash', 'deepseek-v4-pro']
+        : ['sonnet', 'opus', 'haiku']
+      ),
+      ...(sessionModel ? [sessionModel] : [])
+    ])
+  ).map((m) => ({ value: m, label: m || t('composer.picker.default') }))
+  /** 勾选口径：会话有显式模型看会话，没有就看设置里的默认值 */
+  const officialInUse = sessionModel || officialModel
+  const officialIsOn = (value: string): boolean =>
+    modelInUse &&
+    ((value === '' && officialInUse === '') || sameModel(value, officialInUse))
 
   /**
    * 弹层高度锁成「所有预览里最长的那一列」。
@@ -1693,31 +1789,29 @@ function ModelPicker({
             ? officialOptions.map((o, i) => (
                 <button
                   key={o.value || '__default__'}
-                  className={`mpick__it ${
-                    modelInUse && o.value === officialModel ? 'is-on' : ''
-                  }`}
+                  className={`mpick__it ${officialIsOn(o.value) ? 'is-on' : ''}`}
                   onClick={() => pickModel(o.value)}
                 >
                   <span className="mpick__name mpick__name--mono">{o.label}</span>
                   {i === 0 && (
                     <span className="mpick__pill">{t('composer.picker.defaultPill')}</span>
                   )}
-                  <span className="mpick__tick">
-                    {modelInUse && o.value === officialModel ? '✓' : ''}
-                  </span>
+                  <span className="mpick__tick">{officialIsOn(o.value) ? '✓' : ''}</span>
                 </button>
               ))
             : options.map((m, i) => (
                 <button
                   key={m}
-                  className={`mpick__it ${modelInUse && m === model ? 'is-on' : ''}`}
+                  className={`mpick__it ${modelInUse && sameModel(m, model) ? 'is-on' : ''}`}
                   onClick={() => pickModel(m)}
                 >
                   <span className="mpick__name mpick__name--mono">{m}</span>
                   {i === 0 && (
                     <span className="mpick__pill">{t('composer.picker.defaultPill')}</span>
                   )}
-                  <span className="mpick__tick">{modelInUse && m === model ? '✓' : ''}</span>
+                  <span className="mpick__tick">
+                    {modelInUse && sameModel(m, model) ? '✓' : ''}
+                  </span>
                 </button>
               ))}
           {!officialShown && options.length === 0 && (

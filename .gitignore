@@ -2,6 +2,8 @@ node_modules/
 out/
 dist/
 release/
+# stage-rg 从 node_modules 复制出来的二进制，不入库
+build/rg/
 # 打包时临时 TMP（%TEMP% 被安全软件锁住时绕开）
 .buildtmp/
 .tmp-build/

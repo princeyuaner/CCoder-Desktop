@@ -64,11 +64,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
+  padding: 7px 10px;
   font-size: 13.5px;
   color: var(--text-dim);
   border-radius: var(--radius-sm);
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .settings__navitem:hover {
   background: var(--bg-hover);

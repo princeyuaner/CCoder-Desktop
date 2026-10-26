@@ -1,5 +1,6 @@
 import type { FileMatch } from '@shared/workspace'
-import type { SlashCommand } from '../commands'
+import { cliDef, type CliId } from '@shared/settings'
+import type { PopupCommand } from '../commands'
 import { useI18n } from '../i18n'
 
 /* ── @ 文件引用 ─────────────────────────────────────────── */
@@ -120,14 +121,17 @@ export function MentionPopup({
 /* ── / 系统指令 ─────────────────────────────────────────── */
 
 interface CommandProps {
-  items: SlashCommand[]
+  items: PopupCommand[]
   active: number
   query: string
-  onPick: (c: SlashCommand) => void
+  /** 当前会话用的 CLI —— 标题右侧显示它，避免切了 CLI 还挂着旧名字 */
+  cli: CliId
+  onPick: (c: PopupCommand) => void
   onHover: (index: number) => void
 }
 
-function commandGlyph(c: SlashCommand): string {
+function commandGlyph(c: PopupCommand): string {
+  if (c.glyph) return c.glyph
   switch (c.name) {
     case '/clear':
       return '✕'
@@ -156,25 +160,25 @@ export function CommandPopup({
   items,
   active,
   query,
+  cli,
   onPick,
   onHover
 }: CommandProps): JSX.Element {
   const { t } = useI18n()
   const selected = items[active]
-  const groups: { name: string; rows: { c: SlashCommand; index: number }[] }[] = []
+  const groups: { name: string; rows: { c: PopupCommand; index: number }[] }[] = []
   for (let i = 0; i < items.length; i++) {
     const c = items[i]
-    const name = t(c.groupKey)
     const last = groups[groups.length - 1]
-    if (last && last.name === name) last.rows.push({ c, index: i })
-    else groups.push({ name, rows: [{ c, index: i }] })
+    if (last && last.name === c.group) last.rows.push({ c, index: i })
+    else groups.push({ name: c.group, rows: [{ c, index: i }] })
   }
 
   return (
     <div className="cpop cpop--command" role="listbox" aria-label={t('command.aria')}>
       <div className="cpop__head">
         <span className="cpop__title">{t('command.title')}</span>
-        <span className="cpop__scope">Claude Code</span>
+        <span className="cpop__scope">{cliDef(cli).name}</span>
         <span className="cpop__hint">{t('command.filter')}</span>
       </div>
       <div className="cpop__query">
@@ -207,7 +211,7 @@ export function CommandPopup({
                   >
                     <span className="ccmd__ico">{commandGlyph(c)}</span>
                     <span className="ccmd__name">{c.name}</span>
-                    <span className="ccmd__desc">{t(c.descriptionKey)}</span>
+                    <span className="ccmd__desc">{c.description}</span>
                     {c.disabled && (
                       <span className="ccmd__tag">{t('command.notReady')}</span>
                     )}
@@ -219,15 +223,28 @@ export function CommandPopup({
 
           {selected && (
             <div className="ccmd-detail">
-              <div className="ccmd-detail__kicker">{t(selected.groupKey)}</div>
+              <div className="ccmd-detail__kicker">{selected.group}</div>
               <div className="ccmd-detail__name">{selected.name}</div>
-              <p className="ccmd-detail__desc">{t(selected.detailKey)}</p>
-              {selected.warningKey && (
-                <p className="ccmd-detail__warn">{t(selected.warningKey)}</p>
+              {selected.source === 'cli' && selected.label && (
+                <div className="ccmd-detail__label">{selected.label}</div>
               )}
+              <p className="ccmd-detail__desc">{selected.detail ?? selected.description}</p>
+              {selected.argumentHint && (
+                <p className="ccmd-detail__args">
+                  <span>{t('command.argumentHint')}</span>
+                  {selected.argumentHint}
+                </p>
+              )}
+              {selected.warning && <p className="ccmd-detail__warn">{selected.warning}</p>}
               <div className="ccmd-detail__foot">
                 <span className="ccmd-key">Enter</span>
-                <span>{selected.disabled ? t('command.viewInfo') : t('command.run')}</span>
+                <span>
+                  {selected.disabled
+                    ? t('command.viewInfo')
+                    : selected.run === 'send' && selected.argumentHint
+                      ? t('command.insert')
+                      : t('command.run')}
+                </span>
                 <span className="ccmd-dot">·</span>
                 <span className="ccmd-key">Esc</span>
                 <span>{t('command.close')}</span>

@@ -30,6 +30,23 @@ export const IconPlus = (p: IconProps) => (
   </svg>
 )
 
+/** 分支 / 工作树共用：一条主干带一个分叉 */
+export const IconBranch = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="4.5" cy="3" r="1.5" />
+    <circle cx="4.5" cy="13" r="1.5" />
+    <circle cx="11.5" cy="5" r="1.5" />
+    <path d="M4.5 4.5v7" />
+    <path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" />
+  </svg>
+)
+
+export const IconArrowRight = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" />
+  </svg>
+)
+
 export const IconSearch = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="7" cy="7" r="4.5" />
@@ -68,6 +85,28 @@ export const IconClock = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="8" cy="8" r="5.6" />
     <path d="M8 5v3.2l2 1.3" />
+  </svg>
+)
+
+export const IconPin = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M6 2.5h4l-.5 3 2 2v1H4.5v-1l2-2z" />
+    <path d="M8 8.5v5" />
+  </svg>
+)
+
+export const IconPencil = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M10.5 2.7 13.3 5.5 5.8 13H3v-2.8z" />
+    <path d="M9.2 4l2.8 2.8" />
+  </svg>
+)
+
+export const IconArchive = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2" y="3" width="12" height="3" rx="1" />
+    <path d="M3 6v6.5A1.5 1.5 0 0 0 4.5 14h7A1.5 1.5 0 0 0 13 12.5V6" />
+    <path d="M6.5 9h3" />
   </svg>
 )
 
@@ -156,6 +195,20 @@ export const IconCheck = (p: IconProps) => (
   </svg>
 )
 
+export const IconX = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />
+  </svg>
+)
+
+/** 圆圈加一道斜杠：用于「已拒绝」。比文字 ⊘ 在小字号下更清晰 */
+export const IconSlash = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.6" />
+    <path d="m4.1 11.9 7.8-7.8" />
+  </svg>
+)
+
 /** 外链：方框右上角带一个箭头 */
 export const IconExternal = (p: IconProps) => (
   <svg {...base(p)}>
@@ -168,6 +221,119 @@ export const IconGear = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="8" cy="8" r="2.2" />
     <path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2 3.6 12.4" />
+  </svg>
+)
+
+/* ── MCP 管理 ───────────────────────────────────────────── */
+
+export const IconInfo = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.8" />
+    <path d="M8 7.2v3.4" />
+    <circle cx="8" cy="4.9" r=".65" fill="currentColor" stroke="none" />
+  </svg>
+)
+
+export const IconCode = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M5.8 4.2 2.6 8l3.2 3.8M10.2 4.2 13.4 8l-3.2 3.8" />
+  </svg>
+)
+
+export const IconTrash = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.8 4.5h10.4M6 2.8h4M4.2 4.5l.6 8.1a1.2 1.2 0 0 0 1.2 1.1h4a1.2 1.2 0 0 0 1.2-1.1l.6-8.1M6.6 7v3.6M9.4 7v3.6" />
+  </svg>
+)
+
+export const IconServer = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="2.5" width="11" height="4.2" rx="1.2" />
+    <rect x="2.5" y="9.3" width="11" height="4.2" rx="1.2" />
+    <path d="M5 4.6h.1M5 11.4h.1M8 4.6h3M8 11.4h3" />
+  </svg>
+)
+
+export const IconGlobe = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.6" />
+    <path d="M2.6 8h10.8M8 2.4c1.5 1.6 2.2 3.5 2.2 5.6S9.5 12 8 13.6C6.5 12 5.8 10.1 5.8 8S6.5 4 8 2.4z" />
+  </svg>
+)
+
+export const IconDatabase = (p: IconProps) => (
+  <svg {...base(p)}>
+    <ellipse cx="8" cy="4.2" rx="4.8" ry="1.9" />
+    <path d="M3.2 4.2v7.6c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9V4.2M3.2 8c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9" />
+  </svg>
+)
+
+export const IconWrench = (p: IconProps) => (
+  <svg {...base(p)} viewBox="0 0 24 24" strokeWidth={1.8}>
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+  </svg>
+)
+
+export const IconRefresh = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M13.2 6.4A5.4 5.4 0 1 0 13 10" />
+    <path d="M13.4 2.8v3.7H9.7" />
+  </svg>
+)
+
+export const IconAlert = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M8 2.7 14 13H2z" />
+    <path d="M8 6.2v3.1" />
+    <circle cx="8" cy="11.2" r=".65" fill="currentColor" stroke="none" />
+  </svg>
+)
+
+export const IconShield = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M8 1.8 13 3.6v4.2c0 3-2 5.2-5 6.4-3-1.2-5-3.4-5-6.4V3.6z" />
+    <path d="m5.7 7.9 1.5 1.5 3-3.2" />
+  </svg>
+)
+
+export const IconLog = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 2.8h8A1.2 1.2 0 0 1 13.2 4v8.5L11 10.9H4A1.2 1.2 0 0 1 2.8 9.7V4A1.2 1.2 0 0 1 4 2.8z" />
+    <path d="M5.5 5.5h5M5.5 8h3.6" />
+  </svg>
+)
+
+export const IconFile = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.8z" />
+    <path d="M9.2 1.8v4h3.8" />
+  </svg>
+)
+
+export const IconMessage = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M13.5 9.2a1.8 1.8 0 0 1-1.8 1.8H6l-3.5 2.5v-2.7a1.8 1.8 0 0 1-1-1.6V4.3a1.8 1.8 0 0 1 1.8-1.8h7.4a1.8 1.8 0 0 1 1.8 1.8z" />
+    <path d="M5 5.8h6M5 8.2h3.6" />
+  </svg>
+)
+
+export const IconUser = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="5.3" r="2.5" />
+    <path d="M3.3 13.5c.5-2.3 2.3-3.5 4.7-3.5s4.2 1.2 4.7 3.5" />
+  </svg>
+)
+
+export const IconPlay = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.6" />
+    <path d="m6.5 5.4 3.7 2.6-3.7 2.6z" />
+  </svg>
+)
+
+export const IconUpload = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M8 10V2.5M5 5.5l3-3 3 3M2.8 10v2.3a1.2 1.2 0 0 0 1.2 1.2h8a1.2 1.2 0 0 0 1.2-1.2V10" />
   </svg>
 )
 

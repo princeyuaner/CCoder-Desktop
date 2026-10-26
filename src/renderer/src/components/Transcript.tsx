@@ -19,10 +19,19 @@ import {
   type ChatItem,
   type SystemKey
 } from '../useChat'
+import type { ImageAttachment } from '@shared/attachment'
+import { ImageLightbox } from './ImageLightbox'
 import { RichText } from './rich'
 import { fmtClock, fmtTokens, totalTokens } from './format'
 import type { TabKey } from './TabBar'
-import { IconChevronDown, IconChevronRight, IconOpenInIde } from './Icons'
+import {
+  IconCheck,
+  IconChevronDown,
+  IconChevronRight,
+  IconOpenInIde,
+  IconSlash,
+  IconX
+} from './Icons'
 import { notify } from '../notice'
 import { baseName } from '@shared/path'
 import { parseIdeRefs, refRangeLabel, type ParsedIdeRef } from '../ideRef'
@@ -85,13 +94,20 @@ interface DisplayPrefs {
   toolDetail: ToolDetail
   /** 会话工作区 —— 工具卡点开文件时，主进程用它把绝对路径换算成 rel */
   cwd: string
+  /**
+   * 这一轮还在跑。运行中的工具卡靠它决定要不要继续跳耗时：
+   * 进程退出 / 被打断时可能收不到 tool_result，没有这道闸，
+   * 已经结束的会话里会一直有个秒表在走。
+   */
+  live: boolean
 }
 
 const DEFAULT_DISPLAY: DisplayPrefs = {
   showTimestamps: false,
   thinkingOpen: false,
   toolDetail: 'full',
-  cwd: ''
+  cwd: '',
+  live: false
 }
 
 const DisplayContext = createContext<DisplayPrefs>(DEFAULT_DISPLAY)
@@ -99,6 +115,57 @@ const DisplayContext = createContext<DisplayPrefs>(DEFAULT_DISPLAY)
 /** 毫秒 → 「12ms」/「1.4s」 */
 function fmtMs(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+}
+
+/**
+ * 失败工具卡在折叠态露出的错误摘要。
+ *
+ * `content` 是 CLI 返回的整段输出，可能几十 KB；这里只挑一行最像错误的，
+ * 让失败卡不用展开也能读出原因。退出码有就单独标出来 —— Codex 直接给
+ * `Exit code: N`，DSH 的输出里是 `[exit code: N]`。
+ */
+function errorSummaryOf(content: string | undefined): { code?: string; text: string } {
+  const raw = (content ?? '')
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\r\n/g, '\n')
+  if (!raw.trim()) return { text: '' }
+
+  const codeMatch =
+    raw.match(/\[exit code:\s*(-?\d+)\]/i) ??
+    raw.match(/(?:exit code|exited with code|退出码)\s*[:=]?\s*(-?\d+)/i)
+
+  const lines = raw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^\[?exit code\b/i.test(l))
+
+  // 优先挑真正说明问题的那一行；没有就退回第一行非空输出
+  const hit =
+    lines.find((l) =>
+      /\b(error|exception|failed|failure|fatal|timed out|timeout|cannot|not found|no such file|permission denied)\b/i.test(
+        l
+      )
+    ) ??
+    lines[0] ??
+    ''
+
+  return { code: codeMatch?.[1], text: hit.replace(/\s+/g, ' ').slice(0, 300) }
+}
+
+/**
+ * 运行中的工具卡每 500ms 自己重算一次耗时。
+ *
+ * 只给 running 行挂定时器，结算后自动清掉；历史回放的 startedAt 是 0，
+ * 算出来没意义，直接不跑。
+ */
+function useToolElapsed(active: boolean, startedAt: number): number | undefined {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (!active || !startedAt) return
+    const id = window.setInterval(() => tick((n) => n + 1), 500)
+    return () => window.clearInterval(id)
+  }, [active, startedAt])
+  return active && startedAt ? Date.now() - startedAt : undefined
 }
 
 /** 折叠时取开头一行当摘要 */
@@ -183,8 +250,14 @@ export function Transcript({
 
   // 只在设置真的变了时换 context 值，避免每来一个 delta 都把消费方全部重渲染
   const display = useMemo<DisplayPrefs>(
-    () => ({ showTimestamps, thinkingOpen, toolDetail, cwd }),
-    [showTimestamps, thinkingOpen, toolDetail, cwd]
+    () => ({
+      showTimestamps,
+      thinkingOpen,
+      toolDetail,
+      cwd,
+      live: status === 'running' || status === 'starting'
+    }),
+    [showTimestamps, thinkingOpen, toolDetail, cwd, status]
   )
 
   /** 贴到底部，并记下浏览器实际落在哪儿（内容比视口短时会被夹到 0） */
@@ -425,6 +498,46 @@ function PendingRow({
 /* ── 一个事件 = 一个节点 ────────────────────────────────── */
 
 /**
+ * 用户消息里的图片。
+ *
+ * 缩略图双击打开大图。状态放在这一层而不是 Row 里：Row 是 memo 的，
+ * 打开预览的 setState 如果挂在 Row 上，同一条消息会因为弹层开关整行重渲染。
+ */
+function UserImages({ images }: { images: ImageAttachment[] }): JSX.Element {
+  const { t } = useI18n()
+  const [preview, setPreview] = useState<ImageAttachment | null>(null)
+
+  return (
+    <>
+      <div className="tl__me-imgs">
+        {images.map((img) => (
+          <img
+            key={img.id}
+            className="tl__me-img"
+            src={`data:${img.mediaType};base64,${img.data}`}
+            alt={img.name}
+            title={`${img.name} · ${t('transcript.imageHint')}`}
+            onDoubleClick={() => setPreview(img)}
+          />
+        ))}
+      </div>
+      {preview && (
+        <ImageLightbox
+          src={`data:${preview.mediaType};base64,${preview.data}`}
+          alt={preview.name}
+          meta={
+            preview.width && preview.height
+              ? `${preview.name} · ${preview.width} × ${preview.height}`
+              : preview.name
+          }
+          onClose={() => setPreview(null)}
+        />
+      )}
+    </>
+  )
+}
+
+/**
  * 一条事件一行。
  *
  * **必须 memo。** 一条长会话能到 5000+ 行、5 万+ DOM 节点；不 memo 的话，
@@ -442,19 +555,7 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
         // 气泡靠右 —— 一眼分得开谁在说
         <div className="tl__row tl__row--me">
           <div className="tl__meblock">
-            {item.images && item.images.length > 0 && (
-              <div className="tl__me-imgs">
-                {item.images.map((img) => (
-                  <img
-                    key={img.id}
-                    className="tl__me-img"
-                    src={`data:${img.mediaType};base64,${img.data}`}
-                    alt={img.name}
-                    title={img.name}
-                  />
-                ))}
-              </div>
-            )}
+            {item.images && item.images.length > 0 && <UserImages images={item.images} />}
             <UserBubble text={item.text} />
             {showTimestamps && item.at && (
               <span className="tl__me-time">{formatTimestamp(item.at, locale)}</span>
@@ -650,7 +751,7 @@ function ThinkingLine({ item }: { item: Extract<ChatItem, { kind: 'thinking' }> 
  */
 function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.Element {
   const { t } = useI18n()
-  const { toolDetail, cwd } = useContext(DisplayContext)
+  const { toolDetail, cwd, live } = useContext(DisplayContext)
   const [open, setOpen] = useState(false)
   const family = toolFamily(item.name)
   // Bash 永远有命令可看；文件工具要等结果回来才有内容
@@ -660,8 +761,30 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
   /** 「精简」把目录和工具族标签收掉，只留图标 + 主题 + 统计 + 耗时 */
   const showMeta = toolDetail === 'full'
   const label = FAMILY_LABEL[family] || item.name.toUpperCase()
+  /** 运行中的耗时自己跳；结算后用的是结果里的真实耗时 */
+  const elapsed = useToolElapsed(item.status === 'running' && live, item.startedAt)
   const time =
-    item.status === 'running' ? t('transcript.running') : item.ms !== undefined ? fmtMs(item.ms) : ''
+    item.status === 'running'
+      ? elapsed !== undefined
+        ? fmtMs(elapsed)
+        : ''
+      : // 拒绝没有执行过程，写耗时会被误读成"跑了 76ms 才被拒"
+        item.status === 'denied'
+        ? '—'
+        : item.ms !== undefined
+          ? fmtMs(item.ms)
+          : ''
+  /** 失败时在折叠态留一行摘要，不展开也能看出错在哪 */
+  const err = item.status === 'error' ? errorSummaryOf(item.content) : null
+  const showError = !!err?.text && expandable && !open
+  const stateLabel =
+    item.status === 'ok'
+      ? t('transcript.toolOk')
+      : item.status === 'error'
+        ? t('transcript.toolFailed')
+        : item.status === 'denied'
+          ? t('transcript.toolDenied')
+          : t('transcript.running')
   const stat = item.stat
   const showStat = !!stat && (stat.added > 0 || stat.removed > 0)
   /** 文件类工具（Read / Write / Edit…）才有 path；点击去 IDE 里看 */
@@ -734,6 +857,32 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         )}
         {showMeta && item.dir && <span className="tool__dir">{item.dir}</span>}
         {showMeta && <span className="tool__name">{label}</span>}
+        <span
+          className={`tool__state tool__state--${item.status}`}
+          title={stateLabel}
+          role={item.status === 'ok' ? 'img' : undefined}
+          {...(item.status === 'ok' ? { 'aria-label': stateLabel } : {})}
+        >
+          {item.status === 'ok' && <IconCheck width={10} height={10} />}
+          {item.status === 'error' && (
+            <>
+              <IconX width={10} height={10} />
+              {stateLabel}
+            </>
+          )}
+          {item.status === 'denied' && (
+            <>
+              <IconSlash width={10} height={10} />
+              {stateLabel}
+            </>
+          )}
+          {item.status === 'running' && (
+            <>
+              <span className="tool__spin" aria-hidden="true" />
+              {stateLabel}
+            </>
+          )}
+        </span>
         <span className="tool__time">{time}</span>
         {expandable && (
           <button
@@ -753,6 +902,23 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
           </button>
         )}
       </div>
+      {showError && err && (
+        <button
+          type="button"
+          className="tool__err"
+          title={t('transcript.expandError')}
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen(true)
+          }}
+        >
+          {err.code && (
+            <span className="tool__errcode">{t('transcript.exitCode', { code: err.code })}</span>
+          )}
+          <span className="tool__errmsg">{err.text}</span>
+          <span className="tool__errmore">{t('transcript.expandError')} ›</span>
+        </button>
+      )}
       {open && expandable && (
         <div className="tool__body">
           {item.command && <pre className="tool__cmd selectable">{item.command}</pre>}

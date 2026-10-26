@@ -1,74 +1,31 @@
 import { promises as fs } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import type { FileMatch } from '../shared/workspace'
+import { listFilesWithRg } from './rg-files'
+import { WORKSPACE_MAX_DEPTH, WORKSPACE_MAX_ENTRIES } from './search-limits'
+import { isIgnoredWorkspacePath } from './workspace-ignore'
 
 /**
  * 工作区文件检索 —— 纯 Node，不 import Electron。
  *
- * 被 `@` 文件引用使用。刻意**不在渲染进程里做**：renderer 没有 fs 权限，
- * 而且大项目递归扫描必须异步，不能卡住主进程处理 IPC。
+ * 优先用 `rg --files`（遵循 .gitignore、大仓库更快），失败时回退到递归
+ * `fs.readdir`。被 `@` 文件引用、快速打开、代码搜索和全部替换共用。
  *
- * 第一版不做 .gitignore 解析：用一份固定的忽略表覆盖常见的生成目录和敏感文件。
- * 这样没有依赖、行为可预测；以后需要精确跟随 .gitignore 再单独换实现。
+ * 缓存采用 stale-while-revalidate：文件变化只把缓存标记为 stale，下一次
+ * 输入先返回旧列表并在后台刷新，绝不让键盘输入等一次全量扫描。
  */
 
-/** 最多走这么多条目就停 —— 大项目返回部分结果，别把主进程拖死 */
-const MAX_ENTRIES = 50_000
-/** 目录深度上限，防止 node_modules 之类的意外深层结构 */
-const MAX_DEPTH = 12
+export { WORKSPACE_IGNORE_DIRS } from './workspace-ignore'
+
 /** 缓存多久；目录内容变化不频繁，15 秒足够让连续输入 @ 不重复扫盘 */
 const CACHE_TTL_MS = 15_000
+/** rg 失败后多久再试；期间直接用 Node 扫描 */
+const RG_RETRY_MS = 60_000
 /** 最多缓存几个工作区 */
 const MAX_ROOTS = 12
 /** 默认 / 最多返回条数 */
 const DEFAULT_LIMIT = 20
 const MAX_RESULTS = 60
-
-const IGNORE_DIRS = new Set([
-  'node_modules',
-  'out',
-  'dist',
-  'build',
-  'release',
-  'coverage',
-  '.next',
-  '.nuxt',
-  '.cache',
-  '.turbo',
-  '.parcel-cache',
-  'target',
-  'vendor',
-  '__pycache__',
-  '.venv',
-  'venv',
-  '.pytest_cache',
-  '.mypy_cache',
-  '.git',
-  '.claude',
-  '.idea',
-  '.vscode',
-  'logs'
-])
-
-const IGNORE_FILES = new Set([
-  '.DS_Store',
-  'Thumbs.db',
-  '.npmrc',
-  '.netrc'
-])
-
-function isIgnoredFile(name: string, rel: string): boolean {
-  if (IGNORE_FILES.has(name)) return true
-  if (/^\.env(\.|$)/i.test(name)) return true
-  if (/\.(log|pem|p12|pfx|key)$/i.test(name)) return true
-  if (/^id_(rsa|ed25519|ecdsa)(\.|$)/i.test(name)) return true
-  // verify 脚本 esbuild 出来的临时 bundle，体积大且没检索价值
-  if (rel.startsWith('tools/_') && rel.endsWith('.cjs')) return true
-  return false
-}
-
-/** IDE 文件树也用这一份忽略表，免得 node_modules 又冒出来 */
-export const WORKSPACE_IGNORE_DIRS: ReadonlySet<string> = IGNORE_DIRS
 
 /**
  * 扫描结果。搜索 / 替换必须知道列表是否完整：
@@ -83,16 +40,21 @@ export interface WorkspaceScanResult {
 interface Cached extends WorkspaceScanResult {
   /** resolve 后的真实根路径，用来读盘 */
   root: string
+  /** 写入缓存的时间 */
   at: number
+  /** 文件变化后置 true；仍可先返回，同时后台刷新 */
+  stale: boolean
+  /** 失效代数；扫描期间被失效就不要回填旧结果 */
+  gen: number
+  source: 'rg' | 'node'
 }
 
 const cache = new Map<string, Cached>()
 const inFlight = new Map<string, Promise<WorkspaceScanResult>>()
-/**
- * 失效代数。清缓存时递增，让失效前已经开始的扫描不要把它读到的旧目录
- * 内容再写回缓存 —— 否则外部改完文件后快速打开仍可能看到旧列表。
- */
-let generation = 0
+const rgInFlight = new Map<string, Promise<WorkspaceScanResult | null>>()
+/** 每个根工作区独立的失效代数 */
+const generations = new Map<string, number>()
+let rgUnavailableUntil = 0
 
 /** 缓存键：Windows 上盘符大小写不敏感，折叠一下；POSIX 保持原样 */
 function cacheKey(cwd: string): string {
@@ -100,7 +62,32 @@ function cacheKey(cwd: string): string {
   return process.platform === 'win32' ? root.toLowerCase() : root
 }
 
-const toPosix = (p: string): string => p.replace(/\\/g, '/')
+function generationOf(key: string): number {
+  return generations.get(key) ?? 0
+}
+
+function bumpGeneration(key: string): number {
+  const next = generationOf(key) + 1
+  generations.set(key, next)
+  return next
+}
+
+/** 只留最近用到的几个工作区，避免长时间运行后缓存无限涨 */
+function evictOldRoots(): void {
+  while (cache.size > MAX_ROOTS) {
+    const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+    if (!oldest) break
+    cache.delete(oldest[0])
+  }
+}
+
+function store(key: string, root: string, gen: number, source: 'rg' | 'node', result: WorkspaceScanResult): void {
+  if (gen !== generationOf(key)) return
+  cache.set(key, { root, at: Date.now(), stale: false, gen, source, ...result })
+  evictOldRoots()
+}
+
+/* ── Node 回退扫描 ─────────────────────────────────────────── */
 
 async function scan(root: string): Promise<WorkspaceScanResult> {
   const out: FileMatch[] = []
@@ -124,7 +111,7 @@ async function scan(root: string): Promise<WorkspaceScanResult> {
     }
 
     for (const ent of entries) {
-      if (++seen > MAX_ENTRIES) {
+      if (++seen > WORKSPACE_MAX_ENTRIES) {
         truncated = true
         return { files: out, truncated, incomplete }
       }
@@ -133,8 +120,8 @@ async function scan(root: string): Promise<WorkspaceScanResult> {
 
       const rel = dirRel ? `${dirRel}/${ent.name}` : ent.name
       if (ent.isDirectory()) {
-        if (IGNORE_DIRS.has(ent.name)) continue
-        if (depth >= MAX_DEPTH) {
+        if (isIgnoredWorkspacePath(rel)) continue
+        if (depth >= WORKSPACE_MAX_DEPTH) {
           truncated = true
           continue
         }
@@ -146,7 +133,8 @@ async function scan(root: string): Promise<WorkspaceScanResult> {
         })
         stack.push({ rel, depth: depth + 1 })
       } else if (ent.isFile()) {
-        if (isIgnoredFile(ent.name, rel)) continue
+        // 和 rg 路径保持一致：文件名命中的敏感文件 / 临时产物也跳过
+        if (isIgnoredWorkspacePath(rel)) continue
         out.push({
           path: rel,
           name: ent.name,
@@ -160,28 +148,31 @@ async function scan(root: string): Promise<WorkspaceScanResult> {
   return { files: out, truncated, incomplete }
 }
 
-function getScan(cwd: string): Promise<WorkspaceScanResult> {
+/**
+ * Node 扫描缓存。
+ *
+ * `fresh:true` 用于替换：等待一次新扫描；默认模式命中旧缓存立即返回，
+ * 过期 / stale 时后台刷新。
+ */
+function getNodeScan(cwd: string, fresh = false): Promise<WorkspaceScanResult> {
   const key = cacheKey(cwd)
   const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return Promise.resolve(hit)
+
+  if (!fresh && hit) {
+    if (hit.stale || Date.now() - hit.at >= CACHE_TTL_MS) {
+      void getNodeScan(cwd, true).catch(() => undefined)
+    }
+    return Promise.resolve(hit)
+  }
 
   const running = inFlight.get(key)
   if (running) return running
 
   const root = resolve(cwd)
-  const gen = generation
+  const gen = generationOf(key)
   const p = scan(root)
     .then((result) => {
-      // 扫描期间缓存被失效（外部文件变化）就不要回填旧结果
-      if (gen === generation) {
-        cache.set(key, { root, at: Date.now(), ...result })
-        // 只留最近用到的几个工作区，避免长时间运行后缓存无限涨
-        while (cache.size > MAX_ROOTS) {
-          const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
-          if (!oldest) break
-          cache.delete(oldest[0])
-        }
-      }
+      store(key, root, gen, 'node', result)
       return result
     })
     .finally(() => {
@@ -191,6 +182,76 @@ function getScan(cwd: string): Promise<WorkspaceScanResult> {
   inFlight.set(key, p)
   return p
 }
+
+/* ── rg 文件列表 + 缓存 ────────────────────────────────────── */
+
+async function scanWithRg(cwd: string): Promise<WorkspaceScanResult | null> {
+  if (Date.now() < rgUnavailableUntil) return null
+
+  const key = cacheKey(cwd)
+  const running = rgInFlight.get(key)
+  if (running) return running
+
+  const root = resolve(cwd)
+  const gen = generationOf(key)
+  const p = listFilesWithRg(root)
+    .then(async (result) => {
+      if (!result.ok) {
+        rgUnavailableUntil = Date.now() + RG_RETRY_MS
+        return null
+      }
+      const scanResult: WorkspaceScanResult = {
+        files: result.files,
+        truncated: result.truncated,
+        incomplete: result.incomplete
+      }
+      store(key, root, gen, 'rg', scanResult)
+      return scanResult
+    })
+    .catch(() => {
+      rgUnavailableUntil = Date.now() + RG_RETRY_MS
+      return null
+    })
+    .finally(() => {
+      rgInFlight.delete(key)
+    })
+
+  rgInFlight.set(key, p)
+  return p
+}
+
+/**
+ * 工作区完整条目表。rg 优先，失败回退 Node；`fresh:true` 时等待新列表。
+ *
+ * 默认模式下即使缓存 stale 也会先返回旧列表并后台刷新，避免快速打开在
+ * 每次文件变化后都卡一下。
+ */
+async function refreshWorkspaceFiles(cwd: string): Promise<void> {
+  const rgHit = await scanWithRg(cwd)
+  if (!rgHit) await getNodeScan(cwd, true)
+}
+
+async function getWorkspaceFiles(
+  cwd: string,
+  options: { fresh?: boolean } = {}
+): Promise<WorkspaceScanResult> {
+  const key = cacheKey(cwd)
+  const fresh = options.fresh === true
+  const hit = cache.get(key)
+
+  if (!fresh && hit) {
+    if (hit.stale || Date.now() - hit.at >= CACHE_TTL_MS) {
+      void refreshWorkspaceFiles(cwd).catch(() => undefined)
+    }
+    return hit
+  }
+
+  const rgHit = await scanWithRg(cwd)
+  if (rgHit) return rgHit
+  return getNodeScan(cwd, fresh)
+}
+
+/* ── 对外 API ─────────────────────────────────────────────── */
 
 function score(m: FileMatch, query: string): number {
   const name = m.name.toLowerCase()
@@ -215,14 +276,14 @@ function score(m: FileMatch, query: string): number {
 /**
  * 工作区的完整条目表（含目录），供 IDE 代码搜索复用。
  *
- * 和 `searchWorkspaceFiles` 共用同一份扫描缓存；调用方自己决定上限。
+ * 和 `searchWorkspaceFiles` 共用同一份缓存；调用方自己决定上限。
  */
 export async function listWorkspaceFiles(cwd: string): Promise<FileMatch[]> {
   if (!cwd || !isAbsolute(cwd)) return []
   try {
     const st = await fs.stat(cwd)
     if (!st.isDirectory()) return []
-    return (await getScan(cwd)).files
+    return (await getWorkspaceFiles(cwd)).files
   } catch {
     return []
   }
@@ -233,7 +294,8 @@ export async function listWorkspaceFiles(cwd: string): Promise<FileMatch[]> {
  * 代码搜索 / 全部替换用它：替换在列表不完整时宁可中止，也不能静默漏文件。
  */
 export async function listWorkspaceFilesDetailed(
-  cwd: string
+  cwd: string,
+  options: { fresh?: boolean } = {}
 ): Promise<WorkspaceScanResult> {
   if (!cwd || !isAbsolute(cwd)) {
     return { files: [], truncated: false, incomplete: true }
@@ -241,7 +303,7 @@ export async function listWorkspaceFilesDetailed(
   try {
     const st = await fs.stat(cwd)
     if (!st.isDirectory()) return { files: [], truncated: false, incomplete: true }
-    return await getScan(cwd)
+    return await getWorkspaceFiles(cwd, options)
   } catch {
     return { files: [], truncated: false, incomplete: true }
   }
@@ -269,7 +331,7 @@ export async function searchWorkspaceFiles(
 
   let files: FileMatch[]
   try {
-    files = (await getScan(cwd)).files
+    files = (await getWorkspaceFiles(cwd)).files
   } catch {
     return []
   }
@@ -297,9 +359,36 @@ export async function searchWorkspaceFiles(
     .map((x) => x.f)
 }
 
-/** 清掉缓存：测试用，外部文件变化时也用来让快速打开立刻看到新列表 */
-export function resetWorkspaceSearchCache(): void {
-  generation++
-  cache.clear()
-  inFlight.clear()
+/**
+ * 外部文件变化：只标记 stale，下一次请求先返回旧列表并后台刷新。
+ * 不阻塞快速打开，也不影响其它工作区的缓存。
+ */
+export function markWorkspaceSearchStale(cwd: string): void {
+  if (!cwd || !isAbsolute(cwd)) return
+  const key = cacheKey(cwd)
+  bumpGeneration(key)
+  const hit = cache.get(key)
+  if (hit) hit.stale = true
+}
+
+/**
+ * 清掉缓存：测试用；替换前强制重扫也用它。
+ * 不传 cwd 时清空所有根（仅测试），传 cwd 时只清这个工作区。
+ */
+export function resetWorkspaceSearchCache(cwd?: string): void {
+  if (!cwd) {
+    cache.clear()
+    inFlight.clear()
+    rgInFlight.clear()
+    generations.clear()
+    rgUnavailableUntil = 0
+    return
+  }
+  const key = cacheKey(cwd)
+  cache.delete(key)
+  // 已经在跑的扫描可能读到失效前的目录内容；让新请求重新起一份，
+  // 旧扫描完成时 generation 校验会阻止它回填缓存。
+  inFlight.delete(key)
+  rgInFlight.delete(key)
+  bumpGeneration(key)
 }

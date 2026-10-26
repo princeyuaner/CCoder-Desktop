@@ -1,0 +1,2256 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-scheme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CCoder · MCP 服务器</title>
+<style>
+  /* ── 设计 token（与 src/renderer/src/styles/tokens.css 对齐） ── */
+  :root {
+    color-scheme: dark;
+    --bg-app: #191919;
+    --bg-sidebar: #141414;
+    --bg-raised: #232323;
+    --bg-hover: #1f1f1f;
+    --bg-active: #2a2a2a;
+
+    --border: #2c2c2c;
+    --border-soft: #242424;
+
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+
+    --accent: #e8e8e8;
+    --accent-fg: #191919;
+    --ok: #4b9e5f;
+    --warn: #c9a227;
+    --danger: #e5534b;
+    --running: #d97757;
+
+    --radius-card: 12px;
+    --radius-chip: 8px;
+    --radius-sm: 6px;
+    --radius-pill: 999px;
+
+    --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+    --titlebar-h: 36px;
+    --sidebar-w: 280px;
+    --pane-pad-x: 40px;
+    --scrollbar-w: 10px;
+
+    --panel: #1c1c1c;
+    --panel-hover: #222222;
+    --panel-active: #292929;
+    --panel-line: #313131;
+    --ok-soft: #16241a;
+    --ok-line: #2c4a34;
+    --danger-soft: #2a1a19;
+    --danger-line: #4a2a28;
+    --warn-soft: #2a2418;
+    --warn-line: #4a3f22;
+  }
+
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg-app: #f6f6f7;
+    --bg-sidebar: #efeff1;
+    --bg-raised: #ffffff;
+    --bg-hover: #e9e9ec;
+    --bg-active: #e2e2e6;
+
+    --border: #d7d7dc;
+    --border-soft: #e5e5e8;
+
+    --text: #1d1d1f;
+    --text-dim: #4c4c53;
+    --text-muted: #6c6c75;
+    --text-faint: #95959e;
+
+    --accent: #1d1d1f;
+    --accent-fg: #ffffff;
+    --ok: #2f8a45;
+    --warn: #a97b0b;
+    --danger: #c83b32;
+    --running: #b04a28;
+
+    --panel: #ffffff;
+    --panel-hover: #f3f3f5;
+    --panel-active: #ebebef;
+    --panel-line: #dcdce1;
+    --ok-soft: #eef8f0;
+    --ok-line: #cce5d2;
+    --danger-soft: #fdf0ef;
+    --danger-line: #f0cfcc;
+    --warn-soft: #fbf6e7;
+    --warn-line: #eadcaf;
+  }
+
+  *,
+  *::before,
+  *::after { box-sizing: border-box; }
+
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    display: grid;
+    place-items: center;
+    min-width: 1360px;
+    min-height: 860px;
+    background: #0c0c0c;
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  button, input, select, textarea { font: inherit; }
+  button {
+    padding: 0;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  input, textarea, select { color: inherit; }
+  a { color: inherit; text-decoration: none; }
+  code { font-family: var(--font-mono); }
+
+  ::-webkit-scrollbar { width: var(--scrollbar-w); height: var(--scrollbar-w); }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-faint) 55%, transparent);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--text-muted) 70%, transparent);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .icon,
+  .session__cli svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* ── 窗口骨架 ─────────────────────────────────────────── */
+  .window {
+    position: relative;
+    width: 1360px;
+    height: 860px;
+    display: grid;
+    grid-template-rows: var(--titlebar-h) 1fr;
+    background: var(--bg-app);
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--titlebar-h);
+    padding-left: 12px;
+    background: var(--bg-app);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .titlebar__brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    padding: 0 12px;
+  }
+  .titlebar__brand-mark { color: #d8d8d8; }
+  :root[data-theme='light'] .titlebar__brand-mark { color: #333338; }
+  .titlebar__brand-name { font-size: 15px; font-weight: 650; letter-spacing: 0.2px; }
+  .titlebar__right { display: flex; align-items: center; height: 100%; margin-left: auto; }
+  .titlebar__panel {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 100%;
+    color: var(--text-muted);
+  }
+  .titlebar__panel:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 100%;
+    color: var(--text-dim);
+  }
+  .wctl:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl--close:hover { background: #c42b1c; color: #fff; }
+
+  .app__body {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    min-height: 0;
+  }
+
+  /* ── 左侧栏 ───────────────────────────────────────────── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 10px 10px 6px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-soft);
+  }
+  .sidebar__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-bottom: 8px;
+  }
+  .navitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .navitem:hover { background: var(--bg-hover); color: var(--text); }
+
+  .sidebar__section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px 6px;
+  }
+  .sidebar__section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.4px;
+  }
+  .sidebar__section-tools { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+  .sidebar__section-head:hover .sidebar__section-tools { opacity: 1; }
+  .iconbtn {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .iconbtn:hover { background: var(--bg-raised); color: var(--text); }
+  .iconbtn--sm { width: 22px; height: 22px; }
+
+  .sidebar__scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 8px;
+  }
+  .wsgroup { margin-bottom: 6px; padding-bottom: 8px; }
+  .wsgroup + .wsgroup {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .wsgroup__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    color: var(--text-dim);
+  }
+  .wsgroup__iconbtn {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin: 0 -2px 0 -4px;
+    border-radius: 5px;
+  }
+  .wsgroup__iconbtn:hover { background: var(--bg-active); }
+  .wsgroup__icon { color: var(--text-muted); }
+  .wsgroup__name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wsgroup__count {
+    flex: none;
+    padding: 1px 6px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-active);
+    border-radius: var(--radius-pill);
+  }
+  .session {
+    display: flex;
+    align-items: center;
+    margin-left: 16px;
+    border-radius: var(--radius-sm);
+  }
+  .session:hover { background: var(--bg-hover); }
+  .session__main {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px 5px 12px;
+    text-align: left;
+  }
+  .session__cli {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+  }
+  .session__cli svg { display: block; width: 14px; height: 14px; }
+  .session__title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session__time { flex: none; font-size: 11.5px; color: var(--text-faint); }
+  .session__time--run { color: var(--running); }
+  .session--run .session__title { color: var(--text); }
+
+  .sidebar__settings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-top: 4px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .sidebar__settings:hover { background: var(--bg-hover); color: var(--text); }
+  .sidebar__settings.is-active { background: var(--bg-active); color: var(--text); }
+
+  /* ── 设置页骨架 ───────────────────────────────────────── */
+  .settings {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg-app);
+  }
+  .settings__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px var(--pane-pad-x) 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .settings__title { margin: 0; font-size: 15px; font-weight: 600; }
+  .settings__head-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .saved-flash { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-faint); }
+  .saved-flash .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+
+  .settings__body {
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    min-height: 0;
+  }
+  .settings__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 12px;
+    border-right: 1px solid var(--border-soft);
+  }
+  .settings__navgroup {
+    padding: 12px 12px 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text-faint);
+  }
+  .settings__navgroup:first-child { padding-top: 2px; }
+  .settings__navitem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .settings__navitem:hover { background: var(--bg-hover); color: var(--text); }
+  .settings__navitem.is-active { background: var(--bg-active); color: var(--text); }
+  .settings__navcount {
+    margin-left: auto;
+    min-width: 18px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 16px;
+    color: var(--text-faint);
+    text-align: center;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+
+  .settings__content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 20px 32px 24px var(--pane-pad-x);
+    overflow: hidden;
+  }
+
+  /* ── 通用按钮 / 标签 ─────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
+    white-space: nowrap;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .btn .icon { width: 14px; height: 14px; }
+  .btn--ghost { color: var(--text-dim); border-color: var(--border); }
+  .btn--ghost:hover { background: var(--bg-raised); color: var(--text); }
+  .btn--primary { color: var(--accent-fg); background: var(--accent); font-weight: 500; }
+  .btn--primary:hover { filter: brightness(.94); }
+  .btn--danger { color: var(--danger); border-color: var(--danger-line); }
+  .btn--danger:hover { background: var(--danger-soft); }
+  .btn--xs { padding: 3px 9px; font-size: 12px; }
+  .btn--icon { width: 30px; padding: 0; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    font-size: 10.5px;
+    line-height: 17px;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .badge--ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+  .badge--bad { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+  .badge--warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .badge--mono { font-family: var(--font-mono); font-size: 10px; letter-spacing: .25px; }
+  .badge__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .switch input {
+    appearance: none;
+    position: relative;
+    width: 32px;
+    height: 18px;
+    margin: 0;
+    background: #3b3b3b;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .switch input::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: #929292;
+    border-radius: 50%;
+    transition: transform .12s, background .12s;
+  }
+  .switch input:checked { background: var(--accent); }
+  .switch input:checked::after { transform: translateX(14px); background: var(--bg-app); }
+  :root[data-theme='light'] .switch input { background: #c8c8ce; }
+  :root[data-theme='light'] .switch input:checked { background: #2a2a2e; }
+  :root[data-theme='light'] .switch input:checked::after { background: #fff; }
+  .switch--sm input { width: 28px; height: 16px; }
+  .switch--sm input::after { width: 12px; height: 12px; }
+  .switch--sm input:checked::after { transform: translateX(12px); }
+  .switch input:disabled { opacity: .4; cursor: default; }
+  .switch__label { font-size: 12px; color: var(--text-muted); }
+
+  .state-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .state-dot--ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent); }
+  .state-dot--bad { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent); }
+  .state-dot--off { background: var(--text-faint); box-shadow: none; }
+  .state-dot--busy { background: var(--warn); animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* ── MCP 页面标题 ─────────────────────────────────────── */
+  .mcp-page {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    height: 100%;
+  }
+  .mcp-intro {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    flex: none;
+    min-height: 64px;
+  }
+  .mcp-intro__main { flex: 1; min-width: 0; }
+  .mcp-intro__title { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.15px; }
+  .mcp-intro__title .badge { transform: translateY(1px); }
+  .mcp-intro__lead { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+  .mcp-intro__lead a { color: var(--text-dim); border-bottom: 1px solid var(--border); }
+  .mcp-intro__lead a:hover { color: var(--text); border-color: var(--text-muted); }
+  .mcp-intro__meta { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 11.5px; color: var(--text-faint); }
+  .mcp-intro__meta .pill { display: inline-flex; align-items: center; gap: 5px; }
+  .mcp-intro__meta .sep { color: var(--border); }
+  .mcp-intro__actions { display: flex; align-items: center; gap: 7px; padding-top: 3px; flex: none; }
+
+  /* ── 主从布局 ─────────────────────────────────────────── */
+  .mcp-layout {
+    display: grid;
+    grid-template-columns: 306px minmax(0, 1fr);
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .panel {
+    min-height: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+  }
+
+  /* 左：服务器列表 */
+  .server-panel { display: flex; flex-direction: column; }
+  .server-panel__head { padding: 14px 13px 10px; border-bottom: 1px solid var(--border-soft); }
+  .server-panel__title { display: flex; align-items: center; gap: 7px; margin: 0 0 9px; font-size: 12px; font-weight: 600; letter-spacing: .25px; color: var(--text-muted); }
+  .server-panel__title .count { padding: 0 5px; font-size: 10.5px; line-height: 16px; font-weight: 500; color: var(--text-faint); background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-pill); }
+  .searchbox {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .searchbox .icon {
+    position: absolute;
+    left: 9px;
+    width: 13px;
+    height: 13px;
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+  .searchbox input {
+    width: 100%;
+    height: 31px;
+    padding: 0 28px 0 28px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+  }
+  .searchbox input::placeholder { color: var(--text-faint); }
+  .searchbox input:focus { border-color: var(--panel-line); background: var(--bg-raised); }
+  .searchbox__clear {
+    position: absolute;
+    right: 5px;
+    display: none;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    color: var(--text-faint);
+    border-radius: 4px;
+  }
+  .searchbox__clear:hover { color: var(--text); background: var(--bg-active); }
+  .searchbox.has-value .searchbox__clear { display: grid; }
+
+  .filter-row { display: flex; gap: 4px; margin-top: 8px; }
+  .filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    font-size: 11px;
+    color: var(--text-faint);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+  }
+  .filter:hover { color: var(--text-dim); background: var(--bg-hover); }
+  .filter.is-active { color: var(--text); background: var(--bg-active); border-color: var(--border); }
+  .filter__n { font-size: 10px; color: var(--text-faint); }
+  .filter.is-active .filter__n { color: var(--text-muted); }
+
+  .server-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
+  .server-row {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    width: 100%;
+    padding: 9px 8px 9px 9px;
+    margin-bottom: 2px;
+    text-align: left;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    transition: background .12s, border-color .12s;
+  }
+  .server-row:hover { background: var(--bg-hover); }
+  .server-row.is-active { background: var(--panel-active); border-color: var(--panel-line); }
+  .server-row.is-active::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 14px;
+    bottom: 14px;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  [data-theme='light'] .server-row.is-active::before { background: #2a2a2e; }
+  .server-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    margin-top: 1px;
+    color: var(--text-dim);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .server-mark .icon { width: 15px; height: 15px; }
+  .server-mark--github { color: var(--text); }
+  .server-mark--vs { color: #8ab4f8; }
+  .server-row__main { flex: 1; min-width: 0; }
+  .server-row__line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .server-row__name { flex: 1; min-width: 0; font-size: 13px; font-weight: 550; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .server-row__status { flex: none; }
+  .server-row__sub { display: flex; align-items: center; gap: 5px; margin-top: 2px; font-size: 10.5px; color: var(--text-faint); overflow: hidden; white-space: nowrap; }
+  .server-row__sub .transport { color: var(--text-muted); font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .3px; }
+  .server-row__sub .dotsep { color: var(--border); }
+  .server-row__endpoint {
+    display: block;
+    margin-top: 2px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    line-height: 1.45;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .server-row__chev { flex: none; align-self: center; color: var(--text-faint); opacity: 0; }
+  .server-row:hover .server-row__chev, .server-row.is-active .server-row__chev { opacity: 1; }
+  .server-row.is-active .server-row__chev { color: var(--text-muted); }
+  .server-row__error { color: var(--danger) !important; }
+  .server-row__off .server-row__name { color: var(--text-muted); }
+  .server-row__off .server-mark { opacity: .55; }
+
+  .list-empty { display: none; padding: 30px 18px; text-align: center; color: var(--text-faint); font-size: 12.5px; }
+  .list-empty.is-visible { display: block; }
+  .list-empty .icon { width: 22px; height: 22px; margin: 0 auto 8px; color: var(--text-faint); }
+  .list-empty strong { display: block; margin-bottom: 2px; color: var(--text-dim); font-weight: 500; }
+
+  .server-panel__config {
+    flex: none;
+    padding: 10px 11px 9px;
+    background: color-mix(in srgb, var(--bg-app) 58%, var(--panel));
+    border-top: 1px solid var(--border-soft);
+  }
+  .config-line { display: flex; align-items: center; gap: 7px; }
+  .config-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 25px;
+    height: 25px;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+  }
+  .config-icon .icon { width: 12px; height: 12px; }
+  .config-main { flex: 1; min-width: 0; }
+  .config-title { display: block; font-size: 9.5px; line-height: 1.4; color: var(--text-faint); }
+  .config-path { display: block; font-family: var(--font-mono); font-size: 10px; line-height: 1.4; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .config-open { display: grid; place-items: center; flex: none; width: 22px; height: 22px; color: var(--text-faint); border-radius: 5px; }
+  .config-open:hover { color: var(--text); background: var(--bg-active); }
+  .config-actions { display: flex; gap: 5px; margin-top: 7px; }
+  .config-actions .btn { flex: 1; height: 25px; padding: 0 5px; font-size: 10px; gap: 4px; }
+  .config-actions .icon { width: 11px; height: 11px; }
+
+  .server-panel__foot {
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 9px 12px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-faint);
+    border-top: 1px solid var(--border-soft);
+  }
+  .server-panel__foot .icon { width: 12px; height: 12px; margin-top: 2px; color: var(--text-faint); }
+
+  /* 右：服务器详情 */
+  .detail-panel { display: flex; flex-direction: column; }
+  .detail-head { flex: none; padding: 15px 17px 10px; }
+  .detail-head__row { display: flex; align-items: flex-start; gap: 10px; }
+  .detail-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    margin-top: 1px;
+    color: var(--text);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+  }
+  .detail-mark .icon { width: 18px; height: 18px; }
+  .detail-titlebox { flex: 1; min-width: 0; }
+  .detail-titleline { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .detail-title { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-sub { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-actions { display: flex; align-items: center; gap: 5px; flex: none; }
+  .detail-actions > .switch { margin-right: 3px; }
+  .detail-action {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    color: var(--text-muted);
+    border-radius: 6px;
+  }
+  .detail-action:hover { color: var(--text); background: var(--bg-hover); }
+  .detail-action.is-open { color: var(--text); background: var(--bg-active); }
+  .detail-menu {
+    position: absolute;
+    z-index: 12;
+    top: 50px;
+    right: 15px;
+    display: none;
+    flex-direction: column;
+    gap: 1px;
+    width: 156px;
+    padding: 4px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+  }
+  .detail-menu.is-open { display: flex; }
+  .detail-menu button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12.5px; color: var(--text-dim); text-align: left; border-radius: 5px; }
+  .detail-menu button:hover { background: var(--bg-hover); color: var(--text); }
+  .detail-menu button.is-danger { color: #e78a84; }
+  .detail-menu button.is-danger:hover { background: var(--danger-soft); }
+  .detail-menu .icon { width: 13px; height: 13px; }
+
+  .endpoint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 11px;
+    padding: 6px 8px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+  }
+  .endpoint__label { display: flex; align-items: center; gap: 5px; flex: none; padding-right: 8px; font-size: 10px; color: var(--text-faint); border-right: 1px solid var(--border); }
+  .endpoint__label .icon { width: 11px; height: 11px; }
+  .endpoint code { flex: 1; min-width: 0; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .endpoint__copy { display: grid; place-items: center; flex: none; width: 22px; height: 22px; color: var(--text-faint); border-radius: 5px; }
+  .endpoint__copy:hover { color: var(--text); background: var(--bg-active); }
+
+  .meta-row { display: flex; align-items: center; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+  .meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+  }
+  .meta-chip .icon { width: 11px; height: 11px; color: var(--text-faint); }
+  .meta-chip strong { font-weight: 500; color: var(--text-dim); }
+  .meta-chip--ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+  .meta-chip--warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+
+  .tabs { display: flex; align-items: center; gap: 3px; flex: none; padding: 0 14px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); }
+  .tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 9px 8px;
+    font-size: 12px;
+    color: var(--text-faint);
+    border-bottom: 1.5px solid transparent;
+  }
+  .tab:hover { color: var(--text-dim); }
+  .tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab__n { font-size: 9.5px; color: var(--text-faint); }
+  .tab.is-active .tab__n { color: var(--text-muted); }
+
+  .tab-body { flex: 1; min-height: 0; overflow-y: auto; padding: 11px 15px 0; }
+  .tab-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .tab-toolbar__title { font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+  .tab-toolbar__hint { font-size: 10.5px; color: var(--text-faint); }
+  .tab-toolbar__spacer { flex: 1; }
+  .tool-search { position: relative; display: flex; align-items: center; width: 138px; }
+  .tool-search .icon { position: absolute; left: 7px; width: 11px; height: 11px; color: var(--text-faint); pointer-events: none; }
+  .tool-search input { width: 100%; height: 25px; padding: 0 7px 0 23px; font-size: 11px; color: var(--text); background: var(--bg-app); border: 1px solid var(--border); border-radius: 6px; outline: none; }
+  .tool-search input::placeholder { color: var(--text-faint); }
+  .tool-search input:focus { border-color: var(--panel-line); }
+
+  .tool-list { display: flex; flex-direction: column; gap: 1px; }
+  .tool-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 5px;
+    border-radius: 6px;
+  }
+  .tool-row:hover { background: var(--panel-hover); }
+  .tool-row__icon { display: grid; place-items: center; flex: none; width: 22px; height: 22px; color: var(--text-faint); background: var(--bg-app); border: 1px solid var(--border-soft); border-radius: 5px; }
+  .tool-row__icon .icon { width: 12px; height: 12px; }
+  .tool-row__main { flex: 1; min-width: 0; }
+  .tool-row__name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tool-row__name code { font-size: 11.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-row__desc { margin: 0; font-size: 10.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-row.is-off .tool-row__name code, .tool-row.is-off .tool-row__desc { color: var(--text-faint); opacity: .7; }
+  .tag-write { padding: 0 4px; font-size: 8.5px; line-height: 14px; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 3px; }
+  .tag-read { padding: 0 4px; font-size: 8.5px; line-height: 14px; color: var(--text-faint); border: 1px solid var(--border); border-radius: 3px; }
+
+  .tab-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    padding: 8px 5px 10px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    border-top: 1px solid var(--border-soft);
+  }
+  .tab-foot .icon { width: 12px; height: 12px; }
+  .tab-foot__spacer { flex: 1; }
+  .tab-foot button { color: var(--text-muted); }
+  .tab-foot button:hover { color: var(--text); }
+
+  .resource-row, .prompt-row, .log-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 5px;
+    border-radius: 6px;
+  }
+  .resource-row:hover, .prompt-row:hover, .log-row:hover { background: var(--panel-hover); }
+  .resource-row__icon, .prompt-row__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 24px;
+    height: 24px;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+  }
+  .resource-row__icon .icon, .prompt-row__icon .icon { width: 12px; height: 12px; }
+  .resource-row__main, .prompt-row__main { flex: 1; min-width: 0; }
+  .resource-row__name, .prompt-row__name { font-size: 11.5px; color: var(--text-dim); }
+  .resource-row__uri { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .resource-row__mime { flex: none; font-size: 9.5px; color: var(--text-faint); }
+  .prompt-row__desc { font-size: 10.5px; color: var(--text-faint); }
+  .log-row { align-items: flex-start; }
+  .log-row__time { flex: none; width: 38px; font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); }
+  .log-row__dot { flex: none; width: 5px; height: 5px; margin-top: 6px; border-radius: 50%; background: var(--ok); }
+  .log-row__dot--bad { background: var(--danger); }
+  .log-row__main { flex: 1; min-width: 0; }
+  .log-row__name { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); }
+  .log-row__meta { font-size: 10px; color: var(--text-faint); }
+  .log-row__dur { flex: none; font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint); }
+
+  .detail-disabled {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 9px;
+    padding: 36px;
+    text-align: center;
+    color: var(--text-faint);
+  }
+  .detail-disabled .icon { width: 28px; height: 28px; opacity: .45; }
+  .detail-disabled strong { font-size: 13px; font-weight: 500; color: var(--text-dim); }
+  .detail-disabled p { margin: 0; font-size: 11.5px; }
+  .detail-disabled .btn { margin-top: 4px; }
+
+  /* ── 添加 / 编辑抽屉 ─────────────────────────────────── */
+  .drawer-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    justify-content: flex-end;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity .16s ease, visibility .16s;
+  }
+  .drawer-layer.is-open { visibility: visible; opacity: 1; }
+  .drawer-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .44);
+    backdrop-filter: blur(1px);
+  }
+  .drawer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 470px;
+    height: 100%;
+    background: var(--bg-app);
+    border-left: 1px solid var(--border);
+    box-shadow: -24px 0 70px rgba(0, 0, 0, .45);
+    transform: translateX(16px);
+    transition: transform .18s ease;
+  }
+  .drawer-layer.is-open .drawer { transform: translateX(0); }
+  .drawer__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex: none;
+    padding: 20px 22px 15px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .drawer__kicker { margin: 0 0 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .55px; color: var(--text-faint); text-transform: uppercase; }
+  .drawer__title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.1px; }
+  .drawer__close { display: grid; place-items: center; flex: none; width: 28px; height: 28px; margin: 2px -5px 0 auto; color: var(--text-muted); border-radius: 6px; }
+  .drawer__close:hover { color: var(--text); background: var(--bg-hover); }
+
+  .drawer__body { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 22px 22px; }
+  .form-field { margin-bottom: 17px; }
+  .form-label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; font-weight: 500; color: var(--text-dim); }
+  .form-label .required { color: var(--danger); font-size: 11px; }
+  .form-label .optional { font-size: 10.5px; font-weight: 400; color: var(--text-faint); }
+  .form-input, .form-textarea {
+    width: 100%;
+    padding: 7px 9px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+    user-select: text;
+  }
+  .form-input { height: 33px; }
+  .form-textarea { min-height: 58px; resize: vertical; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; }
+  .form-input:focus, .form-textarea:focus { border-color: var(--panel-line); box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 4%, transparent); }
+  .form-input::placeholder, .form-textarea::placeholder { color: var(--text-faint); }
+  .form-input.is-error { border-color: var(--danger); }
+  .form-hint { margin: 5px 0 0; font-size: 10.5px; line-height: 1.55; color: var(--text-faint); }
+  .form-hint code { color: var(--text-muted); }
+  .form-hint a { color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; }
+
+  .segmented {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 3px;
+    padding: 3px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .segmented button {
+    padding: 4px 8px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    border-radius: 5px;
+  }
+  .segmented button:hover { color: var(--text-dim); }
+  .segmented button.is-active { color: var(--text); background: var(--bg-active); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  :root[data-theme='light'] .segmented { background: #ececf0; }
+  :root[data-theme='light'] .segmented button.is-active { background: #fff; }
+
+  .inline-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kv-row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .kv-row .form-input:first-child { flex: 0 0 39%; font-family: var(--font-mono); font-size: 11.5px; }
+  .kv-row .form-input:last-child { flex: 1; font-family: var(--font-mono); font-size: 11.5px; }
+  .kv-add { display: flex; align-items: center; gap: 4px; margin-top: 1px; font-size: 11px; color: var(--text-faint); }
+  .kv-add:hover { color: var(--text-dim); }
+  .kv-add .icon { width: 11px; height: 11px; }
+
+  .scope-hint { display: flex; gap: 7px; margin-top: 7px; padding: 8px 9px; font-size: 10.5px; line-height: 1.55; color: var(--text-faint); background: var(--bg-raised); border: 1px solid var(--border-soft); border-radius: 6px; }
+  .scope-hint .icon { width: 12px; height: 12px; margin-top: 1px; flex: none; }
+  .scope-hint code { color: var(--text-muted); }
+
+  .target-row { display: flex; gap: 5px; flex-wrap: wrap; }
+  .target {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 8px;
+    font-size: 11px;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .target:hover { color: var(--text-dim); border-color: var(--panel-line); }
+  .target.is-on { color: var(--text); background: var(--bg-active); border-color: var(--panel-line); }
+  .target .brand { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .target .brand--claude { color: #d97757; }
+  .target .brand--codex { color: #a9a9a9; }
+  .target .brand--dsh { color: #6aa8ff; }
+  .target .target-check { display: inline-grid; place-items: center; width: 12px; height: 12px; margin-left: 1px; color: var(--ok); opacity: 0; }
+  .target .target-check .icon { width: 10px; height: 10px; }
+  .target.is-on .target-check { opacity: 1; }
+
+  .option-row { display: flex; align-items: flex-start; gap: 13px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
+  .option-row:first-of-type { border-top: none; padding-top: 2px; }
+  .option-row__main { flex: 1; min-width: 0; }
+  .option-row__title { font-size: 12px; color: var(--text-dim); }
+  .option-row__hint { margin: 1px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--text-faint); }
+
+  .test-result {
+    display: none;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 4px;
+    padding: 9px 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+  .test-result.is-visible { display: flex; }
+  .test-result.is-ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+  .test-result.is-bad { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+  .test-result.is-busy { color: var(--text-muted); background: var(--bg-raised); }
+  .test-result .icon { width: 13px; height: 13px; margin-top: 1px; }
+  .test-result strong { color: inherit; font-weight: 600; }
+  .test-result span { color: var(--text-muted); }
+  .test-result.is-ok span { color: var(--text-dim); }
+
+  .drawer__foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 13px 22px;
+    background: var(--bg-app);
+    border-top: 1px solid var(--border-soft);
+  }
+  .drawer__foot .btn { height: 32px; }
+  .drawer__spacer { flex: 1; }
+  .drawer__save { min-width: 104px; }
+
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid color-mix(in srgb, var(--text-faint) 50%, transparent);
+    border-top-color: var(--text-muted);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Toast ────────────────────────────────────────────── */
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 24px;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 13px;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+    opacity: 0;
+    transform: translate(-50%, 7px);
+    pointer-events: none;
+    transition: opacity .16s, transform .16s;
+  }
+  .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
+  .toast .icon { width: 13px; height: 13px; color: var(--ok); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-brand" viewBox="0 0 16 16">
+    <path d="M2 9.2c0-3.2 2.6-5.8 5.8-5.8 1.2 0 2.3.4 3.2 1 .5-.4 1.2-.6 1.9-.5l1.6.2-.9 1.5c.4.8.6 1.7.6 2.6 0 3.2-2.6 5.8-5.8 5.8-1.6 0-3-.6-4.1-1.7-.3-.3-.6-.6-.8-1l-.6.2.3-1.2A5.7 5.7 0 0 1 2 9.2z" fill="currentColor" stroke="none"/>
+    <circle cx="6.4" cy="8.2" r=".75" fill="var(--bg-app)" stroke="none"/>
+  </symbol>
+  <symbol id="i-panel" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1.6"/><path d="M10.5 3v10"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 2.5v2M10 2.5v2"/><rect x="3" y="4.5" width="10" height="9" rx="1.6"/><path d="M6.2 8.2v2.4M9.8 8.2v2.4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.2l2 1.3"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2 3.6 12.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 16 16"><path d="M4 3v10M4 13l-2-2M4 13l2-2M12 13V3M12 3l-2 2M12 3l2 2"/></symbol>
+  <symbol id="i-folder-plus" viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/><path d="M7.5 7.6v3M6 9.1h3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 16 16"><path d="M9.5 4 5.5 8l4 4"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 16 16"><path d="M6.5 4 10.5 8l-4 4"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="M4 6.5 8 10.5l4-4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13.2 6.4A5.4 5.4 0 1 0 13 10"/><path d="M13.4 2.8v3.7H9.7"/></symbol>
+  <symbol id="i-external" viewBox="0 0 16 16"><path d="M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3"/><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><path d="M8 7.2v3.4"/><circle cx="8" cy="4.9" r=".65" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+  <symbol id="i-code" viewBox="0 0 16 16"><path d="M5.8 4.2 2.6 8l3.2 3.8M10.2 4.2 13.4 8l-3.2 3.8"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c1.5 1.6 2.2 3.5 2.2 5.6S9.5 12 8 13.6C6.5 12 5.8 10.1 5.8 8S6.5 4 8 2.4z"/></symbol>
+  <symbol id="i-database" viewBox="0 0 16 16"><ellipse cx="8" cy="4.2" rx="4.8" ry="1.9"/><path d="M3.2 4.2v7.6c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9V4.2M3.2 8c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="m6.5 5.4 3.7 2.6-3.7 2.6z"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.4"/><path d="M10.5 3.5H4A1.5 1.5 0 0 0 2.5 5v6"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 16 16"><path d="M10.5 2.7 13.3 5.5 5.8 13H3v-2.8z"/><path d="M9.2 4l2.8 2.8"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.7 14 13H2z"/><path d="M8 6.2v3.1"/><circle cx="8" cy="11.2" r=".65" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8 13 3.6v4.2c0 3-2 5.2-5 6.4-3-1.2-5-3.4-5-6.4V3.6z"/><path d="m5.7 7.9 1.5 1.5 3-3.2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.8z"/><path d="M9.2 1.8v4h3.8"/></symbol>
+  <symbol id="i-message" viewBox="0 0 16 16"><path d="M13.5 9.2a1.8 1.8 0 0 1-1.8 1.8H6l-3.5 2.5v-2.7a1.8 1.8 0 0 1-1-1.6V4.3a1.8 1.8 0 0 1 1.8-1.8h7.4a1.8 1.8 0 0 1 1.8 1.8z"/><path d="M5 5.8h6M5 8.2h3.6"/></symbol>
+  <symbol id="i-user" viewBox="0 0 16 16"><circle cx="8" cy="5.3" r="2.5"/><path d="M3.3 13.5c.5-2.3 2.3-3.5 4.7-3.5s4.2 1.2 4.7 3.5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.8 4.5h10.4M6 2.8h4M4.2 4.5l.6 8.1a1.2 1.2 0 0 0 1.2 1.1h4a1.2 1.2 0 0 0 1.2-1.1l.6-8.1M6.6 7v3.6M9.4 7v3.6"/></symbol>
+  <symbol id="i-log" viewBox="0 0 16 16"><path d="M4 2.8h8A1.2 1.2 0 0 1 13.2 4v8.5L11 10.9H4A1.2 1.2 0 0 1 2.8 9.7V4A1.2 1.2 0 0 1 4 2.8z"/><path d="M5.5 5.5h5M5.5 8h3.6"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 16 16"><path d="M8 10V2.5M5 5.5l3-3 3 3M2.8 10v2.3a1.2 1.2 0 0 0 1.2 1.2h8a1.2 1.2 0 0 0 1.2-1.2V10"/></symbol>
+  <symbol id="i-key" viewBox="0 0 16 16"><circle cx="5.4" cy="10.6" r="2.6"/><path d="m7.4 8.6 5.8-5.8M10.8 5.2l1.4 1.4M12.2 3.8l1.4 1.4"/></symbol>
+  <symbol id="i-server" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="4.2" rx="1.2"/><rect x="2.5" y="9.3" width="11" height="4.2" rx="1.2"/><path d="M5 4.6h.1M5 11.4h.1M8 4.6h3M8 11.4h3"/></symbol>
+  <symbol id="i-claude" viewBox="0 0 16 16"><path d="M8 1.8v12.4M1.8 8h12.4M3.6 3.6l8.8 8.8M12.4 3.6l-8.8 8.8" stroke-width="1.8"/></symbol>
+  <symbol id="i-openai" viewBox="0 0 16 16"><path d="M8 2.3 12.9 5v6L8 13.7 3.1 11V5z"/><path d="M8 5.2 10.4 6.6v2.8L8 10.8 5.6 9.4V6.6z"/></symbol>
+  <symbol id="i-whale" viewBox="0 0 16 16"><path d="M2 9.1c0-3 2.5-5.4 5.5-5.4 1.2 0 2.2.4 3.1 1 .5-.4 1.1-.6 1.8-.5l1.6.2-.9 1.4c.4.8.6 1.6.6 2.5 0 3-2.5 5.4-5.5 5.4-1.5 0-2.9-.6-3.9-1.6-.3-.3-.5-.6-.7-.9l-.6.2.3-1.1A5.4 5.4 0 0 1 2 9.1z" fill="currentColor" stroke="none"/><circle cx="6.1" cy="8.2" r=".7" fill="var(--bg-sidebar)" stroke="none"/></symbol>
+</svg>
+
+<div class="window">
+  <!-- ── 标题栏 ─────────────────────────────────────────── -->
+  <header class="titlebar">
+    <div class="titlebar__brand">
+      <svg width="22" height="22" class="titlebar__brand-mark"><use href="#i-brand"/></svg>
+      <span class="titlebar__brand-name">CCoder</span>
+    </div>
+    <div class="titlebar__right">
+      <button class="titlebar__panel" title="切换侧栏"><svg class="icon" width="15" height="15"><use href="#i-panel"/></svg></button>
+      <button class="wctl" title="最小化"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="wctl" title="最大化"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9"/></svg></button>
+      <button class="wctl wctl--close" title="关闭"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></button>
+    </div>
+  </header>
+
+  <div class="app__body">
+    <!-- ── 侧栏 ─────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <nav class="sidebar__nav">
+        <button class="navitem"><svg class="icon" width="15" height="15"><use href="#i-plug"/></svg><span>插件</span></button>
+        <button class="navitem"><svg class="icon" width="15" height="15"><use href="#i-clock"/></svg><span>自动化任务</span></button>
+      </nav>
+
+      <div class="sidebar__section-head">
+        <span class="sidebar__section-title">工作区</span>
+        <div class="sidebar__section-tools">
+          <button class="iconbtn" title="搜索会话"><svg class="icon" width="14" height="14"><use href="#i-search"/></svg></button>
+          <button class="iconbtn" title="排序"><svg class="icon" width="14" height="14"><use href="#i-sort"/></svg></button>
+          <button class="iconbtn" title="添加工作区"><svg class="icon" width="14" height="14"><use href="#i-folder-plus"/></svg></button>
+        </div>
+      </div>
+
+      <div class="sidebar__scroll">
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">CCoder-Desktop</span>
+            <span class="wsgroup__count">3</span>
+          </div>
+          <div class="session session--run">
+            <button class="session__main">
+              <span class="session__cli" style="color:#d97757"><svg><use href="#i-claude"/></svg></span>
+              <span class="session__title">MCP 管理界面</span>
+              <span class="session__time session__time--run">运行中</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#9a9a9a"><svg><use href="#i-openai"/></svg></span>
+              <span class="session__title">修复工具调用超时</span>
+              <span class="session__time">1 小时</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#5b9dff"><svg><use href="#i-whale"/></svg></span>
+              <span class="session__title">整理 MCP 配置文件</span>
+              <span class="session__time">昨天</span>
+            </button>
+          </div>
+        </div>
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">docs-site</span>
+            <span class="wsgroup__count">0</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="sidebar__settings is-active">
+        <svg class="icon" width="15" height="15"><use href="#i-gear"/></svg>
+        <span>设置</span>
+      </button>
+    </aside>
+
+    <!-- ── 设置 / MCP 管理 ───────────────────────────────── -->
+    <main class="settings">
+      <header class="settings__head">
+        <button class="btn btn--ghost"><svg class="icon"><use href="#i-chevron-left"/></svg>返回</button>
+        <h1 class="settings__title">设置</h1>
+        <div class="settings__head-right">
+          <span class="saved-flash"><i class="dot"></i>已自动保存</span>
+        </div>
+      </header>
+
+      <div class="settings__body">
+        <nav class="settings__nav">
+          <div class="settings__navgroup">系统</div>
+          <button class="settings__navitem">通用</button>
+          <button class="settings__navitem">权限</button>
+          <button class="settings__navitem is-active">MCP 服务器<span class="settings__navcount">4</span></button>
+
+          <div class="settings__navgroup">CLI</div>
+          <button class="settings__navitem">Claude Code</button>
+          <button class="settings__navitem">Codex CLI</button>
+          <button class="settings__navitem">DeepSeek Harness</button>
+
+          <div class="settings__navgroup">其他</div>
+          <button class="settings__navitem">关于</button>
+        </nav>
+
+        <div class="settings__content">
+          <div class="mcp-page">
+            <header class="mcp-intro">
+              <div class="mcp-intro__main">
+                <h2 class="mcp-intro__title">
+                  MCP 服务器
+                  <span class="badge badge--mono">MCP</span>
+                </h2>
+                <p class="mcp-intro__lead">
+                  连接外部工具、数据源和提示词，供所有 CLI 会话调用。
+                  <a href="#" data-action="docs">了解 Model Context Protocol ↗</a>
+                </p>
+                <div class="mcp-intro__meta" id="introMeta">
+                  <span class="pill"><i class="state-dot state-dot--ok"></i><span id="connectedCount">2 个已连接</span></span>
+                  <span class="sep">·</span>
+                  <span class="pill" id="toolCount">36 个工具可用</span>
+                  <span class="sep">·</span>
+                  <span class="pill" id="errorCount" style="color:var(--danger)">1 个需要处理</span>
+                </div>
+              </div>
+              <div class="mcp-intro__actions">
+                <button class="btn btn--ghost" data-action="reconnect-all" title="重新连接全部服务器">
+                  <svg class="icon"><use href="#i-refresh"/></svg>全部重连
+                </button>
+                <button class="btn btn--primary" data-action="add">
+                  <svg class="icon"><use href="#i-plus"/></svg>添加服务器
+                </button>
+              </div>
+            </header>
+
+            <div class="mcp-layout">
+              <!-- 左：服务器列表 -->
+              <section class="panel server-panel" aria-label="MCP 服务器列表">
+                <div class="server-panel__head">
+                  <h3 class="server-panel__title">已配置服务器<span class="count" id="serverTotal">4</span></h3>
+                  <div class="searchbox" id="searchBox">
+                    <svg class="icon"><use href="#i-search"/></svg>
+                    <input id="serverSearch" type="search" placeholder="搜索服务器或工具…" autocomplete="off" spellcheck="false" />
+                    <button class="searchbox__clear" data-action="clear-search" title="清空"><svg class="icon" width="12" height="12"><use href="#i-x"/></svg></button>
+                  </div>
+                  <div class="filter-row" id="filters">
+                    <button class="filter is-active" data-filter="all">全部 <span class="filter__n" id="nAll">4</span></button>
+                    <button class="filter" data-filter="connected">已连接 <span class="filter__n" id="nConnected">2</span></button>
+                    <button class="filter" data-filter="error">需要处理 <span class="filter__n" id="nError">1</span></button>
+                    <button class="filter" data-filter="disabled">已停用 <span class="filter__n" id="nDisabled">1</span></button>
+                  </div>
+                </div>
+                <div class="server-list" id="serverList"></div>
+                <div class="list-empty" id="listEmpty">
+                  <svg class="icon"><use href="#i-search"/></svg>
+                  <strong>没有匹配的服务器</strong>
+                  <span>换个关键词，或新建一个连接。</span>
+                </div>
+                <div class="server-panel__config">
+                  <div class="config-line">
+                    <span class="config-icon"><svg class="icon"><use href="#i-code"/></svg></span>
+                    <span class="config-main">
+                      <span class="config-title">配置文件</span>
+                      <code class="config-path">~/.claude.json</code>
+                    </span>
+                    <button class="config-open" data-action="open-config" title="打开配置文件"><svg class="icon" width="12" height="12"><use href="#i-external"/></svg></button>
+                  </div>
+                  <div class="config-actions">
+                    <button class="btn btn--ghost" data-action="import-json"><svg class="icon"><use href="#i-upload"/></svg>从 JSON 导入</button>
+                    <button class="btn btn--ghost" data-action="open-config"><svg class="icon"><use href="#i-folder"/></svg>配置目录</button>
+                  </div>
+                </div>
+                <div class="server-panel__foot">
+                  <svg class="icon"><use href="#i-info"/></svg>
+                  <span>配置变更会在下一次对话开始时生效。</span>
+                </div>
+              </section>
+
+              <!-- 右：详情 -->
+              <section class="panel detail-panel" id="detailPanel" aria-label="服务器详情"></section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ── 添加 / 编辑抽屉 ─────────────────────────────────── -->
+  <div class="drawer-layer" id="drawerLayer" aria-hidden="true">
+    <div class="drawer-scrim" data-action="close-drawer"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+      <header class="drawer__head">
+        <div>
+          <p class="drawer__kicker" id="drawerKicker">新建连接</p>
+          <h2 class="drawer__title" id="drawerTitle">添加 MCP 服务器</h2>
+        </div>
+        <button class="drawer__close" data-action="close-drawer" title="关闭"><svg class="icon" width="15" height="15"><use href="#i-x"/></svg></button>
+      </header>
+
+      <div class="drawer__body">
+        <div class="form-field">
+          <label class="form-label" for="formName">名称 <span class="required">*</span></label>
+          <input class="form-input" id="formName" placeholder="例如 github、filesystem" autocomplete="off" spellcheck="false" />
+          <p class="form-hint">用于在工具名和会话记录里识别这个服务器。</p>
+        </div>
+
+        <div class="form-field">
+          <span class="form-label">连接方式</span>
+          <div class="segmented" id="transportSeg">
+            <button data-transport="stdio">stdio</button>
+            <button class="is-active" data-transport="http">HTTP</button>
+            <button data-transport="sse">SSE</button>
+          </div>
+          <p class="form-hint" id="transportHint">通过 Streamable HTTP 连接远程服务，适合云端 MCP。</p>
+        </div>
+
+        <div id="httpFields">
+          <div class="form-field">
+            <label class="form-label" for="formUrl">服务器 URL <span class="required">*</span></label>
+            <input class="form-input" id="formUrl" placeholder="https://api.example.com/mcp/" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="form-field">
+            <span class="form-label">请求头 <span class="optional">可选</span></span>
+            <div class="kv-row">
+              <input class="form-input" value="Authorization" aria-label="请求头名称" />
+              <input class="form-input" value="Bearer ••••••••••••" aria-label="请求头值" />
+            </div>
+            <button class="kv-add" type="button"><svg class="icon"><use href="#i-plus"/></svg>添加请求头</button>
+            <p class="form-hint">凭据保存在本机，使用系统级加密（Windows DPAPI）。</p>
+          </div>
+        </div>
+
+        <div id="stdioFields" hidden>
+          <div class="form-field">
+            <label class="form-label" for="formCommand">启动命令 <span class="required">*</span></label>
+            <input class="form-input" id="formCommand" placeholder="npx" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="formArgs">命令参数</label>
+            <textarea class="form-textarea" id="formArgs" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;C:\Projects"></textarea>
+            <p class="form-hint">一行一个参数。工作目录默认使用当前项目。</p>
+          </div>
+          <div class="form-field">
+            <span class="form-label">环境变量 <span class="optional">可选</span></span>
+            <div class="kv-row">
+              <input class="form-input" placeholder="KEY" aria-label="环境变量名" />
+              <input class="form-input" placeholder="value" aria-label="环境变量值" />
+            </div>
+            <button class="kv-add" type="button"><svg class="icon"><use href="#i-plus"/></svg>添加变量</button>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <span class="form-label">作用域</span>
+          <div class="segmented" id="scopeSeg">
+            <button data-scope="user" class="is-active">用户</button>
+            <button data-scope="project">项目</button>
+            <button data-scope="local">本地</button>
+          </div>
+          <div class="scope-hint">
+            <svg class="icon"><use href="#i-info"/></svg>
+            <span id="scopeHint">写入用户级配置，当前设备上的所有项目都可以使用。</span>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <span class="form-label">应用到 <span class="optional">至少选择一个</span></span>
+          <div class="target-row" id="targetRow">
+            <button type="button" class="target is-on" data-target="claude">
+              <svg class="brand brand--claude"><use href="#i-claude"/></svg>Claude Code
+              <span class="target-check"><svg class="icon"><use href="#i-check"/></svg></span>
+            </button>
+            <button type="button" class="target is-on" data-target="codex">
+              <svg class="brand brand--codex"><use href="#i-openai"/></svg>Codex CLI
+              <span class="target-check"><svg class="icon"><use href="#i-check"/></svg></span>
+            </button>
+            <button type="button" class="target is-on" data-target="dsh">
+              <svg class="brand brand--dsh"><use href="#i-whale"/></svg>DSH
+              <span class="target-check"><svg class="icon"><use href="#i-check"/></svg></span>
+            </button>
+          </div>
+          <p class="form-hint">工具会出现在所选 CLI 的下一轮对话中，配置由 CCoder 同步。</p>
+        </div>
+
+        <div class="option-row">
+          <div class="option-row__main">
+            <div class="option-row__title">添加后自动启用</div>
+            <p class="option-row__hint">在下一个对话轮次中注入可用工具。</p>
+          </div>
+          <label class="switch"><input type="checkbox" id="formAutoEnable" checked /></label>
+        </div>
+        <div class="option-row">
+          <div class="option-row__main">
+            <div class="option-row__title">写操作需要审批</div>
+            <p class="option-row__hint">创建、修改或删除类工具调用前弹出确认。</p>
+          </div>
+          <label class="switch"><input type="checkbox" id="formApproval" checked /></label>
+        </div>
+
+        <div class="test-result" id="testResult"></div>
+      </div>
+
+      <footer class="drawer__foot">
+        <button class="btn btn--ghost" data-action="close-drawer">取消</button>
+        <span class="drawer__spacer"></span>
+        <button class="btn btn--ghost" id="testBtn"><svg class="icon"><use href="#i-play"/></svg>测试连接</button>
+        <button class="btn btn--primary drawer__save" id="saveBtn">保存并连接</button>
+      </footer>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"><svg class="icon"><use href="#i-check"/></svg><span id="toastText"></span></div>
+</div>
+
+<script>
+  const servers = {
+    github: {
+      id: 'github',
+      name: 'GitHub',
+      desc: '仓库、Issue 与 Pull Request',
+      icon: 'i-github',
+      markClass: 'github',
+      transport: 'HTTP',
+      scope: '用户级',
+      status: 'connected',
+      latency: '142 ms',
+      endpoint: 'https://api.githubcopilot.com/mcp/',
+      endpointLabel: 'HTTP 端点',
+      toolTotal: 16,
+      resourceTotal: 4,
+      promptTotal: 2,
+      connectedAt: '已连接 2 分钟',
+      tools: [
+        { name: 'search_repositories', desc: '搜索仓库、代码与议题', write: false, on: true },
+        { name: 'get_file_contents', desc: '读取仓库中的文件内容', write: false, on: true },
+        { name: 'list_issues', desc: '按状态与标签筛选 Issue', write: false, on: true },
+        { name: 'get_pull_request', desc: '查看 PR 详情、变更与评论', write: false, on: true },
+        { name: 'create_pull_request', desc: '创建 PR 并填写描述', write: true, on: false },
+        { name: 'create_issue', desc: '在指定仓库中新建 Issue', write: true, on: true }
+      ],
+      resources: [
+        { name: 'README.md', uri: 'repo://ccoder/ccoder-desktop/README.md', mime: 'text/markdown' },
+        { name: 'package.json', uri: 'repo://ccoder/ccoder-desktop/package.json', mime: 'application/json' },
+        { name: 'CHANGELOG.md', uri: 'repo://ccoder/ccoder-desktop/CHANGELOG.md', mime: 'text/markdown' }
+      ],
+      prompts: [
+        { name: 'summarize_pull_request', desc: '总结 PR 改动并生成 review 提纲' },
+        { name: 'triage_issue', desc: '判断 Issue 类型、优先级与负责范围' }
+      ],
+      logs: [
+        { time: '14:32:08', name: 'search_repositories', meta: '1 个结果 · 成功', dur: '0.84s', ok: true },
+        { time: '14:28:41', name: 'get_file_contents', meta: 'README.md · 成功', dur: '0.31s', ok: true },
+        { time: '14:21:16', name: 'create_pull_request', meta: '等待用户审批', dur: '—', ok: true },
+        { time: '14:18:03', name: 'list_issues', meta: 'rate limit · 已重试', dur: '2.4s', ok: false }
+      ]
+    },
+    filesystem: {
+      id: 'filesystem',
+      name: 'Filesystem',
+      desc: '本机文件与目录访问',
+      icon: 'i-folder',
+      markClass: 'filesystem',
+      transport: 'STDIO',
+      scope: '项目级',
+      status: 'connected',
+      latency: '8 ms',
+      endpoint: 'npx -y @modelcontextprotocol/server-filesystem C:\\Projects',
+      endpointLabel: 'STDIO 命令',
+      toolTotal: 11,
+      resourceTotal: 0,
+      promptTotal: 0,
+      connectedAt: '已连接 18 分钟',
+      tools: [
+        { name: 'read_file', desc: '读取指定路径的完整文件', write: false, on: true },
+        { name: 'read_multiple_files', desc: '批量读取多个文件', write: false, on: true },
+        { name: 'list_directory', desc: '列出目录内容与文件类型', write: false, on: true },
+        { name: 'search_files', desc: '按名称模式递归搜索文件', write: false, on: true },
+        { name: 'write_file', desc: '创建或覆盖文件内容', write: true, on: false },
+        { name: 'move_file', desc: '移动或重命名文件', write: true, on: false }
+      ],
+      resources: [],
+      prompts: [],
+      logs: [
+        { time: '14:33:12', name: 'read_file', meta: 'src/main/index.ts · 成功', dur: '0.04s', ok: true },
+        { time: '14:31:49', name: 'list_directory', meta: 'src/renderer · 成功', dur: '0.03s', ok: true },
+        { time: '14:25:02', name: 'search_files', meta: '12 个匹配 · 成功', dur: '0.21s', ok: true }
+      ]
+    },
+    playwright: {
+      id: 'playwright',
+      name: 'Playwright',
+      desc: '浏览器自动化与页面快照',
+      icon: 'i-globe',
+      markClass: 'vs',
+      transport: 'STDIO',
+      scope: '项目级',
+      status: 'error',
+      latency: '—',
+      endpoint: 'npx -y @playwright/mcp@latest',
+      endpointLabel: 'STDIO 命令',
+      toolTotal: 12,
+      resourceTotal: 0,
+      promptTotal: 0,
+      connectedAt: '上次成功 3 天前',
+      error: '启动失败：spawn npx ENOENT。请在设置中检查 Node.js 与 npx 是否在 PATH 中。',
+      tools: [
+        { name: 'browser_navigate', desc: '打开页面并等待加载完成', write: false, on: true },
+        { name: 'browser_snapshot', desc: '获取可访问性树快照', write: false, on: true },
+        { name: 'browser_click', desc: '点击页面元素', write: true, on: true },
+        { name: 'browser_type', desc: '向输入框输入文本', write: true, on: true },
+        { name: 'browser_take_screenshot', desc: '截取当前视口', write: false, on: true },
+        { name: 'browser_evaluate', desc: '在页面上下文执行脚本', write: true, on: false }
+      ],
+      resources: [],
+      prompts: [],
+      logs: [
+        { time: '11:02:44', name: 'browser_navigate', meta: '连接已断开', dur: '—', ok: false }
+      ]
+    },
+    postgres: {
+      id: 'postgres',
+      name: 'Postgres',
+      desc: '只读查询开发数据库',
+      icon: 'i-database',
+      markClass: 'postgres',
+      transport: 'STDIO',
+      scope: '本地级',
+      status: 'disabled',
+      latency: '—',
+      endpoint: 'npx -y @modelcontextprotocol/server-postgres postgresql://localhost/dev',
+      endpointLabel: 'STDIO 命令',
+      toolTotal: 5,
+      resourceTotal: 1,
+      promptTotal: 0,
+      connectedAt: '已停用',
+      tools: [
+        { name: 'query', desc: '执行只读 SQL 查询', write: false, on: true },
+        { name: 'list_tables', desc: '列出当前 schema 的表', write: false, on: true },
+        { name: 'describe_table', desc: '查看列、索引与约束', write: false, on: true },
+        { name: 'list_schemas', desc: '列出数据库中的所有 schema', write: false, on: true },
+        { name: 'explain_query', desc: '查看查询执行计划', write: false, on: true }
+      ],
+      resources: [
+        { name: 'dev.schema', uri: 'postgres://localhost/dev/schema', mime: 'text/plain' }
+      ],
+      prompts: [],
+      logs: []
+    }
+  };
+
+  let activeId = 'github';
+  let filter = 'all';
+  let query = '';
+  let currentTab = 'tools';
+  let toolQuery = '';
+  let drawerMode = 'add';
+  let transport = 'http';
+  let scope = 'user';
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  const statusMeta = {
+    connected: { label: '已连接', cls: 'ok', dot: 'state-dot--ok' },
+    error: { label: '需要处理', cls: 'bad', dot: 'state-dot--bad' },
+    disabled: { label: '已停用', cls: 'off', dot: 'state-dot--off' },
+    connecting: { label: '连接中', cls: 'warn', dot: 'state-dot--busy' }
+  };
+
+  function icon(id, size = 16) {
+    return `<svg class="icon" width="${size}" height="${size}"><use href="#${id}"/></svg>`;
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function matchesQuery(server) {
+    if (!query) return true;
+    const haystack = [server.name, server.desc, server.endpoint, ...server.tools.map(t => t.name + ' ' + t.desc)].join(' ').toLowerCase();
+    return haystack.includes(query.toLowerCase());
+  }
+
+  function filteredServers() {
+    return Object.values(servers).filter((s) => {
+      if (filter === 'connected' && s.status !== 'connected') return false;
+      if (filter === 'error' && s.status !== 'error') return false;
+      if (filter === 'disabled' && s.status !== 'disabled') return false;
+      return matchesQuery(s);
+    });
+  }
+
+  function renderList() {
+    const list = $('#serverList');
+    const items = filteredServers();
+    list.innerHTML = items.map((s) => {
+      const st = statusMeta[s.status];
+      const off = s.status === 'disabled' ? ' server-row__off' : '';
+      const statusText = s.status === 'error' ? '需要处理' : s.status === 'disabled' ? '已停用' : `${s.toolTotal} 个工具`;
+      const subClass = s.status === 'error' ? 'server-row__error' : '';
+      return `
+        <button class="server-row${s.id === activeId ? ' is-active' : ''}${off}" data-server="${s.id}" title="${escapeHtml(s.name)} · ${escapeHtml(s.desc)}">
+          <span class="server-mark server-mark--${s.markClass}">${icon(s.icon)}</span>
+          <span class="server-row__main">
+            <span class="server-row__line">
+              <span class="server-row__name">${escapeHtml(s.name)}</span>
+              <i class="state-dot ${st.dot} server-row__status"></i>
+            </span>
+            <span class="server-row__sub">
+              <span class="transport">${s.transport}</span>
+              <span class="dotsep">·</span>
+              <span class="${subClass}">${statusText}</span>
+            </span>
+            <span class="server-row__endpoint" title="${escapeHtml(s.endpoint)}">${escapeHtml(s.endpoint)}</span>
+          </span>
+          ${icon('i-chevron-right', 13).replace('class="icon"', 'class="icon server-row__chev"')}
+        </button>`;
+    }).join('');
+    $('#listEmpty').classList.toggle('is-visible', items.length === 0);
+    $('#serverTotal').textContent = Object.keys(servers).length;
+
+    const all = Object.values(servers);
+    $('#nAll').textContent = all.length;
+    $('#nConnected').textContent = all.filter(s => s.status === 'connected').length;
+    $('#nError').textContent = all.filter(s => s.status === 'error').length;
+    $('#nDisabled').textContent = all.filter(s => s.status === 'disabled').length;
+    const connected = all.filter(s => s.status === 'connected').length;
+    const tools = all.filter(s => s.status === 'connected').reduce((n, s) => n + s.toolTotal, 0);
+    const errors = all.filter(s => s.status === 'error').length;
+    $('#connectedCount').textContent = `${connected} 个已连接`;
+    $('#toolCount').textContent = `${tools} 个工具可用`;
+    const errEl = $('#errorCount');
+    errEl.textContent = errors ? `${errors} 个需要处理` : '运行正常';
+    errEl.style.color = errors ? 'var(--danger)' : 'var(--text-faint)';
+  }
+
+  function renderTools(server) {
+    const items = server.tools.filter(t => !toolQuery || (t.name + ' ' + t.desc).toLowerCase().includes(toolQuery.toLowerCase()));
+    return `
+      <div class="tab-toolbar">
+        <span class="tab-toolbar__title">常用工具</span>
+        <span class="tab-toolbar__hint">显示 ${items.length} / ${server.toolTotal}</span>
+        <span class="tab-toolbar__spacer"></span>
+        <div class="tool-search">
+          ${icon('i-search', 11)}
+          <input id="toolSearch" type="search" placeholder="筛选工具…" value="${escapeHtml(toolQuery)}" autocomplete="off" spellcheck="false" />
+        </div>
+      </div>
+      <div class="tool-list">
+        ${items.length ? items.map((t, i) => `
+          <div class="tool-row${t.on ? '' : ' is-off'}" data-tool-index="${server.tools.indexOf(t)}">
+            <span class="tool-row__icon">${icon('i-wrench', 12)}</span>
+            <span class="tool-row__main">
+              <span class="tool-row__name">
+                <code>${escapeHtml(t.name)}</code>
+                ${t.write ? '<span class="tag-write">写</span>' : '<span class="tag-read">只读</span>'}
+              </span>
+              <p class="tool-row__desc">${escapeHtml(t.desc)}</p>
+            </span>
+            <label class="switch switch--sm" title="${t.on ? '停用工具' : '启用工具'}">
+              <input type="checkbox" data-tool-toggle="${server.tools.indexOf(t)}" ${t.on ? 'checked' : ''} ${server.status === 'disabled' ? 'disabled' : ''} />
+            </label>
+          </div>`).join('') : `<div class="list-empty is-visible" style="padding:22px"><strong>没有匹配的工具</strong><span>换个关键词试试。</span></div>`}
+      </div>
+      <div class="tab-foot">
+        ${icon('i-shield', 12)}
+        <span>仅启用当前任务需要的工具，能减少上下文占用。</span>
+        <span class="tab-foot__spacer"></span>
+        <button data-action="all-tools">查看全部 ${server.toolTotal} 个 →</button>
+      </div>`;
+  }
+
+  function renderResources(server) {
+    if (!server.resources.length) {
+      return `<div class="detail-disabled" style="padding:28px 20px"><svg class="icon"><use href="#i-file"/></svg><strong>没有资源</strong><p>这个服务器只提供工具，或尚未声明资源。</p></div>`;
+    }
+    return `
+      <div class="tab-toolbar"><span class="tab-toolbar__title">已暴露资源</span><span class="tab-toolbar__hint">${server.resourceTotal} 个</span></div>
+      <div class="tool-list">
+        ${server.resources.map(r => `
+          <div class="resource-row">
+            <span class="resource-row__icon">${icon('i-file', 12)}</span>
+            <span class="resource-row__main">
+              <div class="resource-row__name">${escapeHtml(r.name)}</div>
+              <div class="resource-row__uri">${escapeHtml(r.uri)}</div>
+            </span>
+            <span class="resource-row__mime">${escapeHtml(r.mime)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="tab-foot">${icon('i-info', 12)}<span>资源由服务器按需读取，不占上下文，除非被显式引用。</span></div>`;
+  }
+
+  function renderPrompts(server) {
+    if (!server.prompts.length) {
+      return `<div class="detail-disabled" style="padding:28px 20px"><svg class="icon"><use href="#i-message"/></svg><strong>没有提示词</strong><p>这个服务器没有声明可复用的 Prompt 模板。</p></div>`;
+    }
+    return `
+      <div class="tab-toolbar"><span class="tab-toolbar__title">提示词模板</span><span class="tab-toolbar__hint">${server.promptTotal} 个</span></div>
+      <div class="tool-list">
+        ${server.prompts.map(p => `
+          <div class="prompt-row">
+            <span class="prompt-row__icon">${icon('i-message', 12)}</span>
+            <span class="prompt-row__main">
+              <div class="prompt-row__name">${escapeHtml(p.name)}</div>
+              <div class="prompt-row__desc">${escapeHtml(p.desc)}</div>
+            </span>
+            <button class="btn btn--ghost btn--xs">插入</button>
+          </div>`).join('')}
+      </div>
+      <div class="tab-foot">${icon('i-info', 12)}<span>插入后会作为当前对话的上下文发送。</span></div>`;
+  }
+
+  function renderLogs(server) {
+    if (!server.logs.length) {
+      return `<div class="detail-disabled" style="padding:28px 20px"><svg class="icon"><use href="#i-log"/></svg><strong>暂无调用记录</strong><p>服务器启用并调用工具后，这里会显示最近的活动。</p></div>`;
+    }
+    return `
+      <div class="tab-toolbar"><span class="tab-toolbar__title">最近调用</span><span class="tab-toolbar__hint">仅保留最近 50 条</span></div>
+      <div class="tool-list">
+        ${server.logs.map(l => `
+          <div class="log-row">
+            <span class="log-row__time">${escapeHtml(l.time)}</span>
+            <i class="log-row__dot${l.ok ? '' : ' log-row__dot--bad'}"></i>
+            <span class="log-row__main">
+              <div class="log-row__name">${escapeHtml(l.name)}</div>
+              <div class="log-row__meta">${escapeHtml(l.meta)}</div>
+            </span>
+            <span class="log-row__dur">${escapeHtml(l.dur)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="tab-foot">${icon('i-info', 12)}<span>日志保存在本机，不会上传。</span></div>`;
+  }
+
+  function renderDetail() {
+    const panel = $('#detailPanel');
+    const s = servers[activeId];
+    if (!s) {
+      panel.innerHTML = `<div class="detail-disabled">${icon('i-server', 28)}<strong>选择一个服务器</strong><p>从左侧列表查看配置与工具。</p></div>`;
+      return;
+    }
+    const st = statusMeta[s.status];
+    const enabled = s.status !== 'disabled';
+    const tabs = [
+      ['tools', '工具', s.toolTotal],
+      ['resources', '资源', s.resourceTotal],
+      ['prompts', '提示词', s.promptTotal],
+      ['logs', '调用日志', s.logs.length]
+    ];
+    const tabContent = currentTab === 'resources' ? renderResources(s)
+      : currentTab === 'prompts' ? renderPrompts(s)
+      : currentTab === 'logs' ? renderLogs(s)
+      : renderTools(s);
+
+    let body;
+    if (s.status === 'disabled') {
+      body = `
+        <div class="detail-disabled">
+          ${icon('i-server', 28)}
+          <strong>${escapeHtml(s.name)} 已停用</strong>
+          <p>停用后不会在对话中暴露工具，也不会启动对应进程。</p>
+          <button class="btn btn--ghost" data-action="enable-server">${icon('i-play', 13)}启用服务器</button>
+        </div>`;
+    } else if (s.status === 'error') {
+      body = `
+        <div class="tabs">
+          ${tabs.map(([id, label, n]) => `<button class="tab${currentTab === id ? ' is-active' : ''}" data-tab="${id}">${label}<span class="tab__n">${n}</span></button>`).join('')}
+        </div>
+        <div class="tab-body">
+          <div class="test-result is-visible is-bad" style="margin-top:2px">
+            ${icon('i-alert', 13)}
+            <span><strong>连接失败。</strong> ${escapeHtml(s.error || '无法启动服务器进程。')}</span>
+          </div>
+          <div class="tab-toolbar" style="margin-top:14px"><span class="tab-toolbar__title">仍可查看配置</span><span class="tab-toolbar__hint">修复后重新连接</span></div>
+          <div class="tool-list">
+            <div class="resource-row">
+              <span class="resource-row__icon">${icon('i-code', 12)}</span>
+              <span class="resource-row__main"><div class="resource-row__name">启动命令</div><div class="resource-row__uri">${escapeHtml(s.endpoint)}</div></span>
+              <button class="btn btn--ghost btn--xs" data-action="reconnect">诊断</button>
+            </div>
+            <div class="resource-row">
+              <span class="resource-row__icon">${icon('i-folder', 12)}</span>
+              <span class="resource-row__main"><div class="resource-row__name">工作目录</div><div class="resource-row__uri">C:\\Users\\CY\\Desktop\\CCoder-Desktop</div></span>
+            </div>
+          </div>
+          <div class="tab-foot">${icon('i-info', 12)}<span>常见原因：Node.js 未安装、命令不在 PATH 中，或端口被占用。</span></div>
+        </div>`;
+    } else {
+      body = `
+        <div class="tabs">
+          ${tabs.map(([id, label, n]) => `<button class="tab${currentTab === id ? ' is-active' : ''}" data-tab="${id}">${label}<span class="tab__n">${n}</span></button>`).join('')}
+        </div>
+        <div class="tab-body">${tabContent}</div>`;
+    }
+
+    panel.innerHTML = `
+      <div class="detail-head">
+        <div class="detail-head__row">
+          <span class="detail-mark server-mark--${s.markClass}">${icon(s.icon, 18)}</span>
+          <div class="detail-titlebox">
+            <div class="detail-titleline">
+              <h3 class="detail-title">${escapeHtml(s.name)}</h3>
+              <span class="badge badge--${st.cls === 'off' ? 'mono' : st.cls}"><i class="badge__dot"></i>${st.label}</span>
+            </div>
+            <p class="detail-sub">${escapeHtml(s.desc)}</p>
+          </div>
+          <div class="detail-actions">
+            <label class="switch" title="${enabled ? '停用服务器' : '启用服务器'}">
+              <input type="checkbox" data-action="toggle-server" ${enabled ? 'checked' : ''} />
+            </label>
+            <button class="detail-action" data-action="edit" title="编辑配置">${icon('i-pencil', 14)}</button>
+            <button class="detail-action" data-action="menu" id="menuBtn" title="更多操作">${icon('i-more', 15)}</button>
+          </div>
+        </div>
+        <div class="endpoint">
+          <span class="endpoint__label">${icon(s.transport === 'HTTP' || s.transport === 'SSE' ? 'i-globe' : 'i-code', 11)}${s.transport === 'HTTP' || s.transport === 'SSE' ? 'HTTP 端点' : 'STDIO 命令'}</span>
+          <code title="${escapeHtml(s.endpoint)}">${escapeHtml(s.endpoint)}</code>
+          <button class="endpoint__copy" data-action="copy" title="复制">${icon('i-copy', 12)}</button>
+        </div>
+        <div class="meta-row">
+          <span class="meta-chip">${icon('i-globe', 11)}传输 <strong>${s.transport}</strong></span>
+          <span class="meta-chip">${icon('i-user', 11)}作用域 <strong>${s.scope}</strong></span>
+          ${s.status === 'connected' ? `<span class="meta-chip meta-chip--ok">${icon('i-clock', 11)}延迟 <strong>${s.latency}</strong></span>` : ''}
+          ${s.status === 'connected' ? `<span class="meta-chip">${icon('i-info', 11)}${s.connectedAt}</span>` : ''}
+          ${s.status === 'error' ? `<span class="meta-chip meta-chip--warn">${icon('i-alert', 11)}${s.connectedAt}</span>` : ''}
+        </div>
+        <div class="detail-menu" id="detailMenu">
+          <button data-action="reconnect">${icon('i-refresh', 13)}重新连接</button>
+          <button data-action="open-logs">${icon('i-log', 13)}查看调用日志</button>
+          <button data-action="open-config">${icon('i-code', 13)}查看配置文件</button>
+          <button data-action="delete" class="is-danger">${icon('i-trash', 13)}移除服务器</button>
+        </div>
+      </div>
+      ${body}`;
+  }
+
+  function renderAll() {
+    renderList();
+    renderDetail();
+  }
+
+  function showToast(text) {
+    const toast = $('#toast');
+    $('#toastText').textContent = text;
+    toast.classList.add('is-visible');
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => toast.classList.remove('is-visible'), 2200);
+  }
+
+  function setFilter(next) {
+    filter = next;
+    $$('#filters .filter').forEach(b => b.classList.toggle('is-active', b.dataset.filter === next));
+    renderList();
+  }
+
+  function setTab(next) {
+    currentTab = next;
+    renderDetail();
+  }
+
+  function toggleServer(nextEnabled) {
+    const s = servers[activeId];
+    if (!s) return;
+    if (nextEnabled) {
+      s.status = 'connecting';
+      renderDetail();
+      renderList();
+      setTimeout(() => {
+        s.status = 'connected';
+        s.latency = s.latency === '—' ? '96 ms' : s.latency;
+        s.connectedAt = '刚刚连接';
+        showToast(`${s.name} 已启用并重新连接`);
+        renderAll();
+      }, 650);
+    } else {
+      s.status = 'disabled';
+      s.latency = '—';
+      s.connectedAt = '已停用';
+      showToast(`${s.name} 已停用`);
+      renderAll();
+    }
+  }
+
+  function openDrawer(mode) {
+    drawerMode = mode;
+    const layer = $('#drawerLayer');
+    layer.classList.add('is-open');
+    layer.setAttribute('aria-hidden', 'false');
+    $('#drawerKicker').textContent = mode === 'edit' ? '服务器配置' : '新建连接';
+    $('#drawerTitle').textContent = mode === 'edit' ? '编辑 MCP 服务器' : '添加 MCP 服务器';
+    $('#saveBtn').textContent = mode === 'edit' ? '保存更改' : '保存并连接';
+    const s = servers[activeId];
+    if (mode === 'edit' && s) {
+      $('#formName').value = s.name;
+      transport = s.transport === 'STDIO' ? 'stdio' : s.transport === 'SSE' ? 'sse' : 'http';
+      setTransport(transport, false);
+      $('#formUrl').value = s.status !== 'disabled' ? s.endpoint : '';
+      $('#formCommand').value = s.transport === 'STDIO' ? s.endpoint.split(' ')[0] : '';
+      $('#formArgs').value = s.transport === 'STDIO' ? s.endpoint.split(' ').slice(1).join('\n') : '';
+      setScope(s.scope === '项目级' ? 'project' : s.scope === '本地级' ? 'local' : 'user');
+      $('#formAutoEnable').checked = s.status !== 'disabled';
+    } else {
+      $('#formName').value = '';
+      $('#formUrl').value = '';
+      $('#formCommand').value = '';
+      $('#formArgs').value = '';
+      setTransport('http', false);
+      setScope('user');
+      $('#formAutoEnable').checked = true;
+    }
+    $('#formName').classList.remove('is-error');
+    $('#formUrl').classList.remove('is-error');
+    $('#testResult').className = 'test-result';
+    $('#testResult').innerHTML = '';
+    setTimeout(() => $('#formName').focus(), 80);
+  }
+
+  function closeDrawer() {
+    const layer = $('#drawerLayer');
+    layer.classList.remove('is-open');
+    layer.setAttribute('aria-hidden', 'true');
+  }
+
+  function setTransport(next, userAction = true) {
+    transport = next;
+    $$('#transportSeg button').forEach(b => b.classList.toggle('is-active', b.dataset.transport === next));
+    $('#httpFields').hidden = next === 'stdio';
+    $('#stdioFields').hidden = next !== 'stdio';
+    $('#transportHint').textContent = next === 'stdio'
+      ? '在本机启动子进程，适合文件系统、数据库等本地能力。'
+      : next === 'sse'
+        ? '通过 Server-Sent Events 连接，兼容旧版远程 MCP 服务。'
+        : '通过 Streamable HTTP 连接远程服务，适合云端 MCP。';
+    $('#testResult').className = 'test-result';
+    $('#testResult').innerHTML = '';
+  }
+
+  function setScope(next) {
+    scope = next;
+    $$('#scopeSeg button').forEach(b => b.classList.toggle('is-active', b.dataset.scope === next));
+    $('#scopeHint').textContent = next === 'user'
+      ? '写入用户级配置，当前设备上的所有项目都可以使用。'
+      : next === 'project'
+        ? '写入项目级 .mcp.json，可随仓库共享给团队。'
+        : '仅写入当前目录的本地配置，不进入版本控制。';
+  }
+
+  async function testConnection() {
+    const btn = $('#testBtn');
+    const result = $('#testResult');
+    const name = $('#formName').value.trim();
+    const url = $('#formUrl').value.trim();
+    if (transport !== 'stdio' && !url) {
+      $('#formUrl').classList.add('is-error');
+      $('#formUrl').focus();
+      return;
+    }
+    if (!name) {
+      $('#formName').classList.add('is-error');
+      $('#formName').focus();
+      return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = '<i class="spinner"></i>连接中…';
+    result.className = 'test-result is-visible is-busy';
+    result.innerHTML = `${icon('i-refresh', 13)}<span>正在连接到 ${escapeHtml(name)}…</span>`;
+    await new Promise(r => setTimeout(r, 900));
+    btn.disabled = false;
+    btn.innerHTML = `${icon('i-play', 13)}测试连接`;
+    if (transport === 'sse') {
+      result.className = 'test-result is-visible is-bad';
+      result.innerHTML = `${icon('i-alert', 13)}<span><strong>连接失败。</strong> 服务器未响应 SSE 握手（404）。请检查 URL 或改用 HTTP。</span>`;
+    } else {
+      const toolGuess = transport === 'stdio' ? 11 : 16;
+      result.className = 'test-result is-visible is-ok';
+      result.innerHTML = `${icon('i-check', 13)}<span><strong>连接成功。</strong> 发现 ${toolGuess} 个工具 · 142 ms。保存后即可在对话中使用。</span>`;
+    }
+  }
+
+  function saveDrawer() {
+    const name = $('#formName').value.trim();
+    if (!name) {
+      $('#formName').classList.add('is-error');
+      $('#formName').focus();
+      return;
+    }
+    if (transport !== 'stdio' && !$('#formUrl').value.trim()) {
+      $('#formUrl').classList.add('is-error');
+      $('#formUrl').focus();
+      return;
+    }
+    if (!$$('#targetRow .target.is-on').length) {
+      showToast('请至少选择一个要应用的 CLI');
+      return;
+    }
+    closeDrawer();
+    showToast(drawerMode === 'edit' ? '配置已保存，下一轮对话生效' : '服务器已添加，正在连接…');
+    if (drawerMode === 'add') {
+      const id = 'new-' + Date.now();
+      servers[id] = {
+        id, name,
+        desc: transport === 'stdio' ? '本地 MCP 服务器' : '远程 MCP 服务器',
+        icon: transport === 'stdio' ? 'i-code' : 'i-globe',
+        markClass: transport === 'stdio' ? 'filesystem' : 'github',
+        transport: transport === 'stdio' ? 'STDIO' : transport.toUpperCase(),
+        scope: scope === 'user' ? '用户级' : scope === 'project' ? '项目级' : '本地级',
+        status: 'connected',
+        latency: '96 ms',
+        endpoint: transport === 'stdio' ? $('#formCommand').value.trim() : $('#formUrl').value.trim(),
+        toolTotal: 0, resourceTotal: 0, promptTotal: 0,
+        connectedAt: '刚刚连接',
+        tools: [], resources: [], prompts: [], logs: []
+      };
+      activeId = id;
+      renderAll();
+    }
+  }
+
+  // 事件：列表 / 筛选 / 搜索
+  $('#serverList').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-server]');
+    if (!row) return;
+    activeId = row.dataset.server;
+    currentTab = 'tools';
+    toolQuery = '';
+    renderAll();
+  });
+
+  $('#filters').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-filter]');
+    if (btn) setFilter(btn.dataset.filter);
+  });
+
+  const searchInput = $('#serverSearch');
+  searchInput.addEventListener('input', () => {
+    query = searchInput.value.trim();
+    $('#searchBox').classList.toggle('has-value', !!query);
+    renderList();
+  });
+  $('[data-action="clear-search"]').addEventListener('click', () => {
+    searchInput.value = '';
+    query = '';
+    $('#searchBox').classList.remove('has-value');
+    renderList();
+    searchInput.focus();
+  });
+
+  // 事件：详情面板
+  $('#detailPanel').addEventListener('click', (e) => {
+    const menuBtn = e.target.closest('[data-action="menu"]');
+    if (menuBtn) {
+      const menu = $('#detailMenu');
+      menu.classList.toggle('is-open');
+      menuBtn.classList.toggle('is-open', menu.classList.contains('is-open'));
+      return;
+    }
+    const tab = e.target.closest('[data-tab]');
+    if (tab) { setTab(tab.dataset.tab); return; }
+    const actionEl = e.target.closest('[data-action]');
+    if (!actionEl) return;
+    const action = actionEl.dataset.action;
+    const s = servers[activeId];
+    if (action === 'edit') { openDrawer('edit'); return; }
+    if (action === 'copy') { navigator.clipboard?.writeText(s.endpoint); showToast('端点已复制'); return; }
+    if (action === 'reconnect') {
+      $('#detailMenu').classList.remove('is-open');
+      const prev = s.status;
+      s.status = 'connecting';
+      renderAll();
+      setTimeout(() => {
+        s.status = prev === 'disabled' ? 'disabled' : 'connected';
+        s.latency = '96 ms';
+        s.connectedAt = '刚刚重新连接';
+        showToast(`${s.name} 已重新连接`);
+        renderAll();
+      }, 850);
+      return;
+    }
+    if (action === 'open-logs') { $('#detailMenu').classList.remove('is-open'); setTab('logs'); return; }
+    if (action === 'delete') {
+      $('#detailMenu').classList.remove('is-open');
+      delete servers[activeId];
+      activeId = Object.keys(servers)[0] || '';
+      renderAll();
+      showToast('服务器已移除');
+      return;
+    }
+    if (action === 'enable-server') { toggleServer(true); return; }
+    if (action === 'all-tools') { showToast('原型：可展开完整工具列表'); return; }
+  });
+
+  $('#detailPanel').addEventListener('change', (e) => {
+    const toggle = e.target.closest('[data-action="toggle-server"]');
+    if (toggle) { toggleServer(toggle.checked); return; }
+    const toolToggle = e.target.closest('[data-tool-toggle]');
+    if (toolToggle) {
+      const s = servers[activeId];
+      const tool = s.tools[Number(toolToggle.dataset.toolToggle)];
+      tool.on = toolToggle.checked;
+      renderDetail();
+      showToast(tool.on ? `已启用 ${tool.name}` : `已停用 ${tool.name}`);
+    }
+  });
+
+  $('#detailPanel').addEventListener('input', (e) => {
+    if (e.target.id === 'toolSearch') {
+      toolQuery = e.target.value;
+      renderDetail();
+      const again = $('#toolSearch');
+      if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+    }
+  });
+
+  // 事件：页面动作
+  document.addEventListener('click', (e) => {
+    const actionEl = e.target.closest('[data-action]');
+    if (!actionEl) return;
+    const action = actionEl.dataset.action;
+    if (action === 'add') { openDrawer('add'); return; }
+    if (action === 'close-drawer') { closeDrawer(); return; }
+    if (action === 'docs') { e.preventDefault(); showToast('将打开 MCP 官方文档'); return; }
+    if (action === 'open-config') { showToast('将打开 ~/.claude.json（原型演示）'); return; }
+    if (action === 'import-json') { showToast('从 JSON 导入：请选择 .mcp.json 文件'); return; }
+    if (action === 'reconnect-all') {
+      showToast('正在重新连接全部服务器…');
+      Object.values(servers).forEach((s) => {
+        if (s.status === 'connected' || s.status === 'error') s.connectedAt = '刚刚重新连接';
+      });
+      setTimeout(() => { renderAll(); showToast('全部服务器已重新连接'); }, 800);
+      return;
+    }
+  });
+
+  // 关闭详情菜单：点空白处或按 Esc
+  document.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('#detailMenu') && !e.target.closest('[data-action="menu"]')) {
+      $('#detailMenu')?.classList.remove('is-open');
+      $('#menuBtn')?.classList.remove('is-open');
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if ($('#drawerLayer').classList.contains('is-open')) closeDrawer();
+      else { $('#detailMenu')?.classList.remove('is-open'); $('#menuBtn')?.classList.remove('is-open'); }
+    }
+  });
+
+  // 抽屉表单事件
+  $('#transportSeg').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-transport]');
+    if (btn) setTransport(btn.dataset.transport);
+  });
+  $('#scopeSeg').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-scope]');
+    if (btn) setScope(btn.dataset.scope);
+  });
+  $('#targetRow').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-target]');
+    if (btn) btn.classList.toggle('is-on');
+  });
+  $('#testBtn').addEventListener('click', testConnection);
+  $('#saveBtn').addEventListener('click', saveDrawer);
+  $('#formName').addEventListener('input', () => $('#formName').classList.remove('is-error'));
+  $('#formUrl').addEventListener('input', () => $('#formUrl').classList.remove('is-error'));
+
+  // 预览参数：?theme=light / ?view=add / ?server=playwright
+  const params = new URLSearchParams(location.search);
+  if (params.get('theme') === 'light') {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.scheme = 'light';
+  }
+  if (params.get('server') && servers[params.get('server')]) activeId = params.get('server');
+
+  renderAll();
+  if (params.get('view') === 'add') setTimeout(() => openDrawer('add'), 60);
+  if (params.get('view') === 'edit') setTimeout(() => openDrawer('edit'), 60);
+</script>
+</body>
+</html>

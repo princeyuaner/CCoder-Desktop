@@ -218,6 +218,87 @@ export interface VcsWorktreeListData {
   mainPath: string
 }
 
+/**
+ * 一批工作区的「工作树归属」。
+ *
+ * 侧栏要把 linked worktree 的会话并回主工作区，开局就要知道每个
+ * openedCwd 属于哪个主工作树、当前在什么分支。批量的原因：逐个 cwd
+ * 调 detect + worktree list 会在启动时拉起一长串 git 进程。
+ */
+export interface VcsWorktreeMapEntry {
+  /** 请求里的原始 cwd */
+  cwd: string
+  /** 所属主工作树的绝对路径 */
+  mainPath: string
+  /** 该 cwd 所在工作树检出的分支；detached 时为空串 */
+  branch: string
+  /** cwd 是否在 linked worktree 里（主工作树为 false） */
+  worktree: boolean
+}
+
+export interface VcsWorktreeMapData {
+  entries: VcsWorktreeMapEntry[]
+}
+
+export interface VcsMergeWorktreeData {
+  /** false = 源分支已经在目标分支里，没有新提交可合并 */
+  merged: boolean
+  /** 源分支（工作树检出的那条） */
+  branch: string
+  /** 目标分支（主工作树当前分支） */
+  target: string
+  /** 主工作树路径 */
+  mainPath: string
+  /** 合并后的 HEAD 短 hash */
+  commit: string
+  fastForward: boolean
+  /** 合并带进来的文件数 */
+  files: number
+}
+
+/* ── 分支（Git only） ─────────────────────────────────── */
+
+export interface VcsBranch {
+  /** 短名：本地 `feat/x`，远程 `origin/feat/x` */
+  name: string
+  /** 完整 ref，如 `refs/heads/main` */
+  ref: string
+  shortHash: string
+  /** ISO-8601 */
+  date: string
+  subject: string
+  current: boolean
+  remote: boolean
+  upstream?: string
+  /** 这个分支已经检出的工作树目录；未检出时为空 */
+  worktree?: string
+}
+
+export interface VcsBranchListData {
+  branches: VcsBranch[]
+  /** 当前工作区的分支；detached HEAD 时为空串 */
+  current: string
+  detached: boolean
+  /** 主工作树同级的默认工作树根目录，给「新会话」拼目录用 */
+  defaultRoot: string
+}
+
+/**
+ * 分支名转目录名。Windows 不允许 `\ / : * ? " < >` 和空格，全换成 `-`。
+ *
+ * 放在 shared 里是因为 IDE 的工作树面板和新建会话弹窗都要用 ——
+ * 两处各写一份迟早会拼出不同的目录。
+ */
+export function worktreeSlug(branch: string): string {
+  let slug = branch
+    .trim()
+    .replace(/[\\/:*?"<>|\s]+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 80)
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug)) slug = `_${slug}`
+  return slug
+}
+
 /* ── 请求 ─────────────────────────────────────────────── */
 
 export interface VcsRequestBase {
@@ -283,14 +364,18 @@ export interface VcsUpdateRequest extends VcsRequestBase {
 
 export type VcsWorktreeListRequest = VcsRequestBase
 
+export type VcsBranchListRequest = VcsRequestBase
+
 export interface VcsWorktreeAddRequest extends VcsRequestBase {
   /** 新工作树的绝对路径 */
   path: string
   branch: string
   /** 起点；缺省用当前工作区的分支 / HEAD */
   base?: string
-  /** MVP 固定为 true；false 预留给将来检出已有分支 */
+  /** false = 检出已有分支；true / 缺省 = 创建新分支 */
   createBranch?: boolean
+  /** 从远程分支创建本地分支时，顺手设置 upstream */
+  track?: boolean
 }
 
 export interface VcsWorktreeRemoveRequest extends VcsRequestBase {
@@ -300,6 +385,16 @@ export interface VcsWorktreeRemoveRequest extends VcsRequestBase {
 }
 
 export type VcsWorktreePruneRequest = VcsRequestBase
+
+export interface VcsMergeWorktreeRequest extends VcsRequestBase {
+  /** 要合并进主工作树目标分支的源分支 */
+  branch: string
+}
+
+export interface VcsWorktreeMapRequest {
+  /** 一次查询多个 cwd；主进程会按工作区白名单过滤 */
+  cwds: string[]
+}
 
 export interface VcsWorktreePruneData extends VcsWorktreeListData {
   pruned: number
@@ -357,8 +452,11 @@ export interface VcsApi {
   pull(req: VcsPullRequest): Promise<VcsResult<VcsSyncData>>
   push(req: VcsPushRequest): Promise<VcsResult<VcsSyncData>>
   update(req: VcsUpdateRequest): Promise<VcsResult<VcsSyncData>>
+  branches(req: VcsBranchListRequest): Promise<VcsResult<VcsBranchListData>>
+  worktreeMap(req: VcsWorktreeMapRequest): Promise<VcsResult<VcsWorktreeMapData>>
   worktreeList(req: VcsWorktreeListRequest): Promise<VcsResult<VcsWorktreeListData>>
   worktreeAdd(req: VcsWorktreeAddRequest): Promise<VcsResult<VcsWorktreeListData>>
+  mergeWorktree(req: VcsMergeWorktreeRequest): Promise<VcsResult<VcsMergeWorktreeData>>
   worktreeRemove(req: VcsWorktreeRemoveRequest): Promise<VcsResult<VcsWorktreeListData>>
   worktreePrune(req: VcsWorktreePruneRequest): Promise<VcsResult<VcsWorktreePruneData>>
   cancel(req: VcsCancelRequest): Promise<VcsResult<{ cancelled: boolean }>>

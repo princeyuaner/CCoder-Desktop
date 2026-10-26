@@ -157,6 +157,52 @@ export interface IdeSearchRequest {
   options?: IdeSearchOptions
 }
 
+/** 流式搜索的启动请求；requestId 由渲染层生成，用于取消和丢弃迟到事件 */
+export interface IdeSearchStartRequest extends IdeSearchRequest {
+  requestId: string
+}
+
+export interface IdeSearchBatchEvent {
+  type: 'batch'
+  requestId: string
+  files: IdeSearchFile[]
+  matchCount: number
+  scannedFiles: number
+  truncated: boolean
+  note?: string
+  /** 渲染层应丢弃已有结果（回退重跑时使用） */
+  reset?: boolean
+  /** 本次结果来自内置搜索 */
+  fallback?: boolean
+}
+
+export interface IdeSearchDoneEvent {
+  type: 'done'
+  requestId: string
+  matchCount: number
+  scannedFiles: number
+  truncated: boolean
+  note?: string
+  fallback?: boolean
+}
+
+export interface IdeSearchErrorEvent {
+  type: 'error'
+  requestId: string
+  message: string
+}
+
+export type IdeSearchStreamEvent =
+  | IdeSearchBatchEvent
+  | IdeSearchDoneEvent
+  | IdeSearchErrorEvent
+
+export type IdeSearchStartResult = IdeFsResult<{
+  mode: 'rg' | 'js'
+  /** 因为 rg 不可用 / 启动失败而回退 */
+  fallback: boolean
+}>
+
 export interface IdeSearchMatch {
   /** 1-based */
   line: number

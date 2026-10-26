@@ -1,5 +1,6 @@
 import type { AgentEvent } from '../../shared/events'
 import type { Channel, EffortLevel } from '../../shared/settings'
+import type { RuntimeMcpServer } from '../../shared/mcp'
 import type { PermissionDecision, QuestionAnswer, SessionSendInput } from '../../shared/session'
 
 /**
@@ -25,6 +26,18 @@ export interface ProviderSession {
   respondQuestion(requestId: string, answer: QuestionAnswer): void
   /** 打断当前这一轮 */
   interrupt(): void
+  /**
+   * 运行中切换权限模式。只有协议支持热改的 provider 实现（Claude）；
+   * 没实现的仍由 SessionManager 通过重启进程来生效。
+   */
+  setPermissionMode?(mode: string): void
+  /**
+   * 执行一条 CLI 原生指令（不是发给模型的正文字）。
+   *
+   * 只有协议里有对应能力的 provider 实现；返回 ok=false 表示这一条
+   * 走不通，调用方应提示用户，而不是把指令原文当消息发出去。
+   */
+  command?(name: string, args: string): { ok: boolean; message?: string }
   /** 收摊：关掉子进程 */
   dispose(): void
 }
@@ -49,6 +62,11 @@ export interface ProviderSessionOptions {
    * 应用自己的 `userData/../dsh-home`（见 dsh/runner.ts 的 ensureDshHome）。
    */
   dshHome?: string
+  /**
+   * 这个 CLI 当前生效的 MCP 服务器（已按 scope / enabled 过滤）。
+   * 三个 provider 的注入方式不同，但拿到的结构一致。
+   */
+  mcpServers: RuntimeMcpServer[]
   /** 接着哪条已有会话跑；null 表示全新 */
   resumeId: string | null
   onEvent: (e: AgentEvent) => void

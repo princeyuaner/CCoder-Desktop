@@ -8,11 +8,24 @@ import type {
   ClaudeAuthStatus,
   ClaudeLoginSnapshot
 } from '../shared/claude'
-import type { Channel, ChannelTestResult, Settings } from '../shared/settings'
+import type { Channel, ChannelTestResult, CliId, Settings } from '../shared/settings'
+import type {
+  DshHomeOption,
+  McpListResult,
+  McpMigrationPreview,
+  McpMigrationResult,
+  McpMutationResult,
+  McpScope,
+  McpServerInput,
+  McpTestResult
+} from '../shared/mcp'
 import type {
   PermissionDecision,
   QuestionAnswer,
   SessionEventPayload,
+  SessionMetaMap,
+  SessionMetaUpdate,
+  SessionSearchResult,
   SessionSendInput,
   SessionSendResult,
   SessionStartOptions,
@@ -20,7 +33,7 @@ import type {
   StoredSession
 } from '../shared/session'
 import type { AgentEvent } from '../shared/events'
-import type { IdeFsChanged, IdeTarget } from '../shared/ide'
+import type { IdeFsChanged, IdeSearchStreamEvent, IdeTarget } from '../shared/ide'
 import type {
   ChatActiveInfo,
   ChatTargetInfo,
@@ -28,6 +41,7 @@ import type {
   IdeSendResult
 } from '../shared/ide-chat'
 import type { VcsApi } from '../shared/vcs'
+import type { SyncFocusPayload, SyncStatusPush } from '../shared/sync'
 import type { UpdateInstallResult, UpdateState } from '../shared/update'
 import type { RendererLogReport } from '../shared/log'
 import type { LocaleInfo } from '../shared/i18n/locale'
@@ -64,6 +78,16 @@ ipcRenderer.on(IPC.chatOpenSession, (_e: Electron.IpcRendererEvent, cwd: string)
   if (typeof cwd !== 'string') return
   if (openSessionListeners.size === 0) pendingOpenSession = cwd
   else for (const cb of openSessionListeners) cb(cwd)
+})
+
+/** 系统通知点击：切到同步视图。React 还没订阅时先记下来。 */
+let pendingSyncFocus: SyncFocusPayload | null = null
+const syncFocusListeners = new Set<(payload: SyncFocusPayload) => void>()
+
+ipcRenderer.on(IPC.syncFocus, (_e: Electron.IpcRendererEvent, payload: SyncFocusPayload) => {
+  if (!payload || typeof payload.cwd !== 'string') return
+  if (syncFocusListeners.size === 0) pendingSyncFocus = payload
+  else for (const cb of syncFocusListeners) cb(payload)
 })
 
 /**
@@ -107,6 +131,53 @@ const api: WindowApi = {
     }
   },
 
+  mcp: {
+    list: (cli: CliId, cwd: string, dshHome?: string): Promise<McpListResult> =>
+      ipcRenderer.invoke(IPC.mcpList, cli, cwd, dshHome),
+    save: (
+      cli: CliId,
+      server: McpServerInput,
+      cwd: string,
+      dshHome?: string
+    ): Promise<McpMutationResult> =>
+      ipcRenderer.invoke(IPC.mcpSave, cli, server, cwd, dshHome),
+    remove: (cli: CliId, id: string, cwd: string, dshHome?: string): Promise<McpMutationResult> =>
+      ipcRenderer.invoke(IPC.mcpRemove, cli, id, cwd, dshHome),
+    setEnabled: (
+      cli: CliId,
+      id: string,
+      enabled: boolean,
+      cwd: string,
+      dshHome?: string
+    ): Promise<McpMutationResult> =>
+      ipcRenderer.invoke(IPC.mcpSetEnabled, cli, id, enabled, cwd, dshHome),
+    test: (cli: CliId, server: McpServerInput): Promise<McpTestResult> =>
+      ipcRenderer.invoke(IPC.mcpTest, cli, server),
+    testAll: (cli: CliId, cwd: string, dshHome?: string): Promise<McpListResult> =>
+      ipcRenderer.invoke(IPC.mcpTestAll, cli, cwd, dshHome),
+    dshHomes: (): Promise<DshHomeOption[]> => ipcRenderer.invoke(IPC.mcpDshHomes),
+    openConfig: (
+      cli: CliId,
+      scope: McpScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.mcpOpenConfig, cli, scope, cwd, dshHome),
+    revealConfig: (
+      cli: CliId,
+      scope: McpScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.mcpRevealConfig, cli, scope, cwd, dshHome),
+    openBackups: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.mcpOpenBackups),
+    migration: (dshHome?: string): Promise<McpMigrationPreview> =>
+      ipcRenderer.invoke(IPC.mcpMigration, dshHome),
+    migrate: (ids: string[], dshHome?: string): Promise<McpMigrationResult> =>
+      ipcRenderer.invoke(IPC.mcpMigrate, ids, dshHome)
+  },
+
   codex: {
     status: (): Promise<CodexStatus> => ipcRenderer.invoke(IPC.codexStatus)
   },
@@ -148,6 +219,8 @@ const api: WindowApi = {
     start: (o: SessionStartOptions): Promise<string> => ipcRenderer.invoke(IPC.sessionStart, o),
     send: (id: string, input: SessionSendInput): Promise<SessionSendResult> =>
       ipcRenderer.invoke(IPC.sessionSend, id, input),
+    command: (id: string, name: string, args?: string): Promise<SessionSendResult> =>
+      ipcRenderer.invoke(IPC.sessionCommand, id, name, args),
     interrupt: (id: string) => ipcRenderer.send(IPC.sessionInterrupt, id),
     stop: (id: string) => ipcRenderer.send(IPC.sessionStop, id),
     respondPermission: (id, requestId, decision, always) =>
@@ -174,6 +247,11 @@ const api: WindowApi = {
       ipcRenderer.invoke(IPC.sessionsTranscript, cwd, id),
     delete: (cwd: string, id: string): Promise<{ ok: boolean; message?: string }> =>
       ipcRenderer.invoke(IPC.sessionsDelete, cwd, id),
+    meta: (): Promise<SessionMetaMap> => ipcRenderer.invoke(IPC.sessionsMeta),
+    setMeta: (update: SessionMetaUpdate): Promise<SessionMetaMap> =>
+      ipcRenderer.invoke(IPC.sessionsSetMeta, update),
+    search: (query: string, limit?: number, offset?: number): Promise<SessionSearchResult> =>
+      ipcRenderer.invoke(IPC.sessionsSearch, query, limit, offset),
     pickDir: (): Promise<string | null> => ipcRenderer.invoke(IPC.sessionsPickDir)
   },
 
@@ -224,6 +302,14 @@ const api: WindowApi = {
     readFile: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadFile, cwd, rel),
     readImage: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadImage, cwd, rel),
     searchCode: (req) => ipcRenderer.invoke(IPC.ideSearchCode, req),
+    startSearch: (req) => ipcRenderer.invoke(IPC.ideSearchStart, req),
+    cancelSearch: (requestId) => ipcRenderer.send(IPC.ideSearchCancel, requestId),
+    onSearchEvent: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, event: IdeSearchStreamEvent): void =>
+        cb(event)
+      ipcRenderer.on(IPC.ideSearchEvent, listener)
+      return () => ipcRenderer.off(IPC.ideSearchEvent, listener)
+    },
     replaceInWorkspace: (req) => ipcRenderer.invoke(IPC.ideReplaceInWorkspace, req),
     saveFile: (req) => ipcRenderer.invoke(IPC.ideSaveFile, req),
     createEntry: (req) => ipcRenderer.invoke(IPC.ideCreateEntry, req),
@@ -243,6 +329,31 @@ const api: WindowApi = {
     confirmClose: () => ipcRenderer.send(IPC.ideConfirmClose)
   },
 
+  sync: {
+    get: (cwd) => ipcRenderer.invoke(IPC.syncGet, cwd),
+    save: (cwd, config) => ipcRenderer.invoke(IPC.syncSave, cwd, config),
+    pickDir: (cwd, which) => ipcRenderer.invoke(IPC.syncPickDir, cwd, which),
+    syncNow: (cwd) => ipcRenderer.invoke(IPC.syncNow, cwd),
+    openTarget: (cwd) => ipcRenderer.invoke(IPC.syncOpenTarget, cwd),
+    onStatus: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: SyncStatusPush): void =>
+        cb(payload)
+      ipcRenderer.on(IPC.syncStatus, listener)
+      return () => ipcRenderer.off(IPC.syncStatus, listener)
+    },
+    onFocus: (cb) => {
+      syncFocusListeners.add(cb)
+      const late = pendingSyncFocus
+      if (late) {
+        pendingSyncFocus = null
+        cb(late)
+      }
+      return () => {
+        syncFocusListeners.delete(cb)
+      }
+    }
+  },
+
   vcs: {
     detect: (cwd) => ipcRenderer.invoke(IPC.vcsDetect, cwd),
     status: (req) => ipcRenderer.invoke(IPC.vcsStatus, req),
@@ -259,8 +370,11 @@ const api: WindowApi = {
     pull: (req) => ipcRenderer.invoke(IPC.vcsPull, req),
     push: (req) => ipcRenderer.invoke(IPC.vcsPush, req),
     update: (req) => ipcRenderer.invoke(IPC.vcsUpdate, req),
+    branches: (req) => ipcRenderer.invoke(IPC.vcsBranches, req),
+    worktreeMap: (req) => ipcRenderer.invoke(IPC.vcsWorktreeMap, req),
     worktreeList: (req) => ipcRenderer.invoke(IPC.vcsWorktreeList, req),
     worktreeAdd: (req) => ipcRenderer.invoke(IPC.vcsWorktreeAdd, req),
+    mergeWorktree: (req) => ipcRenderer.invoke(IPC.vcsMergeWorktree, req),
     worktreeRemove: (req) => ipcRenderer.invoke(IPC.vcsWorktreeRemove, req),
     worktreePrune: (req) => ipcRenderer.invoke(IPC.vcsWorktreePrune, req),
     cancel: (req) => ipcRenderer.invoke(IPC.vcsCancel, req)

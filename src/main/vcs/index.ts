@@ -1,4 +1,6 @@
 import type {
+  VcsBranchListData,
+  VcsBranchListRequest,
   VcsCancelRequest,
   VcsCommitData,
   VcsCommitDetailData,
@@ -11,6 +13,8 @@ import type {
   VcsError,
   VcsLogPage,
   VcsLogRequest,
+  VcsMergeWorktreeData,
+  VcsMergeWorktreeRequest,
   VcsMutationData,
   VcsPathsRequest,
   VcsPullRequest,
@@ -27,11 +31,15 @@ import type {
   VcsWorktreeAddRequest,
   VcsWorktreeListData,
   VcsWorktreeListRequest,
+  VcsWorktreeMapData,
+  VcsWorktreeMapEntry,
+  VcsWorktreeMapRequest,
   VcsWorktreePruneData,
   VcsWorktreePruneRequest,
   VcsWorktreeRemoveRequest
 } from '../../shared/vcs'
 import { t } from '../i18n'
+import { isSameOrInside, pathKey } from '../path-key'
 import { detectVcs, invalidateDetect } from './detect'
 import { VcsOpError } from './exec'
 import * as git from './git'
@@ -215,7 +223,62 @@ export async function update(req: VcsUpdateRequest): Promise<VcsResult<VcsSyncDa
   })
 }
 
+/* ── Branches（Git only） ─────────────────────────────── */
+
+export async function branches(
+  req: VcsBranchListRequest
+): Promise<VcsResult<VcsBranchListData>> {
+  return read(async () => {
+    const repo = await repoOf(req.cwd)
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoBranches'))
+    return git.branchListGit(repo, req)
+  })
+}
+
 /* ── Worktree（Git only） ──────────────────────────────── */
+
+export async function worktreeMap(
+  req: VcsWorktreeMapRequest
+): Promise<VcsResult<VcsWorktreeMapData>> {
+  return read(async () => {
+    const cwds = [...new Set(req.cwds)]
+    /** 同一个工作树里的多个 cwd 只跑一次 worktree list */
+    const groups = new Map<string, { repo: VcsRepo; cwds: string[] }>()
+    for (const cwd of cwds) {
+      const detected = await detectVcs(cwd)
+      const repo = detected.repo
+      if (!repo || repo.kind !== 'git') continue
+      const key = pathKey(repo.root)
+      const group = groups.get(key)
+      if (group) group.cwds.push(cwd)
+      else groups.set(key, { repo, cwds: [cwd] })
+    }
+
+    const entries: VcsWorktreeMapEntry[] = []
+    for (const group of groups.values()) {
+      let trees
+      try {
+        trees = await git.worktreeListGit(group.repo, { cwd: group.cwds[0] })
+      } catch {
+        // 单个仓库读不到不影响其它分组
+        continue
+      }
+      const main = trees.worktrees.find((w) => w.main)
+      for (const cwd of group.cwds) {
+        const rec = trees.worktrees.find((w) => isSameOrInside(cwd, w.path))
+        if (!rec) continue
+        entries.push({
+          cwd,
+          mainPath: main?.path ?? group.repo.root,
+          branch: rec.detached ? '' : (rec.branch ?? ''),
+          worktree: !rec.main
+        })
+      }
+    }
+
+    return { entries }
+  })
+}
 
 export async function worktreeList(
   req: VcsWorktreeListRequest
@@ -235,6 +298,19 @@ export async function worktreeAdd(
     if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoWorktree'))
     return git.worktreeAddGit(repo, req, signal)
   })
+}
+
+export async function mergeWorktree(
+  req: VcsMergeWorktreeRequest
+): Promise<VcsResult<VcsMergeWorktreeData>> {
+  const r = await write(req.cwd, { opId: req.opId, label: t('vcs.op.mergeWorktree') }, async (signal) => {
+    const repo = await repoOf(req.cwd)
+    if (repo.kind !== 'git') throw new VcsOpError('unsupported', t('vcsError.svnNoWorktree'))
+    return git.mergeWorktreeGit(repo, req, signal)
+  })
+  // 合并改的是主工作树；缓存按 cwd 存，单独失效一下
+  if (r.ok) invalidateDetect(r.data.mainPath)
+  return r
 }
 
 export async function worktreeRemove(

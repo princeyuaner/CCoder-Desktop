@@ -6,15 +6,23 @@
  *     --outfile=tools/_ide-fs.cjs
  *   npx esbuild src/main/ide-window.ts --bundle --platform=node --format=cjs \
  *     --external:electron --outfile=tools/_ide-window.cjs
+ *   npx esbuild src/main/ide-search-service.ts --bundle --platform=node --format=cjs \
+ *     --outfile=tools/_ide-search-service.cjs
  *   node node_modules/electron/cli.js tools/verify-ide-search-ipc.cjs
  */
 const { app, BrowserWindow, ipcMain } = require('electron')
 const fs = require('node:fs')
-const os = require('node:os')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
 const ROOT = path.join(__dirname, '..')
+const DIAG = path.join(ROOT, '.buildtmp', 'verify-ide-search-ipc.log')
+function diag(message) {
+  try {
+    fs.mkdirSync(path.dirname(DIAG), { recursive: true })
+    fs.appendFileSync(DIAG, `${new Date().toISOString()} ${message}\n`)
+  } catch {}
+}
 process.env.ELECTRON_RENDERER_URL = pathToFileURL(
   path.join(ROOT, 'out', 'renderer', 'index.html')
 ).href
@@ -22,11 +30,27 @@ process.env.CCODER_PRELOAD_PATH = path.join(ROOT, 'out', 'preload', 'index.js')
 
 const ide = require('./_ide-fs.cjs')
 const { openIdeWindow, authorizeVcsSender, markIdeDirty, closeIdeWindow } = require('./_ide-window.cjs')
+const {
+  startIdeSearch,
+  cancelIdeSearch
+} = require('./_ide-search-service.cjs')
+
+process.on('uncaughtException', (err) => {
+  diag(`uncaughtException: ${err && err.stack ? err.stack : err}`)
+  app.exit(1)
+})
+process.on('unhandledRejection', (err) => {
+  diag(`unhandledRejection: ${err && err.stack ? err.stack : err}`)
+  app.exit(1)
+})
 
 app.on('window-all-closed', () => {})
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ccoder-search-ipc-'))
+// 本机 %TEMP% 可能被安全软件锁住（EPERM）；仓库里的 .buildtmp 已在 .gitignore 中
+const tmpRoot = path.join(ROOT, '.buildtmp')
+fs.mkdirSync(tmpRoot, { recursive: true })
+const base = fs.mkdtempSync(path.join(tmpRoot, 'ccoder-search-ipc-'))
 const ws = path.join(base, 'ws')
 fs.mkdirSync(path.join(ws, 'src'), { recursive: true })
 fs.mkdirSync(path.join(ws, 'docs'), { recursive: true })
@@ -61,6 +85,22 @@ function register() {
   ipcMain.handle('ide:search-code', (e, req) =>
     req && allow(e, req.cwd) ? ide.searchCode(req) : denyRead()
   )
+  ipcMain.handle('ide:search-start', (e, req) => {
+    if (!req || typeof req !== 'object' || typeof req.cwd !== 'string' || !allow(e, req.cwd)) {
+      return { ok: false, code: 'forbidden', message: '这个窗口不能访问该工作区' }
+    }
+    return startIdeSearch({
+      senderId: e.sender.id,
+      req,
+      send: (event) => {
+        if (!e.sender.isDestroyed()) e.sender.send('ide:search-event', event)
+      }
+    })
+  })
+  ipcMain.on('ide:search-cancel', (e, requestId) => {
+    if (typeof requestId === 'string') cancelIdeSearch(e.sender.id, requestId)
+    else cancelIdeSearch(e.sender.id)
+  })
   ipcMain.handle('ide:replace-in-workspace', (e, req) =>
     req && allow(e, req.cwd) ? ide.replaceInWorkspace(req) : denyWrite()
   )
@@ -117,7 +157,9 @@ async function matchCount(win) {
   )
 }
 
+diag('script loaded')
 app.whenReady().then(async () => {
+  diag('app ready')
   register()
   openIdeWindow(ws)
   await sleep(1400)
@@ -230,12 +272,17 @@ app.whenReady().then(async () => {
     forbidden
   )
   const searchForbidden = await outsider.webContents.executeJavaScript(
-    `window.api.ide.searchCode(${JSON.stringify({ cwd: ws, query: 'Foo' })}).then(
-      () => 'resolved',
-      (e) => 'rejected:' + e.message
-    )`
+    `window.api.ide.startSearch(${JSON.stringify({
+      cwd: ws,
+      query: 'Foo',
+      requestId: 'outsider-1'
+    })})`
   )
-  check('未绑定窗口不能搜索', String(searchForbidden).startsWith('rejected'), searchForbidden)
+  check(
+    '未绑定窗口不能搜索',
+    searchForbidden.ok === false && searchForbidden.code === 'forbidden',
+    searchForbidden
+  )
   check(
     '越权替换没有改文件',
     fs.readFileSync(path.join(ws, 'docs', 'x.md'), 'utf8') === 'Foo\n'

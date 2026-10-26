@@ -61,7 +61,7 @@ const DEMO = {
       channels: [],
       effort: 'medium',
       authMode: 'official',
-      officialModel: 'deepseek-v4-flash'
+      officialModel: 'deepseek-flash'
     }
   }
 }
@@ -79,6 +79,8 @@ ipcMain.handle('settings:save', (_e, s) => {
 })
 // 让页面有个能跑的会话桩，不然启动时弹「主进程没有响应」
 ipcMain.handle('sessions:list', () => [])
+ipcMain.handle('sessions:meta', () => ({}))
+ipcMain.handle('sessions:set-meta', () => ({}))
 ipcMain.handle('sessions:transcript', () => [])
 ipcMain.handle('sessions:pick-dir', () => null)
 ipcMain.handle('sessions:delete', () => ({ ok: true }))
@@ -138,11 +140,185 @@ ipcMain.handle('dsh:status', () => ({
   checkedAt: Date.now()
 }))
 
+/* MCP：截图桩。结构与真实 mcp:list 返回值一致，只用于视觉验收。 */
+const MCP_SOURCE = {
+  claude: 'C:\\Users\\CY\\.claude.json',
+  codex: 'C:\\Users\\CY\\.codex\\config.toml',
+  dsh: 'C:\\Users\\CY\\.dsh\\profiles\\acp\\cordis.patch.yml'
+}
+const mcpServer = (cli, o) => ({
+  id: `${cli}-${o.name}`,
+  cli,
+  name: o.name,
+  transport: o.transport || 'stdio',
+  command: o.command || '',
+  args: o.args || [],
+  env: o.env || [],
+  url: o.url || '',
+  headers: o.headers || [],
+  workingDir: o.workingDir || '',
+  enabled: o.status !== 'disabled',
+  enabledControl: o.enabledControl || 'native',
+  enabledBy: o.enabledBy,
+  scope: o.scope || 'global',
+  cwd: o.cwd || '',
+  source: {
+    file: MCP_SOURCE[cli],
+    scope: o.scope || 'global',
+    format: cli === 'codex' ? 'toml' : cli === 'dsh' ? 'yaml' : 'jsonc'
+  },
+  supported: true,
+  readOnly: !!o.readOnly,
+  readOnlyReason: o.readOnlyReason,
+  hasSecrets: !!o.hasSecrets,
+  secretKeys: o.secretKeys || [],
+  nativeExtras: o.nativeExtras || [],
+  approvalState: o.approvalState,
+  status: o.status,
+  error: o.error || '',
+  latencyMs: o.latencyMs || 0,
+  checkedAt: o.status === 'untested' ? 0 : Date.now() - 120000,
+  tools: o.tools || [],
+  resources: o.resources || [],
+  prompts: o.prompts || []
+})
+const DEMO_MCP = {
+  claude: [
+    mcpServer('claude', {
+      name: 'github',
+      description: '仓库、Issue 与 Pull Request',
+      transport: 'http',
+      url: 'https://api.githubcopilot.com/mcp/',
+      status: 'connected',
+      latencyMs: 142,
+      scope: 'project',
+      tools: [
+        { name: 'search_repositories', description: '搜索仓库、代码与议题' },
+        { name: 'get_file_contents', description: '读取仓库中的文件内容' },
+        { name: 'list_issues', description: '按状态与标签筛选 Issue' },
+        { name: 'get_pull_request', description: '查看 PR 详情、变更与评论' },
+        { name: 'create_pull_request', description: '创建 PR 并填写描述' },
+        { name: 'create_issue', description: '在指定仓库中新建 Issue' }
+      ],
+      resources: [
+        { uri: 'repo://ccoder/ccoder-desktop/README.md', name: 'README.md', description: '', mimeType: 'text/markdown' }
+      ],
+      prompts: [{ name: 'summarize_pull_request', description: '总结 PR 改动并生成 review 提纲' }]
+    }),
+    mcpServer('claude', {
+      name: 'filesystem',
+      description: '本机文件与目录访问',
+      transport: 'stdio',
+      command: 'npx -y @modelcontextprotocol/server-filesystem C:\\Projects',
+      status: 'untested'
+    }),
+    mcpServer('claude', {
+      name: 'playwright',
+      description: '浏览器自动化与页面快照',
+      transport: 'stdio',
+      command: 'npx -y @playwright/mcp@latest',
+      status: 'error',
+      error: 'spawn npx ENOENT: 请检查 Node.js 与 npx 是否在 PATH 中。',
+      scope: 'project'
+    })
+  ],
+  codex: [
+    mcpServer('codex', {
+      name: 'context7',
+      description: '最新版库文档与代码示例',
+      transport: 'http',
+      url: 'https://mcp.context7.com/mcp',
+      status: 'connected',
+      latencyMs: 210,
+      tools: [
+        { name: 'resolve-library-id', description: '把库名解析成 Context7 文档 ID' },
+        { name: 'get-library-docs', description: '读取指定版本的文档与示例' }
+      ]
+    }),
+    mcpServer('codex', {
+      name: 'sentry',
+      description: '错误追踪与 Issue 查询',
+      transport: 'http',
+      url: 'https://mcp.sentry.dev/mcp',
+      status: 'error',
+      error: 'HTTP 401：OAuth 访问令牌已过期。请在 Codex CLI 中重新登录 Sentry MCP 服务。'
+    })
+  ],
+  dsh: [
+    mcpServer('dsh', {
+      name: 'fetch',
+      description: '网页抓取与正文提取',
+      transport: 'http',
+      url: 'https://mcp.fetch.example/v1',
+      status: 'connected',
+      latencyMs: 128,
+      scope: 'home',
+      tools: [
+        { name: 'fetch_url', description: '抓取网页并返回 Markdown' },
+        { name: 'extract_markdown', description: '提取正文并清理导航栏' },
+        { name: 'crawl_site', description: '按深度抓取站点页面' },
+        { name: 'take_snapshot', description: '保存页面快照供后续引用' }
+      ]
+    })
+  ]
+}
+const mcpList = (cli, dshHome) => ({
+  cli,
+  cwd: DEMO.defaultCwd,
+  servers: DEMO_MCP[cli] || [],
+  configFiles: [
+    {
+      path: MCP_SOURCE[cli],
+      scopes: cli === 'claude' ? ['user', 'local'] : cli === 'dsh' ? ['home'] : ['global'],
+      format: cli === 'codex' ? 'toml' : cli === 'dsh' ? 'yaml' : 'jsonc',
+      exists: true,
+      readOnly: false
+    }
+  ],
+  dshHome: cli === 'dsh' ? dshHome || 'C:\\Users\\CY\\.dsh' : undefined,
+  legacyCount: 0
+})
+ipcMain.handle('mcp:list', (_e, cli, _cwd, dshHome) => mcpList(cli, dshHome))
+ipcMain.handle('mcp:test-all', (_e, cli, _cwd, dshHome) => mcpList(cli, dshHome))
+ipcMain.handle('mcp:test', () => ({
+  ok: true,
+  status: 'connected',
+  error: '',
+  latencyMs: 96,
+  checkedAt: Date.now(),
+  tools: [{ name: 'demo_tool', description: 'Demo tool' }],
+  resources: [],
+  prompts: []
+}))
+ipcMain.handle('mcp:save', (_e, cli, _server, _cwd, dshHome) => ({ ok: true, list: mcpList(cli, dshHome) }))
+ipcMain.handle('mcp:remove', (_e, cli, _id, _cwd, dshHome) => ({ ok: true, list: mcpList(cli, dshHome) }))
+ipcMain.handle('mcp:set-enabled', (_e, cli, _id, _enabled, _cwd, dshHome) => ({ ok: true, list: mcpList(cli, dshHome) }))
+ipcMain.handle('mcp:dsh-homes', () => [
+  { path: 'C:\\Users\\CY\\.dsh', label: '', kind: 'shared', active: true, exists: true },
+  { path: 'C:\\Users\\CY\\AppData\\Roaming\\coder-desktop\\dsh-homes\\demo', label: 'Demo', kind: 'channel', active: false, exists: false }
+])
+ipcMain.handle('mcp:open-config', () => ({ ok: true }))
+ipcMain.handle('mcp:reveal-config', () => ({ ok: true }))
+ipcMain.handle('mcp:open-backups', () => ({ ok: true }))
+ipcMain.handle('mcp:migration', () => ({
+  count: 0,
+  legacyPath: 'C:\\Users\\CY\\AppData\\Roaming\\coder-desktop\\mcp-servers.json',
+  entries: [],
+  defaultDshHome: 'C:\\Users\\CY\\.dsh'
+}))
+ipcMain.handle('mcp:migrate', () => ({
+  ok: true,
+  migrated: 0,
+  skipped: 0,
+  conflicts: 0,
+  failed: []
+}))
+
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1360,
     height: 860,
-    show: true,
+    show: process.env.SHOT_HIDE !== '1',
     frame: false,
     backgroundColor: '#191919',
     webPreferences: {
@@ -219,8 +395,9 @@ app.whenReady().then(async () => {
     await new Promise((r) => setTimeout(r, 300))
   }
 
+  console.log('capturing', out)
   const img = await win.webContents.capturePage()
   fs.writeFileSync(out, img.toPNG())
   console.log('wrote', out)
-  app.quit()
+  app.exit(0)
 })

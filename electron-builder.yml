@@ -19,6 +19,12 @@ files:
 asar: true
 npmRebuild: false
 
+# ripgrep 由 tools/stage-rg.cjs 从 @vscode/ripgrep 的平台包复制到 build/rg；
+# 放在 asar 外，运行时从 process.resourcesPath/bin 启动。
+extraResources:
+  - from: build/rg
+    to: bin
+
 # 直接用 node_modules 里已装好的 Electron（版本与 devDependencies 一致），
 # 免得每次打包都去 GitHub 拉 100+MB 的 zip。
 # 注意：这个 dist 是 win32-x64 的；将来加 macOS 目标时要按平台换掉。

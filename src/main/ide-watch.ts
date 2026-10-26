@@ -1,6 +1,7 @@
 import { watch, type FSWatcher } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
-import { resetWorkspaceSearchCache, WORKSPACE_IGNORE_DIRS } from './workspace-search'
+import { markWorkspaceSearchStale } from './workspace-search'
+import { isIgnoredDirName } from './workspace-ignore'
 
 /**
  * 工作区文件监听 —— 纯 Node，不 import Electron。
@@ -41,7 +42,7 @@ const RESTART_MS = 1000
 const WIN = process.platform === 'win32'
 
 function ignoredSegment(name: string): boolean {
-  return WORKSPACE_IGNORE_DIRS.has(WIN ? name.toLowerCase() : name)
+  return isIgnoredDirName(name)
 }
 
 /** 把 fs.watch 给的 filename 换算成工作区相对 POSIX 路径 */
@@ -128,8 +129,9 @@ export function startWorkspaceWatch(
 
     if (rels.length === 0 && !wasTruncated && !wasGeneric) return
 
-    // 文件列表缓存 15 秒，外部改动后要立刻失效，否则快速打开仍会看到旧文件
-    resetWorkspaceSearchCache()
+    // 只标记 stale：下一次快速打开先返回旧列表并在后台刷新，不阻塞输入。
+    // 传 cwd 保证只影响当前工作区，不会把其它窗口的缓存一起清掉。
+    markWorkspaceSearchStale(cwd)
     try {
       onBatch({ rels, truncated: wasTruncated, generic: wasGeneric })
     } catch {

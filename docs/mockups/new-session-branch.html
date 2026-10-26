@@ -1,0 +1,1796 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>CCoder · 新建会话：选择分支</title>
+    <style>
+      /* 新建会话 · 分支选择效果图。配色全部沿用应用 tokens.css。 */
+      :root {
+        --bg-app: #191919;
+        --bg-sidebar: #141414;
+        --bg-raised: #232323;
+        --bg-hover: #1f1f1f;
+        --bg-active: #2a2a2a;
+
+        --border: #2c2c2c;
+        --border-soft: #242424;
+
+        --text: #e8e8e8;
+        --text-dim: #a8a8a8;
+        --text-muted: #8a8a8a;
+        --text-faint: #6b6b6b;
+
+        --ok: #4b9e5f;
+        --warn: #c9a227;
+        --danger: #e5534b;
+        --running: #d97757;
+
+        /* 分支相关的冷色，与运行态的珊瑚色区分 */
+        --br: #7aa2c8;
+        --br-text: #a9c6e2;
+        --br-bg: rgba(122, 162, 200, 0.09);
+        --br-border: rgba(122, 162, 200, 0.24);
+
+        --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        --font-mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1360px;
+        height: 860px;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg-app);
+        color: var(--text);
+        font-family: var(--font-ui);
+        font-size: 14px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+      }
+
+      svg {
+        display: block;
+        flex: none;
+      }
+
+      code,
+      kbd {
+        font-family: var(--font-mono);
+        font-size: 11px;
+      }
+
+      kbd {
+        padding: 1px 5px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: #1c1c1c;
+        color: var(--text-faint);
+      }
+
+      .win {
+        position: relative;
+        width: 1360px;
+        height: 860px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      /* ── 标题栏 ─────────────────────────────────────────── */
+
+      .titlebar {
+        position: relative;
+        display: flex;
+        align-items: center;
+        height: 36px;
+        flex: none;
+        background: var(--bg-app);
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 100%;
+        padding: 0 12px;
+        color: #d8d8d8;
+      }
+
+      .brand__name {
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: 0.2px;
+      }
+
+      .wcontrols {
+        display: flex;
+        margin-left: auto;
+        height: 100%;
+      }
+
+      .wctl {
+        display: grid;
+        place-items: center;
+        width: 46px;
+        height: 100%;
+        color: var(--text-dim);
+      }
+
+      .wctl:hover {
+        background: var(--bg-raised);
+        color: var(--text);
+      }
+
+      .wctl--close:hover {
+        background: #c42b1c;
+        color: #fff;
+      }
+
+      /* ── 主体 ───────────────────────────────────────────── */
+
+      .body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+
+      /* ── 侧栏 ───────────────────────────────────────────── */
+
+      .sidebar {
+        width: 280px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-sidebar);
+        border-right: 1px solid var(--border-soft);
+      }
+
+      .side__nav {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 10px 10px 6px;
+      }
+
+      .navitem {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 32px;
+        padding: 0 9px;
+        border-radius: 7px;
+        color: var(--text-dim);
+        font-size: 13px;
+      }
+
+      .navitem:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+
+      .side__head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 14px 12px 8px 18px;
+      }
+
+      .side__title {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .side__tools {
+        margin-left: auto;
+        display: flex;
+        gap: 2px;
+      }
+
+      .iconbtn {
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        color: var(--text-muted);
+      }
+
+      .iconbtn:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+
+      .side__scroll {
+        flex: 1;
+        min-height: 0;
+        padding: 0 8px;
+        overflow: hidden;
+      }
+
+      .wsgroup {
+        margin-bottom: 6px;
+      }
+
+      .wsgroup__head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 32px;
+        padding: 0 7px;
+        border-radius: 7px;
+        color: var(--text-dim);
+      }
+
+      .wsgroup__head:hover {
+        background: var(--bg-hover);
+      }
+
+      .wsgroup__icon {
+        color: var(--text-muted);
+      }
+
+      .wsgroup__name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .wsgroup__count {
+        font-size: 11px;
+        color: var(--text-faint);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .wsgroup__acts {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .wsact {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        color: var(--text-muted);
+      }
+
+      .wsact:hover {
+        background: var(--bg-active);
+        color: var(--text);
+      }
+
+      /* 正在触发的新建入口 */
+      .wsact--hot {
+        background: var(--bg-active);
+        color: var(--text);
+        box-shadow: 0 0 0 1px #3a3a3a inset;
+      }
+
+      .srow {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 7px 9px 7px 30px;
+        border-radius: 7px;
+        cursor: default;
+      }
+
+      .srow:hover {
+        background: var(--bg-hover);
+      }
+
+      .srow.is-active {
+        background: var(--bg-active);
+      }
+
+      .srow__top {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+      }
+
+      .srow__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex: none;
+      }
+
+      .srow__dot--run {
+        background: var(--running);
+      }
+
+      .srow__dot--idle {
+        background: #4a4a4a;
+      }
+
+      .srow__dot--wait {
+        background: var(--warn);
+      }
+
+      .srow__title {
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-size: 13px;
+        color: var(--text-dim);
+      }
+
+      .srow.is-active .srow__title {
+        color: var(--text);
+      }
+
+      .srow__time {
+        margin-left: auto;
+        flex: none;
+        font-size: 11px;
+        color: var(--text-faint);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .srow__sub {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding-left: 13px;
+        font-size: 11px;
+        color: var(--text-faint);
+        white-space: nowrap;
+      }
+
+      .branchline {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .branchline svg {
+        color: var(--br);
+      }
+
+      .side__foot {
+        flex: none;
+        padding: 8px;
+        border-top: 1px solid var(--border-soft);
+      }
+
+      .side__settings {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        width: 100%;
+        height: 34px;
+        padding: 0 9px;
+        border-radius: 7px;
+        color: var(--text-dim);
+        font-size: 13px;
+      }
+
+      .side__settings:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+
+      /* ── 主区 ───────────────────────────────────────────── */
+
+      .main {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-app);
+      }
+
+      .tabbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 44px;
+        flex: none;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 30px;
+        padding: 0 12px;
+        border-radius: 7px;
+        color: var(--text-muted);
+        font-size: 12.5px;
+      }
+
+      .tab.is-active {
+        background: var(--bg-raised);
+        color: var(--text);
+      }
+
+      .tab__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--running);
+      }
+
+      .tab__x {
+        margin-left: 2px;
+        color: var(--text-faint);
+      }
+
+      .chathead {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 58px;
+        flex: none;
+        padding: 0 36px;
+      }
+
+      .chathead__title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 650;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 22px;
+        padding: 0 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-pill, 999px);
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .chip--branch {
+        border-color: var(--br-border);
+        background: var(--br-bg);
+        color: var(--br-text);
+      }
+
+      .chip--wt {
+        border-color: var(--br-border);
+        color: var(--br-text);
+      }
+
+      .transcript {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        padding: 12px 36px 0;
+      }
+
+      .turn {
+        max-width: 780px;
+        margin: 0 auto 22px;
+      }
+
+      .turn__user {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 22px;
+      }
+
+      .bubble {
+        max-width: 520px;
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: var(--bg-raised);
+        color: var(--text);
+        font-size: 13.5px;
+      }
+
+      .assistant {
+        display: flex;
+        gap: 12px;
+        color: var(--text-dim);
+        font-size: 13.5px;
+      }
+
+      .assistant__mark {
+        flex: none;
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        margin-top: 2px;
+        border-radius: 7px;
+        background: #2a2a2a;
+        color: var(--text);
+      }
+
+      .assistant p {
+        margin: 0 0 10px;
+      }
+
+      .toolcard {
+        margin: 10px 0 0;
+        border: 1px solid var(--border-soft);
+        border-radius: 9px;
+        background: #1c1c1c;
+        overflow: hidden;
+      }
+
+      .toolcard__head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .toolcard__cmd {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--text-dim);
+      }
+
+      .toolcard__ok {
+        margin-left: auto;
+        color: var(--ok);
+      }
+
+      .toolcard__body {
+        padding: 8px 12px 10px;
+        border-top: 1px solid var(--border-soft);
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        line-height: 1.65;
+        color: #8f8f8f;
+      }
+
+      .toolcard__body b {
+        color: #b9b9b9;
+        font-weight: 500;
+      }
+
+      .composer {
+        flex: none;
+        padding: 14px 36px 22px;
+      }
+
+      .composer__box {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 12px 14px 10px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: #1d1d1d;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+
+      .composer__input {
+        min-height: 44px;
+        color: var(--text-faint);
+        font-size: 13.5px;
+      }
+
+      .composer__bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .composer__chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 24px;
+        padding: 0 8px;
+        border-radius: 6px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .composer__send {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        margin-left: auto;
+        border-radius: 8px;
+        background: #333;
+        color: var(--text-faint);
+      }
+
+      /* ── 遮罩与对话框 ───────────────────────────────────── */
+
+      .scrim {
+        position: absolute;
+        inset: 36px 0 0;
+        background: rgba(0, 0, 0, 0.52);
+        backdrop-filter: blur(1.5px);
+      }
+
+      .dlg {
+        position: absolute;
+        left: 50%;
+        top: 54px;
+        transform: translateX(-50%);
+        width: 620px;
+        border: 1px solid #343434;
+        border-radius: 14px;
+        background: #202020;
+        box-shadow:
+          0 30px 80px rgba(0, 0, 0, 0.55),
+          0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+        overflow: hidden;
+      }
+
+      .dlg__head {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 18px 20px 14px;
+      }
+
+      .dlg__title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: 0.1px;
+      }
+
+      .dlg__repo {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 5px 0 0;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .dlg__repo svg {
+        color: var(--text-faint);
+      }
+
+      .dlg__repo code {
+        color: var(--text-faint);
+        font-size: 11px;
+      }
+
+      .dlg__close {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        margin-left: auto;
+        border-radius: 7px;
+        color: var(--text-muted);
+        font-size: 19px;
+        line-height: 1;
+      }
+
+      .dlg__close:hover {
+        background: var(--bg-active);
+        color: var(--text);
+      }
+
+      .dlg__body {
+        padding: 0 20px 16px;
+      }
+
+      /* 两段式：选已有 / 建新的 */
+      .modes-tabs {
+        display: flex;
+        gap: 3px;
+        padding: 3px;
+        margin-bottom: 16px;
+        border: 1px solid var(--border-soft);
+        border-radius: 9px;
+        background: #1a1a1a;
+      }
+
+      .modes-tab {
+        flex: 1;
+        height: 30px;
+        border-radius: 7px;
+        color: var(--text-muted);
+        font-size: 12.5px;
+      }
+
+      .modes-tab:hover {
+        color: var(--text-dim);
+      }
+
+      .modes-tab.is-on {
+        background: var(--bg-active);
+        color: var(--text);
+        box-shadow: 0 0 0 1px #363636 inset;
+      }
+
+      .label-row {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 7px;
+      }
+
+      .label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-dim);
+      }
+
+      .hint {
+        font-size: 11.5px;
+        color: var(--text-faint);
+      }
+
+      .select {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        height: 42px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: #1b1b1b;
+        text-align: left;
+      }
+
+      .select:hover {
+        border-color: #3a3a3a;
+      }
+
+      .select.is-open {
+        border-color: var(--br-border);
+        box-shadow: 0 0 0 3px rgba(122, 162, 200, 0.07);
+      }
+
+      .select__icon {
+        color: var(--br);
+      }
+
+      .select__value {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        color: var(--text);
+      }
+
+      .select__chevron {
+        margin-left: auto;
+        color: var(--text-faint);
+        transition: transform 0.15s;
+      }
+
+      .select.is-open .select__chevron {
+        transform: rotate(180deg);
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        height: 19px;
+        padding: 0 6px;
+        border-radius: 5px;
+        font-size: 10.5px;
+        letter-spacing: 0.1px;
+        white-space: nowrap;
+      }
+
+      .tag--current {
+        background: rgba(75, 158, 95, 0.12);
+        color: #7fbf90;
+      }
+
+      .tag--used {
+        background: rgba(201, 162, 39, 0.12);
+        color: #d4b455;
+      }
+
+      .tag--new {
+        background: rgba(122, 162, 200, 0.12);
+        color: var(--br-text);
+      }
+
+      /* 分支下拉 */
+      .menu {
+        margin-top: 7px;
+        border: 1px solid #333;
+        border-radius: 11px;
+        background: #1c1c1c;
+        box-shadow: 0 16px 34px rgba(0, 0, 0, 0.36);
+        overflow: hidden;
+      }
+
+      .menu__search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border-soft);
+        color: var(--text-faint);
+      }
+
+      .menu__search input {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 12.5px;
+        user-select: text;
+      }
+
+      .menu__search input::placeholder {
+        color: var(--text-faint);
+      }
+
+      .menu__scroll {
+        max-height: 278px;
+        overflow: hidden;
+        padding: 4px 6px;
+      }
+
+      .menu__group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 7px;
+        color: var(--text-faint);
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+      }
+
+      .menu__group span {
+        font-weight: 400;
+        letter-spacing: 0;
+        color: #5d5d5d;
+      }
+
+      .brow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        height: 37px;
+        padding: 0 8px;
+        border-radius: 7px;
+        text-align: left;
+      }
+
+      .brow:hover {
+        background: var(--bg-active);
+      }
+
+      .brow.is-sel {
+        background: rgba(122, 162, 200, 0.1);
+      }
+
+      .brow__check {
+        width: 12px;
+        flex: none;
+        color: var(--br);
+      }
+
+      .brow__name {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--text-dim);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .brow.is-sel .brow__name,
+      .brow:hover .brow__name {
+        color: var(--text);
+      }
+
+      .brow__remote {
+        color: var(--text-faint);
+      }
+
+      .brow__meta {
+        margin-left: auto;
+        flex: none;
+        font-size: 10.5px;
+        color: var(--text-faint);
+        white-space: nowrap;
+      }
+
+      .brow__meta b {
+        color: #97b96f;
+        font-weight: 500;
+      }
+
+      .menu__create {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        height: 40px;
+        padding: 0 14px;
+        border-top: 1px solid var(--border-soft);
+        color: var(--br-text);
+        font-size: 12.5px;
+      }
+
+      .menu__create:hover {
+        background: rgba(122, 162, 200, 0.07);
+      }
+
+      .menu__create kbd {
+        margin-left: auto;
+      }
+
+      /* 新建分支表单 */
+      .form {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .input-wrap {
+        display: flex;
+        align-items: center;
+        height: 42px;
+        padding: 0 12px;
+        border: 1px solid var(--br-border);
+        border-radius: 9px;
+        background: #1b1b1b;
+        box-shadow: 0 0 0 3px rgba(122, 162, 200, 0.06);
+      }
+
+      .input-wrap__prefix {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        color: var(--text-faint);
+      }
+
+      .input-wrap input {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        user-select: text;
+      }
+
+      .input-wrap__state {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: #7fbf90;
+        white-space: nowrap;
+      }
+
+      .form__note {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--text-faint);
+      }
+
+      .form__note svg {
+        color: #6f9e7c;
+      }
+
+      .base-select {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 38px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: #1b1b1b;
+      }
+
+      .base-select .select__chevron {
+        margin-left: auto;
+      }
+
+      /* 检出位置 */
+      .placing {
+        margin-top: 16px;
+      }
+
+      .placing__head {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 7px;
+      }
+
+      .place-modes {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .place {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 10px 11px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: #1b1b1b;
+        text-align: left;
+      }
+
+      .place:hover {
+        border-color: #3a3a3a;
+      }
+
+      .place.is-on {
+        border-color: var(--br-border);
+        background: var(--br-bg);
+        box-shadow: 0 0 0 3px rgba(122, 162, 200, 0.05);
+      }
+
+      .place__top {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--text-dim);
+      }
+
+      .place.is-on .place__top {
+        color: var(--text);
+      }
+
+      .place__radio {
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid #4a4a4a;
+        border-radius: 50%;
+        flex: none;
+      }
+
+      .place.is-on .place__radio {
+        border-color: var(--br);
+        background: radial-gradient(circle at center, var(--br) 0 3px, transparent 3.5px);
+      }
+
+      .place.is-off {
+        opacity: 0.5;
+      }
+
+      .place__sub {
+        padding-left: 18px;
+        font-size: 10.5px;
+        line-height: 1.5;
+        color: var(--text-faint);
+      }
+
+      .place__badge {
+        margin-left: auto;
+        height: 17px;
+        padding: 0 5px;
+        border-radius: 4px;
+        background: rgba(122, 162, 200, 0.13);
+        color: var(--br-text);
+        font-size: 9.5px;
+        line-height: 17px;
+      }
+
+      .wtpreview {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 8px 10px;
+        border: 1px dashed #343434;
+        border-radius: 8px;
+        color: var(--text-faint);
+        font-size: 11px;
+        overflow: hidden;
+      }
+
+      .wtpreview svg {
+        color: var(--br);
+      }
+
+      .wtpreview code {
+        color: var(--text-muted);
+        font-size: 10.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .wtpreview span {
+        margin-left: auto;
+        flex: none;
+        color: var(--text-faint);
+        white-space: nowrap;
+      }
+
+      /* 风险提示 */
+      .notice {
+        display: flex;
+        gap: 9px;
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid rgba(201, 162, 39, 0.3);
+        border-radius: 9px;
+        background: rgba(201, 162, 39, 0.07);
+        color: #d6bd76;
+        font-size: 11.5px;
+        line-height: 1.6;
+      }
+
+      .notice svg {
+        flex: none;
+        margin-top: 1px;
+        color: var(--warn);
+      }
+
+      .notice b {
+        font-weight: 600;
+      }
+
+      /* 底栏 */
+      .dlg__foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 13px 20px;
+        border-top: 1px solid var(--border-soft);
+        background: #1d1d1d;
+      }
+
+      .foot__note {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-faint);
+      }
+
+      .btn {
+        height: 34px;
+        padding: 0 14px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text-dim);
+        font-size: 12.5px;
+      }
+
+      .btn:hover {
+        background: var(--bg-active);
+        color: var(--text);
+      }
+
+      .btn--primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        margin-left: auto;
+        border-color: var(--text);
+        background: var(--text);
+        color: #191919;
+        font-weight: 600;
+      }
+
+      .btn--primary:hover {
+        background: #fff;
+        color: #111;
+      }
+
+      .dlg__foot .btn--cancel {
+        margin-left: auto;
+      }
+
+      /* 变体显隐 */
+      .v-b,
+      .v-c,
+      .v-d {
+        display: none;
+      }
+
+      /* 变体 D 里分支名跟其它三张不同，用一对 span 换掉 */
+      .only-d {
+        display: none;
+      }
+
+      body[data-v='d'] .only-a {
+        display: none;
+      }
+
+      body[data-v='d'] .only-d {
+        display: inline;
+      }
+
+      body[data-v='b'] .v-b,
+      body[data-v='c'] .v-c,
+      body[data-v='d'] .v-d {
+        display: revert;
+      }
+
+      body[data-v='b'] .v-a,
+      body[data-v='c'] .v-a,
+      body[data-v='d'] .v-a {
+        display: none;
+      }
+
+      body[data-v='d'] .scrim,
+      body[data-v='d'] .dlg {
+        display: none;
+      }
+
+      /* D：创建完成后，分支 / 工作树在会话里的样子 */
+      .donebar {
+        display: none;
+        align-items: center;
+        gap: 9px;
+        margin: 0 36px;
+        padding: 9px 12px;
+        border: 1px solid var(--br-border);
+        border-radius: 10px;
+        background: var(--br-bg);
+        color: var(--br-text);
+        font-size: 11.5px;
+      }
+
+      body[data-v='d'] .donebar {
+        display: flex;
+      }
+
+      .donebar code {
+        color: var(--text-muted);
+        font-size: 10.5px;
+      }
+
+      .donebar__right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      .donebar__btn {
+        height: 25px;
+        padding: 0 9px;
+        border: 1px solid var(--br-border);
+        border-radius: 6px;
+        color: var(--br-text);
+        font-size: 11px;
+      }
+
+      .donebar__btn:hover {
+        background: rgba(122, 162, 200, 0.13);
+      }
+
+      .toast {
+        display: none;
+        position: absolute;
+        right: 22px;
+        bottom: 22px;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: #242424;
+        color: var(--text-dim);
+        font-size: 12px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+      }
+
+      body[data-v='d'] .toast {
+        display: flex;
+      }
+
+      .toast svg {
+        color: var(--ok);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="win">
+      <header class="titlebar">
+        <div class="brand">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 9.2c0-3.2 2.6-5.8 5.8-5.8 1.2 0 2.3.4 3.2 1 .5-.4 1.2-.6 1.9-.5l1.6.2-.9 1.5c.4.8.6 1.7.6 2.6 0 3.2-2.6 5.8-5.8 5.8-1.6 0-3-.6-4.1-1.7-.3-.3-.6-.6-.8-1l-.6.2.3-1.2A5.7 5.7 0 0 1 2 9.2z" />
+            <circle cx="6.4" cy="8.2" r="0.75" fill="#191919" />
+          </svg>
+          <span class="brand__name">CCoder</span>
+        </div>
+        <div class="wcontrols">
+          <button class="wctl" title="最小化"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M2 6h8" /></svg></button>
+          <button class="wctl" title="最大化"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"><rect x="2.5" y="2.5" width="7" height="7" rx="0.6" /></svg></button>
+          <button class="wctl wctl--close" title="关闭"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M2.6 2.6l6.8 6.8M9.4 2.6 2.6 9.4" /></svg></button>
+        </div>
+      </header>
+
+      <div class="body">
+        <aside class="sidebar">
+          <nav class="side__nav">
+            <button class="navitem">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5v2M10 2.5v2" /><rect x="3" y="4.5" width="10" height="9" rx="1.6" /><path d="M6.2 8.2v2.4M9.8 8.2v2.4" /></svg>
+              插件
+            </button>
+            <button class="navitem">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.6" /><path d="M8 5v3.2l2 1.3" /></svg>
+              自动化任务
+            </button>
+          </nav>
+
+          <div class="side__head">
+            <span class="side__title">工作区</span>
+            <div class="side__tools">
+              <span class="iconbtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" /></svg></span>
+              <span class="iconbtn"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z" /><path d="M7.5 7.6v3M6 9.1h3" /></svg></span>
+            </div>
+          </div>
+
+          <div class="side__scroll">
+            <div class="wsgroup">
+              <div class="wsgroup__head">
+                <svg class="wsgroup__icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z" /></svg>
+                <span class="wsgroup__name">CCoder-Desktop</span>
+                <span class="wsgroup__count">4</span>
+                <span class="wsgroup__acts">
+                  <button class="wsact wsact--hot" title="新建会话">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>
+                  </button>
+                  <button class="wsact" title="关闭工作区">×</button>
+                </span>
+              </div>
+
+              <div class="srow is-active">
+                <div class="srow__top">
+                  <span class="srow__dot srow__dot--run"></span>
+                  <span class="srow__title">收口 token 刷新逻辑</span>
+                  <span class="srow__time">运行中</span>
+                </div>
+                <div class="srow__sub">
+                  <span class="branchline"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg><span class="only-a">main</span><span class="only-d">feat/ui-ide-vcs-batch</span></span>
+                </div>
+              </div>
+
+              <div class="srow">
+                <div class="srow__top">
+                  <span class="srow__dot srow__dot--wait"></span>
+                  <span class="srow__title">重构 session store 的任务状态</span>
+                  <span class="srow__time">待审批</span>
+                </div>
+                <div class="srow__sub">
+                  <span class="branchline"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>feat/ui-ide-vcs-batch</span>
+                </div>
+              </div>
+
+              <div class="srow">
+                <div class="srow__top">
+                  <span class="srow__dot srow__dot--idle"></span>
+                  <span class="srow__title">补上刷新失败的测试</span>
+                  <span class="srow__time">3 天</span>
+                </div>
+                <div class="srow__sub">
+                  <span class="branchline"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>fix/ide-search</span>
+                </div>
+              </div>
+
+              <div class="srow">
+                <div class="srow__top">
+                  <span class="srow__dot srow__dot--idle"></span>
+                  <span class="srow__title">把渠道测试改成走真实请求</span>
+                  <span class="srow__time">5 天</span>
+                </div>
+                <div class="srow__sub">
+                  <span class="branchline"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>main</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="side__foot">
+            <button class="side__settings">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2 3.6 12.4" /></svg>
+              设置
+            </button>
+          </div>
+        </aside>
+
+        <main class="main">
+          <div class="tabbar">
+            <div class="tab is-active">
+              <span class="tab__dot"></span>
+              <span>收口 token 刷新逻辑</span>
+              <span class="tab__x">×</span>
+            </div>
+            <div class="tab">
+              <span class="tab__dot" style="background: #4a4a4a"></span>
+              <span>重构 session store</span>
+              <span class="tab__x">×</span>
+            </div>
+          </div>
+
+          <div class="chathead">
+            <h1 class="chathead__title">收口 token 刷新逻辑</h1>
+            <span class="chip chip--branch">
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+              <span class="only-a">main</span><span class="only-d">feat/ui-ide-vcs-batch</span>
+            </span>
+            <span class="chip">标准模式</span>
+          </div>
+
+          <div class="donebar">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+            <span>新会话已在工作树中打开 · <b>feat/ui-ide-vcs-batch</b></span>
+            <code>C:\Users\CY\Desktop\CCoder-Desktop\.worktrees\ui-ide-vcs-batch</code>
+            <span class="donebar__right">
+              <button class="donebar__btn">在编辑器中打开</button>
+              <button class="donebar__btn">合并到 main</button>
+            </span>
+          </div>
+
+          <div class="transcript">
+            <div class="turn">
+              <div class="turn__user">
+                <div class="bubble">把 token 刷新的并发问题收一下口，顺便补个回归测试。</div>
+              </div>
+              <div class="assistant">
+                <div class="assistant__mark">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5 9.4 6l4.6 1.4L9.4 9 8 14.5 6.6 9 2 7.4 6.6 6z" /></svg>
+                </div>
+                <div>
+                  <p>先看一下现在 refresh 的调用点，再把并发窗口收紧。</p>
+                  <div class="toolcard">
+                    <div class="toolcard__head">
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" /></svg>
+                      <span>Grep</span>
+                      <span class="toolcard__cmd">refreshToken</span>
+                      <span class="toolcard__ok">4 处匹配</span>
+                    </div>
+                    <div class="toolcard__body">
+                      <div><b>src/main/auth.ts</b> · 118 · <span>await refreshToken(session)</span></div>
+                      <div><b>src/main/auth.ts</b> · 204 · <span>refreshToken(force)</span></div>
+                      <div><b>src/renderer/src/useAuth.ts</b> · 63 · <span>refreshToken()</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="composer">
+            <div class="composer__box">
+              <div class="composer__input">继续，或者输入新的指令…</div>
+              <div class="composer__bar">
+                <span class="composer__chip">标准模式</span>
+                <span class="composer__chip">Claude</span>
+                <span class="composer__send">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M4 7l4-4 4 4" /></svg>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="toast">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7" /></svg>
+            已在工作树中创建会话
+          </div>
+        </main>
+      </div>
+
+      <div class="scrim"></div>
+
+      <!-- ── 变体 A：选择已有分支 ─────────────────────────── -->
+      <section class="dlg v-a" role="dialog" aria-label="新建会话">
+        <header class="dlg__head">
+          <div>
+            <h2 class="dlg__title">新建会话</h2>
+            <p class="dlg__repo">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z" /></svg>
+              CCoder-Desktop <span style="color: #4a4a4a">/</span> <code>C:\Users\CY\Desktop\CCoder-Desktop</code>
+            </p>
+          </div>
+          <button class="dlg__close" title="关闭">×</button>
+        </header>
+
+        <div class="dlg__body">
+          <div class="modes-tabs">
+            <button class="modes-tab is-on">选择已有分支</button>
+            <button class="modes-tab">创建新分支</button>
+          </div>
+
+          <div class="label-row">
+            <span class="label">分支</span>
+            <span class="hint">会话在这个分支上运行</span>
+          </div>
+          <button class="select is-open">
+            <svg class="select__icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+            <span class="select__value">feat/new-session-dialog</span>
+            <span class="tag tag--new">本地分支</span>
+            <svg class="select__chevron" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m4 6.5 4 4 4-4" /></svg>
+          </button>
+
+          <div class="menu">
+            <div class="menu__search">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" /></svg>
+              <input placeholder="搜索本地或远程分支…" readonly />
+              <kbd>⌘F</kbd>
+            </div>
+            <div class="menu__scroll">
+              <div class="menu__group">本地分支 <span>3</span></div>
+              <button class="brow">
+                <span class="brow__check"></span>
+                <span class="brow__name">main</span>
+                <span class="brow__meta">当前 · 2 个会话</span>
+              </button>
+              <button class="brow is-sel">
+                <span class="brow__check"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7" /></svg></span>
+                <span class="brow__name">feat/new-session-dialog</span>
+                <span class="brow__meta">2 天前</span>
+              </button>
+              <button class="brow">
+                <span class="brow__check"></span>
+                <span class="brow__name">feat/ui-ide-vcs-batch</span>
+                <span class="brow__meta"><b>↑2</b> · 3 天前</span>
+              </button>
+
+              <div class="menu__group">远程分支 <span>2</span></div>
+              <button class="brow">
+                <span class="brow__check"></span>
+                <span class="brow__name"><span class="brow__remote">origin/</span>main</span>
+                <span class="brow__meta">2 小时前</span>
+              </button>
+              <button class="brow">
+                <span class="brow__check"></span>
+                <span class="brow__name"><span class="brow__remote">origin/</span>feat/ui-ide-vcs-batch</span>
+                <span class="brow__meta">3 天前</span>
+              </button>
+            </div>
+            <button class="menu__create">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>
+              创建新分支…
+              <kbd>⌘N</kbd>
+            </button>
+          </div>
+
+          <div class="placing">
+            <div class="placing__head">
+              <span class="label">检出位置</span>
+              <span class="hint">多个会话需要同时在不同分支上跑时，用工作树隔离</span>
+            </div>
+            <div class="place-modes">
+              <button class="place">
+                <span class="place__top"><span class="place__radio"></span>当前目录</span>
+                <span class="place__sub">直接 checkout，切换会影响这个目录下的所有会话</span>
+              </button>
+              <button class="place is-on">
+                <span class="place__top"><span class="place__radio"></span>新工作树<span class="place__badge">推荐</span></span>
+                <span class="place__sub">在独立目录中检出，和当前会话互不影响</span>
+              </button>
+            </div>
+            <div class="wtpreview">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+              <code>C:\Users\CY\Desktop\CCoder-Desktop\.worktrees\new-session-dialog</code>
+              <span>目录不存在时会自动创建</span>
+            </div>
+          </div>
+        </div>
+
+        <footer class="dlg__foot">
+          <span class="foot__note"><kbd>Esc</kbd> 取消</span>
+          <button class="btn btn--cancel">取消</button>
+          <button class="btn btn--primary">
+            开始会话
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" /></svg>
+          </button>
+        </footer>
+      </section>
+
+      <!-- ── 变体 B：创建新分支 ───────────────────────────── -->
+      <section class="dlg v-b" role="dialog" aria-label="新建会话">
+        <header class="dlg__head">
+          <div>
+            <h2 class="dlg__title">新建会话</h2>
+            <p class="dlg__repo">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z" /></svg>
+              CCoder-Desktop <span style="color: #4a4a4a">/</span> <code>C:\Users\CY\Desktop\CCoder-Desktop</code>
+            </p>
+          </div>
+          <button class="dlg__close" title="关闭">×</button>
+        </header>
+
+        <div class="dlg__body">
+          <div class="modes-tabs">
+            <button class="modes-tab">选择已有分支</button>
+            <button class="modes-tab is-on">创建新分支</button>
+          </div>
+
+          <div class="form">
+            <div>
+              <div class="label-row">
+                <span class="label">分支名</span>
+                <span class="hint">不能包含空格；同名分支已存在时会提示</span>
+              </div>
+              <div class="input-wrap">
+                <span class="input-wrap__prefix">ccoder/</span>
+                <input value="token-refresh-fix" readonly />
+                <span class="input-wrap__state">
+                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7" /></svg>
+                  可用
+                </span>
+              </div>
+              <p class="form__note">
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.6" /><path d="M8 7.4v3.2M8 5.2v.1" /></svg>
+                完整名称：<code style="margin-left: 4px">ccoder/token-refresh-fix</code>
+              </p>
+            </div>
+
+            <div>
+              <div class="label-row">
+                <span class="label">起点分支</span>
+                <span class="hint">新分支从这条提交分出</span>
+              </div>
+              <button class="base-select">
+                <svg class="select__icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+                <span class="select__value">main</span>
+                <span class="tag tag--current">当前分支</span>
+                <svg class="select__chevron" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m4 6.5 4 4 4-4" /></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="placing">
+            <div class="placing__head">
+              <span class="label">检出位置</span>
+            </div>
+            <div class="place-modes">
+              <button class="place">
+                <span class="place__top"><span class="place__radio"></span>当前目录</span>
+                <span class="place__sub">新分支会直接 checkout 到当前工作区</span>
+              </button>
+              <button class="place is-on">
+                <span class="place__top"><span class="place__radio"></span>新工作树<span class="place__badge">推荐</span></span>
+                <span class="place__sub">为这个分支单独开一个目录，并行开发不打架</span>
+              </button>
+            </div>
+            <div class="wtpreview">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+              <code>C:\Users\CY\Desktop\CCoder-Desktop\.worktrees\token-refresh-fix</code>
+              <span>基于 main</span>
+            </div>
+          </div>
+        </div>
+
+        <footer class="dlg__foot">
+          <span class="foot__note"><kbd>Esc</kbd> 取消</span>
+          <button class="btn btn--cancel">取消</button>
+          <button class="btn btn--primary">
+            创建并开始
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" /></svg>
+          </button>
+        </footer>
+      </section>
+
+      <!-- ── 变体 C：分支被占用 / 工作区不干净 ────────────── -->
+      <section class="dlg v-c" role="dialog" aria-label="新建会话">
+        <header class="dlg__head">
+          <div>
+            <h2 class="dlg__title">新建会话</h2>
+            <p class="dlg__repo">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z" /></svg>
+              CCoder-Desktop <span style="color: #4a4a4a">/</span> <code>C:\Users\CY\Desktop\CCoder-Desktop</code>
+            </p>
+          </div>
+          <button class="dlg__close" title="关闭">×</button>
+        </header>
+
+        <div class="dlg__body">
+          <div class="modes-tabs">
+            <button class="modes-tab is-on">选择已有分支</button>
+            <button class="modes-tab">创建新分支</button>
+          </div>
+
+          <div class="label-row">
+            <span class="label">分支</span>
+            <span class="hint">会话在这个分支上运行</span>
+          </div>
+          <button class="select">
+            <svg class="select__icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+            <span class="select__value">feat/ui-ide-vcs-batch</span>
+            <span class="tag tag--used">已被工作树占用</span>
+            <svg class="select__chevron" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m4 6.5 4 4 4-4" /></svg>
+          </button>
+
+          <div class="notice">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2 14.2 13H1.8z" /><path d="M8 6.2v3.4M8 11.6v.1" /></svg>
+            <span>
+              这条分支已经在 <b>.worktrees\ui-ide-vcs-batch</b> 中检出，不能重复检出到当前目录。
+              <br />
+              另外当前目录还有 <b>3 个未提交改动</b>，直接 checkout 会失败。建议改用新工作树。
+            </span>
+          </div>
+
+          <div class="placing">
+            <div class="placing__head">
+              <span class="label">检出位置</span>
+            </div>
+            <div class="place-modes">
+              <button class="place is-off">
+                <span class="place__top"><span class="place__radio"></span>当前目录</span>
+                <span class="place__sub">不可用：分支已被占用，且工作区有未提交改动</span>
+              </button>
+              <button class="place is-on">
+                <span class="place__top"><span class="place__radio"></span>新工作树<span class="place__badge">可用</span></span>
+                <span class="place__sub">复用已有工作树，在其中直接开始会话</span>
+              </button>
+            </div>
+            <div class="wtpreview">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="3" r="1.5" /><circle cx="4.5" cy="13" r="1.5" /><circle cx="11.5" cy="5" r="1.5" /><path d="M4.5 4.5v7" /><path d="M11.5 6.5c0 3.2-2.4 4.1-5.2 4.8" /></svg>
+              <code>C:\Users\CY\Desktop\CCoder-Desktop\.worktrees\ui-ide-vcs-batch</code>
+              <span>目录已存在</span>
+            </div>
+          </div>
+        </div>
+
+        <footer class="dlg__foot">
+          <span class="foot__note"><kbd>Esc</kbd> 取消</span>
+          <button class="btn btn--cancel">取消</button>
+          <button class="btn btn--primary">
+            在工作树中开始
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" /></svg>
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <script>
+      // 截图脚本通过 ?v=a|b|c|d 指定画面
+      const v = new URLSearchParams(location.search).get('v')
+      document.body.dataset.v = ['a', 'b', 'c', 'd'].includes(v) ? v : 'a'
+    </script>
+  </body>
+</html>

@@ -164,7 +164,7 @@ export function DshStatusPanel({
                   className="input"
                   value={officialModel}
                   onChange={(e) => onOfficialModel(e.target.value)}
-                  placeholder="deepseek-v4-flash"
+                  placeholder="deepseek-flash"
                 />
                 <p className="field__hint">{t('dsh.officialModelHint')}</p>
               </div>

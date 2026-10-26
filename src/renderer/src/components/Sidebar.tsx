@@ -1,17 +1,29 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import type { StoredSession } from '@shared/session'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import {
+  sessionMetaKey,
+  type SessionMeta,
+  type SessionMetaMap,
+  type StoredSession
+} from '@shared/session'
 import { cliDef, type CliId } from '@shared/settings'
 import { formatRelativeTime } from '@shared/i18n'
 import { useI18n, type I18nApi } from '../i18n'
+import { metaOf } from '../useSessionMeta'
+import { cwdKey } from '@shared/path'
 import type { SessionSort, WorkspaceView } from '../useSessions'
 import type { PendingApproval } from '../pending-approvals'
 import {
+  IconArchive,
+  IconBranch,
   IconClaudeCode,
   IconClock,
   IconDeepSeek,
   IconFolder,
   IconFolderPlus,
   IconGear,
+  IconMore,
+  IconPencil,
+  IconPin,
   IconPlugin,
   IconPlus,
   IconOpenAI,
@@ -55,9 +67,14 @@ interface SidebarProps {
   sort: SessionSort
   onToggleSort: () => void
   activeId: string | null
+  /**
+   * cwd → 工作树分支。键只在 linked worktree 的目录上出现；
+   * 用来给会话行加分支标识、统计组头的工作树会话数。
+   */
+  worktreeBranches: Record<string, string>
   onSelect: (s: StoredSession) => void
-  /** 不传 cwd 就按「默认工作目录 / 上次打开的目录」开 */
-  onNewSession: (cwd?: string) => void
+  /** 打开「新建会话」弹窗，在这里选分支 / 工作树 */
+  onRequestNewSession: (cwd: string) => void
   onCloseWorkspace: (cwd: string) => void
   /** 打开该工作区的独立 IDE 窗口 */
   onOpenIde: (cwd: string) => void
@@ -66,6 +83,22 @@ interface SidebarProps {
   onDeleteSession: (s: StoredSession) => void
   onRefresh: () => void
   onOpenSettings: () => void
+  /** 打开跨会话搜索 */
+  onOpenSearch: () => void
+  /** 本地元数据：重命名 / 置顶 / 归档 */
+  meta: SessionMetaMap
+  onUpdateMeta: (s: StoredSession, patch: SessionMeta) => void | Promise<boolean>
+  /** 是否显示已归档会话 */
+  showArchived: boolean
+  /** 当前打开的工作区里有多少条已归档会话 */
+  archivedCount: number
+  onToggleArchived: () => void
+}
+
+interface MenuState {
+  s: StoredSession
+  x: number
+  y: number
 }
 
 export function Sidebar({
@@ -77,16 +110,56 @@ export function Sidebar({
   sort,
   onToggleSort,
   activeId,
+  worktreeBranches,
   onSelect,
-  onNewSession,
+  onRequestNewSession,
   onCloseWorkspace,
   onOpenIde,
   onPickWorkspace,
   onDeleteSession,
   onRefresh,
-  onOpenSettings
+  onOpenSettings,
+  onOpenSearch,
+  meta,
+  onUpdateMeta,
+  showArchived,
+  archivedCount,
+  onToggleArchived
 }: SidebarProps): JSX.Element {
   const { t } = useI18n()
+  /** 搜索图标的 tooltip 带上快捷键；侧栏这排按钮平时是隐藏的 */
+  const searchShortcut = window.api?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'
+  /** 正在哪一行上打开操作菜单；null = 没开 */
+  const [menu, setMenu] = useState<MenuState | null>(null)
+  /** 正在内联重命名的会话键；同一时间只允许一行 */
+  const [renamingKey, setRenamingKey] = useState<string | null>(null)
+
+  const openMenu = (s: StoredSession, el: HTMLElement): void => {
+    const r = el.getBoundingClientRect()
+    setMenu({ s, x: r.left, y: r.bottom + 5 })
+  }
+
+  const startRename = (s: StoredSession): void => {
+    setMenu(null)
+    setRenamingKey(sessionMetaKey(s.cli, s.cwd, s.id))
+  }
+
+  const commitRename = (s: StoredSession, value: string): void => {
+    setRenamingKey(null)
+    // 空串在主进程里表示"恢复 CLI 原标题"，不是把标题删成空白
+    void onUpdateMeta(s, { title: value })
+  }
+
+  const togglePin = (s: StoredSession): void => {
+    setMenu(null)
+    void onUpdateMeta(s, { pinned: !metaOf(s, meta).pinned })
+  }
+
+  const toggleArchive = (s: StoredSession): void => {
+    setMenu(null)
+    void onUpdateMeta(s, { archived: !metaOf(s, meta).archived })
+  }
+
   return (
     <aside className="sidebar">
       <nav className="sidebar__nav">
@@ -103,7 +176,11 @@ export function Sidebar({
       <div className="sidebar__section-head">
         <span className="sidebar__section-title">{t('sidebar.workspace')}</span>
         <div className="sidebar__section-tools">
-          <button className="iconbtn" title={t('sidebar.search')}>
+          <button
+            className="iconbtn"
+            title={`${t('sidebar.search')} (${searchShortcut})`}
+            onClick={onOpenSearch}
+          >
             <IconSearch width={14} height={14} />
           </button>
           <button
@@ -140,20 +217,56 @@ export function Sidebar({
             completed={completed}
             pending={pending}
             activeId={activeId}
+            worktreeBranches={worktreeBranches}
+            meta={meta}
+            renamingKey={renamingKey}
             onSelect={onSelect}
-            onNewSession={onNewSession}
+            onRequestNewSession={onRequestNewSession}
             onCloseWorkspace={onCloseWorkspace}
             onOpenIde={onOpenIde}
             onDeleteSession={onDeleteSession}
             onRefresh={onRefresh}
+            onOpenMenu={openMenu}
+            onCommitRename={commitRename}
+            onCancelRename={() => setRenamingKey(null)}
           />
         ))}
       </div>
+
+      {archivedCount > 0 && (
+        <button
+          className={`sidebar__archived ${showArchived ? 'is-on' : ''}`}
+          onClick={onToggleArchived}
+          title={showArchived ? t('sidebar.hideArchived') : t('sidebar.showArchived')}
+          aria-pressed={showArchived}
+        >
+          <IconArchive width={15} height={15} />
+          <span>{showArchived ? t('sidebar.hideArchived') : t('sidebar.showArchived')}</span>
+          <span className="sidebar__archived-count">{archivedCount}</span>
+        </button>
+      )}
 
       <button className="sidebar__settings" onClick={onOpenSettings}>
         <IconGear width={15} height={15} />
         <span>{t('sidebar.settings')}</span>
       </button>
+
+      {menu && (
+        <SessionMenu
+          x={menu.x}
+          y={menu.y}
+          session={menu.s}
+          meta={metaOf(menu.s, meta)}
+          onRename={() => startRename(menu.s)}
+          onTogglePin={() => togglePin(menu.s)}
+          onToggleArchive={() => toggleArchive(menu.s)}
+          onDelete={() => {
+            setMenu(null)
+            onDeleteSession(menu.s)
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </aside>
   )
 }
@@ -164,28 +277,50 @@ function WorkspaceGroup({
   completed,
   pending,
   activeId,
+  worktreeBranches,
+  meta,
+  renamingKey,
   onSelect,
-  onNewSession,
+  onRequestNewSession,
   onCloseWorkspace,
   onOpenIde,
   onDeleteSession,
-  onRefresh
+  onRefresh,
+  onOpenMenu,
+  onCommitRename,
+  onCancelRename
 }: {
   ws: WorkspaceView
   running: Set<string>
   completed: ReadonlySet<string>
   pending: ReadonlyMap<string, PendingApproval>
   activeId: string | null
+  worktreeBranches: Record<string, string>
+  meta: SessionMetaMap
+  renamingKey: string | null
   onSelect: (s: StoredSession) => void
-  onNewSession: (cwd?: string) => void
+  onRequestNewSession: (cwd: string) => void
   onCloseWorkspace: (cwd: string) => void
   onOpenIde: (cwd: string) => void
   onDeleteSession: (s: StoredSession) => void
   onRefresh: () => void
+  onOpenMenu: (s: StoredSession, el: HTMLElement) => void
+  onCommitRename: (s: StoredSession, value: string) => void
+  onCancelRename: () => void
 }): JSX.Element {
   const { t, tn } = useI18n()
   const [expanded, setExpanded] = useState(false)
-  const hidden = Math.max(0, ws.sessions.length - COLLAPSED_COUNT)
+  /** 只看 linked worktree 里的会话 */
+  const [onlyWorktree, setOnlyWorktree] = useState(false)
+
+  const worktreeSessions = ws.sessions.filter(
+    (s) => worktreeBranches[cwdKey(s.cwd)] !== undefined
+  )
+  const worktreeCount = worktreeSessions.length
+  const filtering = onlyWorktree && worktreeCount > 0
+  const pool = filtering ? worktreeSessions : ws.sessions
+  const hidden = Math.max(0, pool.length - COLLAPSED_COUNT)
+
   /**
    * 组里有会话卡在审批上时强制展开。
    *
@@ -194,11 +329,15 @@ function WorkspaceGroup({
    * 强制展开写进 `expanded` —— 用户手动收起的选择要保留。
    */
   const groupPending = ws.sessions.reduce((n, s) => n + (pending.has(s.id) ? 1 : 0), 0)
-  const forceOpen = groupPending > 0
+  const poolPending = pool.reduce((n, s) => n + (pending.has(s.id) ? 1 : 0), 0)
+  const forceOpen = poolPending > 0
   const visible =
-    expanded || hidden === 0 || forceOpen
-      ? ws.sessions
-      : ws.sessions.slice(0, COLLAPSED_COUNT)
+    expanded || hidden === 0 || forceOpen ? pool : pool.slice(0, COLLAPSED_COUNT)
+
+  // 工作树都关掉后别把筛选状态留着，下次再出现工作树时会莫名其妙只剩几行
+  useEffect(() => {
+    if (onlyWorktree && worktreeCount === 0) setOnlyWorktree(false)
+  }, [onlyWorktree, worktreeCount])
 
   return (
     <div className="wsgroup">
@@ -219,11 +358,24 @@ function WorkspaceGroup({
           />
         )}
         <span className="wsgroup__count">{ws.sessions.length}</span>
+        {worktreeCount > 0 && (
+          <button
+            className={`wsgroup__wt ${filtering ? 'is-on' : ''}`}
+            title={`${tn('sidebar.worktreeSessions', worktreeCount)} · ${t(
+              'sidebar.onlyWorktrees'
+            )}`}
+            aria-pressed={filtering}
+            onClick={() => setOnlyWorktree((v) => !v)}
+          >
+            <IconBranch width={10} height={10} />
+            {worktreeCount}
+          </button>
+        )}
         <span className="wsgroup__acts">
           <button
             className="wsact"
             title={t('sidebar.newSessionHere', { cwd: ws.cwd })}
-            onClick={() => onNewSession(ws.cwd)}
+            onClick={() => onRequestNewSession(ws.cwd)}
           >
             <IconPlus width={13} height={13} />
           </button>
@@ -237,21 +389,45 @@ function WorkspaceGroup({
         </span>
       </div>
 
-      {visible.map((s) => (
-        <SessionRow
-          key={s.id}
-          s={s}
-          active={s.id === activeId}
-          running={running.has(s.id)}
-          done={completed.has(s.id)}
-          approval={pending.get(s.id)}
-          onSelect={() => {
-            onSelect(s)
-            onRefresh()
-          }}
-          onDelete={() => onDeleteSession(s)}
-        />
-      ))}
+      {filtering && (
+        <div className="wsgroup__filter">
+          <IconBranch width={10} height={10} />
+          <span>
+            {t('sidebar.onlyWorktrees')} <b>{worktreeCount}</b>
+          </span>
+          <button
+            className="wsgroup__filter-clear"
+            onClick={() => setOnlyWorktree(false)}
+          >
+            {t('sidebar.showAllSessions')} ×
+          </button>
+        </div>
+      )}
+
+      {visible.map((s) => {
+        const key = sessionMetaKey(s.cli, s.cwd, s.id)
+        return (
+          <SessionRow
+            key={key}
+            s={s}
+            meta={metaOf(s, meta)}
+            branch={worktreeBranches[cwdKey(s.cwd)] ?? ''}
+            active={s.id === activeId}
+            running={running.has(s.id)}
+            done={completed.has(s.id)}
+            approval={pending.get(s.id)}
+            renaming={renamingKey === key}
+            onSelect={() => {
+              onSelect(s)
+              onRefresh()
+            }}
+            onDelete={() => onDeleteSession(s)}
+            onOpenMenu={(el) => onOpenMenu(s, el)}
+            onCommitRename={(value) => onCommitRename(s, value)}
+            onCancelRename={onCancelRename}
+          />
+        )
+      })}
 
       {hidden > 0 && !forceOpen && (
         <button className="wsgroup__expand" onClick={() => setExpanded((v) => !v)}>
@@ -262,25 +438,39 @@ function WorkspaceGroup({
   )
 }
 
-/** 一条会话。删除按钮跟工作区那两个一样，hover 才浮出来 */
+/** 一条会话。操作按钮跟工作区那两个一样，hover 才浮出来 */
 function SessionRow({
   s,
+  meta,
+  branch,
   active,
   running,
   done,
   approval,
+  renaming,
   onSelect,
-  onDelete
+  onDelete,
+  onOpenMenu,
+  onCommitRename,
+  onCancelRename
 }: {
   s: StoredSession
+  meta: SessionMeta
+  /** 非空 = 这条会话跑在 linked worktree 里，显示在标题下方 */
+  branch: string
   active: boolean
   running: boolean
   /** 刚跑完、用户还没点开看过 */
   done: boolean
   /** 这条会话正在等的审批；没有就是 undefined */
   approval?: PendingApproval
+  /** 正在内联重命名 */
+  renaming: boolean
   onSelect: () => void
   onDelete: () => void
+  onOpenMenu: (el: HTMLElement) => void
+  onCommitRename: (value: string) => void
+  onCancelRename: () => void
 }): JSX.Element {
   const i18n = useI18n()
   const { t, locale } = i18n
@@ -295,53 +485,246 @@ function SessionRow({
       : t('sidebar.pendingApproval')
     : ''
   const detail = waiting ? describeApproval(approval, i18n) : ''
+  const title = meta.title || s.title
+  const pinned = meta.pinned === true
+  const archived = meta.archived === true
+
+  /*
+   * 重命名时整行不再是按钮：把 input 嵌在 button 里是非法结构，点击输入框
+   * 还会触发选中会话，光标根本站不住。
+   */
+  if (renaming) {
+    return (
+      <div
+        className={`session is-renaming ${active ? 'is-active' : ''} ${
+          archived ? 'is-archived' : ''
+        }`}
+      >
+        <div className="session__main session__main--rename">
+          <CliMark cli={s.cli} running={running && !waiting} />
+          <RenameInput initial={title} onCommit={onCommitRename} onCancel={onCancelRename} />
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className={`session ${active ? 'is-active' : ''} ${waiting ? 'is-pending' : ''}`}>
+    <div
+      className={`session ${active ? 'is-active' : ''} ${waiting ? 'is-pending' : ''} ${
+        archived ? 'is-archived' : ''
+      }`}
+    >
       <button
         className="session__main"
         onClick={onSelect}
-        title={`${s.title}\n${s.cwd}\n${cliDef(s.cli).name}${
-          waiting ? `\n${label}: ${detail}` : ''
-        }`}
+        title={`${title}\n${s.cwd}\n${cliDef(s.cli).name}${
+          branch ? `\n${branch}` : ''
+        }${waiting ? `\n${label}: ${detail}` : ''}`}
       >
         {/*
           等审批时进程还活着，但卡在用户这里 —— 不是"在干活"，
           别让图标继续跳，把注意力留给跑马灯。
         */}
         <CliMark cli={s.cli} running={running && !waiting} />
-        {waiting ? (
-          <PendingTitle text={`${label} · ${detail}`} />
-        ) : (
-          <span className="session__title">{s.title}</span>
-        )}
-        {waiting ? (
-          <span className="session__pending-tag" title={`${label}: ${detail}`}>
-            <i />
-            {label}
+        <span className="session__text">
+          <span className="session__line1">
+            {pinned && (
+              <IconPin
+                className="session__pin"
+                width={11}
+                height={11}
+                aria-label={t('sidebar.pinned')}
+              />
+            )}
+            {waiting ? (
+              <PendingTitle text={`${label} · ${detail}`} />
+            ) : (
+              <span className="session__title">{title}</span>
+            )}
+            {archived && !waiting && (
+              <span className="session__archived-tag">{t('sidebar.archived')}</span>
+            )}
+            {waiting ? (
+              <span className="session__pending-tag" title={`${label}: ${detail}`}>
+                <i />
+                {label}
+              </span>
+            ) : (
+              /*
+                在跑的时候，右下角不再显示「刚刚」—— 那个数字只说明最后写入有多近，
+                跟"现在还在不在干活"是两回事。换成状态字，跟左侧图标的跳动互相印证；
+                动效被系统「减少动态效果」关掉时，这行字就是唯一的状态来源。
+                跑完一轮但还没被点开时写「已完成」，点开这一行就清掉。
+              */
+              <span
+                className={`session__time ${
+                  running ? 'session__time--running' : done ? 'session__time--done' : ''
+                }`}
+              >
+                {running
+                  ? t('sidebar.running')
+                  : done
+                    ? t('sidebar.done')
+                    : formatRelativeTime(s.updatedAt, locale, 'short')}
+              </span>
+            )}
           </span>
-        ) : (
-          /*
-            在跑的时候，右下角不再显示「刚刚」—— 那个数字只说明最后写入有多近，
-            跟"现在还在不在干活"是两回事。换成状态字，跟左侧图标的跳动互相印证；
-            动效被系统「减少动态效果」关掉时，这行字就是唯一的状态来源。
-            跑完一轮但还没被点开时写「已完成」，点开这一行就清掉。
-          */
-          <span
-            className={`session__time ${
-              running ? 'session__time--running' : done ? 'session__time--done' : ''
-            }`}
-          >
-            {running
-              ? t('sidebar.running')
-              : done
-                ? t('sidebar.done')
-                : formatRelativeTime(s.updatedAt, locale, 'short')}
-          </span>
-        )}
+          {branch && (
+            <span className="session__branch" title={`${branch}\n${s.cwd}`}>
+              <IconBranch width={10} height={10} />
+              <span className="session__branch-name">{branch}</span>
+              <span className="session__branch-tag">{t('sidebar.worktreeTag')}</span>
+            </span>
+          )}
+        </span>
+      </button>
+      <button
+        className="session__more"
+        title={t('sidebar.sessionActions')}
+        aria-haspopup="menu"
+        onClick={(e) => onOpenMenu(e.currentTarget)}
+      >
+        <IconMore width={14} height={14} />
       </button>
       <button className="session__del" title={t('sidebar.deleteSession')} onClick={onDelete}>
         ×
+      </button>
+    </div>
+  )
+}
+
+/**
+ * 内联重命名。
+ *
+ * Enter / 失焦提交，Esc 取消。用 done ref 兜住"Esc 之后 input 卸载又触发
+ * blur"这一下，否则取消会变成提交空值（等于恢复原标题，看起来像没改）。
+ */
+function RenameInput({
+  initial,
+  onCommit,
+  onCancel
+}: {
+  initial: string
+  onCommit: (value: string) => void
+  onCancel: () => void
+}): JSX.Element {
+  const { t } = useI18n()
+  const [value, setValue] = useState(initial)
+  const done = useRef(false)
+  const cancelled = useRef(false)
+
+  const finish = (commit: boolean): void => {
+    if (done.current) return
+    done.current = true
+    if (commit) onCommit(value.trim())
+    else onCancel()
+  }
+
+  return (
+    <input
+      className="session__rename"
+      value={value}
+      autoFocus
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          finish(true)
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          cancelled.current = true
+          finish(false)
+        }
+      }}
+      onBlur={() => {
+        if (!cancelled.current) finish(true)
+      }}
+      aria-label={t('sidebar.rename')}
+    />
+  )
+}
+
+/**
+ * 会话操作菜单。
+ *
+ * 用 fixed 定位而不是挂在行内：侧栏滚动容器会裁掉溢出的绝对定位元素，
+ * 靠近底部的行根本看不到菜单。位置在打开时按视口夹一次。
+ */
+function SessionMenu({
+  x,
+  y,
+  session,
+  meta,
+  onRename,
+  onTogglePin,
+  onToggleArchive,
+  onDelete,
+  onClose
+}: {
+  x: number
+  y: number
+  session: StoredSession
+  meta: SessionMeta
+  onRename: () => void
+  onTogglePin: () => void
+  onToggleArchive: () => void
+  onDelete: () => void
+  onClose: () => void
+}): JSX.Element {
+  const { t } = useI18n()
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    // 捕获阶段监听：点在任何地方都先经过这里，菜单能可靠收起
+    const onDown = (e: PointerEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const width = 176
+  const left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - width - 8))
+  // 菜单大约 4 项高；底部放不下就翻到触发按钮上方
+  const top = y + 172 > window.innerHeight ? Math.max(8, y - 182) : y
+
+  return (
+    <div
+      ref={ref}
+      className="session-menu"
+      style={{ left, top, width }}
+      role="menu"
+      aria-label={t('sidebar.sessionActions')}
+    >
+      <button className="session-menu__item" role="menuitem" onClick={onRename}>
+        <IconPencil width={13} height={13} />
+        <span>{t('sidebar.rename')}</span>
+      </button>
+      <button className="session-menu__item" role="menuitem" onClick={onTogglePin}>
+        <IconPin width={13} height={13} />
+        <span>{meta.pinned ? t('sidebar.unpin') : t('sidebar.pin')}</span>
+      </button>
+      <button className="session-menu__item" role="menuitem" onClick={onToggleArchive}>
+        <IconArchive width={13} height={13} />
+        <span>{meta.archived ? t('sidebar.unarchive') : t('sidebar.archive')}</span>
+      </button>
+      <button
+        className="session-menu__item is-danger"
+        role="menuitem"
+        onClick={onDelete}
+      >
+        <span className="session-menu__glyph">×</span>
+        <span>{t('sidebar.deleteShort')}</span>
       </button>
     </div>
   )

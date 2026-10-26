@@ -35,6 +35,10 @@ export interface CompiledSearch {
   regex: RegExp
   /** true = 字面量模式，替换串不做 $1 展开 */
   literal: boolean
+  /** 字面量原文（已 trim）；regex 模式为 undefined */
+  literalText?: string
+  wholeWord: boolean
+  caseSensitive: boolean
 }
 
 export interface CompiledGlobs {
@@ -55,6 +59,19 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * 全字匹配的源串。JS 引擎和 rg --pcre2 共用这里，避免搜索和替换对
+ * “什么算一个词”产生分歧。
+ */
+export function wordSource(core: string): string {
+  return `(?<!${WORD_CHAR})(?:${core})(?!${WORD_CHAR})`
+}
+
+/** 字面量 + 全字匹配：转义后再套 ASCII 词边界 */
+export function literalWholeWordSource(text: string): string {
+  return wordSource(escapeRegExp(text))
+}
+
 /** 把用户输入编译成逐行执行的正则；非法模式抛 SearchPatternError */
 export function compileSearch(
   query: unknown,
@@ -69,19 +86,23 @@ export function compileSearch(
       t('ideError.searchLong', { n: MAX_QUERY_CHARS })
     )
   }
+  if (query.includes('\0')) {
+    throw new SearchPatternError('invalid-query', t('ideError.searchInvalid'))
+  }
 
   const regexMode = options?.regex === true
   const wholeWord = options?.wholeWord === true
   const caseSensitive = options?.caseSensitive === true
 
   // 字面量沿用旧行为：去掉首尾空白；正则模式原样保留，空白可能有意义
-  const core = regexMode ? query : escapeRegExp(query.trim())
+  const literalText = regexMode ? undefined : query.trim()
+  const core = regexMode ? query : escapeRegExp(literalText ?? '')
   if (!core) {
     throw new SearchPatternError('invalid-query', t('ideError.searchEmpty'))
   }
 
   // 包一层非捕获组，捕获组编号不受影响；前后用定长 lookaround，Node/Chromium 都支持
-  const source = wholeWord ? `(?<!${WORD_CHAR})(?:${core})(?!${WORD_CHAR})` : core
+  const source = wholeWord ? wordSource(core) : core
 
   let regex: RegExp
   try {
@@ -91,7 +112,13 @@ export function compileSearch(
     throw new SearchPatternError('invalid-regex', t('ideError.regexInvalid', { detail }))
   }
 
-  return { regex, literal: !regexMode }
+  return {
+    regex,
+    literal: !regexMode,
+    literalText,
+    wholeWord,
+    caseSensitive
+  }
 }
 
 function normalizePatterns(raw: unknown, label: string): string[] {

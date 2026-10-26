@@ -43,6 +43,89 @@ export interface StoredSession {
   cli: CliId
 }
 
+/**
+ * 应用本地维护的会话元数据。
+ *
+ * **不写回 CLI 的记录文件** —— 那些 jsonl 归 CLI 所有，重命名 / 置顶 /
+ * 归档只影响本应用的侧栏。身份和会话本身一样是 (cli, cwd, id)。
+ */
+export interface SessionMeta {
+  /** 用户设置的显示标题；空 = 继续用 CLI 记录里的首条消息 */
+  title?: string
+  /** 置顶：同一工作区内排在前面 */
+  pinned?: boolean
+  /** 归档：默认从侧栏收起，可临时显示 */
+  archived?: boolean
+  /**
+   * 这条会话自己选的模型。
+   *
+   * 模型是**会话级**选择：同一 CLI 的两个对话可以各用各的模型。
+   * 缺省 = 用渠道配置或 CLI 的默认模型。
+   */
+  model?: string
+}
+
+/** 键是 `sessionMetaKey()` 生成的字符串 */
+export type SessionMetaMap = Record<string, SessionMeta>
+
+/**
+ * 会话元数据的键。
+ *
+ * 用 JSON 数组而不是冒号拼接：Windows 路径本身带冒号和反斜杠，拼出来的
+ * 字符串可能撞车；JSON 还顺带把键变成合法的对象属性。
+ */
+export function sessionMetaKey(cli: CliId, cwd: string, id: string): string {
+  return JSON.stringify([cli, cwd, id])
+}
+
+/** 修改一条会话的元数据；只传要改的字段 */
+export interface SessionMetaUpdate {
+  cli: CliId
+  cwd: string
+  id: string
+  /** `title: ''` 表示恢复 CLI 原标题；pinned / archived 传 false 即取消 */
+  patch: SessionMeta
+}
+
+/** 一条搜索命中。只带展示需要的字段，不把整份会话记录传给渲染层。 */
+export interface SessionSearchHit {
+  id: string
+  cwd: string
+  cli: CliId
+  /** CLI 记录里的标题；用户重命名由渲染层按 SessionMeta 覆盖 */
+  title: string
+  createdAt: number
+  updatedAt: number
+  /** 命中位置附近的一行上下文；标题命中时为空串 */
+  snippet: string
+  /** 内容命中次数；标题命中固定为 1 */
+  matches: number
+  /** 命中来源：标题由渲染层本地匹配，内容由主进程扫描 */
+  field: 'title' | 'content'
+}
+
+export interface SessionSearchResult {
+  /** 这一批找到的命中 */
+  hits: SessionSearchHit[]
+  /**
+   * 有超大文件被跳过。
+   *
+   * 单批达到 limit **不算**截断 —— 渲染层会拿 nextOffset 继续要下一批，
+   * 真正的"结果已截断"由渲染层的展示上限决定。
+   */
+  truncated: boolean
+  /** 这一批实际扫描了多少条会话 */
+  scanned: number
+  /** 这一批从第几条会话开始（按 updatedAt 倒序的偏移） */
+  offset: number
+  /** 下一次从哪继续；done=true 时忽略 */
+  nextOffset: number
+  /** 所有会话都扫完了 */
+  done: boolean
+  /** 本次快照里的会话总数 */
+  total: number
+}
+
 /** 对一条审批请求的答复 */
 export interface PermissionDecision {
   behavior: 'allow' | 'deny'

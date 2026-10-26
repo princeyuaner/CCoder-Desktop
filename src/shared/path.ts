@@ -25,6 +25,19 @@ export function dirName(p: string): string {
 }
 
 /**
+ * 路径身份键：统一分隔符、去尾斜杠，Windows 盘符路径折叠大小写。
+ *
+ * 只用于 Map / Record 查找，**不要拿它去读盘** —— 真正的路径仍用原字符串。
+ * 会话里记的 cwd 是 CLI 写回来的反斜杠形式，而从 git worktree list / 目录
+ * 选择器拿到的是正斜杠形式；直接拿两种写法互相查表永远查不到。
+ */
+export function cwdKey(p: string): string {
+  const n = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  // 盘符 C:/ 和 UNC //server 在 Windows 上大小写不敏感
+  return /^[a-zA-Z]:/.test(n) || n.startsWith('//') ? n.toLowerCase() : n
+}
+
+/**
  * 父目录的短形式 —— 折叠行只有这么点地方。
  * 两层以内原样显示（src/main）；更深的只留最后一层（…/components）。
  */

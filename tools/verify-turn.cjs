@@ -41,6 +41,8 @@ function main() {
   // 这个参数是让它留在工具表里的开关（实测 2.1.303）。
   check('提问工具可用', args.includes('--permission-prompt-tool stdio'))
   check('standard → manual', args.includes('--permission-mode manual'))
+  // 让运行中切到 bypassPermissions 成为可能（否则 CLI 回 bypass_not_launched）
+  check('bypass 可切换', args.includes('--allow-dangerously-skip-permissions'))
   check('逐 token 流式', args.includes('--include-partial-messages'))
 
   console.log('\n[1] 真 CLI 冒烟（约 5 秒，等 CLI 重试结束）')
@@ -53,8 +55,15 @@ function main() {
     cwd: process.cwd(),
     model: CHANNEL.model,
     permissionMode: 'standard',
+    effort: 'medium',
     addDirs: [],
-    onEvent: (e) => events.push(e),
+    mcpServers: [],
+    resumeId: null,
+    onEvent: (e) => {
+      events.push(e)
+      // 长驻进程不会因为一轮结束就自己退；收齐结果后主动收摊，onExit 才会跑检查
+      if (e.t === 'turn_end') setTimeout(() => sess.dispose(), 50)
+    },
     onExit: () => {
       const ms = Date.now() - t0
       const init = events.find((e) => e.t === 'session_started')

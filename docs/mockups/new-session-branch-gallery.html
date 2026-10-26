@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>CCoder · 新建会话分支选择 · 四联效果图</title>
+    <style>
+      :root {
+        --bg: #101010;
+        --panel: #191919;
+        --border: #2c2c2c;
+        --text: #e8e8e8;
+        --dim: #8a8a8a;
+        --faint: #6b6b6b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 28px 30px 34px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin: 0 2px 20px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 650;
+      }
+
+      header span {
+        color: var(--faint);
+        font-size: 12px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, 884px);
+        gap: 22px;
+      }
+
+      figure {
+        margin: 0;
+      }
+
+      figcaption {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 2px 9px;
+        color: var(--dim);
+        font-size: 12px;
+      }
+
+      .tag {
+        display: inline-grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        border: 1px solid #3a3a3a;
+        border-radius: 5px;
+        color: var(--text);
+        font-size: 10.5px;
+        font-weight: 600;
+      }
+
+      .frame {
+        position: relative;
+        width: 884px;
+        height: 559px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #191919;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+      }
+
+      iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1360px;
+        height: 860px;
+        border: 0;
+        transform: scale(0.65);
+        transform-origin: top left;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>新建会话 · 分支选择</h1>
+      <span>四种状态：选择已有分支 / 创建新分支 / 冲突提示 / 创建后的会话</span>
+    </header>
+
+    <div class="grid">
+      <figure>
+        <figcaption><span class="tag">A</span>选择已有分支（本地 + 远程，支持搜索）</figcaption>
+        <div class="frame"><iframe src="new-session-branch.html?v=a"></iframe></div>
+      </figure>
+
+      <figure>
+        <figcaption><span class="tag">B</span>创建新分支（分支名 + 起点 + 工作树）</figcaption>
+        <div class="frame"><iframe src="new-session-branch.html?v=b"></iframe></div>
+      </figure>
+
+      <figure>
+        <figcaption><span class="tag">C</span>分支已被占用 / 工作区不干净时的提示</figcaption>
+        <div class="frame"><iframe src="new-session-branch.html?v=c"></iframe></div>
+      </figure>
+
+      <figure>
+        <figcaption><span class="tag">D</span>创建后：分支与工作树在会话中的呈现</figcaption>
+        <div class="frame"><iframe src="new-session-branch.html?v=d"></iframe></div>
+      </figure>
+    </div>
+  </body>
+</html>

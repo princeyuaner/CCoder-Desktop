@@ -1,0 +1,1785 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>目录同步 · IDE 工作区效果稿</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #191919;
+    --sidebar: #141414;
+    --raised: #232323;
+    --panel: #1d1d1d;
+    --hover: #1f1f1f;
+    --active: #2a2a2a;
+    --border: #2c2c2c;
+    --soft: #242424;
+    --text: #e8e8e8;
+    --dim: #a8a8a8;
+    --muted: #8a8a8a;
+    --faint: #6b6b6b;
+    --blue: #8ab4f8;
+    --ok: #7fbf7f;
+    --ok-deep: #4b9e5f;
+    --warn: #e0af68;
+    --danger: #e5534b;
+    --danger-soft: #d98a8a;
+    --font: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  }
+  html, body { background: #0d0d0f; }
+  body {
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 60px;
+  }
+  button, input, summary { font: inherit; color: inherit; }
+  button { background: none; border: 0; cursor: pointer; }
+  input { outline: none; }
+  code, pre, .mono { font-family: var(--mono); }
+  svg { display: block; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: #35353d;
+    background-clip: content-box;
+    border: 2px solid transparent;
+    border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #45454f; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  .ico {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* ══ 审核页顶栏 ═════════════════════════════════════ */
+  .previewbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 13px 24px;
+    background: rgba(13, 13, 15, .93);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid #1e1e24;
+  }
+  .previewbar h1 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+  .previewbar h1 em {
+    display: block;
+    margin-top: 2px;
+    font-size: 9.5px;
+    font-style: normal;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    color: #5f5f6b;
+    text-transform: uppercase;
+  }
+  .scenetabs { display: flex; gap: 6px; margin-left: 8px; }
+  .scenetab {
+    padding: 6px 13px;
+    font-size: 12.5px;
+    color: #9a9aa8;
+    background: #16161a;
+    border: 1px solid #26262e;
+    border-radius: 8px;
+  }
+  .scenetab:hover { color: #d8d8e2; border-color: #35353f; }
+  .scenetab.on {
+    color: #0d0d0f;
+    background: #e8e8ee;
+    border-color: #e8e8ee;
+    font-weight: 600;
+  }
+  .previewbar .hint {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: #6b6b75;
+    white-space: nowrap;
+  }
+  .previewbar .hint b { color: #a0a0ac; font-weight: 500; }
+
+  .stage { padding: 22px 24px 0; }
+
+  /* ══ IDE 窗口 ═══════════════════════════════════════ */
+  .app {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(1240px, calc(100vw - 48px));
+    height: 900px;
+    margin: 0 auto;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid #2a2a32;
+    border-radius: 12px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .015);
+    font-size: 12px;
+  }
+
+  /* ── 标题栏 ───────────────────────────────────────── */
+  .titlebar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    height: 36px;
+    padding-left: 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--soft);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .logo {
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-size: 9px;
+    font-weight: 800;
+    color: #191919;
+    background: #e8e8e8;
+  }
+  .brand .divider { width: 1px; height: 15px; background: #2c2c2c; }
+  .brand .ws { font-weight: 400; color: var(--dim); }
+  .detach {
+    padding: 1px 6px;
+    font-size: 9.5px;
+    font-weight: 500;
+    color: #8ab4f8;
+    background: rgba(138, 180, 248, .09);
+    border: 1px solid rgba(138, 180, 248, .25);
+    border-radius: 4px;
+  }
+  .wctl { margin-left: auto; display: flex; align-self: stretch; }
+  .wc {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 100%;
+    color: #8a8a8f;
+  }
+  .wc:hover { background: #222; color: #ddd; }
+  .wc--close:hover { background: #c42b1c; color: #fff; }
+
+  /* ── 工具栏 ───────────────────────────────────────── */
+  .toolbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 44px;
+    padding: 0 12px;
+    background: var(--sidebar);
+    border-bottom: 1px solid var(--soft);
+  }
+  .quickbtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 380px;
+    height: 28px;
+    padding: 0 9px;
+    font-size: 11.5px;
+    color: var(--faint);
+    text-align: left;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .quickbtn span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .quickbtn kbd {
+    padding: 1px 5px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: #8a8a8a;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .branch {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    font-size: 11px;
+    color: var(--dim);
+    background: var(--hover);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .changes { font-size: 10.5px; color: var(--faint); }
+  .iconbtn {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: var(--muted);
+    border-radius: 5px;
+  }
+  .iconbtn:hover { background: var(--active); color: var(--text); }
+  .readonly {
+    padding: 1px 6px;
+    font-size: 9.5px;
+    color: var(--faint);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* ── 主体 ─────────────────────────────────────────── */
+  .body { flex: 1; display: flex; min-height: 0; }
+  .activity {
+    flex: none;
+    width: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding-top: 6px;
+    background: var(--sidebar);
+    border-right: 1px solid var(--soft);
+  }
+  .act {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 38px;
+    color: #6f6f78;
+  }
+  .act:hover { color: var(--dim); }
+  .act.on { color: var(--text); background: var(--active); }
+  .act.on::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    border-radius: 0 2px 2px 0;
+    background: var(--blue);
+  }
+  .act-badge {
+    position: absolute;
+    right: 8px;
+    top: 5px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    display: grid;
+    place-items: center;
+    font-size: 9px;
+    font-weight: 600;
+    color: #191919;
+    background: var(--warn);
+    border-radius: 7px;
+  }
+  .act-badge.is-bad { background: var(--danger); color: #fff; }
+
+  /* ── 同步工作区 ───────────────────────────────────── */
+  .workspace {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+  .ws-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 56px;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--soft);
+  }
+  .ws-titlewrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ws-ico {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    color: var(--blue);
+    background: rgba(138, 180, 248, .09);
+    border: 1px solid rgba(138, 180, 248, .2);
+    border-radius: 8px;
+  }
+  .ws-title { font-size: 14px; font-weight: 600; letter-spacing: .1px; }
+  .ws-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 3px;
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .ws-sub .path {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .ws-sub .arrow { color: #55555f; }
+  .ws-headright { margin-left: auto; display: flex; align-items: center; gap: 9px; }
+  .last { font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+  .hsep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 9px;
+    font-size: 11px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .state i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .state--run { color: #8fd19e; background: rgba(75, 158, 95, .12); border-color: rgba(75, 158, 95, .3); }
+  .state--run i { animation: pulse 2s ease-in-out infinite; }
+  .state--danger { color: #f09089; background: rgba(229, 83, 75, .12); border-color: rgba(229, 83, 75, .32); }
+  .state--warn { color: #e6c069; background: rgba(224, 175, 104, .1); border-color: rgba(224, 175, 104, .28); }
+  .state--off { color: var(--muted); background: #202020; border-color: #2e2e2e; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    font-size: 11.5px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .btn--ghost { color: var(--dim); border-color: var(--border); }
+  .btn--ghost:hover { background: var(--hover); color: var(--text); }
+  .btn--primary { color: #0d1117; background: var(--blue); font-weight: 600; }
+  .btn--primary:hover { background: #a3c5fa; }
+  .btn:disabled { opacity: .42; cursor: default; color: var(--faint); background: #262626; border-color: var(--border); }
+
+  .ws-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 26px; }
+  .ws-grid {
+    display: grid;
+    grid-template-columns: 344px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+    max-width: 1150px;
+  }
+
+  /* ── 卡片 ─────────────────────────────────────────── */
+  .card {
+    padding: 14px 15px;
+    background: var(--panel);
+    border: 1px solid #292929;
+    border-radius: 10px;
+  }
+  .card + .card { margin-top: 12px; }
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 11px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .55px;
+    color: var(--muted);
+  }
+  .card-head .link {
+    margin-left: auto;
+    padding: 0;
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--blue);
+  }
+  .card-head .link:hover { color: #b9d2fb; }
+  .card-head .count {
+    margin-left: auto;
+    padding: 1px 6px;
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: #e6b0aa;
+    background: rgba(229, 83, 75, .1);
+    border: 1px solid rgba(229, 83, 75, .22);
+    border-radius: 999px;
+  }
+  .card-head .count.is-warn {
+    color: #e3c27e;
+    background: rgba(224, 175, 104, .09);
+    border-color: rgba(224, 175, 104, .22);
+  }
+
+  /* 状态卡 */
+  .bigstate { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; }
+  .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+  .dot--ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(127, 191, 127, .12); }
+  .dot--bad { background: var(--danger); box-shadow: 0 0 0 3px rgba(229, 83, 75, .12); }
+  .dot--warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(224, 175, 104, .1); }
+  .dot--off { background: #5b5b63; }
+  .bigstate .side {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--faint);
+  }
+  .meta { margin-top: 4px; font-size: 10.5px; line-height: 1.5; color: var(--dim); }
+  .meta.is-muted { color: var(--faint); }
+  .stats {
+    display: flex;
+    margin-top: 13px;
+    padding: 11px 0;
+    border-top: 1px solid #262626;
+    border-bottom: 1px solid #262626;
+  }
+  .stats > div { flex: 1; text-align: center; border-left: 1px solid #262626; }
+  .stats > div:first-child { border-left: 0; }
+  .stats b {
+    display: block;
+    font-size: 19px;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stats b.is-ok { color: var(--ok); }
+  .stats b.is-bad { color: #ef8c85; }
+  .stats span { font-size: 10px; color: var(--faint); }
+  .watchline {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 10px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--faint);
+  }
+  .watchline svg { color: #6f6f78; }
+  .watchline em { font-style: normal; color: var(--warn); }
+
+  /* 改动列表 */
+  .chglist { display: flex; flex-direction: column; gap: 1px; }
+  .chgrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 23px;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: #c2c2c7;
+  }
+  .chgrow:hover { background: var(--hover); }
+  .chgrow .mark {
+    flex: none;
+    width: 12px;
+    text-align: center;
+    font-family: var(--font);
+    font-size: 10.5px;
+    font-weight: 700;
+  }
+  .mark--add { color: var(--ok); }
+  .mark--del { color: var(--danger-soft); }
+  .mark--bad { color: var(--danger); }
+  .chgrow .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chgrow .why {
+    margin-left: auto;
+    padding-left: 8px;
+    font-family: var(--font);
+    font-size: 9.5px;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+  .listfoot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 7px;
+    padding-top: 8px;
+    border-top: 1px solid #262626;
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .listfoot .more { margin-left: auto; color: var(--blue); }
+
+  /* 需要注意 */
+  .attn { padding: 8px 0; border-top: 1px solid #262626; }
+  .attn:first-of-type { padding-top: 0; border-top: 0; }
+  .attn .p {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .attn .p span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .attn .why {
+    display: block;
+    margin-top: 3px;
+    padding-left: 13px;
+    font-size: 9.5px;
+    line-height: 1.55;
+    color: var(--faint);
+  }
+  .attn .tag {
+    flex: none;
+    width: 13px;
+    text-align: center;
+    font-family: var(--font);
+    font-size: 9.5px;
+    font-weight: 700;
+  }
+  .attn.is-bad .tag { color: var(--danger); }
+  .attn.is-warn .tag { color: var(--warn); }
+
+  /* 日志框 */
+  .logbox {
+    max-height: 142px;
+    overflow: hidden;
+    padding: 8px 9px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    line-height: 1.72;
+    color: #9a9aa0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #121212;
+    border: 1px solid #242424;
+    border-radius: 6px;
+  }
+  .logbox.is-empty { color: var(--faint); }
+  .tg-ok { color: #8fc79b; }
+  .tg-bad { color: #e58f88; }
+  .tg-warn { color: #d9b36c; }
+  .tg-blue { color: var(--blue); }
+  .tg-dim { color: #6f6f78; }
+
+  /* 首次配置 */
+  .setup-ico {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 12px;
+    color: var(--blue);
+    background: rgba(138, 180, 248, .08);
+    border: 1px solid rgba(138, 180, 248, .2);
+    border-radius: 11px;
+  }
+  .setupcard h3 { font-size: 14px; font-weight: 600; line-height: 1.35; }
+  .setupcard p { margin-top: 6px; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+  .steps { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+  .step { display: flex; align-items: flex-start; gap: 9px; font-size: 11.5px; color: var(--dim); }
+  .step i {
+    flex: none;
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    font-size: 9.5px;
+    font-style: normal;
+    color: var(--muted);
+    background: #202020;
+    border: 1px solid #333;
+    border-radius: 50%;
+  }
+  .step small { display: block; margin-top: 2px; font-size: 10px; color: var(--faint); }
+  .step.is-done i {
+    color: var(--ok);
+    background: rgba(75, 158, 95, .14);
+    border-color: rgba(75, 158, 95, .4);
+  }
+  .callout {
+    margin-top: 15px;
+    padding: 8px 10px;
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: #c9b98d;
+    background: rgba(224, 175, 104, .06);
+    border: 1px solid rgba(224, 175, 104, .2);
+    border-radius: 6px;
+  }
+
+  /* 被占用 */
+  .busy-ico {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 12px;
+    color: var(--warn);
+    background: rgba(224, 175, 104, .07);
+    border: 1px solid rgba(224, 175, 104, .22);
+    border-radius: 11px;
+  }
+  .busycard h3 { font-size: 14px; font-weight: 600; }
+  .busycard p { margin-top: 6px; font-size: 11.5px; line-height: 1.65; color: var(--muted); }
+  .busycard .who {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 12px;
+    padding: 8px 9px;
+    font-size: 10.5px;
+    color: var(--dim);
+    background: #181818;
+    border: 1px solid #292929;
+    border-radius: 6px;
+  }
+  .busycard .who .mono { color: var(--text); }
+
+  /* ══ 配置表单 ══════════════════════════════════════ */
+  .formcard { padding: 15px 18px 0; }
+  .form-head { display: flex; align-items: flex-start; gap: 10px; }
+  .form-title { font-size: 13.5px; font-weight: 600; }
+  .form-sub { margin-top: 3px; font-size: 10.5px; line-height: 1.5; color: var(--faint); }
+  .form-head .autosave {
+    margin-left: auto;
+    padding-top: 2px;
+    font-size: 10px;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+  .form-head .autosave em { font-style: normal; color: var(--ok); }
+
+  .frow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 11px 0;
+    border-top: 1px solid #262626;
+  }
+  .frow--stack { display: block; }
+  .frow:first-of-type { border-top: 0; }
+  .fmain { flex: 1; min-width: 0; }
+  .flabel { font-size: 12px; color: var(--dim); }
+  .fdesc { margin-top: 2px; font-size: 10.5px; line-height: 1.5; color: var(--faint); }
+  .frow .switch { margin-left: auto; }
+
+  .pathrow { display: flex; gap: 7px; margin-top: 7px; }
+  .pathfield {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 9px;
+    background: #141414;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .pathfield svg { flex: none; color: #6f6f78; }
+  .pathfield span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: #c8c8cc;
+  }
+  .pathfield.is-empty span { color: #5f5f67; }
+  .pathfield.is-focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(138, 180, 248, .12);
+  }
+  .pathfield.is-focus svg { color: var(--blue); }
+  .browse {
+    flex: none;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 11px;
+    color: var(--dim);
+    background: #1e1e1e;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .browse:hover { color: var(--text); border-color: #3a3a3a; }
+
+  .dirnote {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin-top: 8px;
+    padding: 7px 9px;
+    font-size: 10px;
+    line-height: 1.55;
+    color: #9cb0c9;
+    background: rgba(138, 180, 248, .05);
+    border: 1px solid rgba(138, 180, 248, .15);
+    border-radius: 6px;
+  }
+  .dirnote svg { flex: none; margin-top: 1px; color: var(--blue); }
+
+  .textinput {
+    width: 100%;
+    height: 30px;
+    padding: 0 9px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text);
+    background: #141414;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .textinput::placeholder { color: #5f5f67; }
+  .textinput:focus { border-color: var(--blue); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 23px;
+    padding: 0 4px 0 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: #b6b6bd;
+    background: #1b1b1b;
+    border: 1px solid #2d2d2d;
+    border-radius: 5px;
+  }
+  .chip button {
+    width: 15px;
+    height: 15px;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    line-height: 1;
+    color: #6f6f78;
+    border-radius: 3px;
+  }
+  .chip button:hover { color: var(--text); background: #2a2a2a; }
+  .chip--add {
+    padding: 0 8px;
+    color: var(--blue);
+    background: transparent;
+    border-style: dashed;
+    cursor: pointer;
+  }
+  .chip--add:hover { background: rgba(138, 180, 248, .06); }
+
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 7px; }
+  .timefield { position: relative; }
+  .timefield input {
+    width: 100%;
+    height: 30px;
+    padding: 0 46px 0 9px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text);
+    background: #141414;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .timefield em {
+    position: absolute;
+    top: 8px;
+    right: 9px;
+    font-style: normal;
+    font-size: 10px;
+    color: var(--faint);
+  }
+
+  .switch {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .switch input {
+    appearance: none;
+    position: relative;
+    width: 34px;
+    height: 20px;
+    background: #3a3a3a;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .switch input::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: #8a8a8a;
+    border-radius: 50%;
+    transition: transform .12s, background .12s;
+  }
+  .switch input:checked { background: var(--blue); }
+  .switch input:checked::after { transform: translateX(14px); background: #191919; }
+
+  .adv { padding: 12px 0 0; border-top: 1px solid #262626; }
+  .adv summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--dim);
+    cursor: pointer;
+    list-style: none;
+  }
+  .adv summary::-webkit-details-marker { display: none; }
+  .adv summary .chev { color: var(--faint); transition: transform .15s; }
+  .adv[open] summary .chev { transform: rotate(90deg); }
+  .adv summary .count { margin-left: auto; font-size: 10px; color: var(--faint); }
+  .advbody {
+    margin-top: 8px;
+    padding: 8px 10px;
+    font-size: 10px;
+    line-height: 1.65;
+    color: var(--faint);
+    background: #181818;
+    border: 1px solid #292929;
+    border-radius: 6px;
+  }
+  .advbody b { color: var(--dim); font-weight: 500; }
+  .advbody .mono { color: #9a9aa2; }
+
+  .formfoot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 11px 0 14px;
+    border-top: 1px solid #262626;
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .formfoot .saved { margin-left: auto; color: var(--ok); }
+  .formfoot .warn { margin-left: auto; color: var(--warn); }
+
+  /* ══ 同步气泡 ══════════════════════════════════════ */
+  .bubble {
+    position: absolute;
+    left: 68px;
+    bottom: 36px;
+    z-index: 60;
+    width: 336px;
+    padding: 11px 13px 10px;
+    overflow: hidden;
+    background: #242424;
+    border: 1px solid #383838;
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .55);
+  }
+  .bubble-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .bubble-head .x {
+    margin-left: auto;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    color: #7a7a82;
+    border-radius: 4px;
+  }
+  .bubble-head .x:hover { color: var(--text); background: #303030; }
+  .bubble-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 7px; }
+  .bubble-row {
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.5;
+    color: #cfcfd4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bubble-row.is-del::before { content: '− '; color: var(--danger-soft); }
+  .bubble-fail { margin-top: 6px; font-size: 11px; color: #e88e87; }
+  .bubble-more { display: inline-block; margin-top: 6px; font-size: 10px; color: var(--blue); }
+  .bubble-more:hover { color: #b9d2fb; }
+  .bubble-timer {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 2px;
+    background: rgba(138, 180, 248, .55);
+    animation: drain 3s linear forwards;
+  }
+  .bubble--bad .bubble-timer { background: rgba(229, 83, 75, .55); }
+  @keyframes drain { from { width: 100%; } to { width: 0; } }
+
+  /* ══ 日志浮层 ══════════════════════════════════════ */
+  .logpop {
+    position: absolute;
+    right: 18px;
+    bottom: 36px;
+    z-index: 70;
+    width: 500px;
+    max-width: calc(100% - 36px);
+    height: 308px;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    background: #202020;
+    border: 1px solid #373737;
+    border-radius: 10px;
+    box-shadow: 0 18px 52px rgba(0, 0, 0, .62);
+  }
+  .logpop.is-open { display: flex; }
+  .logpop-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-bottom: 1px solid #2c2c2c;
+  }
+  .logpop-head .state { height: 20px; font-size: 10px; }
+  .logpop-head .x {
+    margin-left: auto;
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    color: #7a7a82;
+    border-radius: 4px;
+  }
+  .logpop-head .x:hover { color: var(--text); background: #303030; }
+  .logpop pre {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 10px 12px;
+    font-size: 10px;
+    line-height: 1.75;
+    color: #a9a9b0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ══ 状态栏 ════════════════════════════════════════ */
+  .statusbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    height: 22px;
+    padding: 0 10px;
+    font-size: 10.5px;
+    color: #8a8a90;
+    background: var(--bg);
+    border-top: 1px solid var(--soft);
+  }
+  .sb-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .sb-sync {
+    height: 22px;
+    padding: 0 2px;
+    cursor: pointer;
+    color: #8a8a90;
+  }
+  .sb-sync:hover { color: var(--text); }
+  .sb-sync.is-run { color: #8fd19e; }
+  .sb-sync.is-bad { color: #ef8c85; }
+  .sb-sync.is-warn { color: #e6c069; }
+  .sb-sync em { font-style: normal; color: #6f6f78; }
+  .sb-right { margin-left: auto; display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .sb-rel { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9a9aa0; }
+
+  /* ══ 场景显隐 ══════════════════════════════════════ */
+  [hidden] { display: none !important; }
+
+  .app:not([data-scene='run']) .sc-run,
+  .app:not([data-scene='setup']) .sc-setup,
+  .app:not([data-scene='trouble']) .sc-trouble,
+  .app:not([data-scene='busy']) .sc-busy { display: none !important; }
+
+  /* ══ 说明区 ════════════════════════════════════════ */
+  .notes {
+    width: min(1240px, calc(100vw - 48px));
+    margin: 34px auto 0;
+    padding: 0 2px;
+  }
+  .notes h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #d8d8e0;
+  }
+  .notes .lead {
+    margin-top: 7px;
+    max-width: 800px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #7f7f8c;
+  }
+  .notes .lead b { color: #b9b9c6; font-weight: 500; }
+  .notes-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .notecard {
+    padding: 15px 16px;
+    background: #141418;
+    border: 1px solid #232329;
+    border-radius: 10px;
+  }
+  .notecard h3 {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    color: #b6b6c4;
+  }
+  .notecard ul { margin-top: 10px; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .notecard li {
+    position: relative;
+    padding-left: 13px;
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: #858592;
+  }
+  .notecard li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #4a4a56;
+  }
+  .notecard li b { color: #b0b0bd; font-weight: 500; }
+  .notecard code {
+    padding: 1px 4px;
+    font-size: 10px;
+    color: #9cbfe8;
+    background: rgba(138, 180, 248, .07);
+    border: 1px solid rgba(138, 180, 248, .12);
+    border-radius: 3px;
+  }
+  .statemap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .statemap .state { height: 24px; }
+
+  @media (max-width: 980px) {
+    .previewbar .hint { display: none; }
+    .ws-grid { grid-template-columns: 1fr; }
+    .notes-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="previewbar">
+  <h1>目录同步<em>Directory Sync · Review</em></h1>
+  <nav class="scenetabs" role="tablist">
+    <button class="scenetab on" data-scene="run">运行中</button>
+    <button class="scenetab" data-scene="setup">首次配置</button>
+    <button class="scenetab" data-scene="trouble">有失败</button>
+    <button class="scenetab" data-scene="log">日志浮层</button>
+    <button class="scenetab" data-scene="busy">被占用</button>
+  </nav>
+  <div class="hint">单向镜像 · 内容对账 · <b>安全删除</b> · 与 CCoder 版同一套规则</div>
+</header>
+
+<main class="stage">
+  <div class="app" id="app" data-scene="run">
+
+    <!-- ══ 标题栏 ══ -->
+    <div class="titlebar">
+      <div class="brand">
+        <span class="logo">C</span>
+        <span>CCoder IDE</span>
+        <span class="divider"></span>
+        <span class="ws">CCoder-Desktop</span>
+        <span class="detach">独立窗口</span>
+      </div>
+      <div class="wctl">
+        <button class="wc" title="最小化">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button class="wc" title="最大化">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9"/></svg>
+        </button>
+        <button class="wc wc--close" title="关闭">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><path d="M1 1l8 8M9 1L1 9"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ══ 工具栏 ══ -->
+    <div class="toolbar">
+      <button class="quickbtn">
+        <svg class="ico" width="14" height="14" viewBox="0 0 16 16"><path d="M10.4 10.4L14 14"/><circle cx="7" cy="7" r="4.4"/></svg>
+        <span>搜索文件或命令</span>
+        <kbd>Ctrl P</kbd>
+      </button>
+      <div class="toolbar-right">
+        <span class="branch">
+          <svg class="ico" width="13" height="13" viewBox="0 0 16 16"><path d="M4 4.9v6.2M12 6.5c0 2.8-2.6 3.1-4.5 3.6"/></svg>
+          main
+        </span>
+        <span class="changes">8 项更改</span>
+        <button class="iconbtn" title="刷新">
+          <svg class="ico" width="13" height="13" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5"/></svg>
+        </button>
+        <span class="readonly">可编辑</span>
+      </div>
+    </div>
+
+    <!-- ══ 主体 ══ -->
+    <div class="body">
+      <nav class="activity">
+        <button class="act" title="资源管理器">
+          <svg class="ico" width="17" height="17" viewBox="0 0 16 16"><path d="M4 2h5l3 3v9H4zM9 2v3h3"/></svg>
+        </button>
+        <button class="act" title="搜索">
+          <svg class="ico" width="17" height="17" viewBox="0 0 16 16"><path d="M10.4 10.4L14 14"/><circle cx="7" cy="7" r="4.4"/></svg>
+        </button>
+        <button class="act" title="源代码管理">
+          <svg class="ico" width="17" height="17" viewBox="0 0 16 16"><path d="M4 3v10M4 13l-2-2M4 13l2-2M9 4h4M9 8h4M9 12h2"/></svg>
+        </button>
+        <button class="act on" title="目录同步">
+          <svg class="ico" width="17" height="17" viewBox="0 0 16 16">
+            <path d="M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5"/>
+          </svg>
+          <span class="act-badge is-bad sc-trouble">2</span>
+        </button>
+      </nav>
+
+      <!-- ══ 同步工作区 ══ -->
+      <section class="workspace">
+        <header class="ws-head">
+          <div class="ws-titlewrap">
+            <span class="ws-ico">
+              <svg class="ico" width="17" height="17" viewBox="0 0 16 16">
+                <path d="M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5"/>
+              </svg>
+            </span>
+            <div>
+              <div class="ws-title">目录同步</div>
+              <div class="ws-sub">
+                <span class="path" title="C:\Users\CY\Desktop\CCoder-Desktop">C:\Users\CY\Desktop\CCoder-Desktop</span>
+                <span class="arrow">→</span>
+                <span class="path" data-scenes="run trouble busy" title="Z:\m71\server">Z:\m71\server</span>
+                <span class="sc-setup" style="color:#6b6b6b">尚未选择目标目录</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="ws-headright">
+            <span class="state state--run sc-run"><i></i>运行中</span>
+            <span class="state state--danger sc-trouble"><i></i>有失败</span>
+            <span class="state state--warn sc-busy"><i></i>被占用</span>
+            <span class="state state--off sc-setup"><i></i>未开启</span>
+
+            <span class="last sc-run">上一轮 14:32:08 · 480 毫秒</span>
+            <span class="last sc-trouble">上一轮 14:29:51 · 1.2 秒</span>
+            <span class="last sc-busy">每 60 秒重新检查</span>
+
+            <span class="hsep"></span>
+
+            <button class="btn btn--ghost" data-scenes="run trouble">打开目标</button>
+            <button class="btn btn--primary sc-run">
+              <svg class="ico" width="12" height="12" viewBox="0 0 16 16"><path d="M5 3.5l7.5 4.5L5 12.5z"/></svg>
+              立即同步
+            </button>
+            <button class="btn btn--primary sc-trouble">
+              <svg class="ico" width="12" height="12" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5"/></svg>
+              立即重试
+            </button>
+            <button class="btn btn--ghost sc-busy" disabled>等待其他窗口</button>
+            <button class="btn btn--primary sc-setup" disabled>开始同步</button>
+            <button class="iconbtn" title="暂停同步" data-scenes="run">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="4.5" y="3.5" width="2.3" height="9" rx=".6"/><rect x="9.2" y="3.5" width="2.3" height="9" rx=".6"/></svg>
+            </button>
+            <button class="iconbtn" title="更多">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12.5" cy="8" r="1"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="ws-scroll">
+          <div class="ws-grid">
+
+            <!-- ══ 左栏 ══ -->
+            <div class="leftcol">
+
+              <!-- 运行中状态 -->
+              <div class="card sc-run">
+                <div class="card-head">
+                  <span>状态</span>
+                  <button class="link" data-open-log>查看日志 ›</button>
+                </div>
+                <div class="bigstate">
+                  <i class="dot dot--ok"></i>
+                  运行中
+                  <span class="side">正在监听源目录</span>
+                </div>
+                <div class="meta">上次同步 14:32:08 · 用时 480 毫秒</div>
+                <div class="stats">
+                  <div><b>12</b><span>复制</span></div>
+                  <div><b>3</b><span>删除</span></div>
+                  <div><b class="is-ok">0</b><span>失败</span></div>
+                </div>
+                <div class="watchline">
+                  <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M2 5h5l2 2h5v6H2z"/></svg>
+                  已监听 1,391 个目录
+                  <span>·</span> 最近事件 3 秒前
+                  <span>·</span> 巡检 60 秒
+                </div>
+              </div>
+
+              <!-- 有失败状态 -->
+              <div class="card sc-trouble">
+                <div class="card-head">
+                  <span>状态</span>
+                  <button class="link" data-open-log>查看日志 ›</button>
+                </div>
+                <div class="bigstate">
+                  <i class="dot dot--bad"></i>
+                  有失败
+                  <span class="side">退避 20 秒后重试</span>
+                </div>
+                <div class="meta">上次同步 14:29:51 · 用时 1.2 秒</div>
+                <div class="stats">
+                  <div><b>0</b><span>复制</span></div>
+                  <div><b>0</b><span>删除</span></div>
+                  <div><b class="is-bad">2</b><span>失败</span></div>
+                </div>
+                <div class="watchline">
+                  <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M2 5h5l2 2h5v6H2z"/></svg>
+                  已监听 1,391 个目录
+                  <span>·</span> <em>网络盘写入失败，监听继续</em>
+                </div>
+              </div>
+
+              <!-- 未开启状态 -->
+              <div class="card sc-setup">
+                <div class="card-head"><span>状态</span></div>
+                <div class="bigstate">
+                  <i class="dot dot--off"></i>
+                  未开启
+                  <span class="side">0 个目录</span>
+                </div>
+                <div class="meta is-muted">打开开关，并选好两端目录。两端都填好之前什么都不跑。</div>
+                <div class="stats">
+                  <div><b>—</b><span>复制</span></div>
+                  <div><b>—</b><span>删除</span></div>
+                  <div><b>—</b><span>失败</span></div>
+                </div>
+              </div>
+
+              <!-- 被占用状态 -->
+              <div class="card sc-busy">
+                <div class="card-head"><span>状态</span></div>
+                <div class="bigstate">
+                  <i class="dot dot--warn"></i>
+                  被占用
+                  <span class="side">本窗口待命</span>
+                </div>
+                <div class="meta">另一个窗口正在同步这一对目录（CCoder-Desktop）。<br>两个窗口同时同步会互相删掉对方刚写的文件。</div>
+                <div class="watchline">
+                  <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M5 7V5a3 3 0 0 1 6 0v2M4 7h8v6H4z"/></svg>
+                  <em>每 60 秒重新检查一次占用</em>
+                </div>
+              </div>
+
+              <!-- 首次配置引导 -->
+              <div class="card setupcard sc-setup">
+                <div class="setup-ico">
+                  <svg class="ico" width="21" height="21" viewBox="0 0 16 16">
+                    <path d="M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5"/>
+                  </svg>
+                </div>
+                <h3>把改动实时镜像到另一个目录</h3>
+                <p>单向同步：本地改动会推送过去，目标端自己的产物不会被删。适合把工作区同步到运行机、映射盘或备份目录。</p>
+                <div class="steps">
+                  <div class="step is-done">
+                    <i>1</i>
+                    <div>选择本地目录<small>默认填入当前工作区，也可以换</small></div>
+                  </div>
+                  <div class="step">
+                    <i>2</i>
+                    <div>选择目标目录<small>本地盘或已映射的网络盘</small></div>
+                  </div>
+                  <div class="step">
+                    <i>3</i>
+                    <div>打开「启用目录同步」<small>先跑一轮基线核对，之后按事件跟进</small></div>
+                  </div>
+                </div>
+                <div class="callout">两端目录都选好之前，同步不会启动，也不会占用状态栏。</div>
+              </div>
+
+              <!-- 本次改动（运行中） -->
+              <div class="card sc-run">
+                <div class="card-head">
+                  <span>本次同步</span>
+                  <button class="link" data-open-log>全部 15 项 ›</button>
+                </div>
+                <div class="chglist">
+                  <div class="chgrow"><span class="mark mark--add">+</span><span class="p">src/main/file-sync.ts</span></div>
+                  <div class="chgrow"><span class="mark mark--add">+</span><span class="p">src/shared/sync.ts</span></div>
+                  <div class="chgrow"><span class="mark mark--add">+</span><span class="p">src/renderer/src/components/SyncPanel.tsx</span></div>
+                  <div class="chgrow"><span class="mark mark--del">−</span><span class="p">docs/old-sync.md</span></div>
+                </div>
+                <div class="listfoot">
+                  复制 12 · 删除 3 · 清掉 1 个空目录
+                  <span class="more">还有 11 个 ›</span>
+                </div>
+              </div>
+
+              <!-- 本次改动（有失败） -->
+              <div class="card sc-trouble">
+                <div class="card-head">
+                  <span>本次同步</span>
+                  <button class="link" data-open-log>全部 2 项 ›</button>
+                </div>
+                <div class="chglist">
+                  <div class="chgrow">
+                    <span class="mark mark--bad">!</span><span class="p">src/main/index.ts</span>
+                    <span class="why">复制失败</span>
+                  </div>
+                  <div class="chgrow">
+                    <span class="mark mark--bad">!</span><span class="p">src/renderer/src/App.tsx</span>
+                    <span class="why">复制失败</span>
+                  </div>
+                </div>
+                <div class="listfoot">
+                  2 个文件没过去，下一轮自动重试
+                  <span class="more">查看原因 ›</span>
+                </div>
+              </div>
+
+              <!-- 需要注意（有失败） -->
+              <div class="card sc-trouble">
+                <div class="card-head">
+                  <span>需要注意</span>
+                  <span class="count">3 项</span>
+                </div>
+                <div class="attn is-bad">
+                  <div class="p"><span class="tag">✕</span><span title="src/main/index.ts">src/main/index.ts</span></div>
+                  <span class="why">复制后大小不一致（源 9,231，目标 4,096）—— 网络盘写入被截断</span>
+                </div>
+                <div class="attn is-bad">
+                  <div class="p"><span class="tag">✕</span><span title="src/renderer/src/App.tsx">src/renderer/src/App.tsx</span></div>
+                  <span class="why">目标端拒绝写入：磁盘空间不足</span>
+                </div>
+                <div class="attn is-warn">
+                  <div class="p"><span class="tag">!</span><span title="docs/old-sync.md">docs/old-sync.md</span></div>
+                  <span class="why">本地已删，但目标端那份已被别处改动过 —— 已跳过删除</span>
+                </div>
+              </div>
+
+              <!-- 最近日志 -->
+              <div class="card">
+                <div class="card-head">
+                  <span>最近</span>
+                  <button class="link" data-open-log>查看全部 ›</button>
+                </div>
+
+                <div class="logbox sc-run">[事件] 3 个路径被触碰（最近：src/main/file-sync.ts）→ 开始检查
+[待复制] 12 个文件，[待删除] 3 项
+[完成] 复制 12/12，删除 3 项（0 项目标端本不存在），顺带清掉 1 个空目录，失败 0 项（用时 480 ms）</div>
+
+                <div class="logbox sc-trouble">[事件] 4 个路径被触碰（最近：src/main/index.ts）→ 开始检查
+[待复制] 2 个文件，[待删除] 1 项
+[完成] 复制 0/2，删除 0 项，失败 2 项（用时 1.2 s）
+  [失败] 复制 src/main/index.ts — 复制后大小不一致
+  [提醒] docs/old-sync.md — 目标端那份已被别处改动过
+[退避] 20 秒后重试</div>
+
+                <div class="logbox is-empty sc-setup">暂无</div>
+
+                <div class="logbox sc-busy">[占用] 这一对目录已被另一个 IDE 窗口同步（CCoder-Desktop）——本窗口不启动
+（两个窗口同时同步会互相删掉对方刚写的文件）
+[重试] 60 秒后重新检查占用</div>
+              </div>
+
+            </div>
+
+            <!-- ══ 右栏：配置表单 ══ -->
+            <div class="card formcard">
+              <div class="form-head">
+                <div>
+                  <div class="form-title">同步设置</div>
+                  <div class="form-sub">改动即保存，不需要点保存按钮。</div>
+                </div>
+                <span class="autosave" data-scenes="run trouble busy"><em>已保存</em> · 14:31:52</span>
+                <span class="autosave sc-setup">配置尚未完成</span>
+              </div>
+
+              <div class="frow">
+                <div class="fmain">
+                  <div class="flabel">启用目录同步</div>
+                  <div class="fdesc">关掉开关会立即停止监听；已同步过去的文件不会被回滚。</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="enable-switch" checked />
+                </label>
+              </div>
+
+              <div class="frow frow--stack">
+                <div class="flabel">本地目录（源）</div>
+                <div class="fdesc">改动从这里出发。</div>
+                <div class="pathrow">
+                  <div class="pathfield">
+                    <svg class="ico" width="13" height="13" viewBox="0 0 16 16"><path d="M2 4.2h4.2l1.4 1.8H14v7.2H2z"/></svg>
+                    <span title="C:\Users\CY\Desktop\CCoder-Desktop">C:\Users\CY\Desktop\CCoder-Desktop</span>
+                  </div>
+                  <button class="browse">浏览…</button>
+                </div>
+              </div>
+
+              <div class="frow frow--stack">
+                <div class="flabel">目标目录</div>
+                <div class="fdesc">文件会被镜像到这里。必须是本地盘或已映射的网络盘。</div>
+                <div class="pathrow">
+                  <div class="pathfield sc-setup is-empty is-focus" id="dst-field">
+                    <svg class="ico" width="13" height="13" viewBox="0 0 16 16"><path d="M2 4.2h4.2l1.4 1.8H14v7.2H2z"/></svg>
+                    <span id="dst-text">选择目标目录…</span>
+                  </div>
+                  <div class="pathfield" data-scenes="run trouble busy" id="dst-field-filled">
+                    <svg class="ico" width="13" height="13" viewBox="0 0 16 16"><path d="M2 4.2h4.2l1.4 1.8H14v7.2H2z"/></svg>
+                    <span title="Z:\m71\server">Z:\m71\server</span>
+                  </div>
+                  <button class="browse">浏览…</button>
+                </div>
+                <div class="dirnote">
+                  <svg class="ico" width="12" height="12" viewBox="0 0 16 16"><path d="M3 8h9M9 4.5L12.5 8 9 11.5"/></svg>
+                  <span>单向镜像：本地为准。目标端自己生成的文件不在同步范围内，<b>永远不会被删</b>。</span>
+                </div>
+              </div>
+
+              <div class="frow frow--stack">
+                <div class="flabel">只同步这些子目录</div>
+                <div class="fdesc">逗号分隔，相对源目录。留空 = 整个目录；填了就不碰其它顶层目录。</div>
+                <input class="textinput" id="roots-input" style="margin-top:7px" value="trunk, web" />
+              </div>
+
+              <div class="frow frow--stack">
+                <div class="flabel">排除项</div>
+                <div class="fdesc">含 <span class="mono">/</span> 按相对路径匹配；不含 <span class="mono">/</span> 按任意一层名字匹配，支持 <span class="mono">*</span> 与 <span class="mono">?</span>。</div>
+                <div class="chips">
+                  <span class="chip"><span>.claude</span><button title="删除">×</button></span>
+                  <span class="chip"><span>dist</span><button title="删除">×</button></span>
+                  <span class="chip"><span>*.log</span><button title="删除">×</button></span>
+                  <span class="chip"><span>docs/old-*</span><button title="删除">×</button></span>
+                  <span class="chip chip--add">＋ 添加</span>
+                </div>
+              </div>
+
+              <div class="frow">
+                <div class="fmain">
+                  <div class="flabel">目标端也删</div>
+                  <div class="fdesc">本地删掉的，目标端也删 —— 只在那份自上次同步后没被别处改过时。目标端自己生成的文件永远不动。</div>
+                </div>
+                <label class="switch"><input type="checkbox" checked /></label>
+              </div>
+
+              <div class="frow frow--stack">
+                <div class="flabel">节奏</div>
+                <div class="fdesc">静默期：最后一次文件事件后安静这么久再同步。巡检：即使没有事件，也定期做一次完整核对。</div>
+                <div class="twocol">
+                  <div class="timefield">
+                    <input value="1500" />
+                    <em>毫秒</em>
+                  </div>
+                  <div class="timefield">
+                    <input value="60000" />
+                    <em>毫秒</em>
+                  </div>
+                </div>
+                <div class="fdesc" style="margin-top:5px">巡检填 0 = 关闭兜底，只靠文件事件发现改动。</div>
+              </div>
+
+              <details class="adv">
+                <summary>
+                  <svg class="ico chev" width="9" height="9" viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5"/></svg>
+                  内置噪音规则
+                  <span class="count">21 目录 · 6 文件 · 13 后缀 · 5 前缀</span>
+                </summary>
+                <div class="advbody">
+                  与扫描 / 监听共用同一张表，不需要逐条配置：<b>目录</b>
+                  <span class="mono">.git .svn .idea node_modules build dist logs</span> 等；
+                  <b>后缀</b> <span class="mono">.log .tmp .bak .swp .pyc</span> 等；
+                  <b>文件</b> <span class="mono">thumbs.db desktop.ini</span>；
+                  <b>前缀</b> <span class="mono">dblog gatelog gslog</span>。
+                  被跳过的项会出现在日志的「跳过」段里，不会静默消失。
+                </div>
+              </details>
+
+              <div class="formfoot">
+                <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M3 8.5l3 3L13 4.5"/></svg>
+                <span data-scenes="run trouble busy">改动自动保存</span>
+                <span class="sc-setup">改动自动保存 · 两端目录齐了才会启动</span>
+                <span class="saved" data-scenes="run trouble busy">已保存</span>
+                <span class="warn sc-setup">等待目标目录</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ══ 状态栏 ══ -->
+    <footer class="statusbar">
+      <span class="sb-item">
+        <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M4 4.9v6.2M12 6.5c0 2.8-2.6 3.1-4.5 3.6"/></svg>
+        main
+      </span>
+      <span class="sb-item">8 项更改</span>
+
+      <span class="sb-item sb-sync is-run sc-run" data-open-log>
+        <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5"/></svg>
+        同步中 <em>14:32:08</em>
+      </span>
+      <span class="sb-item sb-sync is-bad sc-trouble" data-open-log>
+        <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5"/></svg>
+        同步出错 <em>2 项失败</em>
+      </span>
+      <span class="sb-item sb-sync is-warn sc-busy">
+        <svg class="ico" width="11" height="11" viewBox="0 0 16 16"><path d="M5 7V5a3 3 0 0 1 6 0v2M4 7h8v6H4z"/></svg>
+        同步：另一窗口
+      </span>
+
+      <span class="sb-right">
+        <span class="sb-rel">src/renderer/src/components/SyncPanel.tsx</span>
+        <span>TypeScript</span>
+        <span>1,024 行</span>
+        <span>UTF-8</span>
+      </span>
+    </footer>
+
+    <!-- ══ 成功气泡 ══ -->
+    <div class="bubble sc-run" id="bubble-run">
+      <div class="bubble-head">
+        已同步 12 个文件 · 删除 3 · 480 毫秒
+        <button class="x" data-close-bubble title="关闭">×</button>
+      </div>
+      <div class="bubble-rows">
+        <div class="bubble-row">src/main/file-sync.ts</div>
+        <div class="bubble-row">src/shared/sync.ts</div>
+        <div class="bubble-row">src/renderer/src/components/SyncPanel.tsx</div>
+      </div>
+      <button class="bubble-more" data-open-log>还有 12 个 ›</button>
+      <span class="bubble-timer"></span>
+    </div>
+
+    <!-- ══ 失败气泡 ══ -->
+    <div class="bubble bubble--bad sc-trouble" id="bubble-bad">
+      <div class="bubble-head">
+        2 个失败 · 1.2 秒
+        <button class="x" data-close-bubble title="关闭">×</button>
+      </div>
+      <div class="bubble-fail">src/main/index.ts — 复制后大小不一致</div>
+      <button class="bubble-more" data-open-log>打开日志 ›</button>
+      <span class="bubble-timer"></span>
+    </div>
+
+    <!-- ══ 日志浮层 ══ -->
+    <div class="logpop" id="logpop">
+      <div class="logpop-head">
+        同步日志
+        <span class="state state--run sc-run"><i></i>运行中</span>
+        <span class="state state--danger sc-trouble"><i></i>有失败</span>
+        <span class="state state--warn sc-busy"><i></i>被占用</span>
+        <button class="x" id="log-close" title="关闭">×</button>
+      </div>
+
+      <pre class="sc-run">[启动] 先跑一轮基线同步，把当前差异推过去
+[监听] 已注册 1,391 个目录（用时 1,420 ms）
+[提示] 文件被触碰 ≠ 内容改动：读文件、IDE 索引、构建产物都会产生事件。
+        是否真要同步由内容对账决定 —— 清单为空就代表本轮无事可做。
+[事件] 3 个路径被触碰（最近：src/main/file-sync.ts）→ 开始检查
+[待复制] 12 个文件，[待删除] 3 项
+  (目标端没有或大小不同) src/main/file-sync.ts
+  (内容不一样) src/shared/sync.ts
+  (目标端没有或大小不同) src/renderer/src/components/SyncPanel.tsx
+  … 其余 9 个复制略
+  (本地已删) docs/old-sync.md
+[已核实] 两侧一致 1,328 个
+[完成] 复制 12/12，删除 3 项（0 项目标端本不存在），顺带清掉 1 个空目录，失败 0 项（用时 480 ms）</pre>
+
+      <pre class="sc-trouble">[事件] 4 个路径被触碰（最近：src/main/index.ts）→ 开始检查
+[待复制] 2 个文件，[待删除] 1 项
+  (目标端没有或大小不同) src/main/index.ts
+  (内容不一样) src/renderer/src/App.tsx
+  (本地已删) docs/old-sync.md
+[已核实] 两侧一致 1,326 个
+[完成] 复制 0/2，删除 0 项，失败 2 项（用时 1.2 s）
+  [失败] 复制 src/main/index.ts — 复制后大小不一致（源 9,231，目标 4,096）
+  [失败] 复制 src/renderer/src/App.tsx — 目标端拒绝写入：磁盘空间不足
+  [提醒] docs/old-sync.md — 目标端那份已被别处改动过，未删除
+[退避] 20 秒后重试
+[重试] 失败项未写入基线，下一轮会自动重试</pre>
+
+      <pre class="sc-busy">[占用] 这一对目录已被另一个 IDE 窗口同步（CCoder-Desktop）—— 本窗口不启动
+       （两个窗口同时同步会互相删掉对方刚写的文件）
+[重试] 60 秒后重新检查占用
+[监听] 本窗口保持待命；文件改动不会丢失，占用解除后由一轮基线扫描补齐</pre>
+    </div>
+
+  </div>
+</main>
+
+<!-- ══ 设计说明 ══ -->
+<section class="notes">
+  <h2>设计说明</h2>
+  <p class="lead">
+    交互骨架：点击左侧活动栏的 <b>⇄ 同步</b> 进入工作区；配置、状态、日志都在同一屏，
+    不用跳到聊天窗口的设置页。底部气泡只在「真的复制 / 删除 / 失败」时出现，点它打开日志浮层。
+  </p>
+
+  <div class="statemap">
+    <span class="state state--off"><i></i>未开启</span>
+    <span class="state state--run"><i></i>运行中</span>
+    <span class="state state--danger"><i></i>有失败</span>
+    <span class="state state--warn"><i></i>被占用</span>
+    <span class="state state--off"><i></i>已停止</span>
+  </div>
+
+  <div class="notes-grid">
+    <div class="notecard">
+      <h3>和 CCoder 版一致的</h3>
+      <ul>
+        <li><b>单向镜像 + 内容对账</b>：先看 (大小, mtime)，必要时才读内容；稳态下几乎零写入。</li>
+        <li><b>安全删除</b>：目标端那份自上次同步后被别处改过，就只提醒、不删；目标端自己生成的文件永远不动。</li>
+        <li><b>三层过滤</b>：同步范围 → 排除项 → 内置噪音规则，扫描 / 监听 / 删除共用同一份判定。</li>
+        <li><b>静默期 + 巡检 + 退避</b>：事件只当提示；巡检兜底；失败按 5→10→20→30→60 秒退避。</li>
+        <li><b>占位锁</b>：同一对目录只允许一个窗口同步，另一个窗口显示「被占用」并每分钟重试。</li>
+      </ul>
+    </div>
+
+    <div class="notecard">
+      <h3>落到 Electron IDE 的改动</h3>
+      <ul>
+        <li>同步与「源代码管理」平级，作为 <b>第四个活动栏视图</b>；配置不再藏进设置页。</li>
+        <li>CCoder 的「同步气泡」改成 <b>底部 toast（贴左栏）</b>（IDE 没有同步卡可贴气泡），3 秒自动收，点开是日志浮层。</li>
+        <li>状态栏只在<b>配置完成之后</b>出现：运行中 / 同步出错 / 另一窗口。点击直接打开同步工作区。</li>
+        <li>目标端仍是<b>本地盘 / 映射网络盘</b>；SSH 传输不在第一版，但 UI 与引擎按「可换后端」设计。</li>
+        <li>每个 IDE 窗口一份配置（源默认当前工作区），关闭窗口即停，不跨窗口串目录。</li>
+      </ul>
+    </div>
+
+    <div class="notecard">
+      <h3>想请你拍板的</h3>
+      <ul>
+        <li>配置放在<b>同步工作区</b>（当前稿）还是聊天窗口的<b>设置页</b>？我倾向前者，少一次跳转。</li>
+        <li>是否保留<b>「立即同步」</b>和暂停按钮？自动化之外给一个手动入口，适合刚改完想立刻确认。</li>
+        <li>同步对是<b>每个工作区一份</b>（当前稿），还是全局可配多对？多对会明显增加面板与调度复杂度。</li>
+        <li>失败时是否弹出<b>系统通知</b>（窗口在后台也能看见），还是只在 IDE 内提示？</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script>
+  const app = document.getElementById('app');
+  const tabs = Array.from(document.querySelectorAll('.scenetab'));
+  const logpop = document.getElementById('logpop');
+  const bubbleRun = document.getElementById('bubble-run');
+  const bubbleBad = document.getElementById('bubble-bad');
+
+  function setScene(name) {
+    // 「日志浮层」是「有失败」的另一种看板：内容相同，只是把日志展开。
+    const scene = name === 'log' ? 'trouble' : name;
+    app.dataset.scene = scene;
+    tabs.forEach((tab) => tab.classList.toggle('on', tab.dataset.scene === name));
+
+    // 一个元素可能属于多个场景（例如「已保存」在运行/失败/被占用时都显示），
+    // 用 data-scenes 列出全部归属，避免被单个 :not([data-scene]) 规则误伤。
+    document.querySelectorAll('[data-scenes]').forEach((el) => {
+      el.hidden = !el.dataset.scenes.split(' ').includes(scene);
+    });
+
+    // 未配置时开关应当是关的；两端目录齐了才可能打开。
+    const enable = document.getElementById('enable-switch');
+    if (enable) enable.checked = scene !== 'setup';
+
+    // 配置示例：首次配置不要预填「只同步这些子目录」。
+    const roots = document.getElementById('roots-input');
+    if (roots) {
+      roots.value = scene === 'setup' ? '' : 'trunk, web';
+      roots.placeholder = '留空 = 整个目录';
+    }
+
+    logpop.classList.toggle('is-open', name === 'log');
+    if (bubbleRun) bubbleRun.style.display = name === 'log' ? 'none' : '';
+    if (bubbleBad) bubbleBad.style.display = name === 'log' ? 'none' : '';
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => setScene(tab.dataset.scene));
+  });
+
+  document.querySelectorAll('[data-open-log]').forEach((el) => {
+    el.addEventListener('click', () => {
+      logpop.classList.add('is-open');
+      if (bubbleRun) bubbleRun.style.display = 'none';
+      if (bubbleBad) bubbleBad.style.display = 'none';
+    });
+  });
+
+  document.getElementById('log-close').addEventListener('click', () => {
+    logpop.classList.remove('is-open');
+    if (bubbleRun) bubbleRun.style.display = '';
+    if (bubbleBad) bubbleBad.style.display = '';
+  });
+
+  document.querySelectorAll('[data-close-bubble]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      el.closest('.bubble').style.display = 'none';
+    });
+  });
+
+  // 便于直接截图 / 分享某个状态：file-sync.html?scene=trouble
+  const initial = new URLSearchParams(location.search).get('scene');
+  if (['run', 'setup', 'trouble', 'log', 'busy'].includes(initial)) setScene(initial);
+</script>
+
+</body>
+</html>

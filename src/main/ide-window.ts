@@ -37,6 +37,49 @@ const closeConfirmed = new Set<number>()
 
 const keyOf = (cwd: string): string => pathKey(cwd)
 
+/**
+ * 窗口生命周期钩子。`main/index.ts` 用它们在工作区开 / 关时启动 / 停止
+ * 目录同步服务 —— ide-window 本身不 import sync，避免循环依赖。
+ */
+interface IdeWindowHooks {
+  onOpened?: (cwd: string) => void
+  onClosed?: (cwd: string) => void
+  /** webContents 关闭前清理与该 sender 绑定的后台任务（如流式搜索） */
+  onSenderClosed?: (senderId: number) => void
+}
+
+let hooks: IdeWindowHooks = {}
+
+export function setIdeWindowHooks(next: IdeWindowHooks): void {
+  hooks = next
+}
+
+/** 往某个工作区的 IDE 窗口发一条 IPC；窗口不存在 / 已销毁时静默忽略。 */
+export function sendToIdeWindow(cwd: string, channel: string, payload: unknown): void {
+  const win = windows.get(keyOf(cwd))
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
+  safeSend(win, channel, payload)
+}
+
+/** 按 webContents.id 发送；流式搜索的响应必须回到发起请求的那个窗口。 */
+export function sendToIdeSender(senderId: number, channel: string, payload: unknown): void {
+  const win = senderWindows.get(senderId)
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return
+  safeSend(win, channel, payload)
+}
+
+/** 聚焦某个工作区的 IDE 窗口；没有就打开一个。 */
+export function focusIdeWindow(cwd: string): void {
+  const win = windows.get(keyOf(cwd))
+  if (!win || win.isDestroyed()) {
+    openIdeWindow(cwd)
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
 export function authorizeVcsSender(senderId: number, cwd: string): boolean {
   const allowed = senderCwds.get(senderId)
   return !!allowed && allowed === keyOf(cwd)
@@ -235,6 +278,7 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
   const senderId = win.webContents.id
   senderCwds.set(senderId, key)
   senderWindows.set(senderId, win)
+  hooks.onOpened?.(cwd)
 
   /*
    * 外部文件变化（Agent / 终端 / 其他编辑器）由 watcher 去抖后推给这个窗口。
@@ -335,11 +379,13 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
   win.on('closed', () => {
     stopWatch()
     pendingWatch = null
+    hooks.onSenderClosed?.(senderId)
     windows.delete(key)
     senderCwds.delete(senderId)
     senderWindows.delete(senderId)
     dirtySenders.delete(senderId)
     closeConfirmed.delete(senderId)
+    hooks.onClosed?.(cwd)
   })
 
   // 外链交给系统浏览器，IDE 窗口本身不做导航

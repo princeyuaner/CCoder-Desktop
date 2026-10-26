@@ -13,6 +13,7 @@ import type {
   VcsWorktree,
   VcsWorktreeListData
 } from '@shared/vcs'
+import { worktreeSlug } from '@shared/vcs'
 import { VcsDiffView } from './VcsDiffView'
 import { formatRelativeTime } from '@shared/i18n'
 import { getLocale, tr, useI18n } from '../i18n'
@@ -82,16 +83,6 @@ function looksAbsolute(p: string): boolean {
 }
 
 /** 分支名 → 目录名。Windows 非法字符、空白、保留名都处理掉 */
-function worktreeSlug(branch: string): string {
-  let slug = branch
-    .trim()
-    .replace(/[\\/:*?"<>|\s]+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '')
-    .slice(0, 80)
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug)) slug = `_${slug}`
-  return slug
-}
-
 function joinPath(root: string, name: string): string {
   const sep = root.includes('\\') ? '\\' : '/'
   return `${root.replace(/[\\/]+$/, '')}${sep}${name}`

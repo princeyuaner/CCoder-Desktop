@@ -11,7 +11,8 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type { DshStatus } from '../../../shared/dsh'
-import type { Channel } from '../../../shared/settings'
+import type { Channel, Settings } from '../../../shared/settings'
+import { pathKey } from '../../path-key'
 
 const IS_WIN = process.platform === 'win32'
 
@@ -377,6 +378,90 @@ export function listDshHomes(): string[] {
     }
   }
   return out
+}
+
+/* ── MCP 管理用的 DSH_HOME 选项 ───────────────────────────── */
+
+export interface DshHomeOptionInfo {
+  path: string
+  kind: 'shared' | 'app' | 'channel'
+  channelId?: string
+  channelName?: string
+  exists: boolean
+  active: boolean
+}
+
+/**
+ * MCP 管理页的 DSH_HOME 下拉。
+ *
+ * 共享 home（official 模式，尊重 $DSH_HOME）、应用 fallback、以及配置里的
+ * 每个渠道 home。当前 official/渠道模式对应的那一个标记为 active。
+ */
+export function listDshHomeOptions(settings: Settings): DshHomeOptionInfo[] {
+  const dsh = settings.clis.dsh
+  const shared = ensureDshHome()
+  const app = appDshHome()
+  const channelHomes = (dsh?.channels ?? []).map((ch) => ({
+    path: dshHomePathForChannel(ch.id),
+    kind: 'channel' as const,
+    channelId: ch.id,
+    channelName: ch.name || ch.baseUrl || ch.id
+  }))
+
+  const activeChannelId = dsh?.authMode === 'channel' ? dsh.activeChannelId : ''
+  const activeChannel = activeChannelId
+    ? channelHomes.find((c) => c.channelId === activeChannelId)
+    : undefined
+  const activeHome = dsh?.authMode === 'channel' && activeChannel ? activeChannel.path : shared
+
+  const seen = new Set<string>()
+  const out: DshHomeOptionInfo[] = []
+  const push = (o: DshHomeOptionInfo): void => {
+    const key = pathKey(o.path)
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(o)
+  }
+
+  push({
+    path: shared,
+    kind: 'shared',
+    exists: existsSync(shared),
+    active: pathKey(shared) === pathKey(activeHome)
+  })
+  if (pathKey(app) !== pathKey(shared)) {
+    push({
+      path: app,
+      kind: 'app',
+      exists: existsSync(app),
+      active: pathKey(app) === pathKey(activeHome)
+    })
+  }
+  for (const ch of channelHomes) {
+    push({
+      ...ch,
+      exists: existsSync(ch.path),
+      active: pathKey(ch.path) === pathKey(activeHome)
+    })
+  }
+
+  // active 的 home 即使还没建出来也要出现在下拉里
+  if (activeHome && !out.some((o) => pathKey(o.path) === pathKey(activeHome))) {
+    push({
+      path: activeHome,
+      kind: activeChannel ? 'channel' : 'shared',
+      channelId: activeChannel?.channelId,
+      channelName: activeChannel?.channelName,
+      exists: existsSync(activeHome),
+      active: true
+    })
+  }
+  return out
+}
+
+export function defaultDshHomeForSettings(settings: Settings): string {
+  const opts = listDshHomeOptions(settings)
+  return opts.find((o) => o.active)?.path ?? opts[0]?.path ?? ensureDshHome()
 }
 
 /**

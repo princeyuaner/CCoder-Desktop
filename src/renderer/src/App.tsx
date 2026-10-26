@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { StoredSession } from '@shared/session'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { sessionMetaKey, type StoredSession } from '@shared/session'
 import { sameCwd, type CliId } from '@shared/settings'
 import { disposeIdleNewChats, disposeStoredChat } from './useChat'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
+import { SessionSearch } from './components/SessionSearch'
 import { MainPane } from './components/MainPane'
+import { NewSessionDialog } from './components/NewSessionDialog'
 import { SettingsPage } from './components/SettingsPage'
 import { ConfirmModal } from './components/ConfirmModal'
 import { UpdateToast } from './components/UpdateToast'
-import { baseName } from '@shared/path'
+import { baseName, cwdKey } from '@shared/path'
 import { useSessions, type WorkspaceView } from './useSessions'
+import { metaOf, useSessionMeta } from './useSessionMeta'
+import { useWorktreeMap } from './useWorktreeMap'
 import { useSettings } from './useSettings'
 import { useUpdater } from './useUpdater'
 import { applyAppearance } from './appearance'
@@ -19,8 +23,11 @@ import type { ChatActiveInfo, IdeCodeRef, IdeSendPayload } from '@shared/ide-cha
 import './styles/shell.css'
 import './styles/chat.css'
 import './styles/settings.css'
+import './styles/mcp.css'
 import './styles/panel.css'
 import './styles/update.css'
+import './styles/search.css'
+import './styles/newsession.css'
 /* 浅色覆盖必须最后加载（或靠选择器权重压过组件样式），这里放最后一行 */
 import './styles/theme-light.css'
 
@@ -70,19 +77,64 @@ export function App(): JSX.Element {
   } = useSessions(activeStoredId)
   const { settings, save } = useSettings()
   const updater = useUpdater()
+  /** 重命名 / 置顶 / 归档 / 会话级模型 —— 应用本地元数据，不写回 CLI 记录 */
+  const { meta, loading: metaLoading, update: updateSessionMeta } = useSessionMeta()
+  /**
+   * 把会话级模型选择写进元数据。
+   *
+   * 新会话拿到 CLI id 之前没有 key，MainPane 会先存着，等 id 到了再调这里。
+   */
+  const persistSessionModel = useCallback(
+    (cli: CliId, cwd: string, id: string, model: string): void => {
+      void updateSessionMeta({ cli, cwd, id }, { model })
+    },
+    [updateSessionMeta]
+  )
+  const [searchOpen, setSearchOpen] = useState(false)
+  /** 默认收起已归档会话；侧栏底部有入口临时显示 */
+  const [showArchived, setShowArchived] = useState(false)
 
   // 设置落盘（或启动时读完）后立刻应用语言 / 主题 / 缩放 / 字体
   useEffect(() => {
     applyLanguageSetting(settings.language)
     applyAppearance(settings)
   }, [settings])
+
+  // Ctrl/Cmd+K 打开会话搜索 —— 侧栏那个图标只有 hover 才浮出来，给条明路
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   /** 等着确认删除的那条会话。null = 没在删 */
   const [pendingDelete, setPendingDelete] = useState<StoredSession | null>(null)
   /** 删除失败的说明，浮在顶上 */
   const [notice, setNotice] = useState<string | null>(null)
+  /** 启动时发现旧 MCP 条目 → 轻量确认弹窗；确认后直接打开 MCP 页 */
+  const [migrationPrompt, setMigrationPrompt] = useState(0)
+  const [openMcpSettings, setOpenMcpSettings] = useState(false)
 
   // 深层组件（工具卡 → IDE）走轻量事件总线报告失败，统一在这里显示
   useEffect(() => onNotice(setNotice), [])
+
+  // 旧版私有 MCP store 还有条目时，启动后弹一次确认
+  useEffect(() => {
+    let alive = true
+    window.api?.mcp
+      ?.migration()
+      .then((m) => {
+        if (alive && m.count > 0) setMigrationPrompt(m.count)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
 
   /**
    * IDE 发来的代码引用。
@@ -119,10 +171,100 @@ export function App(): JSX.Element {
    * 还没发过消息时，它得有地方待着。
    */
   const opened = settings.openedCwds
-  const visible: WorkspaceView[] = opened.map((cwd) => {
-    const hit = workspaces.find((w) => sameCwd(w.cwd, cwd))
-    return hit ?? { cwd, name: baseName(cwd), sessions: [] }
-  })
+  /**
+   * openedCwds 里哪些是 linked worktree、属于哪个主工作区。
+   *
+   * 侧栏把工作树的会话并回主工作区分组 —— 否则每建一个工作树，就多出
+   * 一个同名项目的工作区，侧栏会被切成好几段。
+   */
+  const worktreeMap = useWorktreeMap(opened)
+  const worktreeBranches = useMemo(() => {
+    const out: Record<string, string> = {}
+    // 用 cwdKey 而不是原字符串：会话记录里的 cwd 是反斜杠，工作树映射里
+    // 的键来自 openedCwds / git，可能是正斜杠，直接查表会对不上。
+    for (const [cwd, info] of Object.entries(worktreeMap)) out[cwdKey(cwd)] = info.branch
+    return out
+  }, [worktreeMap])
+
+  const visible = useMemo<WorkspaceView[]>(() => {
+    const groups = new Map<string, WorkspaceView>()
+    for (const cwd of opened) {
+      // 工作树只在「主工作区也开着」时并过去；主目录被关掉就保留它自己的组
+      const info = worktreeMap[cwd]
+      const mainCwd = info
+        ? opened.find((c) => sameCwd(c, info.mainCwd))
+        : undefined
+      const groupCwd = mainCwd ?? cwd
+      let group = groups.get(groupCwd)
+      if (!group) {
+        group = { cwd: groupCwd, name: baseName(groupCwd), sessions: [] }
+        groups.set(groupCwd, group)
+      }
+      const hit = workspaces.find((w) => sameCwd(w.cwd, cwd))
+      if (hit) group.sessions.push(...hit.sessions)
+    }
+
+    const cmp =
+      sort === 'created'
+        ? (a: StoredSession, b: StoredSession): number =>
+            b.createdAt - a.createdAt ||
+            b.updatedAt - a.updatedAt ||
+            a.id.localeCompare(b.id)
+        : (a: StoredSession, b: StoredSession): number =>
+            b.updatedAt - a.updatedAt ||
+            b.createdAt - a.createdAt ||
+            a.id.localeCompare(b.id)
+
+    const out: WorkspaceView[] = []
+    for (const group of groups.values()) {
+      const sessions = group.sessions.filter((s) => {
+        if (!metaOf(s, meta).archived || showArchived) return true
+        // 归档只是从默认列表里收起来：正在跑 / 等审批 / 用户正看着的那条不能消失
+        if (running.has(s.id) || pendingApprovals.has(s.id)) return true
+        return (
+          active.kind === 'stored' && active.id === s.id && sameCwd(active.cwd, s.cwd)
+        )
+      })
+
+      // 合并了多个 cwd 的会话，必须重新按当前排序排一次
+      sessions.sort(cmp)
+      // 置顶优先。sort 是稳定的，上面的创建 / 最近活动排序不会被打破。
+      sessions.sort(
+        (a, b) =>
+          Number(metaOf(b, meta).pinned === true) -
+          Number(metaOf(a, meta).pinned === true)
+      )
+      out.push({ ...group, sessions })
+    }
+    return out
+  }, [
+    opened,
+    workspaces,
+    meta,
+    showArchived,
+    running,
+    pendingApprovals,
+    active,
+    sort,
+    worktreeMap
+  ])
+
+  /** 只数侧栏里看得到的工作区 —— 搜索能找到全部，但"已归档 N"说的是当前列表 */
+  const archivedCount = useMemo(() => {
+    let n = 0
+    for (const cwd of opened) {
+      const hit = workspaces.find((w) => sameCwd(w.cwd, cwd))
+      if (!hit) continue
+      for (const s of hit.sessions) if (metaOf(s, meta).archived) n++
+    }
+    return n
+  }, [opened, workspaces, meta])
+
+  /** 搜索要跨所有工作区，包括没在侧栏里打开的 */
+  const allSessions = useMemo(
+    () => workspaces.flatMap((w) => w.sessions),
+    [workspaces]
+  )
 
   /**
    * 「上次打开的目录」。设置里「默认工作目录」留空时，新会话就用它。
@@ -156,13 +298,33 @@ export function App(): JSX.Element {
   }
 
   /**
+   * 侧栏「+」：先选分支 / 工作树，再开会话。
+   *
+   * 选中的分支可能落在一个新建（或复用）的工作树目录里 —— 那个目录要
+   * 先加进侧栏白名单，否则会话跑起来了却在侧栏里找不到入口。
+   */
+  const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null)
+
+  const startNewSession = async (targetCwd: string): Promise<void> => {
+    setNewSessionCwd(null)
+    // 等目录真正进白名单再开会话：主窗口的 VCS 调用按 openedCwds 授权，
+    // 新工作树还没落盘时 detect 会被拒，标题旁的分支标签就刷不出来。
+    try {
+      await openWorkspace(targetCwd)
+    } finally {
+      // 设置落盘失败也不能挡住开新会话
+      newSession(targetCwd)
+    }
+  }
+
+  /**
    * 关闭工作区。**只是收起来，一个文件都不删** —— 目录是 CLI 的地盘，
    * 我们没权力删。收起来的列表落盘，底部有入口能放回来。
    */
   /** 打开一个目录。合并去重（同一个目录两种斜杠写法也算同一个） */
-  const openWorkspace = (cwd: string): void => {
+  const openWorkspace = async (cwd: string): Promise<void> => {
     if (opened.some((c) => sameCwd(c, cwd))) return
-    void save({ ...settings, openedCwds: [cwd, ...opened] })
+    await save({ ...settings, openedCwds: [cwd, ...opened] })
   }
 
   /** 从列表里去掉。**不删任何文件** —— 目录还在，随时能再打开 */
@@ -176,7 +338,19 @@ export function App(): JSX.Element {
   /** 弹系统目录选择器 */
   const pickWorkspace = async (): Promise<void> => {
     const dir = await window.api?.sessions.pickDir()
-    if (dir) openWorkspace(dir)
+    if (dir) await openWorkspace(dir)
+  }
+
+  /**
+   * 从搜索结果打开一条会话。
+   *
+   * 搜索覆盖所有 CLI 记录，包括没在侧栏里打开过的工作区 —— 那边点进来后
+   * 得先把目录加进白名单，否则会话打开了、侧栏里却找不到它。
+   */
+  const openFromSearch = (s: StoredSession): void => {
+    if (!opened.some((c) => sameCwd(c, s.cwd))) void openWorkspace(s.cwd)
+    openStored(s)
+    setSearchOpen(false)
   }
 
   const confirmDelete = async (): Promise<void> => {
@@ -282,24 +456,51 @@ export function App(): JSX.Element {
           sort={sort}
           onToggleSort={toggleSort}
           activeId={activeStoredId}
+          worktreeBranches={worktreeBranches}
           onSelect={openStored}
-          onNewSession={newSession}
+          onRequestNewSession={setNewSessionCwd}
           onCloseWorkspace={closeWorkspace}
           onOpenIde={(cwd) => void window.api?.ide?.open(cwd)}
           onPickWorkspace={() => void pickWorkspace()}
           onDeleteSession={setPendingDelete}
           onRefresh={() => void refresh()}
           onOpenSettings={() => setView('settings')}
+          onOpenSearch={() => setSearchOpen(true)}
+          meta={meta}
+          onUpdateMeta={updateSessionMeta}
+          showArchived={showArchived}
+          archivedCount={archivedCount}
+          onToggleArchived={() => setShowArchived((v) => !v)}
         />
         {view === 'settings' ? (
-          <SettingsPage onBack={() => setView('chat')} />
+          <SettingsPage
+            initialPage={openMcpSettings ? 'mcp' : undefined}
+            onBack={() => {
+              setView('chat')
+              setOpenMcpSettings(false)
+            }}
+          />
         ) : (
           <MainPane
             active={active}
+            // 重命名只存在于本地元数据里；标题栏优先用它，清空后回落到 CLI 原标题
+            titleOverride={
+              active.kind === 'stored'
+                ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.title ?? null)
+                : null
+            }
+            // 这条会话自己记下的模型。和标题一样，只有已有会话才有
+            initialModel={
+              active.kind === 'stored'
+                ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.model ?? '')
+                : ''
+            }
+            onPersistModel={persistSessionModel}
             // 默认工作目录留空时的兜底。会话列表没读完就建会话会用到空 cwd，
             // 所以 MainPane 要等 loading 落了才动手
             fallbackCwd={lastCwd}
             cwdReady={!loading}
+            metaReady={!metaLoading}
             onNewSession={newSession}
             onActiveInfo={reportActive}
             incomingRefs={incomingRefs}
@@ -327,6 +528,40 @@ export function App(): JSX.Element {
         onInstall={updater.install}
       />
 
+      {searchOpen && (
+        <SessionSearch
+          sessions={allSessions}
+          meta={meta}
+          onClose={() => setSearchOpen(false)}
+          onSelect={openFromSearch}
+        />
+      )}
+
+      {newSessionCwd && (
+        <NewSessionDialog
+          cwd={newSessionCwd}
+          onCancel={() => setNewSessionCwd(null)}
+          onStart={startNewSession}
+        />
+      )}
+
+      {migrationPrompt > 0 && (
+        <ConfirmModal
+          title={t('mcp.migrate.title')}
+          badge={t('mcp.migrate.kicker')}
+          confirmLabel={t('mcp.migrate.review')}
+          onCancel={() => setMigrationPrompt(0)}
+          onConfirm={() => {
+            setMigrationPrompt(0)
+            setOpenMcpSettings(true)
+            setView('settings')
+          }}
+        >
+          <p>{t('mcp.migrate.startupBody', { count: migrationPrompt })}</p>
+          <p className="delinfo__warn">{t('mcp.migrate.startupHint')}</p>
+        </ConfirmModal>
+      )}
+
       {pendingDelete && (
         <ConfirmModal
           title={t('chat.delete.title')}
@@ -336,7 +571,10 @@ export function App(): JSX.Element {
           onConfirm={() => void confirmDelete()}
         >
           <div className="delinfo">
-            <div className="delinfo__title">{pendingDelete.title}</div>
+            <div className="delinfo__title">
+              {meta[sessionMetaKey(pendingDelete.cli, pendingDelete.cwd, pendingDelete.id)]
+                ?.title || pendingDelete.title}
+            </div>
             <div className="delinfo__path">
               {pendingDelete.cwd} · {pendingDelete.id.slice(0, 8)}
             </div>

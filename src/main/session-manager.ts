@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { AgentEvent, PermissionMode } from '../shared/events'
+import type { McpScope } from '../shared/mcp'
 import {
   activeChannelOf,
   cliConfig,
@@ -21,7 +22,7 @@ import type {
   SessionStartOptions,
   SessionStatusPayload
 } from '../shared/session'
-import { isSameOrInside } from './path-key'
+import { isSameOrInside, pathKey } from './path-key'
 import { logMain } from './crash-log'
 import { localizeText } from '../shared/i18n'
 import { mainLocale, msg, t } from './i18n'
@@ -30,6 +31,7 @@ import { CodexProvider } from './providers/codex/adapter'
 import { DshProvider } from './providers/dsh/adapter'
 import type { Provider, ProviderSession } from './providers/types'
 import { diffWorkspace, snapshotWorkspace, type WorkspaceSnapshot } from './workspace-snapshot'
+import { getLegacyRuntimeMcpServers } from './mcp-service'
 
 interface Live {
   id: string
@@ -47,7 +49,12 @@ interface Live {
    * 所以得记住"启动时"的值，不能每次现读 settings。
    */
   authMode: CliAuthMode
-  /** 启动时 officialModel 的值，用来判断设置变化要不要 respawn */
+  /**
+   * 本会话启动时设置里的官方默认模型。
+   *
+   * 只在本会话没有显式选模型时当兜底；之后设置里再改默认值也不跟 ——
+   * 那是「新会话默认」，不是全局开关。
+   */
   officialModel: string
   /** CLI 自己的会话 id，供将来 --resume 恢复 */
   providerSessionId: string | null
@@ -67,7 +74,7 @@ interface Live {
   autoAllow: Set<string>
   /** 最近一条转给用户的审批请求是哪个工具（"总是允许"要记的就是它） */
   lastAskedTool: string | null
-  /** 模型/权限模式改了，当前进程的启动参数已过期，下一轮要换一个 */
+  /** 模型/思考深度/MCP 改了，当前进程的启动参数已过期，下一轮要换一个 */
   needsRespawn: boolean
   /** 本轮开始时的磁盘快照；轮末再拍一次，两次对比出工具事件漏掉的改动 */
   diskBefore: WorkspaceSnapshot | null
@@ -151,8 +158,9 @@ export class SessionManager {
       }
     }
 
-    // 忙的时候**不能**因为 needsRespawn 就把正在跑的进程杀掉：改模型 / 权限
+    // 忙的时候**不能**因为 needsRespawn 就把正在跑的进程杀掉：改模型 / MCP
     // 只应该在本轮结束后生效。这里只处理空闲会话；忙碌的交给 flushQueue。
+    // （权限模式不在此列：它走控制协议热切换，不会置 needsRespawn。）
     if (s.needsRespawn && !s.busy) this.respawn(s)
 
     // 进程还没起来就是"要现拉一个" —— 这段时间是在连 CLI，不是在思考。
@@ -190,6 +198,45 @@ export class SessionManager {
     return { ok: true }
   }
 
+  /**
+   * 执行一条 CLI 原生指令。
+   *
+   * 和 send 分开：指令不是发给模型的正文字。目前只有 Codex 的 compact
+   * 有对应的 app-server RPC；其它情况明确返回不支持 —— 绝不能把
+   * `/compact` 之类的原文当普通消息丢给模型。
+   */
+  command(sessionId: string, name: string, args = ''): SessionSendResult {
+    const s = this.live.get(sessionId)
+    if (!s) return { ok: false, message: t('session.notFound') }
+
+    const cmd = name.trim().replace(/^\/+/, '')
+    if (!cmd) return { ok: false, message: t('session.emptyMessage') }
+    if (s.busy) return { ok: false, message: t('session.busyCommand') }
+
+    const auth = this.authFor(s)
+    if (!auth) {
+      return { ok: false, message: t('session.noChannel', { cli: cliDef(s.cli).name }) }
+    }
+    if (s.needsRespawn) this.respawn(s)
+    if (!this.ensureSession(s, auth.channel)) {
+      return {
+        ok: false,
+        message:
+          s.authMode === 'official'
+            ? t('session.spawnFailedOfficial')
+            : t('session.spawnFailed', { cli: cliDef(s.cli).name })
+      }
+    }
+
+    if (!s.session?.command) {
+      return {
+        ok: false,
+        message: t('session.commandUnsupported', { cli: cliDef(s.cli).name })
+      }
+    }
+    return s.session.command(cmd, args)
+  }
+
   respondPermission(
     sessionId: string,
     requestId: string,
@@ -224,9 +271,13 @@ export class SessionManager {
   /**
    * 改本会话的模型 / 权限模式 / 思考深度。
    *
-   * 这三个都是 CLI 的**启动参数**，长驻进程起来后就改不了了。所以要换进程 ——
-   * 但用 `--resume` 接回原会话，上下文不会丢。
-   * 忙的时候不立刻换（那会打断正在跑的一轮），等这一轮收尾再换。
+   * 模型和思考深度是 CLI 的**启动参数**，长驻进程起来后就改不了了，只能换进程
+   * （用 `--resume` 接回原会话，上下文不会丢）。忙的时候不立刻换，等这一轮
+   * 收尾再换。
+   *
+   * 权限模式是例外：Claude 的控制协议支持运行中热改，而且子代理每次判断权限
+   * 都读同一份活状态。所以这里直接下发，不再重启进程 —— 否则正在跑的子代理
+   * 会继续用旧模式反复弹审批，用户改了右下角的设置也不生效。
    */
   reconfigure(
     sessionId: string,
@@ -234,9 +285,27 @@ export class SessionManager {
   ): void {
     const s = this.live.get(sessionId)
     if (!s) return
-    if (patch.model !== undefined) s.model = patch.model
-    if (patch.permissionMode !== undefined) s.permissionMode = patch.permissionMode
-    if (patch.effort !== undefined) s.effort = patch.effort
+
+    let needsRespawn = false
+    if (patch.model !== undefined && patch.model !== s.model) {
+      s.model = patch.model
+      needsRespawn = true
+    }
+    if (patch.effort !== undefined && patch.effort !== s.effort) {
+      s.effort = patch.effort
+      needsRespawn = true
+    }
+    if (patch.permissionMode !== undefined) {
+      s.permissionMode = patch.permissionMode
+      if (s.cli === 'claude' && s.session?.setPermissionMode) {
+        s.session.setPermissionMode(patch.permissionMode)
+      } else {
+        // 其它 CLI 的模式是启动参数，只能换进程
+        needsRespawn = true
+      }
+    }
+
+    if (!needsRespawn) return
     s.needsRespawn = true
     if (!s.busy) this.respawn(s)
   }
@@ -249,31 +318,59 @@ export class SessionManager {
   }
 
   /**
-   * 设置落盘后通知会话：凭据来源 / 官方默认模型都是启动参数。
+   * 设置落盘后通知会话：凭据来源是启动参数。
    *
    * 空闲会话立刻换进程，忙碌的等本轮结束（`needsRespawn` 由 flushQueue 消费）。
    * 切换来源时清掉本会话显式设过的模型 —— 旧来源的模型名放到新来源上未必存在。
+   *
+   * **官方默认模型（officialModel）故意不跟**：它只是新会话的默认值，
+   * 每条已存在的会话在自己启动时就把当时的默认值记进了 `Live.officialModel`。
+   * 如果在这里把新默认值写进所有会话，用户在一号对话里换模型，二号对话
+   * 也会跟着换 —— 模型是会话级选择，不是全局开关。
    */
   settingsChanged(before: Settings, after: Settings): void {
-    // Claude 和 dsh 的凭据来源 / 默认模型都是启动参数；Codex 仍然靠渠道，
+    // Claude 和 dsh 的凭据来源是启动参数；Codex 仍然靠渠道，
     // 它的“登录”由 app-server 自己管。
     for (const cli of ['claude', 'dsh'] as const) {
       const b = cliConfig(before, cli)
       const a = cliConfig(after, cli)
       const modeChanged = b.authMode !== a.authMode
-      const modelChanged = b.officialModel !== a.officialModel
       const channelChanged = b.activeChannelId !== a.activeChannelId
-      if (!modeChanged && !modelChanged && !channelChanged) continue
+      if (!modeChanged && !channelChanged) continue
 
       for (const s of this.live.values()) {
         if (s.cli !== cli) continue
         s.authMode = a.authMode
-        s.officialModel = a.officialModel
         // 旧来源的模型名放到新来源上未必存在，清掉让新来源自己决定
         if (modeChanged) s.model = ''
         s.needsRespawn = true
         if (!s.busy) this.respawn(s)
       }
+    }
+  }
+
+  /**
+   * 某个 CLI 的 MCP 配置改了。
+   *
+   * MCP 是启动参数：长驻进程不会自己重新读。空闲会话立刻换进程，
+   * 忙碌的先生效到下一轮（send / flushQueue 会消费 needsRespawn）。
+   */
+  mcpChanged(cli: CliId, opts?: { scope?: McpScope; cwd?: string }): void {
+    const scope = opts?.scope
+    const cwd = opts?.cwd?.trim() ?? ''
+    for (const s of this.live.values()) {
+      if (s.cli !== cli) continue
+      if (scope === 'local' || scope === 'project') {
+        // local 按目录精确匹配；project 的 .mcp.json 对子目录同样生效
+        const hit =
+          scope === 'local'
+            ? !!cwd && pathKey(s.cwd) === pathKey(cwd)
+            : !!cwd && isSameOrInside(s.cwd, cwd)
+        if (!hit) continue
+      }
+      // user / global / home / 未指定：该 CLI 的全部会话
+      s.needsRespawn = true
+      if (!s.busy) this.respawn(s)
     }
   }
 
@@ -400,6 +497,8 @@ export class SessionManager {
         permissionMode: s.permissionMode,
         effort: s.effort,
         addDirs: [],
+        // 只注入旧私有 store 的条目（迁移期兼容）；原生条目由 CLI 自己读
+        mcpServers: getLegacyRuntimeMcpServers(s.cli, s.cwd),
         // 进程活着就用它自己的 id；进程重启后回落到最初要接的那条
         resumeId: resume,
         onEvent: (e) => this.onEvent(s, e),
@@ -431,6 +530,17 @@ export class SessionManager {
   }
 
   private onEvent(s: Live, e: AgentEvent): void {
+    /*
+     * 权限模式的实际生效值。以 CLI 为准而不是界面的点选值：CLI 可能拒绝
+     * （bypass 未授权）或自己回落（auto 不可用）。主进程也同步一份，
+     * 下一次换进程时按它启动。
+     */
+    if (e.t === 'permission_mode_changed') {
+      s.permissionMode = e.mode
+      this.emitEvent({ sessionId: s.id, event: e })
+      return
+    }
+
     // 审批请求不进转写区，由我们代答或转给用户
     if (e.t === 'permission_request') {
       if (s.autoAllow.has(e.tool)) {
@@ -445,6 +555,8 @@ export class SessionManager {
     let ev = e
     if (ev.t === 'session_started') {
       if (ev.sessionId) s.providerSessionId = ev.sessionId
+      // CLI 可能没按请求的模式启动（例如自动回落到 default），以它为准
+      s.permissionMode = ev.permissionMode
       // CLI 起来了：把"连接中"换成"运行中"。这两段对用户是两件事，
       // 前者是进程在启动，后者才是模型在干活。
       if (s.busy) {

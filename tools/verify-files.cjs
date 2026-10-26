@@ -38,17 +38,33 @@ put('out/build.js')
 put('dist/bundle.js')
 put('build/out.js')
 put('.git/config')
+put('.svn/entries')
+put('_svn/entries')
+put('.hg/store/data')
+put('.bzr/branch/format')
+put('CVS/Entries')
+put('.output/server/index.mjs')
+put('.svelte-kit/output/client.js')
+put('.terraform/terraform.tfstate')
+put('.ruff_cache/content')
+put('pkg.egg-info/PKG-INFO')
+put('.tmp/scratch.txt')
 put('.claude/settings.json')
 put('.idea/workspace.xml')
 put('.env', 'SECRET=1')
 put('logs/app.log')
 put('tools/_generated.cjs')
 put('secrets/server.pem')
+put('secrets/cert.p8')
+put('secrets/keystore.jks')
+put('desktop.ini')
 
 const isIgnored = (p) =>
-  /(^|\/)(node_modules|out|dist|build|\.git|\.claude|\.idea|logs)(\/|$)/.test(p) ||
+  /(^|\/)(node_modules|out|dist|build|\.git|\.svn|_svn|\.hg|\.bzr|CVS|\.output|\.svelte-kit|\.terraform|\.ruff_cache|\.tmp|\.claude|\.idea|logs)(\/|$)/.test(p) ||
+  /(^|\/)[^/]*\.egg-info(\/|$)/.test(p) ||
   /(^|\/)\.env$/.test(p) ||
-  /\.(log|pem|cjs)$/.test(p)
+  /\.(log|pem|p8|jks|cjs)$/i.test(p) ||
+  /(^|\/)desktop\.ini$/i.test(p)
 
 async function main() {
   console.log('[1] 基本检索 / 排序')
@@ -68,7 +84,27 @@ async function main() {
   check('空查询只返回文件', all.every((f) => f.kind === 'file'), JSON.stringify(all))
 
   console.log('[3] 忽略规则')
-  for (const q of ['node_modules', '.env', 'app.log', 'server.pem', '_generated']) {
+  for (const q of [
+    'node_modules',
+    '.env',
+    'app.log',
+    'server.pem',
+    'cert.p8',
+    'keystore.jks',
+    'desktop.ini',
+    '_generated',
+    '.svn',
+    '_svn',
+    '.hg',
+    '.bzr',
+    'CVS',
+    '.output',
+    '.svelte-kit',
+    '.terraform',
+    '.ruff_cache',
+    'egg-info',
+    '.tmp'
+  ]) {
     const hits = await searchWorkspaceFiles(root, q)
     check(`不返回 ${q}`, hits.length === 0, JSON.stringify(hits))
   }

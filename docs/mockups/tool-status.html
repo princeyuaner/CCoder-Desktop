@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="zh" data-theme="dark" data-scheme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>工具结果状态 · 重做效果稿</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-app: #191919;
+    --bg-raised: #232323;
+    --border: #2c2c2c;
+    --border-soft: #242424;
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+    --ok: #4b9e5f;
+    --ok-text: #8fd39a;
+    --warn: #c9a227;
+    --warn-text: #d9b45a;
+    --danger: #e5534b;
+    --danger-text: #f08a82;
+    --running: #d97757;
+    --font: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  }
+  html, body { background: #0d0d0f; }
+  body {
+    width: 1180px;
+    padding-bottom: 54px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  svg { display: block; }
+
+  /* ══ 审核页顶栏 ═════════════════════════════════════ */
+  .previewbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    padding: 13px 28px;
+    background: rgba(13, 13, 15, 0.93);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid #1e1e24;
+  }
+  .pb-title { font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }
+  .pb-title em {
+    display: inline-block;
+    margin-left: 9px;
+    font-style: normal;
+    font-size: 11px;
+    font-weight: 400;
+    color: #6f6f80;
+    letter-spacing: 0.4px;
+  }
+  .pb-legend { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+  .pb-legend .lg {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: #85859a;
+  }
+  .sw { width: 8px; height: 8px; border-radius: 50%; }
+  .sw.ok { background: #7fbf7f; }
+  .sw.err { background: #e5534b; }
+  .sw.den { background: #c9a227; }
+  .sw.run { background: #d97757; }
+
+  main { padding: 26px 28px 0; }
+  .lead {
+    max-width: 1060px;
+    font-size: 12.5px;
+    line-height: 1.85;
+    color: #85859a;
+  }
+  .lead b { color: #c3c3d0; font-weight: 500; }
+  .lead code { font-family: var(--mono); font-size: 11.5px; color: #a9b8d8; }
+  .lead .hit {
+    padding: 0 4px;
+    border-radius: 4px;
+    background: rgba(229, 83, 75, 0.12);
+    color: #e8a19b;
+  }
+
+  /* ══ 方案块 ═════════════════════════════════════════ */
+  .variant { margin-top: 24px; }
+  .vhead {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 0 2px 10px;
+  }
+  .k {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 1.1px;
+  }
+  .k.a { color: #fcd34d; }
+  .k.b { color: #22d3ee; }
+  .k.c { color: #c4b5fd; }
+  .k.n { color: #6f6f80; }
+  .vt { font-size: 13.5px; font-weight: 500; color: #d6d6e0; }
+  .rec {
+    padding: 1px 8px;
+    font-size: 10.5px;
+    color: #a5f3fc;
+    background: rgba(34, 211, 238, 0.1);
+    border: 1px solid rgba(34, 211, 238, 0.26);
+    border-radius: 999px;
+  }
+  .vd { margin-left: auto; font-size: 11.5px; color: #737383; }
+
+  .stage {
+    padding: 22px 36px 26px;
+    background: var(--bg-app);
+    border: 1px solid #24242c;
+    border-radius: 12px;
+  }
+  .col { width: 820px; }
+
+  /* ── 思考行 ─────────────────────────────────────── */
+  .think {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 13px 0 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #666675;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .think .chev { color: #4c4c58; font-size: 12px; }
+  .think .lbl { color: #8b8b9d; }
+  .think .dot { color: #45454f; }
+  .say {
+    margin: 0 0 12px;
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: #c9c9d4;
+  }
+
+  /* ── 工具卡：公共骨架（对齐现有 .tool） ──────────── */
+  .tool {
+    position: relative;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .tool-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 34px;
+    padding: 7px 10px;
+  }
+  .tool-ico {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.055);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1;
+    color: #8a8a9c;
+  }
+  .tool-ico.bash { color: #9ece6a; }
+  .tool-ico.read { color: #7aa2f7; }
+  .tool-ico.edit { color: #e0af68; }
+  .tool-ico.write { color: #c4a7f7; }
+  .tool-ico.search { color: #7dcfff; }
+  .tool-ico.task { color: #a8a8c0; }
+  .tool-ico.ask { color: #d0a0e0; }
+  .tool-subject {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    color: #d2d2dc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tool-dir {
+    flex: none;
+    max-width: 150px;
+    font-size: 11px;
+    color: #4f4f5c;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tool-name {
+    flex: none;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: #5c5c6e;
+  }
+  .tool-stat {
+    flex: none;
+    display: inline-flex;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tool-stat .add { color: #7fbf7f; }
+  .tool-stat .del { color: #d98a8a; }
+  .tool-time {
+    flex: none;
+    min-width: 34px;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: #55555f;
+    font-variant-numeric: tabular-nums;
+  }
+  .chev {
+    flex: none;
+    width: 12px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1;
+    color: #5a5a68;
+  }
+  .tool + .tool { margin-top: 6px; }
+
+  /* ══ 现状（问题演示） ══════════════════════════════ */
+  .before-layout { display: flex; align-items: flex-start; gap: 30px; }
+  .before { flex: none; width: 720px; padding-top: 4px; }
+  .before .tool.is-error { border-color: rgba(229, 83, 75, 0.32); }
+  .before .tool.is-error .tool-ico { color: #e5534b; }
+  .before-notes { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 13px; }
+  .bnote {
+    padding-left: 11px;
+    border-left: 2px solid transparent;
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: #85859a;
+  }
+  .bnote b { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0.4px; }
+  .bnote.ok { border-color: rgba(127, 191, 127, 0.4); }
+  .bnote.ok b { color: #8fd39a; }
+  .bnote.err { border-color: rgba(229, 83, 75, 0.55); }
+  .bnote.err b { color: #f08a82; }
+  .before-note {
+    margin-top: 16px;
+    padding-top: 13px;
+    border-top: 1px dashed #2a2a30;
+    font-size: 11.5px;
+    line-height: 1.8;
+    color: #737383;
+  }
+  .before-note b { color: #c9a3a0; font-weight: 500; }
+
+  /* ══ 方案 A：状态徽章 + 左侧色条 + 失败摘要 ═══════ */
+  .va .tool::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: rgba(127, 191, 127, 0.34);
+  }
+  .va .tool.is-error::before { background: #e5534b; }
+  .va .tool.is-denied::before { background: #c9a227; }
+  .va .tool.is-running::before { background: #d97757; }
+  .va .tool.is-error {
+    border-color: rgba(229, 83, 75, 0.36);
+    background: rgba(229, 83, 75, 0.055);
+  }
+  .va .tool.is-error .tool-subject { color: #e9b6b1; }
+  .va .tool.is-error .tool-ico { color: #e5534b; }
+  .va .tool.is-running { border-color: rgba(217, 119, 87, 0.32); }
+  .va .tool.is-running .tool-ico { color: #d97757; }
+
+  .st {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 5px;
+    font-size: 10.5px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+  }
+  .st.ok {
+    width: 18px;
+    padding: 0;
+    color: var(--ok-text);
+    background: rgba(75, 158, 95, 0.16);
+    border: 1px solid rgba(127, 191, 127, 0.3);
+  }
+  .st.err {
+    padding: 0 6px;
+    color: #ffb3ac;
+    background: rgba(229, 83, 75, 0.16);
+    border: 1px solid rgba(229, 83, 75, 0.4);
+  }
+  .st.den {
+    padding: 0 6px;
+    color: var(--warn-text);
+    background: rgba(201, 162, 39, 0.12);
+    border: 1px solid rgba(201, 162, 39, 0.3);
+  }
+  .st.run {
+    padding: 0 6px;
+    color: var(--running);
+    background: rgba(217, 119, 87, 0.1);
+    border: 1px solid rgba(217, 119, 87, 0.28);
+  }
+  .st svg { width: 10px; height: 10px; }
+  .spin {
+    width: 9px;
+    height: 9px;
+    border: 1.4px solid rgba(217, 119, 87, 0.28);
+    border-top-color: #d97757;
+    border-radius: 50%;
+    animation: rot 0.85s linear infinite;
+  }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  .err-preview {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 11px 7px 40px;
+    border-top: 1px solid rgba(229, 83, 75, 0.18);
+    background: rgba(229, 83, 75, 0.055);
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .err-code {
+    flex: none;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9.5px;
+    color: #e8a19b;
+    background: rgba(229, 83, 75, 0.14);
+  }
+  .err-msg {
+    flex: 1;
+    min-width: 0;
+    color: #c9a3a0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .err-more { flex: none; font-family: var(--font); font-size: 10.5px; color: #a06a66; }
+
+  .body-open {
+    padding: 8px 11px 9px 40px;
+    border-top: 1px solid #26262d;
+    background: rgba(0, 0, 0, 0.16);
+  }
+  .body-open .cmd {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.65;
+    color: #a8a8bc;
+    white-space: pre-wrap;
+  }
+  .body-open .cmd::before { content: '$ '; color: #4d4d5c; }
+  .body-open .out {
+    margin-top: 7px;
+    padding-top: 7px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.65;
+    color: #6f6f80;
+    white-space: pre-wrap;
+  }
+  .body-open.err-body { background: rgba(229, 83, 75, 0.04); }
+
+  .compact-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px dashed #2a2a30;
+  }
+  .compact-row .cap { flex: none; width: 52px; font-size: 10.5px; color: #5f5f70; letter-spacing: 0.3px; }
+  .compact-row .tool { flex: 1 1 0; min-width: 0; }
+  .compact-row .tool + .tool { margin-top: 0; }
+
+  /* ══ 方案 B：结果行 ═══════════════════════════════ */
+  .vb .tool { background: #1f1f21; }
+  .vb .tool-row { min-height: 32px; padding-bottom: 4px; }
+  .vb .res {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 11px 7px 40px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: #77778a;
+  }
+  .vb .res .dot {
+    flex: none;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #7fbf7f;
+  }
+  .vb .res .word { color: #9fe0aa; font-weight: 500; }
+  .vb .res .meta { font-family: var(--mono); color: #55555f; }
+  .vb .res.err { color: #b98d89; }
+  .vb .res.err .dot { background: #e5534b; }
+  .vb .res.err .word { color: #f09189; }
+  .vb .res.err .meta { color: #8a5a56; }
+  .vb .res.den .dot { background: #c9a227; }
+  .vb .res.den .word { color: #d9b45a; }
+  .vb .res.run .dot { background: #d97757; animation: blink 1.1s ease-in-out infinite; }
+  .vb .res.run .word { color: #d97757; }
+  .vb .res.run .meta { color: #a86b53; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  .vb .tool.is-error { border-color: rgba(229, 83, 75, 0.3); }
+  .vb .tool.is-error .tool-ico { color: #e5534b; }
+
+  /* ══ 方案 C：成功安静，失败立卡 ═══════════════════ */
+  .vc .tool-okcheck {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 2px;
+    color: #83b78c;
+  }
+  .vc .den-tag {
+    flex: none;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    color: #a98f4a;
+  }
+  .vc .fail {
+    border: 1px solid rgba(229, 83, 75, 0.42);
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(229, 83, 75, 0.045);
+    box-shadow: 0 0 0 1px rgba(229, 83, 75, 0.05), 0 6px 18px rgba(0, 0, 0, 0.22);
+  }
+  .vc .fail .tool-row { border-bottom: 1px solid rgba(229, 83, 75, 0.18); }
+  .vc .fail .tool-ico {
+    color: #ff8a80;
+    background: rgba(229, 83, 75, 0.14);
+  }
+  .vc .fail .tool-subject { color: #edc2be; }
+  .vc .fail .fail-label {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: #ff9b93;
+    background: rgba(229, 83, 75, 0.16);
+  }
+  .vc .fail-body { padding: 9px 12px 10px 40px; }
+  .vc .fail-title {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    font-size: 10.5px;
+    color: #b98d89;
+  }
+  .vc .fail-title .code {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #e8a19b;
+    background: rgba(229, 83, 75, 0.14);
+  }
+  .vc .fail-pre {
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.65;
+    color: #c9a3a0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .vc .fail-actions {
+    display: flex;
+    gap: 14px;
+    margin-top: 8px;
+    font-size: 10.5px;
+    color: #a06a66;
+  }
+  .vc .fail-actions .primary { color: #f0a49d; }
+  .vc .tool + .fail, .vc .fail + .tool, .vc .fail + .fail { margin-top: 6px; }
+  .vc .fail + .tool { margin-top: 6px; }
+
+  /* ══ 规格表 ══════════════════════════════════════ */
+  .spec { margin-top: 30px; }
+  .spec h2 { font-size: 13px; font-weight: 600; color: #d6d6e0; }
+  .spec .sub { margin-top: 4px; font-size: 11.5px; color: #737383; }
+  table {
+    width: 100%;
+    margin-top: 12px;
+    border-collapse: collapse;
+    font-size: 11.5px;
+    line-height: 1.65;
+  }
+  th, td {
+    padding: 9px 12px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid #232329;
+  }
+  th {
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    color: #6f6f80;
+    background: #151519;
+  }
+  td { color: #a3a3b2; background: #121216; }
+  td b { color: #d2d2dc; font-weight: 500; }
+  .t-ok { color: #8fd39a; }
+  .t-err { color: #f08a82; }
+  .t-den { color: #d9b45a; }
+  .t-run { color: #d97757; }
+  .rules {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 22px;
+    margin-top: 14px;
+    padding: 15px 18px;
+    background: #15151a;
+    border: 1px solid #24242c;
+    border-radius: 10px;
+    font-size: 11.5px;
+    line-height: 1.75;
+    color: #85859a;
+  }
+  .rules b { color: #c3c3d0; font-weight: 500; }
+  .rules .num {
+    display: inline-block;
+    width: 16px;
+    color: #5c5c6e;
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+
+  /* ══ 浅色 ═══════════════════════════════════════ */
+  .light-section { margin-top: 24px; }
+  .light-stage {
+    padding: 20px 32px 24px;
+    color-scheme: light;
+    background: #f6f6f7;
+    border: 1px solid #2c2c2c;
+    border-radius: 12px;
+  }
+  .light-stage .col { width: 760px; }
+  .lt .tool {
+    background: #ffffff;
+    border-color: #e5e5e8;
+  }
+  .lt .tool-subject { color: #3a3a3f; }
+  .lt .tool-ico { background: #f0f0f3; color: #77777f; }
+  .lt .tool-ico.bash { color: #4f7a2c; }
+  .lt .tool-ico.read { color: #2f6bb8; }
+  .lt .tool-ico.edit { color: #9a6b12; }
+  .lt .tool-name, .lt .tool-dir { color: #a0a0aa; }
+  .lt .tool-dir { color: #9a9aa4; }
+  .lt .tool-time { color: #a5a5ae; }
+  .lt .chev { color: #a5a5ae; }
+  .lt .tool + .tool { margin-top: 6px; }
+  .lt .tool::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: rgba(47, 138, 69, 0.32); }
+  .lt .tool.is-error {
+    border-color: rgba(200, 59, 50, 0.34);
+    background: #fdf6f5;
+  }
+  .lt .tool.is-error::before { background: #c83b32; }
+  .lt .tool.is-error .tool-ico { color: #c83b32; }
+  .lt .tool.is-error .tool-subject { color: #7d3330; }
+  .lt .tool.is-running { border-color: rgba(176, 74, 40, 0.28); }
+  .lt .tool.is-running .tool-ico { color: #b04a28; }
+  .lt .st.ok { color: #2f8a45; background: rgba(47, 138, 69, 0.09); border-color: rgba(47, 138, 69, 0.28); }
+  .lt .st.err { color: #a82e27; background: rgba(200, 59, 50, 0.09); border-color: rgba(200, 59, 50, 0.3); }
+  .lt .st.den { color: #8a6408; background: rgba(169, 123, 11, 0.09); border-color: rgba(169, 123, 11, 0.28); }
+  .lt .st.run { color: #b04a28; background: rgba(176, 74, 40, 0.08); border-color: rgba(176, 74, 40, 0.26); }
+  .lt .err-preview { border-top-color: rgba(200, 59, 50, 0.16); background: rgba(200, 59, 50, 0.045); }
+  .lt .err-code { color: #a82e27; background: rgba(200, 59, 50, 0.1); }
+  .lt .err-msg { color: #7d4a46; }
+  .lt .err-more { color: #a06a66; }
+  .light-note { margin-top: 10px; font-size: 11px; color: #6f6f80; }
+</style>
+</head>
+<body>
+
+<div class="previewbar">
+  <div class="pb-title">工具结果状态 · 重做<em>审核稿 / 静态效果 / 未改代码</em></div>
+  <div class="pb-legend">
+    <span class="lg"><i class="sw ok"></i>成功</span>
+    <span class="lg"><i class="sw err"></i>失败</span>
+    <span class="lg"><i class="sw den"></i>已拒绝</span>
+    <span class="lg"><i class="sw run"></i>运行中</span>
+  </div>
+</div>
+
+<main>
+  <p class="lead">
+    现状的问题不是「没颜色」，而是<b>状态只靠两处很弱的信号</b>：卡片边框的一点红、工具图标变色。
+    成功则完全没有标记，失败和成功在扫读时几乎同形。另外失败的错误原文要展开一次才看得到，长会话里很容易漏掉。
+    <span class="hit">目标：不读文字也能分清四态；失败一眼可见，但不占满屏；成功清楚但不吵。</span>
+    下面三案共用同一批样例（成功 / 失败 / 拒绝 / 运行中），只改状态的呈现方式。
+  </p>
+
+  <!-- ══════════ 现状 ══════════ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="k n">现状</span>
+      <span class="vt">只有边框与图标微调色</span>
+      <span class="vd">同一批工具在现有样式下的样子</span>
+    </div>
+    <div class="stage">
+      <div class="before-layout">
+        <div class="before">
+          <div class="tool">
+            <div class="tool-row">
+              <span class="tool-ico bash">▸_</span>
+              <span class="tool-subject">Inspect running Electron test processes</span>
+              <span class="tool-name">BASH</span>
+              <span class="tool-time">742ms</span>
+              <span class="chev">›</span>
+            </div>
+          </div>
+          <div class="tool is-error">
+            <div class="tool-row">
+              <span class="tool-ico bash">▸_</span>
+              <span class="tool-subject">Run MCP probe against fixture server</span>
+              <span class="tool-name">BASH</span>
+              <span class="tool-time">15.0s</span>
+              <span class="chev">›</span>
+            </div>
+          </div>
+        </div>
+        <div class="before-notes">
+          <div class="bnote ok">
+            <b>成功</b>
+            零标记，和普通行完全一样。
+          </div>
+          <div class="bnote err">
+            <b>失败</b>
+            只有边框 32% 红 + 工具图标变红；错误原文还锁在折叠区里。
+          </div>
+        </div>
+      </div>
+      <p class="before-note">
+        <b>可测的问题：</b>截图中五行工具调用里有一行其实是失败的，但第一眼看不出来；时间一长，
+        用户会默认所有工具都成功了，直到助手开始解释错误。
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════ 方案 A ══════════ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="k a">方案 A</span>
+      <span class="vt">状态徽章 + 左侧色条 + 折叠态错误摘要</span>
+      <span class="rec">推荐</span>
+      <span class="vd">改一行即可扫清四态，失败不点开也能读</span>
+    </div>
+    <div class="stage col va">
+      <p class="say">先看一下测试进程有没有残留，再跑 store 的校验。</p>
+
+      <div class="think"><span class="chev">›</span><span class="lbl">思考</span><span class="dot">·</span><span>Use Get-Process.</span></div>
+      <div class="tool">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Inspect running Electron test processes</span>
+          <span class="tool-name">BASH</span>
+          <span class="st ok" title="成功">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2 4.9 8.7 9.6 3.6"/></svg>
+          </span>
+          <span class="tool-time">742ms</span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="think"><span class="chev">›</span><span class="lbl">思考</span><span class="dot">·</span><span>No process. Fine. Fix verify temp path.</span></div>
+      <div class="tool">
+        <div class="tool-row">
+          <span class="tool-ico edit">✎</span>
+          <span class="tool-subject">verify-mcp-store.cjs</span>
+          <span class="tool-stat"><span class="add">+3</span><span class="del">−2</span></span>
+          <span class="tool-dir">…/tools</span>
+          <span class="tool-name">EDIT</span>
+          <span class="st ok" title="成功">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2 4.9 8.7 9.6 3.6"/></svg>
+          </span>
+          <span class="tool-time">10ms</span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="think"><span class="chev">›</span><span class="lbl">思考</span><span class="dot">·</span><span>Run again, but be careful — command may hang due to dialog.</span></div>
+      <div class="tool is-error">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Run MCP probe against fixture server</span>
+          <span class="tool-name">BASH</span>
+          <span class="st err">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>失败
+          </span>
+          <span class="tool-time">15.0s</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="err-preview">
+          <span class="err-code">退出码 1</span>
+          <span class="err-msg">Error: Timed out waiting for response (15000ms) · fixture server never answered initialize</span>
+          <span class="err-more">展开输出 ›</span>
+        </div>
+      </div>
+
+      <div class="tool is-denied">
+        <div class="tool-row">
+          <span class="tool-ico write">＋</span>
+          <span class="tool-subject">清理 Temp 测试目录</span>
+          <span class="tool-name">WRITE</span>
+          <span class="st den">⊘ 已拒绝</span>
+          <span class="tool-time">—</span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="tool is-running">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Bundle and test MCP store/service</span>
+          <span class="tool-name">BASH</span>
+          <span class="st run"><span class="spin"></span>运行中</span>
+          <span class="tool-time">4.2s</span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="think"><span class="chev">›</span><span class="lbl">思考</span><span class="dot">·</span><span>Great. Need clean temp dir? Verify script removes. fine.</span></div>
+      <div class="tool">
+        <div class="tool-row">
+          <span class="tool-ico edit">✎</span>
+          <span class="tool-subject">shot.cjs</span>
+          <span class="tool-stat"><span class="add">+127</span></span>
+          <span class="tool-dir">…/tools</span>
+          <span class="tool-name">EDIT</span>
+          <span class="st ok" title="成功">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2 4.9 8.7 9.6 3.6"/></svg>
+          </span>
+          <span class="tool-time">6ms</span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="compact-row">
+        <span class="cap">精简模式</span>
+        <div class="tool">
+          <div class="tool-row">
+            <span class="tool-ico edit">✎</span>
+            <span class="tool-subject">applyChannelPatch</span>
+            <span class="st ok" title="成功">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2 4.9 8.7 9.6 3.6"/></svg>
+            </span>
+            <span class="tool-time">18ms</span>
+            <span class="chev">›</span>
+          </div>
+        </div>
+        <div class="tool is-error">
+          <div class="tool-row">
+            <span class="tool-ico bash">▸_</span>
+            <span class="tool-subject">vitest run mcp-probe</span>
+            <span class="st err">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>失败
+            </span>
+            <span class="tool-time">2.1s</span>
+            <span class="chev">›</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 方案 B ══════════ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="k b">方案 B</span>
+      <span class="vt">独立结果行</span>
+      <span class="vd">状态单独占一行，像收据；信息最全但每张卡变高</span>
+    </div>
+    <div class="stage col vb">
+      <div class="think"><span class="chev">›</span><span class="lbl">思考</span><span class="dot">·</span><span>Use Get-Process.</span></div>
+      <div class="tool">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Inspect running Electron test processes</span>
+          <span class="tool-name">BASH</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="res ok">
+          <span class="dot"></span><span class="word">完成</span>
+          <span class="meta">742ms</span>
+        </div>
+      </div>
+
+      <div class="tool is-error">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Run MCP probe against fixture server</span>
+          <span class="tool-name">BASH</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="res err">
+          <span class="dot"></span><span class="word">失败 · 退出码 1</span>
+          <span class="meta">15.0s</span>
+          <span>Error: Timed out waiting for response (15000ms)</span>
+        </div>
+      </div>
+
+      <div class="tool is-denied">
+        <div class="tool-row">
+          <span class="tool-ico write">＋</span>
+          <span class="tool-subject">清理 Temp 测试目录</span>
+          <span class="tool-name">WRITE</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="res den">
+          <span class="dot"></span><span class="word">已拒绝</span>
+          <span class="meta">未执行</span>
+        </div>
+      </div>
+
+      <div class="tool is-running">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Bundle and test MCP store/service</span>
+          <span class="tool-name">BASH</span>
+          <span class="chev">›</span>
+        </div>
+        <div class="res run">
+          <span class="dot"></span><span class="word">运行中</span>
+          <span class="meta">4.2s</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 方案 C ══════════ -->
+  <section class="variant">
+    <div class="vhead">
+      <span class="k c">方案 C</span>
+      <span class="vt">成功安静，失败立卡</span>
+      <span class="vd">最省扫描成本；失败时卡片变高，成功几乎不增加噪音</span>
+    </div>
+    <div class="stage col vc">
+      <div class="tool">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Inspect running Electron test processes</span>
+          <span class="tool-name">BASH</span>
+          <span class="tool-time">742ms</span>
+          <span class="tool-okcheck">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2 4.9 8.7 9.6 3.6"/></svg>
+          </span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="fail">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Run MCP probe against fixture server</span>
+          <span class="tool-name">BASH</span>
+          <span class="fail-label">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>命令失败
+          </span>
+          <span class="tool-time">15.0s</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-title"><span class="code">退出码 1</span><span>fixture server never answered initialize</span></div>
+          <div class="fail-pre">Error: Timed out waiting for response (15000ms)
+    at waitForResponse (tools/verify-mcp-probe.cjs:42:11)</div>
+          <div class="fail-actions"><span class="primary">展开完整输出 ›</span><span>复制错误</span></div>
+        </div>
+      </div>
+
+      <div class="tool is-denied">
+        <div class="tool-row">
+          <span class="tool-ico write">＋</span>
+          <span class="tool-subject">清理 Temp 测试目录</span>
+          <span class="tool-name">WRITE</span>
+          <span class="den-tag">⊘ 已拒绝</span>
+          <span class="tool-time">—</span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="tool is-running">
+        <div class="tool-row">
+          <span class="tool-ico bash">▸_</span>
+          <span class="tool-subject">Bundle and test MCP store/service</span>
+          <span class="tool-name">BASH</span>
+          <span class="st run">
+            <span class="spin"></span>运行中
+          </span>
+          <span class="tool-time">4.2s</span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="tool">
+        <div class="tool-row">
+          <span class="tool-ico edit">✎</span>
+          <span class="tool-subject">shot.cjs</span>
+          <span class="tool-stat"><span class="add">+127</span></span>
+          <span class="tool-dir">…/tools</span>
+          <span class="tool-name">EDIT</span>
+          <span class="tool-time">6ms</span>
+          <span class="tool-okcheck">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2 4.9 8.7 9.6 3.6"/></svg>
+          </span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 规格 ══════════ -->
+  <section class="spec">
+    <h2>状态规范（三案通用）</h2>
+    <p class="sub">颜色只是辅助，每种状态都有独立图标 / 文案；「已拒绝」不再和失败共用红色。</p>
+    <table>
+      <thead>
+        <tr><th style="width:120px">状态</th><th style="width:190px">标记</th><th style="width:170px">颜色</th><th>默认行为</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b class="t-ok">成功 · ok</b></td>
+          <td>绿色对勾（A） / 对勾 + 完成（C）</td>
+          <td>文字 <b>#8fd39a</b> · 底 rgba(75,158,95,.16)</td>
+          <td>保持折叠；悬停才显示输出入口。工具多时靠左色条扫读。</td>
+        </tr>
+        <tr>
+          <td><b class="t-err">失败 · error</b></td>
+          <td>红叉 + 「失败」<br>折叠态直接给错误摘要</td>
+          <td>边框 rgba(229,83,75,.36) · 底 rgba(229,83,75,.055)</td>
+          <td>自动露出前 2 行错误；有退出码时一并显示（Codex exitCode / DSH [exit code: N]），完整输出按需展开。</td>
+        </tr>
+        <tr>
+          <td><b class="t-den">已拒绝 · denied</b></td>
+          <td>⊘ + 「已拒绝」</td>
+          <td>琥珀 #d9b45a；不用红色</td>
+          <td>视为「未执行」而非「执行失败」，不触发错误计数与错误摘要。</td>
+        </tr>
+        <tr>
+          <td><b class="t-run">运行中 · running</b></td>
+          <td>旋转圈 + 「运行中」</td>
+          <td>珊瑚 #d97757</td>
+          <td>耗时持续跳动；完成后原位替换为成功 / 失败，不新增卡片。</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="rules">
+      <div><span class="num">01</span><b>不只靠颜色。</b>四态各有图标 + 文案，色盲与灰度截图下仍可分辨。</div>
+      <div><span class="num">02</span><b>失败不用点开。</b>折叠态就显示退出码 + 首行错误，最多两行，超出省略。</div>
+      <div><span class="num">03</span><b>成功安静但不隐形。</b>对勾常驻、不填底色；不抢助手正文的注意力。</div>
+      <div><span class="num">04</span><b>精简模式保留状态。</b>只隐藏目录与工具名，对勾 / 失败标签始终显示。</div>
+      <div><span class="num">05</span><b>失败卡不自动展开全部输出。</b>先给摘要，完整内容一次点击，避免刷屏。</div>
+      <div><span class="num">06</span><b>拒绝不是失败。</b>琥珀色、无错误摘要，避免把用户自己的选择标成系统故障。</div>
+    </div>
+  </section>
+
+  <!-- ══════════ 浅色 ══════════ -->
+  <section class="light-section">
+    <div class="vhead">
+      <span class="k a">方案 A · 浅色</span>
+      <span class="vt">同一套标记，换 token 即可</span>
+      <span class="vd">浅色下绿色 / 红色压深一档，保证 12px 字号可读</span>
+    </div>
+    <div class="light-stage">
+      <div class="col lt">
+        <div class="tool">
+          <div class="tool-row">
+            <span class="tool-ico bash">▸_</span>
+            <span class="tool-subject">Inspect running Electron test processes</span>
+            <span class="tool-name">BASH</span>
+            <span class="st ok">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2 4.9 8.7 9.6 3.6"/></svg>
+            </span>
+            <span class="tool-time">742ms</span>
+            <span class="chev">›</span>
+          </div>
+        </div>
+        <div class="tool is-error">
+          <div class="tool-row">
+            <span class="tool-ico bash">▸_</span>
+            <span class="tool-subject">Run MCP probe against fixture server</span>
+            <span class="tool-name">BASH</span>
+            <span class="st err">
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>失败
+            </span>
+            <span class="tool-time">15.0s</span>
+            <span class="chev">›</span>
+          </div>
+          <div class="err-preview">
+            <span class="err-code">退出码 1</span>
+            <span class="err-msg">Error: Timed out waiting for response (15000ms)</span>
+            <span class="err-more">展开输出 ›</span>
+          </div>
+        </div>
+        <div class="tool is-denied">
+          <div class="tool-row">
+            <span class="tool-ico write">＋</span>
+            <span class="tool-subject">清理 Temp 测试目录</span>
+            <span class="tool-name">WRITE</span>
+            <span class="st den">⊘ 已拒绝</span>
+            <span class="tool-time">—</span>
+            <span class="chev">›</span>
+          </div>
+        </div>
+        <div class="tool is-running">
+          <div class="tool-row">
+            <span class="tool-ico bash">▸_</span>
+            <span class="tool-subject">Bundle and test MCP store/service</span>
+            <span class="tool-name">BASH</span>
+            <span class="st run"><span class="spin"></span>运行中</span>
+            <span class="tool-time">4.2s</span>
+            <span class="chev">›</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="light-note">浅色 token：成功 #2f8a45 · 失败 #c83b32 · 拒绝 #a97b0b · 运行 #b04a28。其余主题（午夜蓝 / 森林绿 / 暖纸）同理只换这一组。</p>
+  </section>
+</main>
+
+</body>
+</html>

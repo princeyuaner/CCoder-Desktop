@@ -10,7 +10,9 @@ import type {
 } from '@shared/events'
 import type { CliId, EffortLevel } from '@shared/settings'
 import { DEFAULT_EFFORT, sameCwd } from '@shared/settings'
+import type { NativeCommand } from '@shared/commands'
 import { toolDisplay, type ToolFallback, type ToolStat } from '@shared/tool'
+import { stripAnsi } from '@shared/ansi'
 import { ltext, type LocalizedText } from '@shared/i18n'
 import { applyFileChange, filesAfterLastTurn, type ChangedFile } from './changedFiles'
 import type { ImageAttachment } from '@shared/attachment'
@@ -18,6 +20,7 @@ import type { IdeCodeRef } from '@shared/ide-chat'
 import type {
   QuestionAnswer,
   SessionSendInput,
+  SessionSendResult,
   SessionStatus,
   SessionStatusPayload
 } from '@shared/session'
@@ -162,6 +165,13 @@ export interface ChatApi {
    */
   busy: boolean
   model: string
+  /**
+   * CLI 自己的会话 id；新会话要等第一条消息发出后才有。
+   * 会话级设置（如模型）要靠它回写到 session-meta。
+   */
+  sessionId: string | null
+  /** CLI 实际报的 cwd —— 回写元数据时要用它做键的第二段 */
+  sessionCwd: string
   permissionMode: PermissionMode
   /** 本会话的思考深度（CLI 的 --effort） */
   effort: EffortLevel
@@ -187,6 +197,8 @@ export interface ChatApi {
    * （见 shared/events.ts 的 file_change）。
    */
   files: ChangedFile[]
+  /** 当前 CLI 上报的原生指令；Codex / dsh 的静态子集在渲染层合入 */
+  nativeCommands: NativeCommand[]
   /**
    * 当前"等待占位行"的起点（Date.now()）；不在等待时为 undefined。
    * 放在会话状态里，切走再切回来计时能续上。
@@ -197,6 +209,8 @@ export interface ChatApi {
    * `meta` 用于把原话和引用一并存下来，供队列里的「编辑」恢复。
    */
   send(input: SessionSendInput, meta?: SendMeta): Promise<void>
+  /** 执行 CLI 原生指令（如 Codex 的 compact）；不支持时返回 ok=false */
+  runCommand(name: string, args?: string): Promise<SessionSendResult>
   removeQueued(id: string): void
   clearQueue(): void
   /** 取回一条排队消息（编辑）：从队列移除并返回，由输入框恢复 */
@@ -470,7 +484,9 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
           ? {
               ...it,
               status: e.status,
-              content: e.content,
+              // 工具输出带终端颜色码（类型检查 / 构建日志最多），
+              // 直接进 <pre> 会显示成 [2m、[39m 之类的乱码
+              content: stripAnsi(e.content),
               // patch 里的精确值覆盖 tool_call 时用 input 估的那版 ——
               // replace_all 的真实次数只有它知道
               ...(e.stat ? { stat: e.stat } : {}),
@@ -589,6 +605,8 @@ export interface ChatSnapshot {
   queuePaused: boolean
   run: RunState
   files: ChangedFile[]
+  /** 当前 CLI 上报的原生指令；会话级缓存，切换会话不会串 */
+  nativeCommands: NativeCommand[]
   notice: LocalizedText | null
   /**
    * 当前"等待占位行"的起点（Date.now()）；不在等待时为 undefined。
@@ -605,6 +623,8 @@ interface ChatInit {
   permissionMode: PermissionMode
   effort: EffortLevel
   resumeId: string | null
+  /** 这条会话自己选过的模型（来自 session-meta）；空 = 用默认值 */
+  model: string
 }
 
 const SEP = '\u0000'
@@ -628,6 +648,15 @@ export const newChatKey = (cli: CliId, n: number): string => `new${SEP}${cli}${S
 const controllers = new Map<string, ChatController>()
 /** Live id（主进程的内部会话 id）→ controller，给唯一的全局 dispatcher 用 */
 const byLive = new Map<string, ChatController>()
+
+/**
+ * CLI 原生指令表缓存，按 cli + cwd 隔离。
+ *
+ * 已有会话在首次发送前 CLI 还没启动，拿不到 Claude 的原生表；只要同
+ * 工作区有一条会话上报过，后面的会话就能立刻用它填弹层。
+ */
+const nativeCommandCache = new Map<string, NativeCommand[]>()
+const nativeCommandKey = (cli: CliId, cwd: string): string => `${cli}${SEP}${normCwd(cwd)}`
 
 let wired = false
 
@@ -696,7 +725,7 @@ class ChatController {
     this.snap = {
       items: [],
       status: 'idle',
-      model: '',
+      model: init.model,
       permissionMode: init.permissionMode,
       effort: init.effort,
       turns: 0,
@@ -706,6 +735,7 @@ class ChatController {
       queuePaused: false,
       run: emptyRunState(),
       files: [],
+      nativeCommands: nativeCommandCache.get(nativeCommandKey(init.cli, init.cwd)) ?? [],
       notice: null
     }
   }
@@ -772,6 +802,8 @@ class ChatController {
         cwd: this.init.cwd,
         permissionMode: this.init.permissionMode,
         effort: this.init.effort,
+        // 会话级模型选择：重开这条会话时接着用它自己的模型，而不是当时的全局默认
+        model: this.init.model || undefined,
         resumeId: this.init.resumeId
       })
       // start 比 dispose 慢时，别把已经没人要的 Live 留在主进程里
@@ -864,6 +896,26 @@ class ChatController {
 
   handleEvent = (e: AgentEvent): void => {
     if (this.disposed) return
+
+    /*
+     * 权限模式的实际生效值。点选时已经乐观改过胶囊；CLI 拒绝或自己回落时，
+     * 这里把它校回来。不画转写项 —— 用户的切换动作已经有一条系统记录了。
+     */
+    if (e.t === 'permission_mode_changed') {
+      if (e.mode !== this.snap.permissionMode) this.patch({ permissionMode: e.mode })
+      return
+    }
+
+    /*
+     * CLI 原生指令表是替换语义：收到就整份覆盖。
+     * 缓存按 cli + cwd 存，同工作区后续会话在 CLI 启动前也能显示。
+     */
+    if (e.t === 'native_commands') {
+      const key = nativeCommandKey(this.init.cli, this.providerCwd || this.init.cwd)
+      nativeCommandCache.set(key, e.commands)
+      this.patch({ nativeCommands: e.commands })
+      return
+    }
 
     /*
      * 侧栏要能提醒「不是当前会话、但卡在审批上」的那些行。
@@ -1030,6 +1082,26 @@ class ChatController {
     await this.performSend(input)
   }
 
+  /**
+   * 执行 CLI 原生指令（如 Codex 的 compact）。
+   *
+   * 指令不是发给模型的正文字，所以不能走 send。主进程会判断 provider
+   * 有没有对应能力；失败时原样带回提示，由输入框 toast。
+   */
+  runCommand = async (name: string, args = ''): Promise<SessionSendResult> => {
+    await this.ensureStarted()
+    if (this.disposed) return { ok: false }
+    const id = this.liveId
+    if (!id) return { ok: false }
+    const api = window.api?.session
+    if (!api?.command) return { ok: false }
+    try {
+      return await api.command(id, name, args)
+    } catch {
+      return { ok: false }
+    }
+  }
+
   /** 轮末把队首交给 CLI；一次只发一条，保持「一轮一结束」的节奏 */
   private flushQueue(): void {
     if (this.disposed || this.snap.queuePaused || this.turnOpen) return
@@ -1135,7 +1207,9 @@ class ChatController {
 
   applyModel = (m: string): void => {
     const next = m.trim()
-    if (!next || next === this.snap.model) return
+    // '' = 回到渠道 / CLI 的默认模型；这是选择器里的「默认」项，必须能清掉
+    // 之前的显式选择，所以不能用 `!next` 拦掉
+    if (next === this.snap.model) return
     this.patch({
       model: next,
       items: pushSystem(this.snap.items, { key: 'model', from: this.snap.model, to: next })
@@ -1310,6 +1384,7 @@ const EMPTY_SNAPSHOT: ChatSnapshot = {
   queuePaused: false,
   run: emptyRunState(),
   files: [],
+  nativeCommands: [],
   notice: null
 }
 
@@ -1323,6 +1398,9 @@ const noopSubscribe = (): (() => void) => () => undefined
 const noopSnapshot = (): ChatSnapshot => EMPTY_SNAPSHOT
 const noop = (): void => undefined
 const noopSend = async (_input: SessionSendInput, _meta?: SendMeta): Promise<void> => undefined
+const noopRunCommand = async (_name: string, _args?: string): Promise<SessionSendResult> => ({
+  ok: false
+})
 const noopRemoveQueued = (_id: string): void => undefined
 const noopTakeQueued = (_id: string): QueuedMessage | null => null
 const noopMoveQueued = (_id: string, _dir: -1 | 1): void => undefined
@@ -1341,6 +1419,11 @@ export function useChat(opts: {
   permissionMode: PermissionMode
   /** 新会话的思考深度；会话里还能单独改 */
   effort?: EffortLevel
+  /**
+   * 这条会话自己的模型（打开已有会话时从 session-meta 读出来）。
+   * 只作为**创建参数**使用：会话一旦建好，就由 reconfigure 自己维护。
+   */
+  model?: string
   /** 接着哪条已有会话跑；变化时会复用/重建对应 controller */
   resumeId?: string | null
   /**
@@ -1380,6 +1463,7 @@ export function useChat(opts: {
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
       effort: opts.effort ?? DEFAULT_EFFORT,
+      model: opts.model ?? '',
       resumeId
     })
     // 创建参数故意不进依赖：key 已经代表会话身份，默认设置变化不该重建会话
@@ -1403,6 +1487,8 @@ export function useChat(opts: {
       status: s.status,
       busy: s.status === 'running' || s.status === 'starting',
       model: s.model,
+      sessionId: controller ? controller.providerId : null,
+      sessionCwd: controller ? controller.providerCwd : opts.cwd,
       permissionMode: s.permissionMode,
       effort: s.effort,
       turns: s.turns,
@@ -1413,8 +1499,10 @@ export function useChat(opts: {
       queuePaused: s.queuePaused,
       run: s.run,
       files: s.files,
+      nativeCommands: s.nativeCommands,
       waitingSince: s.waitingSince,
       send: controller ? controller.send : noopSend,
+      runCommand: controller ? controller.runCommand : noopRunCommand,
       removeQueued: controller ? controller.removeQueued : noopRemoveQueued,
       clearQueue: controller ? controller.clearQueue : noop,
       takeQueued: controller ? controller.takeQueued : noopTakeQueued,

@@ -26,6 +26,19 @@
   align-items: center;
   gap: 4px;
 }
+.chathead__branch {
+  flex: none;
+  gap: 5px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.chathead__branch svg {
+  color: #7aa2c8;
+}
 
 .badge {
   flex: none;
@@ -639,7 +652,7 @@
   max-height: 320px;
 }
 
-/* 用户消息里的图片附件：缩略图排在文字上方，点开原图交给系统查看 */
+/* 用户消息里的图片附件：缩略图排在文字上方，双击看大图 */
 .tl__me-imgs {
   display: flex;
   flex-wrap: wrap;
@@ -655,6 +668,76 @@
   border: 1px solid var(--border);
   object-fit: cover;
   background: var(--bg-raised);
+  cursor: zoom-in;
+  transition: border-color 0.12s ease, opacity 0.12s ease;
+}
+.tl__me-img:hover {
+  border-color: var(--accent);
+  opacity: 0.9;
+}
+
+/* ── 图片大图预览 ───────────────────────────────────────── */
+.imgview {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in 0.12s ease-out;
+}
+.imgview__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.86);
+  cursor: zoom-out;
+}
+.imgview__img {
+  position: relative;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 96px);
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+  user-select: none;
+  animation: pop-in 0.14s ease-out;
+}
+.imgview__meta {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 128px);
+  padding: 4px 10px;
+  overflow: hidden;
+  color: #c9c9d4;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 999px;
+}
+.imgview__close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #e8e8ee;
+  font-size: 22px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.imgview__close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.imgview__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* 助手正文：不套气泡，直接排 */
@@ -978,23 +1061,75 @@
 /* ── 工具 ───────────────────────────────────────────────── */
 
 .tool {
+  position: relative;
   max-width: 100%;
   background: var(--bg-raised);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   overflow: hidden;
+
+  /* 四态标记。浅色主题在 theme-light.css 里整组换掉，组件 CSS 不判断主题 */
+  --st-ok: #8fd39a;
+  --st-ok-soft: rgba(75, 158, 95, 0.16);
+  --st-ok-line: rgba(127, 191, 127, 0.3);
+  --st-ok-rail: rgba(127, 191, 127, 0.34);
+  --st-err-strong: #ffb3ac;
+  --st-err-soft: rgba(229, 83, 75, 0.16);
+  --st-err-line: rgba(229, 83, 75, 0.4);
+  --st-err-rail: #e5534b;
+  --st-err-border: rgba(229, 83, 75, 0.36);
+  --st-err-card: rgba(229, 83, 75, 0.055);
+  --st-err-subject: #e9b6b1;
+  --st-err-code: #e8a19b;
+  --st-err-msg: #c9a3a0;
+  --st-err-more: #a06a66;
+  --st-err-preview: rgba(229, 83, 75, 0.055);
+  --st-err-preview-line: rgba(229, 83, 75, 0.18);
+  --st-den: #d9b45a;
+  --st-den-soft: rgba(201, 162, 39, 0.12);
+  --st-den-line: rgba(201, 162, 39, 0.3);
+  --st-den-rail: #c9a227;
+  --st-run: #d97757;
+  --st-run-soft: rgba(217, 119, 87, 0.1);
+  --st-run-line: rgba(217, 119, 87, 0.28);
+  --st-run-rail: #d97757;
 }
+/* 左侧 2px 色条：不读文字也能顺着这一列扫出成功 / 失败 */
+.tool::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+.tool.is-ok::before {
+  background: var(--st-ok-rail);
+}
+.tool.is-error::before {
+  background: var(--st-err-rail);
+}
+.tool.is-denied::before {
+  background: var(--st-den-rail);
+}
+.tool.is-running::before {
+  background: var(--st-run-rail);
+}
+
 .tool.is-running {
-  border-color: rgba(201, 162, 39, 0.3);
+  border-color: var(--st-run-line);
 }
-/* 「运行中」要看得出来还在动：写大文件时入参要流很久，静止的文字像卡死 */
 .tool.is-running .tool__time {
-  color: #c9a227;
-  animation: pulse 1.4s ease-in-out infinite;
+  color: var(--st-run);
 }
-.tool.is-error,
-.tool.is-denied {
-  border-color: rgba(229, 83, 75, 0.32);
+.tool.is-error {
+  border-color: var(--st-err-border);
+  background: var(--st-err-card);
+}
+.tool.is-error .tool__subject {
+  color: var(--st-err-subject);
 }
 .tool__row {
   display: flex;
@@ -1043,11 +1178,10 @@
   color: #d0a0e0;
 }
 .tool.is-running .tool__ico {
-  color: #c9a227;
+  color: var(--st-run);
 }
-.tool.is-error .tool__ico,
-.tool.is-denied .tool__ico {
-  color: #e5534b;
+.tool.is-error .tool__ico {
+  color: var(--st-err-rail);
 }
 
 .tool__subject {
@@ -1155,7 +1289,113 @@
   text-align: right;
   font-size: var(--chat-font-meta);
   color: #55555f;
+  font-variant-numeric: tabular-nums;
 }
+
+/* ── 状态徽章 ──────────────────────────────────────────── */
+/* 成功只给对勾，失败 / 拒绝 / 运行中带文字 —— 失败必须比成功更显眼 */
+.tool__state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: var(--chat-font-meta);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.tool__state--ok {
+  width: 18px;
+  padding: 0;
+  color: var(--st-ok);
+  background: var(--st-ok-soft);
+  border-color: var(--st-ok-line);
+}
+.tool__state--error {
+  color: var(--st-err-strong);
+  background: var(--st-err-soft);
+  border-color: var(--st-err-line);
+}
+.tool__state--denied {
+  color: var(--st-den);
+  background: var(--st-den-soft);
+  border-color: var(--st-den-line);
+}
+.tool__state--running {
+  color: var(--st-run);
+  background: var(--st-run-soft);
+  border-color: var(--st-run-line);
+}
+.tool__row .tool__state svg {
+  flex: none;
+  /* 状态图标不能被行尾那个 .tool__row svg 的 0.6 透明度压暗 */
+  opacity: 1;
+}
+.tool__spin {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1.4px solid color-mix(in srgb, var(--st-run) 28%, transparent);
+  border-top-color: var(--st-run);
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+
+/* 失败摘要：不用展开就能看出错在哪；最多两行，完整输出仍按需展开 */
+.tool__err {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 11px 7px 40px;
+  border: 0;
+  border-top: 1px solid var(--st-err-preview-line);
+  background: var(--st-err-preview);
+  font-family: var(--font-mono);
+  font-size: var(--chat-font-out);
+  line-height: 1.6;
+  text-align: left;
+  cursor: pointer;
+}
+.tool__err:hover {
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+.tool__errcode {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: var(--chat-font-meta-xs);
+  color: var(--st-err-code);
+  background: var(--st-err-soft);
+}
+.tool__errmsg {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--st-err-msg);
+}
+.tool__errmore {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: var(--chat-font-meta);
+  color: var(--st-err-more);
+  white-space: nowrap;
+}
+.tool__err:hover .tool__errmore {
+  color: var(--st-err-msg);
+}
+
 .tool__row svg {
   flex: none;
   opacity: 0.6;
@@ -1165,6 +1405,10 @@
   padding: 8px 11px 9px 40px;
   border-top: 1px solid #26262d;
   background: rgba(0, 0, 0, 0.16);
+}
+.tool.is-error .tool__body {
+  border-top-color: var(--st-err-preview-line);
+  background: var(--st-err-preview);
 }
 .tool__cmd {
   margin: 0;
@@ -2569,6 +2813,8 @@
   flex-direction: column;
   padding: 14px 16px 12px;
   min-width: 0;
+  /* 原生技能/指令的描述可能很长，详情面板自己滚，别把 footer 顶出弹层 */
+  overflow-y: auto;
 }
 .ccmd-detail__kicker {
   font-size: 10.5px;
@@ -2586,6 +2832,26 @@
   font-size: 12px;
   line-height: 1.7;
   color: #9a9aa8;
+}
+.ccmd-detail__label {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6b6b78;
+}
+.ccmd-detail__args {
+  display: flex;
+  gap: 7px;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: #b0b0c0;
+  word-break: break-word;
+}
+.ccmd-detail__args > span {
+  flex: none;
+  font-family: inherit;
+  color: #5a5a68;
 }
 .ccmd-detail__warn {
   margin-top: 10px;

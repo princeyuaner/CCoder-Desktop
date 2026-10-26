@@ -46,10 +46,36 @@ console.log('\n[1] stream-json → AgentEvent')
   check('  permissionMode: manual → standard', started?.permissionMode === 'standard', started?.permissionMode)
   check('  tools 4 个', started?.tools?.length === 4, started?.tools?.length)
 
-  // status / api_retry / commands_changed（16KB 命令表）都不该上抛
+  // 普通的 status / api_retry 不该上抛；commands_changed 要归一化成原生指令表
   check('status 不上抛', !events.some((e) => JSON.stringify(e).includes('requesting')))
   check('api_retry 不上抛', !events.some((e) => JSON.stringify(e).includes('api_retry')))
-  check('commands_changed 不上抛', !events.some((e) => JSON.stringify(e).includes('caveman')))
+
+  // 带 permissionMode 的 status 是 CLI 对模式切换的确认（或自己回落）
+  const modeChanged = tr.translate({
+    type: 'system',
+    subtype: 'status',
+    status: null,
+    permissionMode: 'acceptEdits'
+  })
+  check(
+    'status.permissionMode → permission_mode_changed',
+    modeChanged.length === 1 &&
+      modeChanged[0].t === 'permission_mode_changed' &&
+      modeChanged[0].mode === 'acceptEdits',
+    modeChanged
+  )
+
+  const native = byType('native_commands')[0]
+  check('commands_changed → native_commands', !!native)
+  check('  指令名', native?.commands?.[0]?.name === 'caveman', native?.commands?.[0])
+  check('  描述保留', native?.commands?.[0]?.description === 'x', native?.commands?.[0])
+  check('  执行方式 send', native?.commands?.[0]?.run === 'send', native?.commands?.[0])
+  check(
+    '  没有 init 技能表时按 builtin 回退为 skill',
+    native?.commands?.[0]?.group === 'skill',
+    native?.commands?.[0]
+  )
+  check('  原始 16KB 载荷没有原样上抛', native?.commands?.length === 1, native?.commands?.length)
 
   check('thinking_delta', byType('thinking_delta').length === 1)
   check('thinking 内容', byType('thinking_delta')[0]?.text === '先看看项目结构。')

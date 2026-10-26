@@ -171,6 +171,8 @@ Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进�
 | 密钥 | 同上；优先用 Electron `safeStorage`（Windows DPAPI）加密，加密不可用时降级为明文并在 `v` 字段标记 |
 | IDE 窗口位置 | `%APPDATA%\ccoder-desktop\ide-windows.json` |
 | 会话记录 | CLI 自己维护（如 `~/.claude/projects/<cwd>/<session-id>.jsonl`、`~/.codex/sessions/`、`~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd`） |
+| MCP 配置 | 直接读写 CLI 原生文件：`~/.claude.json` / `<cwd>/.mcp.json`、`$CODEX_HOME/config.toml`、`<DSH_HOME>/profiles/acp/cordis.patch.yml`；env/headers 是明文 |
+| MCP 写入备份 | `%APPDATA%\ccoder-desktop\mcp-backups\<cli>\`（迁移前另有一份 `migration\` 备份） |
 | 日志 | `%APPDATA%\ccoder-desktop\logs\main.log` |
 | 原生崩溃 dump | `%APPDATA%\ccoder-desktop\Crashpad` |
 
@@ -491,6 +493,8 @@ Settings are grouped by CLI:
 | Secrets | Same file; encrypted with Electron `safeStorage` (Windows DPAPI) when available, otherwise plaintext marked in the `v` field |
 | IDE window geometry | `%APPDATA%\ccoder-desktop\ide-windows.json` |
 | Session records | Owned by the CLIs (e.g. `~/.claude/projects/<cwd>/<session-id>.jsonl`, `~/.codex/sessions/`, `~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd`) |
+| MCP config | Read/written in place: `~/.claude.json` / `<cwd>/.mcp.json`, `$CODEX_HOME/config.toml`, `<DSH_HOME>/profiles/acp/cordis.patch.yml`; env/headers are plaintext |
+| MCP write backups | `%APPDATA%\ccoder-desktop\mcp-backups\<cli>\` (plus a `migration\` backup before a legacy migration) |
 | Logs | `%APPDATA%\ccoder-desktop\logs\main.log` |
 | Native crash dumps | `%APPDATA%\ccoder-desktop\Crashpad` |
 

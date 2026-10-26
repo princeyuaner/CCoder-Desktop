@@ -246,6 +246,7 @@ class CodexSession implements ProviderSession {
   constructor(private o: ProviderSessionOptions) {
     this.rpc = new CodexRpc({
       channel: o.channel,
+      mcpServers: o.mcpServers,
       cwd: o.cwd,
       onExit: (code, stderr) => {
         if (this.disposed || this.exited) return
@@ -409,6 +410,33 @@ class CodexSession implements ProviderSession {
     void this.rpc
       .request('turn/interrupt', { threadId: this.threadId, turnId: this.currentTurnId }, 10_000)
       .catch(() => undefined)
+  }
+
+  /**
+   * 宿主代为执行的 CLI 原生指令。
+   *
+   * Codex 的 TUI slash 指令不走 app-server；这里只接有对应 RPC 的
+   * `/compact`，其余返回 false，由上层提示「不支持」，绝不能把
+   * 指令原文当正文发给模型。
+   */
+  command(name: string, _args: string): { ok: boolean; message?: string } {
+    if (name !== 'compact') return { ok: false }
+    if (!this.ready || !this.threadId) {
+      return { ok: false, message: t('codexAdapter.notReady') }
+    }
+    void this.rpc
+      .request('thread/compact/start', { threadId: this.threadId }, 120_000)
+      .catch((e: unknown) => {
+        if (this.disposed) return
+        this.o.onEvent({
+          t: 'error',
+          message: t('codexAdapter.compactFailed', {
+            detail: e instanceof Error ? e.message : String(e)
+          }),
+          fatal: false
+        })
+      })
+    return { ok: true }
   }
 
   dispose(): void {

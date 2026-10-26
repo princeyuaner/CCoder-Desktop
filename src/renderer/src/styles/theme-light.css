@@ -268,13 +268,38 @@ html[data-scheme='light'] .tl__thinkbody {
 html[data-scheme='light'] .tool {
   background: #fbfbfc;
   border-color: #e0e0e5;
+
+  /* 浅色下同一组状态色压深一档，10px 的文字才读得清 */
+  --st-ok: #2f8a45;
+  --st-ok-soft: rgba(47, 138, 69, 0.1);
+  --st-ok-line: rgba(47, 138, 69, 0.28);
+  --st-ok-rail: rgba(47, 138, 69, 0.32);
+  --st-err-strong: #a82e27;
+  --st-err-soft: rgba(200, 59, 50, 0.1);
+  --st-err-line: rgba(200, 59, 50, 0.3);
+  --st-err-rail: #c83b32;
+  --st-err-border: rgba(200, 59, 50, 0.34);
+  --st-err-card: color-mix(in srgb, var(--danger) 6%, var(--bg-raised));
+  --st-err-subject: #7d3330;
+  --st-err-code: #a82e27;
+  --st-err-msg: #7d4a46;
+  --st-err-more: #a06a66;
+  --st-err-preview: color-mix(in srgb, var(--danger) 4%, transparent);
+  --st-err-preview-line: rgba(200, 59, 50, 0.16);
+  --st-den: #8a6408;
+  --st-den-soft: rgba(169, 123, 11, 0.09);
+  --st-den-line: rgba(169, 123, 11, 0.28);
+  --st-den-rail: #a97b0b;
+  --st-run: #b04a28;
+  --st-run-soft: rgba(176, 74, 40, 0.08);
+  --st-run-line: rgba(176, 74, 40, 0.26);
+  --st-run-rail: #b04a28;
 }
 html[data-scheme='light'] .tool.is-running {
-  border-color: rgba(169, 123, 11, 0.4);
+  border-color: var(--st-run-line);
 }
-html[data-scheme='light'] .tool.is-error,
-html[data-scheme='light'] .tool.is-denied {
-  border-color: rgba(200, 59, 50, 0.35);
+html[data-scheme='light'] .tool.is-error {
+  border-color: var(--st-err-border);
 }
 html[data-scheme='light'] .tool__row:hover {
   background: rgba(0, 0, 0, 0.03);
@@ -1152,7 +1177,10 @@ html[data-scheme='light'] .ccmd.is-on .ccmd__ico {
 html[data-scheme='light'] .citem__path,
 html[data-scheme='light'] .citem__meta,
 html[data-scheme='light'] .ccmd__desc,
-html[data-scheme='light'] .ccmd-detail__desc {
+html[data-scheme='light'] .ccmd-detail__desc,
+html[data-scheme='light'] .ccmd-detail__label,
+html[data-scheme='light'] .ccmd-detail__args,
+html[data-scheme='light'] .ccmd-detail__args > span {
   color: var(--text-muted);
 }
 html[data-scheme='light'] .ccmd__tag {

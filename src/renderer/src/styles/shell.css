@@ -161,8 +161,8 @@
 .wsgroup__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 5px;
+  padding: 6px 8px;
   color: var(--text-dim);
 }
 /* 目录图标现在是「打开独立 IDE」的入口：给一点点击面积，hover 变蓝 */
@@ -196,7 +196,7 @@
    否则两处 padding 会叠起来，行距看着比别处宽一截 */
 .session {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   border-radius: var(--radius-sm);
 }
 .session:hover {
@@ -229,6 +229,44 @@
 /* 刚跑完、还没点开看的行：说「已完成」，直到用户点开它 */
 .session__time--done {
   color: var(--ok);
+}
+
+/* ── 工作树会话：标题下方的分支行 ─────────────────────────
+ *
+ * 只有 linked worktree 里的会话有这一行；主目录会话保持单行。
+ * 分支名先省略，「工作树」标签始终可见，不靠颜色单独传达信息。
+ */
+.session__branch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 15px;
+  padding-left: 1px;
+}
+.session__branch svg {
+  flex: none;
+  color: var(--br-accent);
+}
+.session__branch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--br-text);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.session__branch-tag {
+  flex: none;
+  height: 14px;
+  padding: 0 4px;
+  color: var(--br-text);
+  border: 1px solid var(--br-border);
+  border-radius: 4px;
+  font-size: 8.5px;
+  line-height: 12px;
+  white-space: nowrap;
 }
 
 /* ── 后台会话卡在审批上（方案 D）───────────────────────────
@@ -490,7 +528,7 @@
 
 .session__main {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
   flex: 1;
   min-width: 0;
@@ -499,13 +537,30 @@
   padding: 5px 4px 5px 12px;
   text-align: left;
 }
+/* 标题行 + 可选的分支行；分支行和标题左对齐 */
+.session__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.session__line1 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.session__main > .session__cli {
+  margin-top: 1px;
+}
 .session__del {
   flex: none;
   display: grid;
   place-items: center;
   width: 20px;
   height: 20px;
-  margin-right: 5px;
+  margin: 5px 5px 0 0;
   font-size: 14px;
   line-height: 1;
   color: var(--text-faint);
@@ -519,6 +574,139 @@
 .session__del:hover {
   background: rgba(244, 63, 94, 0.14);
   color: #fda4af;
+}
+
+/* ── 会话管理：更多操作 / 置顶 / 归档 / 内联重命名 ─────── */
+
+.session__more {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: 5px 1px 0 0;
+  color: var(--text-faint);
+  border-radius: 5px;
+  opacity: 0;
+}
+.session:hover .session__more,
+.session__more:focus-visible {
+  opacity: 1;
+}
+.session__more:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.session__pin {
+  flex: none;
+  color: var(--warn);
+}
+
+.session__archived-tag {
+  flex: none;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+/* 归档行还在列表里时压低存在感；hover / 打开后恢复正常 */
+.session.is-archived {
+  opacity: 0.58;
+}
+.session.is-archived:hover,
+.session.is-archived.is-active {
+  opacity: 1;
+}
+
+/* 重命名时这一行不是按钮，输入框要占满标题位 */
+.session__main--rename {
+  align-items: center;
+  cursor: default;
+}
+.session__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+}
+.session__rename:focus {
+  border-color: var(--text-muted);
+}
+
+/* 侧栏底部的「显示已归档」入口 */
+.sidebar__archived {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-faint);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.sidebar__archived:hover,
+.sidebar__archived.is-on {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+}
+.sidebar__archived-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* 行尾弹出的操作菜单（fixed 定位，避开滚动容器裁剪） */
+.session-menu {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+  animation: pop-in 0.12s ease-out;
+}
+.session-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-radius: 6px;
+  text-align: left;
+}
+.session-menu__item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.session-menu__item.is-danger {
+  color: #e78a84;
+}
+.session-menu__item.is-danger:hover {
+  background: rgba(244, 63, 94, 0.14);
+  color: #fda4af;
+}
+.session-menu__glyph {
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  font-size: 15px;
+  line-height: 1;
 }
 
 /* ── 目录行 vs 会话行：靠缩进和分块分开（方案 D）─────────
@@ -536,6 +724,8 @@
   border-top: 1px solid var(--border-soft);
 }
 .wsgroup__name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
@@ -543,11 +733,68 @@
 /* 计数从裸数字变成小胶囊，一眼看出是"分组"不是"又一条会话" */
 .wsgroup__count {
   flex: none;
-  padding: 1px 6px;
+  padding: 1px 5px;
   font-size: 10.5px;
   color: var(--text-muted);
   background: var(--bg-active);
   border-radius: var(--radius-pill);
+}
+
+/*
+ * 组头的工作树会话计数。紧凑的 ⑂N，不跟工作区名抢宽度；
+ * 点一下只看工作树会话，再点恢复。
+ */
+.wsgroup__wt {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  height: 18px;
+  padding: 0 2px;
+  color: var(--br-text);
+  border-radius: 5px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.wsgroup__wt svg {
+  color: var(--br-accent);
+}
+.wsgroup__wt:hover {
+  background: var(--br-bg);
+}
+.wsgroup__wt.is-on {
+  background: var(--br-bg);
+  box-shadow: inset 0 0 0 1px var(--br-border);
+}
+
+/* 筛选中的提示条：告诉用户现在列表少了很多行，怎么恢复 */
+.wsgroup__filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 25px;
+  margin: 2px 8px 3px;
+  padding: 0 7px;
+  color: var(--br-text);
+  border: 1px solid var(--br-border);
+  border-radius: 6px;
+  background: var(--br-bg);
+  font-size: 10.5px;
+}
+.wsgroup__filter svg {
+  color: var(--br-accent);
+}
+.wsgroup__filter b {
+  font-weight: 600;
+}
+.wsgroup__filter-clear {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.wsgroup__filter-clear:hover {
+  color: var(--text);
 }
 
 .session {

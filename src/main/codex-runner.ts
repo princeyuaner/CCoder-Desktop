@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { CodexAccountInfo, CodexPermissionProfile, CodexStatus } from '../shared/codex'
 import type { Channel, ChannelTestResult } from '../shared/settings'
+import type { RuntimeMcpServer } from '../shared/mcp'
 import { NdjsonDecoder, parseLine } from './ndjson'
 
 const IS_WIN = process.platform === 'win32'
@@ -168,16 +169,107 @@ function channelEnv(ch: Channel): NodeJS.ProcessEnv {
   return env
 }
 
-export function buildCodexAppServerArgs(ch: Channel | null): string[] {
+/** TOML 基本字符串；JSON 的转义规则在这里是兼容的 */
+function tomlString(s: string): string {
+  return JSON.stringify(s)
+}
+
+/** 带引号的 TOML key，给 inline table 的 env / header 名用 */
+function tomlKey(s: string): string {
+  return JSON.stringify(s)
+}
+
+/**
+ * `-c` 的 dotted path 里不能直接塞带引号的服务器名 —— Codex 会把引号
+ * 当成名字的一部分（实测 mcp_servers."local" 会得到名叫 `"local"` 的
+ * 服务器）。简单名字用裸 key；含空格 / 点号的名字做确定性清洗并加短哈希，
+ * 保证同一个名字每次都映射到同一把 key，且不同名字不撞车。
+ */
+function codexServerKey(name: string): string {
+  if (/^[A-Za-z0-9_-]+$/.test(name)) return name
+  const cleaned = name.replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+|-+$/g, '') || 'mcp'
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+  return `${cleaned}-${hash.toString(36).slice(0, 4)}`
+}
+
+/**
+ * CCoder 托管的 MCP 服务器 → Codex 的 `-c` 覆盖项。
+ *
+ * 与写 config.toml 的区别同渠道：`-c` 只影响这一次 app-server 进程，
+ * 用户在终端里改的 MCP 配置不会被我们覆盖。
+ */
+function codexHeaderEnv(serverName: string, header: string, index: number): string {
+  const clean = `${serverName}_${header}_${index}`.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()
+  return `CODER_MCP_${clean}`.slice(0, 120)
+}
+
+/**
+ * Codex 的 MCP 自定义请求头不走命令行：`-c` 会被进程列表看到。
+ * Codex 支持 env_http_headers（header → 环境变量名），所以这里只把
+ * 环境变量名写进参数，真正的值通过 app-server 的 env 注入。
+ */
+export function codexMcpEnv(servers: RuntimeMcpServer[]): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const s of servers) {
+    if (s.transport !== 'http') continue
+    Object.entries(s.headers).forEach(([name, value], i) => {
+      if (name) env[codexHeaderEnv(s.name, name, i)] = value
+    })
+  }
+  return env
+}
+
+export function codexMcpOverrides(servers: RuntimeMcpServer[]): string[] {
+  const out: string[] = []
+  for (const s of servers) {
+    const name = s.name.trim()
+    if (!name) continue
+    const base = `mcp_servers.${codexServerKey(name)}`
+    if (s.transport === 'stdio') {
+      if (!s.command) continue
+      out.push(`${base}.command=${tomlString(s.command)}`)
+      if (s.args.length) out.push(`${base}.args=${JSON.stringify(s.args)}`)
+      const env = Object.entries(s.env).filter(([k]) => k)
+      if (env.length) {
+        out.push(
+          `${base}.env={${env
+            .map(([k, v]) => `${tomlKey(k)}=${tomlString(v)}`)
+            .join(',')}}`
+        )
+      }
+    } else if (s.transport === 'http') {
+      if (!s.url) continue
+      out.push(`${base}.url=${tomlString(s.url)}`)
+      const headers = Object.entries(s.headers).filter(([k]) => k)
+      if (headers.length) {
+        out.push(
+          `${base}.env_http_headers={${headers
+            .map(([k], i) => `${tomlKey(k)}=${tomlString(codexHeaderEnv(name, k, i))}`)
+            .join(',')}}`
+        )
+      }
+    }
+  }
+  return out
+}
+
+export function buildCodexAppServerArgs(
+  ch: Channel | null,
+  mcpServers: RuntimeMcpServer[] = []
+): string[] {
   const args = ['app-server', '--listen', 'stdio://']
   if (ch) {
     for (const c of codexConfigOverrides(ch)) args.push('-c', c)
   }
+  for (const c of codexMcpOverrides(mcpServers)) args.push('-c', c)
   return args
 }
 
 export interface CodexRpcOptions {
   channel?: Channel | null
+  /** CCoder 托管的 MCP 服务器；用 -c 注入，不写 config.toml */
+  mcpServers?: RuntimeMcpServer[]
   cwd?: string
   onNotification?: (method: string, params: Record<string, unknown>) => void
   onServerRequest?: (id: string | number, method: string, params: Record<string, unknown>) => void
@@ -213,10 +305,12 @@ export class CodexRpc {
   constructor(private o: CodexRpcOptions = {}) {
     this.notificationHandler = o.onNotification
     this.serverRequestHandler = o.onServerRequest
-    const args = buildCodexAppServerArgs(o.channel ?? null)
+    const args = buildCodexAppServerArgs(o.channel ?? null, o.mcpServers ?? [])
+    const mcpEnv = codexMcpEnv(o.mcpServers ?? [])
+    const extraEnv = { ...(o.channel ? channelEnv(o.channel) : {}), ...mcpEnv }
     this.child = spawnCodex(args, {
       cwd: o.cwd,
-      env: o.channel ? channelEnv(o.channel) : undefined
+      env: Object.keys(extraEnv).length ? extraEnv : undefined
     })
 
     // 子进程退出后再写 stdin 会异步抛 EPIPE；没有监听就是未捕获的流错误，

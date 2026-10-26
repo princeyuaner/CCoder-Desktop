@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -15,6 +15,7 @@ import {
   type ChannelTestResult,
   type EffortLevel
 } from '../../../shared/settings'
+import { bareModel, canonicalModel } from '../../../shared/model'
 import type { PermissionDecision, QuestionAnswer, SessionSendInput } from '../../../shared/session'
 import type { ToolStat } from '../../../shared/tool'
 import { localizeText } from '../../../shared/i18n'
@@ -81,6 +82,35 @@ export function toolFailed(content: string, rawOutput: unknown): boolean {
   return false
 }
 
+/**
+ * CCoder 的 MCP 配置 → ACP `session/new` 的 mcpServers 数组。
+ *
+ * ACP 的 stdio 变体没有 `type` 字段，HTTP / SSE 才有；env / headers 都是
+ * `{ name, value }[]` 而不是对象。别把 Claude/Codex 的形状直接搬过来。
+ */
+export function acpMcpServers(
+  servers: ProviderSessionOptions['mcpServers']
+): Array<Record<string, unknown>> {
+  return servers
+    .filter((s) => s.name.trim())
+    .map((s) => {
+      if (s.transport === 'stdio') {
+        return {
+          name: s.name.trim(),
+          command: s.command,
+          args: s.args,
+          env: Object.entries(s.env).map(([name, value]) => ({ name, value }))
+        }
+      }
+      return {
+        name: s.name.trim(),
+        type: s.transport,
+        url: s.url,
+        headers: Object.entries(s.headers).map(([name, value]) => ({ name, value }))
+      }
+    })
+}
+
 function safeJson(v: unknown): string {
   if (v === undefined) return ''
   if (typeof v === 'string') return v
@@ -93,12 +123,10 @@ function safeJson(v: unknown): string {
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
 
-/** `deepseek-v4-flash[1m]` → `deepseek-v4-flash`；渠道里的模型名可能带窗口标记 */
-function bareModel(s: string): string {
-  return s.trim().replace(/\s*\[[^\]]*\]\s*$/, '').trim()
-}
-
-/** ACP 的模型值可能是 JSON 元组：`["deepseek-official","deepseek-v4-flash"]` */
+/**
+ * ACP 的模型值可能是 JSON 元组：`["deepseek-official","deepseek-flash"]`。
+ * 取最后一个元素（模型 id），再去掉渠道里可能带的窗口标记。
+ */
 function modelOfValue(value: string): string {
   const s = value.trim()
   if (s.startsWith('[')) {
@@ -113,6 +141,32 @@ function modelOfValue(value: string): string {
     }
   }
   return bareModel(s)
+}
+
+/**
+ * dsh 的 ACP 桥只在 `initialize` 时按 **profile 里静态配置的** provider/model
+ * 决定要不要声明图片能力；之后再 `session/set_config_option` 换模型也不会重算
+ * （实测 0.2.1-rc.2，dsh-acp 的 imagePromptEnabled 只在 initialize 赋值）。
+ *
+ * acp bundle 默认配的是 `deepseek-official/deepseek-v4-flash` —— 这个 id 不在
+ * 官方目录里，resolveModelInfo 失败，于是 `image` 永远是 false。桌面端能收图，
+ * 是因为 desktop profile 的 agent-default-model 指向了声明 `image` 的模型。
+ *
+ * 所以启动时用 `--patch` 把 `acp` 行的默认模型对齐到本次会话的模型：vision
+ * 模型才能如实 advertise `image:true`，文本模型保持 false，不骗客户端。
+ */
+function acpModelPatch(model: string): { dir: string; file: string } | null {
+  const id = canonicalModel(model) || DSH_DEFAULT_MODEL
+  if (!id) return null
+
+  const dir = mkdtempSync(join(tmpdir(), 'ccoder-dsh-acp-'))
+  const file = join(dir, 'model.yml')
+  // YAML 双引号标量接受 JSON 转义，模型 id 里有引号/反斜杠也不会破语法
+  writeFileSync(
+    file,
+    `- id: acp\n  config:\n    provider: deepseek-official\n    model: ${JSON.stringify(id)}\n`
+  )
+  return { dir, file }
 }
 
 /**
@@ -227,12 +281,12 @@ function matchModel(
   choices: { value: string; model: string; name: string }[],
   wanted: string
 ): { value: string; model: string; name: string } | null {
-  const w = bareModel(wanted).toLowerCase()
+  const w = canonicalModel(wanted)
   if (!w) return null
   return (
     choices.find((c) => c.value === wanted) ??
-    choices.find((c) => bareModel(c.model).toLowerCase() === w) ??
-    choices.find((c) => bareModel(c.name).toLowerCase() === w) ??
+    choices.find((c) => canonicalModel(c.model) === w) ??
+    choices.find((c) => canonicalModel(c.name) === w) ??
     null
   )
 }
@@ -522,6 +576,8 @@ class DshSession implements ProviderSession {
     { rpcId: string | number; options: Obj[]; toolCallId: string }
   >()
   private warnedImages = false
+  /** 启动时写出的 `--patch` 覆盖目录；进程退出后删掉 */
+  private patchDir = ''
   private done = false
   private exited = false
   private disposed = false
@@ -535,11 +591,26 @@ class DshSession implements ProviderSession {
     const home = o.dshHome?.trim()
       ? ensureDshHome(o.dshHome)
       : findDshHomeForSession(o.resumeId) ?? dshHomeForChannel(o.channel)
-    const child = spawnDsh(['--profile', 'acp'], {
-      cwd: o.cwd,
-      env: { ...dshChannelEnv(o.channel), DSH_HOME: home },
-      dshHome: home
-    })
+    /*
+     * initialize 的图片能力取自 profile 的静态模型，必须在这里就对齐，
+     * 等 session/new 之后再 set_config_option 已经来不及了。
+     */
+    const patch = acpModelPatch(o.model)
+    let child: ChildProcess
+    try {
+      child = spawnDsh(
+        ['--profile', 'acp', ...(patch ? ['--patch', patch.file] : [])],
+        {
+          cwd: o.cwd,
+          env: { ...dshChannelEnv(o.channel), DSH_HOME: home },
+          dshHome: home
+        }
+      )
+    } catch (e) {
+      if (patch) rmSync(patch.dir, { recursive: true, force: true })
+      throw e
+    }
+    this.patchDir = patch?.dir ?? ''
 
     this.rpc = new DshRpc(child, {
       onNotification: (m, p) => this.onNotification(m, p),
@@ -566,15 +637,16 @@ class DshSession implements ProviderSession {
     const caps = obj(obj(init).agentCapabilities)
     this.imageSupported = obj(caps.promptCapabilities).image === true
 
+    const mcpServers = acpMcpServers(this.o.mcpServers)
     const restored = this.o.resumeId
       ? await this.rpc.request<Obj>(
           'session/resume',
-          { sessionId: this.o.resumeId, cwd: this.o.cwd, mcpServers: [] },
+          { sessionId: this.o.resumeId, cwd: this.o.cwd, mcpServers },
           60_000
         )
       : await this.rpc.request<Obj>(
           'session/new',
-          { cwd: this.o.cwd, mcpServers: [] },
+          { cwd: this.o.cwd, mcpServers },
           60_000
         )
 
@@ -623,10 +695,26 @@ class DshSession implements ProviderSession {
     this.rpc.notify('session/cancel', { sessionId: this.sessionId })
   }
 
+  /**
+   * dsh 启动时已经把 patch 读进内存，之后随时可以删；放在退出路径上做，
+   * 避免 `--patch` 指向一个已经不存在的临时文件。
+   */
+  private cleanupPatch(): void {
+    if (!this.patchDir) return
+    const dir = this.patchDir
+    this.patchDir = ''
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // 临时目录被系统清理掉也无所谓
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.pendingPermissions.clear()
+    this.cleanupPatch()
 
     const sid = this.sessionId
     if (!sid) {
@@ -904,14 +992,36 @@ class DshSession implements ProviderSession {
       case 'session_info_update':
         // 标题留给历史/侧栏那条线，实时转写不需要
         return
+      case 'available_commands_update': {
+        /*
+         * ACP 标准的指令表广播。0.2.1-rc.2 还不发，但先把通道接上：
+         * 未来 dsh 上报后，弹层直接显示它们，和静态兜底表按名字合并。
+         */
+        const commands = arr(update.availableCommands)
+          .map((v) => obj(v))
+          .map((c) => {
+            const name = str(c.name).trim().replace(/^\/+/, '')
+            const hint = str(obj(c.input).hint).trim()
+            return {
+              name,
+              description: str(c.description),
+              ...(hint ? { argumentHint: hint } : {}),
+              run: 'send' as const,
+              group: 'command' as const
+            }
+          })
+          .filter((c) => c.name)
+        this.emit({ t: 'native_commands', commands })
+        return
+      }
       case 'notice': {
         const text = str(update.message) || str(update.text)
         if (text && str(update.severity) === 'error') this.note(text)
         return
       }
       default:
-        // plan / compaction / available_commands 等：ACP 自动化面不提供，
-        // 或者暂时没有对应的归一化事件。安静忽略，别污染转写。
+        // plan / compaction 等：ACP 自动化面不提供，或者暂时没有对应的
+        // 归一化事件。安静忽略，别污染转写。
         return
     }
   }
@@ -1143,6 +1253,7 @@ class DshSession implements ProviderSession {
     this.exited = true
     this.done = true
     this.pendingPermissions.clear()
+    this.cleanupPatch()
     this.o.onExit(code, stripAnsi(stderr))
   }
 }
@@ -1193,6 +1304,7 @@ export async function testDshChannel(channel: Channel): Promise<ChannelTestResul
         permissionMode: 'bypassPermissions',
         effort: 'high',
         addDirs: [],
+        mcpServers: [],
         resumeId: null,
         // 不传 dshHome：走渠道自己的 home，测的就是真实会话会用的那个目录
         onEvent: (e) => {

@@ -3,6 +3,9 @@ import { t } from '../i18n'
 import { mkdir, readFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type {
+  VcsBranch,
+  VcsBranchListData,
+  VcsBranchListRequest,
   VcsChange,
   VcsCommitData,
   VcsCommitDetailData,
@@ -13,6 +16,8 @@ import type {
   VcsFile,
   VcsLogPage,
   VcsLogRequest,
+  VcsMergeWorktreeData,
+  VcsMergeWorktreeRequest,
   VcsMutationData,
   VcsPathsRequest,
   VcsPullRequest,
@@ -698,6 +703,87 @@ export async function worktreeListGit(
   return listWorktreesGit(repo, req)
 }
 
+/* ── 分支列表 ─────────────────────────────────────────── */
+
+const FORMAT_BRANCH = [
+  '%(refname)',
+  '%(refname:short)',
+  '%(objectname:short)',
+  '%(committerdate:iso-strict)',
+  '%(contents:subject)',
+  '%(upstream:short)',
+  '%(symref)'
+].join('%00') + '%1e'
+
+/**
+ * 本地 + 远程分支。供新建会话弹窗选分支 / 选起点。
+ *
+ * 顺手把每个分支已检出的工作树路径带上：弹窗要先判断「这个分支已经有
+ * 工作树了，直接复用」，而不是再 worktree add 一次（git 会拒绝）。
+ */
+export async function branchListGit(
+  repo: VcsRepo,
+  req: VcsBranchListRequest
+): Promise<VcsBranchListData> {
+  const r = await runGit(
+    repo.root,
+    [
+      'for-each-ref',
+      '--sort=-committerdate',
+      `--format=${FORMAT_BRANCH}`,
+      'refs/heads',
+      'refs/remotes'
+    ],
+    { timeoutMs: 15_000 }
+  )
+  if (r.code !== 0) throw mapCliError('git', r)
+
+  /** 分支 → 工作树目录。拿不到工作树列表不致命，分支列表照常返回。 */
+  const checkedOut = new Map<string, string>()
+  let defaultRoot = defaultWorktreeRoot(repo.root)
+  try {
+    const trees = await listWorktreesGit(repo, req)
+    defaultRoot = trees.defaultRoot
+    for (const w of trees.worktrees) {
+      // 目录已经没了的失效记录不能复用 —— 会话会在一个不存在的目录里启动
+      if (w.branch && w.exists && !w.prunable) checkedOut.set(w.branch, w.path)
+    }
+  } catch {
+    // 只影响「是否复用工作树」的提示，不影响分支本身
+  }
+
+  const branches: VcsBranch[] = []
+  for (const raw of r.stdout.split('\x1e')) {
+    const rec = raw.replace(/^\r?\n/, '')
+    if (!rec.trim()) continue
+    const [ref, name, shortHash, date, subject, upstream, symref] = rec.split('\0')
+    if (!ref || !name) continue
+    // refs/remotes/origin/HEAD 是符号引用，不是可检出的分支
+    if (symref) continue
+    const remote = ref.startsWith('refs/remotes/')
+    if (!remote && !ref.startsWith('refs/heads/')) continue
+    const wt = checkedOut.get(name)
+    branches.push({
+      name,
+      ref,
+      shortHash: shortHash || '',
+      date: date || '',
+      subject: subject || '',
+      current: !remote && name === repo.branch,
+      remote,
+      ...(upstream ? { upstream } : {}),
+      ...(wt ? { worktree: wt } : {})
+    })
+  }
+
+  return {
+    branches,
+    current: repo.detached ? '' : repo.branch,
+    detached: repo.detached,
+    defaultRoot
+  }
+}
+
 function absoluteTarget(raw: unknown): string {
   if (typeof raw !== 'string' || !raw.trim()) {
     throw new VcsOpError('invalid-path', t('vcsError.worktreePathRequired'))
@@ -816,12 +902,136 @@ export async function worktreeAddGit(
   const args =
     req.createBranch === false
       ? ['worktree', 'add', target, branch]
-      : ['worktree', 'add', '-b', branch, target, await resolveWorktreeBase(repo, req.base)]
+      : [
+          'worktree',
+          'add',
+          ...(req.track ? ['--track'] : []),
+          '-b',
+          branch,
+          target,
+          await resolveWorktreeBase(repo, req.base)
+        ]
 
   const r = await runGit(before.mainPath, args, { timeoutMs: 120_000, signal })
   if (r.code !== 0) throw mapWorktreeError(r)
 
   return listWorktreesGit(repo, req, signal)
+}
+
+/**
+ * 把工作树的源分支合并进主工作树当前分支。
+ *
+ * 只在主工作树干净时动手；冲突会自动 `merge --abort`，不把主工作区
+ * 留在半合并状态。已经合过（源分支是 HEAD 的祖先）时返回 merged: false。
+ */
+export async function mergeWorktreeGit(
+  repo: VcsRepo,
+  req: VcsMergeWorktreeRequest,
+  signal?: AbortSignal
+): Promise<VcsMergeWorktreeData> {
+  const source = checkBranchName(req.branch)
+  const trees = await listWorktreesGit(repo, req, signal)
+  const main = trees.worktrees.find((w) => w.main)
+  if (!main) throw new VcsOpError('unsupported', t('vcsError.mergeNoMain'))
+  if (main.detached || !main.branch) {
+    throw new VcsOpError('unsupported', t('vcsError.mergeDetached'))
+  }
+  const target = main.branch
+  if (source === target) throw new VcsOpError('invalid-path', t('vcsError.mergeSame'))
+
+  const src = await runGit(
+    main.path,
+    ['rev-parse', '--verify', '--end-of-options', `${source}^{commit}`],
+    { timeoutMs: 10_000, signal }
+  )
+  if (src.code !== 0) {
+    throw new VcsOpError('invalid-path', t('vcsError.mergeSourceMissing'), source)
+  }
+  const sourceHead = src.stdout.trim()
+
+  // 只拦已跟踪文件的改动：未跟踪产物通常不挡合并，git 自己会拒绝真正冲突的写入
+  const st = await runGit(
+    main.path,
+    ['status', '--porcelain=v1', '--untracked-files=no', '-z'],
+    { timeoutMs: 30_000, signal }
+  )
+  if (st.code !== 0) throw mapCliError('git', st)
+  if (st.stdout.trim()) {
+    throw new VcsOpError('dirty', t('vcsError.mergeDirty'), st.stdout)
+  }
+
+  const anc = await runGit(
+    main.path,
+    ['merge-base', '--is-ancestor', sourceHead, 'HEAD'],
+    { timeoutMs: 30_000, signal }
+  )
+  if (anc.code === 0) {
+    const head = await runGit(main.path, ['rev-parse', '--short', 'HEAD'], {
+      timeoutMs: 10_000,
+      signal
+    })
+    return {
+      merged: false,
+      branch: source,
+      target,
+      mainPath: main.path,
+      commit: head.stdout.trim(),
+      fastForward: false,
+      files: 0
+    }
+  }
+  if (anc.code !== 1) throw mapCliError('git', anc)
+
+  const oldHead = await runGit(main.path, ['rev-parse', 'HEAD'], {
+    timeoutMs: 10_000,
+    signal
+  })
+  const before = oldHead.stdout.trim()
+
+  const merge = await runGit(main.path, ['merge', '--no-edit', source], {
+    timeoutMs: 120_000,
+    signal
+  })
+  if (merge.code !== 0) {
+    const unmerged = await runGit(
+      main.path,
+      ['diff', '--name-only', '--diff-filter=U', '-z'],
+      { timeoutMs: 30_000 }
+    )
+    const conflicts = unmerged.stdout.split('\0').filter(Boolean)
+    // 冲突时收尾，别让主工作树停在 MERGING 状态
+    await runGit(main.path, ['merge', '--abort'], { timeoutMs: 30_000 }).catch(() => undefined)
+    throw conflicts.length
+      ? new VcsOpError(
+          'conflict',
+          t('vcsError.mergeConflict'),
+          `${merge.stderr}\n${merge.stdout}`,
+          conflicts
+        )
+      : mapCliError('git', merge)
+  }
+
+  const newHead = await runGit(main.path, ['rev-parse', 'HEAD'], {
+    timeoutMs: 10_000,
+    signal
+  })
+  const after = newHead.stdout.trim()
+  const changed = await runGit(
+    main.path,
+    ['diff', '--name-only', '-z', `${before}..${after}`],
+    { timeoutMs: 30_000, signal }
+  )
+  const files = changed.code === 0 ? changed.stdout.split('\0').filter(Boolean).length : 0
+
+  return {
+    merged: true,
+    branch: source,
+    target,
+    mainPath: main.path,
+    commit: after.slice(0, 7),
+    fastForward: after === sourceHead,
+    files
+  }
 }
 
 export async function worktreeRemoveGit(

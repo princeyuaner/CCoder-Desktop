@@ -11,7 +11,11 @@ import {
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '../shared/events'
-import type { StoredSession } from '../shared/session'
+import type {
+  SessionSearchHit,
+  SessionSearchResult,
+  StoredSession
+} from '../shared/session'
 import { looksInjected, replayRecords } from './providers/claude/history'
 import {
   listCodexSessionFiles,
@@ -424,4 +428,223 @@ export function readTranscript(cwd: string, id: string): AgentEvent[] {
 
   const trimmed = records.length > MAX_RECORDS ? records.slice(-MAX_RECORDS) : records
   return replayRecords(trimmed)
+}
+
+/* ── 会话内容搜索 ─────────────────────────────────────────── */
+
+/**
+ * 搜索直接复用 `readTranscript()` 的归一化结果，而不是各自解析 jsonl：
+ * 三种 CLI 的记录格式完全不同，历史回放那套逻辑已经处理过图片、子代理、
+ * zstd 压缩这些坑，再写一份解析器只会多一份会漂移的真相。
+ *
+ * 代价是首次搜索要把记录读一遍。按 (mtime, size) 缓存提取出的文本，
+ * 会话没变就不会重复解析 —— 后续搜索基本只剩 stat + indexOf。
+ */
+
+/** 单份记录超过这个大小就跳过：多半是塞满图片的会话，读进来只会拖慢搜索 */
+const SEARCH_MAX_BYTES = 16 * 1024 * 1024
+/** 单条会话最多保留这么多字符做匹配，避免一份巨型记录常驻内存 */
+const SEARCH_TEXT_MAX = 1_000_000
+/** 命中片段前后各取多少字符 */
+const SNIPPET_PAD = 48
+/** 最多缓存多少条会话的文本；超出后按写入顺序淘汰 */
+const SEARCH_CACHE_MAX = 400
+
+const searchTextCache = new Map<string, { mtimeMs: number; size: number; text: string }>()
+
+/**
+ * 只收用户和模型说的话（含思考）。
+ *
+ * 工具结果动辄几万行，既可能是日志也可能是整份文件；把它们全拼进来会让
+ * 缓存膨胀，也让「搜到的是什么」变得难以辨认。用户要找的通常是某轮对话
+ * 里提到的那句话。
+ */
+function extractSearchText(events: AgentEvent[]): string {
+  const parts: string[] = []
+  let len = 0
+  for (const e of events) {
+    let text = ''
+    if (e.t === 'user_message') text = e.text
+    else if (e.t === 'text_delta' || e.t === 'thinking_delta') text = e.text
+    if (!text) continue
+    parts.push(text)
+    len += text.length
+    if (len >= SEARCH_TEXT_MAX) break
+  }
+  return parts.join('\n').slice(0, SEARCH_TEXT_MAX)
+}
+
+/** 读一条会话的搜索文本；oversized = 文件太大被跳过 */
+function searchTextOf(session: StoredSession): { text: string; oversized: boolean } {
+  const sf = pathById.get(keyOf(session.cwd, session.id))
+  if (!sf) return { text: '', oversized: false }
+
+  let size: number
+  let mtimeMs: number
+  try {
+    const st = statSync(sf.file)
+    size = st.size
+    mtimeMs = st.mtimeMs
+  } catch {
+    return { text: '', oversized: false }
+  }
+  if (size > SEARCH_MAX_BYTES) return { text: '', oversized: true }
+
+  const hit = searchTextCache.get(sf.file)
+  if (hit && hit.mtimeMs === mtimeMs && hit.size === size) {
+    return { text: hit.text, oversized: false }
+  }
+
+  let text: string
+  try {
+    text = extractSearchText(readTranscript(session.cwd, session.id))
+  } catch {
+    // 单份记录坏了（截断、zstd 损坏）只跳过它，不打断整次搜索
+    return { text: '', oversized: false }
+  }
+
+  if (searchTextCache.size >= SEARCH_CACHE_MAX) {
+    const oldest = searchTextCache.keys().next().value
+    if (oldest !== undefined) searchTextCache.delete(oldest)
+  }
+  searchTextCache.set(sf.file, { mtimeMs, size, text })
+  return { text, oversized: false }
+}
+
+function snippetAround(text: string, at: number, len: number): string {
+  const start = Math.max(0, at - SNIPPET_PAD)
+  const end = Math.min(text.length, at + len + SNIPPET_PAD)
+  const body = text.slice(start, end).replace(/\s+/g, ' ').trim()
+  return `${start > 0 ? '…' : ''}${body}${end < text.length ? '…' : ''}`
+}
+
+/** 一批最多占用主进程多久；渲染层拿到 nextOffset 后继续下一批 */
+const SEARCH_BUDGET_MS = 600
+/** 每扫几条让出一次事件循环，别让一批 1 秒的扫描完全堵住 IPC */
+const SEARCH_YIELD_EVERY = 4
+/** 多批搜索共用同一份会话快照，避免每批都重新扫目录 */
+const SEARCH_SNAPSHOT_MS = 30_000
+let searchSnapshot: { at: number; ordered: StoredSession[] } | null = null
+
+/**
+ * 在所有 CLI 会话记录里搜内容。
+ *
+ * 冷启动时几百份记录全解析要十秒以上，一次性做完会让搜索框一直空着、
+ * 主进程也长时间无法响应。这里按 offset 分批：每批最多扫约半秒，返回
+ * 已经找到的命中和 nextOffset，渲染层追加展示后再要下一批。
+ * 提取过的文本按 (mtime, size) 缓存，所以第二批开始会越来越快。
+ */
+export async function searchStoredSessions(
+  query: string,
+  limit = 20,
+  offset = 0
+): Promise<SessionSearchResult> {
+  const q = query.trim().toLowerCase()
+  const startAt = Math.max(0, Math.floor(Number(offset)) || 0)
+  const empty: SessionSearchResult = {
+    hits: [],
+    truncated: false,
+    scanned: 0,
+    offset: startAt,
+    nextOffset: startAt,
+    done: true,
+    total: 0
+  }
+  // 单字符命中太多，既没有区分度又浪费一次全量扫描
+  if (q.length < 2) return empty
+
+  const max = Math.max(1, Math.min(200, Math.floor(Number(limit)) || 20))
+  /*
+   * 第一批重新列一次会话（顺便刷新 pathById / headCache，和侧栏保持一致），
+   * 后续批次复用同一份排序结果。否则每批都要重扫几百个目录、重算排序，
+   * 而且期间新增会话会让 offset 错位，出现重复或漏搜。
+   */
+  const now = Date.now()
+  if (startAt === 0 || !searchSnapshot || now - searchSnapshot.at > SEARCH_SNAPSHOT_MS) {
+    const ordered = listStoredSessions()
+      .slice()
+      .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
+    searchSnapshot = { at: now, ordered }
+  }
+  const ordered = searchSnapshot.ordered
+  const total = ordered.length
+  const from = Math.min(startAt, total)
+  const startedAt = Date.now()
+
+  const hits: SessionSearchHit[] = []
+  /** 只表示"有超大文件被跳过"；单批达到 limit 时渲染层会继续要下一批 */
+  let skippedLarge = false
+  let scanned = 0
+  let i = from
+
+  for (; i < total; i++) {
+    if (scanned > 0 && scanned % SEARCH_YIELD_EVERY === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+    // 预算用完就先把这一批交回去；下一批从当前这条继续，不丢会话
+    if (scanned > 0 && Date.now() - startedAt >= SEARCH_BUDGET_MS) {
+      return {
+        hits,
+        truncated: skippedLarge,
+        scanned,
+        offset: from,
+        nextOffset: i,
+        done: false,
+        total
+      }
+    }
+
+    const s = ordered[i]
+    scanned++
+    const { text, oversized } = searchTextOf(s)
+    if (oversized) skippedLarge = true
+    if (!text) continue
+
+    const lower = text.toLowerCase()
+    const first = lower.indexOf(q)
+    if (first < 0) continue
+
+    // 只数到一个上限：侧栏提示「N 处」不需要精确到几千
+    let matches = 0
+    let at = first
+    while (at >= 0 && matches < 9999) {
+      matches++
+      at = lower.indexOf(q, at + q.length)
+    }
+
+    hits.push({
+      id: s.id,
+      cwd: s.cwd,
+      cli: s.cli,
+      title: s.title,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      snippet: snippetAround(text, first, q.length),
+      matches,
+      field: 'content'
+    })
+
+    if (hits.length >= max) {
+      const nextOffset = i + 1
+      return {
+        hits,
+        truncated: skippedLarge,
+        scanned,
+        offset: from,
+        nextOffset,
+        done: nextOffset >= total,
+        total
+      }
+    }
+  }
+
+  return {
+    hits,
+    truncated: skippedLarge,
+    scanned,
+    offset: from,
+    nextOffset: total,
+    done: true,
+    total
+  }
 }

@@ -25,11 +25,8 @@ import type {
   IdeSearchResult,
   IdeTextFile
 } from '../shared/ide'
-import {
-  listWorkspaceFilesDetailed,
-  resetWorkspaceSearchCache,
-  WORKSPACE_IGNORE_DIRS
-} from './workspace-search'
+import { listWorkspaceFilesDetailed, resetWorkspaceSearchCache } from './workspace-search'
+import { isIgnoredDirName } from './workspace-ignore'
 import {
   collectSpans,
   compileGlobs,
@@ -39,6 +36,22 @@ import {
   SearchPatternError,
   type CompiledSearch
 } from './ide-search'
+import {
+  MAX_IMAGE_BYTES,
+  MAX_REPLACEMENT_CHARS,
+  MAX_SEARCH_FILE_BYTES,
+  MAX_TEXT_BYTES,
+  MAX_WRITE_BYTES,
+  REPLACE_DEADLINE_MS,
+  REPLACE_MAX_FILES,
+  REPLACE_MAX_MATCHES,
+  REPLACE_MAX_RESULT_FILES,
+  REPLACE_MAX_TOTAL_BYTES,
+  SEARCH_DEADLINE_MS,
+  SEARCH_MAX_FILES,
+  SEARCH_MAX_FILES_WITH_HITS,
+  SEARCH_MAX_MATCHES
+} from './search-limits'
 
 /**
  * 内置 IDE 的主进程侧：文件读写、新建/重命名/删除、代码搜索。
@@ -48,32 +61,6 @@ import {
  * 但 IPC 参数仍可能被伪造，不能假设它一定传的是工作区内的路径。
  * 写操作还要求调用方是绑定了该工作区的 IDE 窗口（见 main/index.ts）。
  */
-
-/** 文本读取上限；超过就截断并标记，避免一次 IPC 把几 MB 的产物塞进渲染层 */
-const MAX_TEXT_BYTES = 2 * 1024 * 1024
-/** 单次保存上限；正常编辑远小于这个值 */
-const MAX_WRITE_BYTES = 8 * 1024 * 1024
-/** 代码搜索单文件上限 */
-const MAX_SEARCH_FILE_BYTES = 1024 * 1024
-/** 图片上限 */
-const MAX_IMAGE_BYTES = 24 * 1024 * 1024
-/** 代码搜索的总预算 */
-const SEARCH_DEADLINE_MS = 4000
-const SEARCH_MAX_FILES = 5000
-const SEARCH_MAX_MATCHES = 200
-const SEARCH_MAX_FILES_WITH_HITS = 50
-
-/**
- * 全部替换的预算。替换和搜索不同：面板只展示前 200 处，但"全部替换"
- * 必须覆盖整个工作区 —— 所以它有自己的上限，并且一旦触顶就在**写盘前**
- * 整体中止，绝不静默只替换一部分。
- */
-const REPLACE_DEADLINE_MS = 15_000
-const REPLACE_MAX_FILES = 5000
-const REPLACE_MAX_MATCHES = 50_000
-const REPLACE_MAX_TOTAL_BYTES = 64 * 1024 * 1024
-const REPLACE_MAX_RESULT_FILES = 500
-const MAX_REPLACEMENT_CHARS = 100_000
 
 const IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -464,8 +451,10 @@ export async function listDir(cwd: string, rel: string): Promise<IdeEntry[]> {
 
   for (const ent of entries) {
     if (ent.isSymbolicLink()) continue
-    if (ent.isDirectory() && WORKSPACE_IGNORE_DIRS.has(ent.name)) continue
+    if (ent.isDirectory() && isIgnoredDirName(ent.name)) continue
     if (!ent.isDirectory() && !ent.isFile()) continue
+    // Git worktree 里 `.git` 是文件而不是目录，也不应该出现在文件树里
+    if (ent.isFile() && ent.name.toLowerCase() === '.git') continue
     const childRel = baseRel ? `${baseRel}/${ent.name}` : ent.name
     out.push({
       name: ent.name,
@@ -616,7 +605,97 @@ function candidateFiles(
     .sort((a, b) => a.path.localeCompare(b.path))
 }
 
-export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult> {
+export interface SearchStreamStats {
+  matchCount: number
+  scannedFiles: number
+  truncated: boolean
+  note?: string
+}
+
+export interface SearchStreamHooks {
+  signal?: AbortSignal
+  /** 替换/回退重跑时等待新文件列表 */
+  freshScan?: boolean
+  /** 每完成一批文件回调一次，供流式搜索推送 */
+  onBatch?: (files: IdeSearchFile[], stats: SearchStreamStats) => void
+}
+
+/** 一批并发读多少个文件；太大会让主进程一次占满 libuv 线程池 */
+const SEARCH_READ_CONCURRENCY = 8
+/** 流式批次：最多攒这么多文件或这么久就推送 */
+const SEARCH_BATCH_FILES = 20
+const SEARCH_BATCH_MS = 80
+
+interface MatchedFile {
+  file: IdeSearchFile
+  matches: IdeSearchMatch[]
+  aborted: boolean
+}
+
+/**
+ * 读一个文件并逐行匹配。`maxMatches` 只用于限制单文件的内存占用；
+ * 全局上限由调用方在合并结果时控制。
+ */
+async function matchCandidate(
+  cwd: string,
+  f: { path: string; name: string; kind: 'file' | 'dir' },
+  search: CompiledSearch,
+  signal: AbortSignal | undefined,
+  maxMatches: number
+): Promise<MatchedFile> {
+  const empty = (aborted = false): MatchedFile => ({
+    file: { rel: f.path, name: f.name, matches: [] },
+    matches: [],
+    aborted
+  })
+
+  if (signal?.aborted) return empty(true)
+
+  const abs = resolveInside(cwd, f.path)
+  const read = await readCandidateText(abs)
+  if (!read.ok) return empty(signal?.aborted === true)
+
+  const matches: IdeSearchMatch[] = []
+  const lines = read.textLf.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if ((i & 255) === 0 && signal?.aborted) return empty(true)
+    const { spans } = collectSpans(lines[i], search.regex)
+    for (const span of spans) {
+      const snippet = makeSnippet(lines[i], span)
+      matches.push({
+        line: i + 1,
+        column: span.index + 1,
+        length: span.length,
+        text: snippet.text,
+        offset: snippet.offset
+      })
+      if (matches.length >= maxMatches) {
+        return {
+          file: { rel: f.path, name: f.name, matches },
+          matches,
+          aborted: signal?.aborted === true
+        }
+      }
+    }
+  }
+
+  return {
+    file: { rel: f.path, name: f.name, matches },
+    matches,
+    aborted: signal?.aborted === true
+  }
+}
+
+/**
+ * 内置 JS 搜索，支持流式批次和中途取消。
+ *
+ * 保留原有语义：序列为候选文件路径顺序，上限、跳过规则、note 文案都
+ * 与旧版一致。`searchCode` 是它的无流式包装，供旧 IPC / 测试使用。
+ */
+export async function searchCodeStreaming(
+  req: IdeSearchRequest,
+  hooks: SearchStreamHooks = {}
+): Promise<IdeSearchResult> {
   try {
     const cwd = req?.cwd
     if (!cwd || typeof cwd !== 'string' || !isAbsolute(cwd)) {
@@ -626,7 +705,7 @@ export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult
     const search = compileSearch(req?.query, req?.options)
     const globs = compileGlobs(req?.options)
 
-    const scan = await listWorkspaceFilesDetailed(cwd)
+    const scan = await listWorkspaceFilesDetailed(cwd, { fresh: hooks.freshScan })
     const files = candidateFiles(scan.files, globs)
 
     const started = Date.now()
@@ -635,63 +714,127 @@ export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult
     let total = 0
     let truncated = scan.truncated || scan.incomplete
     let note = truncated ? t('ideError.searchIncomplete') : undefined
+    let batch: IdeSearchFile[] = []
+    let lastEmit = Date.now()
+    let stop = false
 
-    for (const f of files) {
+    const stats = (): SearchStreamStats => ({
+      matchCount: total,
+      scannedFiles: scanned,
+      truncated,
+      ...(note ? { note } : {})
+    })
+
+    const emit = (): void => {
+      if (!hooks.onBatch || batch.length === 0) return
+      const payload = batch
+      batch = []
+      lastEmit = Date.now()
+      if (hooks.signal?.aborted) return
+      try {
+        hooks.onBatch(payload, stats())
+      } catch {
+        // 推送失败不能打断搜索本身
+      }
+    }
+
+    const maybeEmit = (): void => {
+      if (batch.length >= SEARCH_BATCH_FILES || Date.now() - lastEmit >= SEARCH_BATCH_MS) {
+        emit()
+      }
+    }
+
+    const markTruncated = (message: string): void => {
+      truncated = true
+      note = message
+      stop = true
+    }
+
+    for (let i = 0; i < files.length && !stop; i += SEARCH_READ_CONCURRENCY) {
+      if (hooks.signal?.aborted) break
       if (scanned >= SEARCH_MAX_FILES) {
-        truncated = true
-        note = t('ideError.searchTooMany')
+        markTruncated(t('ideError.searchTooMany'))
         break
       }
       if (Date.now() - started > SEARCH_DEADLINE_MS) {
-        truncated = true
-        note = t('ideError.searchTimeout')
+        markTruncated(t('ideError.searchTimeout'))
         break
       }
-      scanned++
 
-      const abs = resolveInside(cwd, f.path)
-      const read = await readCandidateText(abs)
-      if (!read.ok) continue
+      const chunk = files.slice(i, i + SEARCH_READ_CONCURRENCY)
+      const budget = Math.max(1, SEARCH_MAX_MATCHES - total)
+      const results = await Promise.all(
+        chunk.map((f) => matchCandidate(cwd, f, search, hooks.signal, budget))
+      )
 
-      const matches: IdeSearchMatch[] = []
-      const lines = read.textLf.split('\n')
-      for (let i = 0; i < lines.length; i++) {
-        const { spans } = collectSpans(lines[i], search.regex)
-        for (const span of spans) {
-          const snippet = makeSnippet(lines[i], span)
-          matches.push({
-            line: i + 1,
-            column: span.index + 1,
-            length: span.length,
-            text: snippet.text,
-            offset: snippet.offset
-          })
-          total++
-          if (total >= SEARCH_MAX_MATCHES) break
+      for (const result of results) {
+        if (hooks.signal?.aborted) {
+          stop = true
+          break
         }
-        if (total >= SEARCH_MAX_MATCHES) break
-      }
+        if (result.aborted) {
+          stop = true
+          break
+        }
+        if (scanned >= SEARCH_MAX_FILES) {
+          markTruncated(t('ideError.searchTooMany'))
+          break
+        }
+        scanned++
 
-      if (matches.length > 0) {
-        out.push({ rel: f.path, name: f.name, matches })
+        if (result.matches.length === 0) continue
+
+        const room = SEARCH_MAX_MATCHES - total
+        if (room <= 0) {
+          markTruncated(
+            t('ideError.searchTruncated', {
+              files: SEARCH_MAX_FILES_WITH_HITS,
+              matches: SEARCH_MAX_MATCHES
+            })
+          )
+          break
+        }
+
+        const take = result.matches.slice(0, room)
+        if (take.length > 0) {
+          const file = { rel: result.file.rel, name: result.file.name, matches: take }
+          out.push(file)
+          batch.push(file)
+          total += take.length
+          maybeEmit()
+        }
+
+        if (take.length < result.matches.length) {
+          markTruncated(
+            t('ideError.searchTruncated', {
+              files: SEARCH_MAX_FILES_WITH_HITS,
+              matches: SEARCH_MAX_MATCHES
+            })
+          )
+          break
+        }
         if (out.length >= SEARCH_MAX_FILES_WITH_HITS) {
-          truncated = true
-          note = t('ideError.searchTruncated', {
-        files: SEARCH_MAX_FILES_WITH_HITS,
-        matches: SEARCH_MAX_MATCHES
-      })
+          markTruncated(
+            t('ideError.searchTruncated', {
+              files: SEARCH_MAX_FILES_WITH_HITS,
+              matches: SEARCH_MAX_MATCHES
+            })
+          )
+          break
+        }
+        if (total >= SEARCH_MAX_MATCHES) {
+          markTruncated(
+            t('ideError.searchTruncated', {
+              files: SEARCH_MAX_FILES_WITH_HITS,
+              matches: SEARCH_MAX_MATCHES
+            })
+          )
           break
         }
       }
-      if (total >= SEARCH_MAX_MATCHES) {
-        truncated = true
-        note = t('ideError.searchTruncated', {
-        files: SEARCH_MAX_FILES_WITH_HITS,
-        matches: SEARCH_MAX_MATCHES
-      })
-        break
-      }
     }
+
+    emit()
 
     const data: IdeSearchData = {
       files: out,
@@ -704,6 +847,10 @@ export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult
   } catch (err) {
     return toFailure(err)
   }
+}
+
+export async function searchCode(req: IdeSearchRequest): Promise<IdeSearchResult> {
+  return searchCodeStreaming(req, {})
 }
 
 function emptyTotals(): IdeReplaceTotals {
@@ -772,9 +919,10 @@ export async function replaceInWorkspace(
       if (dirty.size >= REPLACE_MAX_FILES) break
     }
 
-    // 替换前强制重扫，绝不基于 15 秒内的旧列表写盘
-    resetWorkspaceSearchCache()
-    const scan = await listWorkspaceFilesDetailed(cwd)
+    // 替换前强制重扫，绝不基于 15 秒内的旧列表写盘。
+    // 只失效当前工作区，其它打开窗口的缓存不受影响。
+    resetWorkspaceSearchCache(cwd)
+    const scan = await listWorkspaceFilesDetailed(cwd, { fresh: true })
     const totals = emptyTotals()
 
     if (scan.truncated || scan.incomplete) {
@@ -937,7 +1085,7 @@ export async function replaceInWorkspace(
       }
     }
 
-    if (wrote) resetWorkspaceSearchCache()
+    if (wrote) resetWorkspaceSearchCache(cwd)
 
     const data: IdeReplaceData = {
       files: results.slice(0, REPLACE_MAX_RESULT_FILES),

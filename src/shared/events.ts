@@ -9,6 +9,7 @@
 import type { ToolStat } from './tool'
 import type { ImageAttachment } from './attachment'
 import type { LocalizedText } from './i18n'
+import type { NativeCommand } from './commands'
 
 export type PermissionMode =
   | 'standard'
@@ -190,6 +191,13 @@ export type AgentEvent =
       permissionMode: PermissionMode
     }
   /**
+   * 会话的权限模式变了。
+   *
+   * 由适配器在 CLI 确认后上抛；CLI 自己回落到别的模式（例如 auto 不可用）
+   * 也会发。渲染层用它校正右下角的模式胶囊 —— 不能只信用户点选时的乐观值。
+   */
+  | { t: 'permission_mode_changed'; mode: PermissionMode }
+  /**
    * 一轮**真正开始**。
    *
    * 用户发送时可能因为上一轮还在跑而排队；渲染层不能拿「点了发送」当轮次
@@ -349,4 +357,11 @@ export type AgentEvent =
       /** 本轮的步数，状态栏「1 轮 2 步」里的「2 步」 */
       steps: number
     }
+  /**
+   * CLI 原生指令表。替换语义：收到就整份覆盖上一条。
+   *
+   * 只有能上报的 provider 才发（Claude 用 initialize 控制请求 /
+   * commands_changed）；Codex / dsh 的可执行子集是静态表，由渲染层直接合入。
+   */
+  | { t: 'native_commands'; commands: NativeCommand[] }
   | { t: 'error'; message: LocalizedText; fatal: boolean }

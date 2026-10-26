@@ -1,8 +1,10 @@
-import { IconMore, IconPanel } from './Icons'
+import { IconBranch, IconMore, IconPanel } from './Icons'
 import { useI18n } from '../i18n'
 
 interface Props {
   title: string
+  /** 当前工作目录检出的 Git 分支；空串 = 不是仓库 / 还没读到 */
+  branch?: string
   modeLabel: string
   /** 当前会话有任务或子代理 —— 有才显示执行台的开合按钮 */
   hasRunInfo: boolean
@@ -15,6 +17,7 @@ interface Props {
 
 export function ChatHeader({
   title,
+  branch,
   modeLabel,
   hasRunInfo,
   panelOpen,
@@ -26,6 +29,12 @@ export function ChatHeader({
     <header className="chathead">
       <div className="chathead__left">
         <h1 className="chathead__title">{title}</h1>
+        {branch && (
+          <span className="chip chathead__branch" title={branch}>
+            <IconBranch width={10} height={10} />
+            {branch}
+          </span>
+        )}
         <span className="badge">{modeLabel}</span>
       </div>
       <div className="chathead__right">

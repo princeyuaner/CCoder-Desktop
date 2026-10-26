@@ -19,20 +19,25 @@ import type {
 import type { VcsChange, VcsDiffData } from '@shared/vcs'
 import type { ChatTargetInfo } from '@shared/ide-chat'
 import type { FileMatch } from '@shared/workspace'
+import { SYNC_BUBBLE_ROWS, type SyncSnapshot } from '@shared/sync'
 import { baseName } from '@shared/path'
 import { IconFolder, IconSearch } from '../components/Icons'
 import { applyAppearance } from '../appearance'
-import { applyLanguageSetting } from '../i18n'
+import { applyLanguageSetting, type I18nApi } from '../i18n'
 import { diffStat } from './diff'
 import { highlight, toLines } from './highlight'
 import { buildIdeRef, MAX_REF_LINES } from './ref'
 import { SendToChat, type SendAnchor, type SendDraft } from './SendToChat'
 import { MonacoEditor, type EditorSelection } from './MonacoEditor'
 import { VcsWorkspace } from './VcsWorkspace'
+import { SyncWorkspace } from './SyncWorkspace'
+import { SyncBubble, type SyncBubbleData, type SyncBubbleRow } from './SyncBubble'
+import { useSync } from './useSync'
 import { useI18n } from '../i18n'
 import { VcsDiffView } from './VcsDiffView'
 import { useVcsStatus } from './useVcsStatus'
 import '../styles/ide.css'
+import '../styles/sync.css'
 
 /**
  * 独立 IDE 窗口。
@@ -42,7 +47,7 @@ import '../styles/ide.css'
  * 还原和同步。
  */
 
-type View = 'files' | 'search' | 'vcs'
+type View = 'files' | 'search' | 'vcs' | 'sync'
 type TabKind = 'file' | 'image' | 'diff'
 
 /** 打开中的文件在磁盘上发生了外部变化 */
@@ -178,7 +183,8 @@ const P = {
   newFolder: 'M2 4.2h4.2l1.4 1.8H14v7.2H2zM10.2 7.8v4M8.2 9.8h4',
   rename: 'M3 12.5l6.6-6.6 2.5 2.5-6.6 6.6H3zM9.2 5.7l1.5-1.5 2.5 2.5-1.5 1.5',
   trash: 'M2.8 4.2h10.4M5.8 4.2V2.3h4.4v1.9M4.2 4.2l.6 9.2h6.4l.6-9.2M6.6 6.6v4.4M9.4 6.6v4.4',
-  more: 'M3.4 8h.01M8 8h.01M12.6 8h.01'
+  more: 'M3.4 8h.01M8 8h.01M12.6 8h.01',
+  sync: 'M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5'
 } as const
 
 /* ── 窗口标题栏 ───────────────────────────────────────── */
@@ -233,6 +239,63 @@ function IdeTitleBar({ cwd, onClose }: { cwd: string; onClose: () => void }): JS
   )
 }
 
+/* ── 目录同步：气泡 / 时间 ────────────────────────────── */
+
+function sameWorkspace(a: string, b: string): boolean {
+  const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
+  return window.api?.platform === 'win32'
+    ? norm(a).toLowerCase() === norm(b).toLowerCase()
+    : norm(a) === norm(b)
+}
+
+function clockOf(ms: number): string {
+  const d = new Date(ms)
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map((n) => String(n).padStart(2, '0'))
+    .join(':')
+}
+
+function makeSyncBubble(snapshot: SyncSnapshot, t: I18nApi['t']): SyncBubbleData | null {
+  const copies = snapshot.copied
+  const deletes = snapshot.deleted
+  const failed = snapshot.failed
+  if (copies === 0 && deletes === 0 && failed === 0) return null
+
+  const cost = snapshot.lastCostMs ?? 0
+  const costText =
+    cost >= 1000
+      ? t('sync.time.sec', { n: (cost / 1000).toFixed(1) })
+      : t('sync.time.ms', { n: Math.round(cost) })
+
+  let title: string
+  let failedText: string | null = null
+  if (copies === 0 && deletes === 0) {
+    title = `${t('sync.bubble.failed', { n: failed })} · ${costText}`
+  } else {
+    const head =
+      copies > 0 && deletes > 0
+        ? `${t('sync.bubble.copied', { n: copies })} · ${t('sync.bubble.deleted', { n: deletes })}`
+        : copies > 0
+          ? t('sync.bubble.copied', { n: copies })
+          : t('sync.bubble.deleted', { n: deletes })
+    title = `${head} · ${costText}`
+    if (failed > 0) failedText = t('sync.bubble.failed', { n: failed })
+  }
+
+  const rows: SyncBubbleRow[] = []
+  for (const rel of snapshot.copiedNames.slice(0, SYNC_BUBBLE_ROWS)) rows.push({ text: rel })
+  for (const rel of snapshot.deletedNames.slice(0, SYNC_BUBBLE_ROWS - rows.length)) {
+    rows.push({ text: rel, deleted: true })
+  }
+  const hidden = copies + deletes - rows.length
+  return {
+    title,
+    failed: failedText,
+    rows,
+    more: hidden > 0 ? t('sync.bubble.more', { n: hidden }) : null
+  }
+}
+
 /* ── 主组件 ───────────────────────────────────────────── */
 
 export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
@@ -281,6 +344,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   const api = window.api
   const vcs = useVcsStatus(cwd)
+  const sync = useSync(cwd)
+  const [syncLogOpen, setSyncLogOpen] = useState(false)
+  const [syncBubble, setSyncBubble] = useState<SyncBubbleData | null>(null)
+  const syncBubbleTimer = useRef<number | null>(null)
+  const syncAnnounced = useRef<number | null>(null)
+  const syncReady = useRef(false)
   const activeTab = tabs.find((t) => t.key === activeKey) ?? null
 
   const isDirty = useCallback(
@@ -523,6 +592,58 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     })
     return () => off?.()
   }, [])
+
+  /* ── 目录同步：通知点击 / 气泡 ─────────────────────────── */
+  useEffect(() => {
+    return api?.sync?.onFocus((payload) => {
+      if (!sameWorkspace(payload.cwd, cwd)) return
+      setView('sync')
+      setSyncLogOpen(payload.openLog)
+    })
+  }, [api, cwd])
+
+  useEffect(() => {
+    if (view !== 'sync') setSyncLogOpen(false)
+  }, [view])
+
+  const syncSnap = sync.state?.snapshot
+  useEffect(() => {
+    if (!syncSnap) return
+    // 首次挂载时已有的那一轮不冒泡（用户刚打开窗口，不该被历史通知打扰）
+    if (!syncReady.current) {
+      syncReady.current = true
+      syncAnnounced.current = syncSnap.lastRoundAtMs
+      return
+    }
+    const at = syncSnap.lastRoundAtMs
+    if (!at || at === syncAnnounced.current) return
+    syncAnnounced.current = at
+    if (view === 'sync') return
+    const data = makeSyncBubble(syncSnap, t)
+    if (!data) return
+    setSyncBubble(data)
+    if (syncBubbleTimer.current) window.clearTimeout(syncBubbleTimer.current)
+    syncBubbleTimer.current = window.setTimeout(() => {
+      syncBubbleTimer.current = null
+      setSyncBubble(null)
+    }, 3000)
+  }, [syncSnap, t, view])
+
+  useEffect(() => {
+    return () => {
+      if (syncBubbleTimer.current) window.clearTimeout(syncBubbleTimer.current)
+    }
+  }, [])
+
+  // 进入同步工作区时收掉气泡：那边有完整的状态与日志，再叠一层是噪音。
+  useEffect(() => {
+    if (view !== 'sync' || !syncBubble) return
+    setSyncBubble(null)
+    if (syncBubbleTimer.current) {
+      window.clearTimeout(syncBubbleTimer.current)
+      syncBubbleTimer.current = null
+    }
+  }, [view, syncBubble])
 
   /** VCS 变更映射，文件树靠它显示 M/A/D */
   const gitMap = useMemo(() => {
@@ -1104,6 +1225,29 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     showFlash(t('ide.attachedToChat', { title: target.title }))
   }
 
+  const syncRun = syncSnap?.run
+  const showSyncChip =
+    !!syncSnap && (syncRun === 'running' || syncRun === 'failed' || syncRun === 'occupied')
+  const syncChipText =
+    syncRun === 'failed'
+      ? t('sync.statusBar.failed')
+      : syncRun === 'occupied'
+        ? t('sync.statusBar.occupied')
+        : t('sync.statusBar.running')
+  const syncChipTip = (() => {
+    if (!syncSnap) return ''
+    if (syncRun === 'occupied') {
+      return t('sync.statusBar.occupiedTip', { workspace: syncSnap.occupiedBy ?? '' })
+    }
+    if (!syncSnap.lastRoundAtMs) return t('sync.statusBar.notYetTip')
+    return t('sync.statusBar.tip', {
+      time: clockOf(syncSnap.lastRoundAtMs),
+      copied: syncSnap.copied,
+      deleted: syncSnap.deleted,
+      failed: syncSnap.failed
+    })
+  })()
+
   const statusRight = (() => {
     if (!activeTab) return null
     if (activeTab.kind === 'file' && activeFile) {
@@ -1217,9 +1361,28 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               <span className="ide-act-badge">{vcs.status.counts.total}</span>
             )}
           </button>
+          <button
+            className={`ide-act ${view === 'sync' ? 'on' : ''}`}
+            title={t('ide.syncTitle')}
+            onClick={() => setView('sync')}
+          >
+            <Ico d={P.sync} size={17} />
+            {(syncSnap?.failed ?? 0) > 0 && (
+              <span className="ide-act-badge is-bad">{syncSnap?.failed}</span>
+            )}
+          </button>
         </nav>
 
-        {view === 'vcs' ? (
+        {view === 'sync' ? (
+          <SyncWorkspace
+            cwd={cwd}
+            sync={sync}
+            logOpen={syncLogOpen}
+            onOpenLog={() => setSyncLogOpen(true)}
+            onCloseLog={() => setSyncLogOpen(false)}
+            onNotice={setNotice}
+          />
+        ) : view === 'vcs' ? (
           <VcsWorkspace
             cwd={cwd}
             detect={vcs.detect}
@@ -1495,11 +1658,46 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             {t('ide.changesShort', { n: vcs.status.counts.total })}
           </span>
         )}
+        {showSyncChip && (
+          <button
+            className={`ide-sync-chip ${
+              syncRun === 'failed' ? 'is-bad' : syncRun === 'occupied' ? 'is-warn' : 'is-run'
+            }`}
+            title={syncChipTip}
+            onClick={() => setView('sync')}
+          >
+            <Ico d={P.sync} size={11} />
+            {syncChipText}
+            {syncSnap?.lastRoundAtMs && <em>{clockOf(syncSnap.lastRoundAtMs)}</em>}
+          </button>
+        )}
         <span className="ide-status-right">
           {view !== 'vcs' && activeTab && <span className="ide-status-rel">{activeTab.rel}</span>}
           {view !== 'vcs' && statusRight}
         </span>
       </div>
+
+      {syncBubble && (
+        <SyncBubble
+          data={syncBubble}
+          onOpen={() => {
+            setSyncBubble(null)
+            if (syncBubbleTimer.current) {
+              window.clearTimeout(syncBubbleTimer.current)
+              syncBubbleTimer.current = null
+            }
+            setView('sync')
+            setSyncLogOpen(true)
+          }}
+          onClose={() => {
+            setSyncBubble(null)
+            if (syncBubbleTimer.current) {
+              window.clearTimeout(syncBubbleTimer.current)
+              syncBubbleTimer.current = null
+            }
+          }}
+        />
+      )}
 
       {flash && (
         <div className="ide-toast is-ok" style={{ top: notice ? 92 : 48 }} role="status" aria-live="polite">
@@ -1774,6 +1972,17 @@ function splitGlobList(raw: string): string[] {
   return out
 }
 
+/** 搜索请求序号：时间戳 + 自增，避免同一毫秒内重复 */
+let searchSeq = 0
+
+/** 合并流式批次：同一个文件只保留最新的一份 */
+function mergeSearchFiles(prev: IdeSearchFile[], next: IdeSearchFile[]): IdeSearchFile[] {
+  if (next.length === 0) return prev
+  const map = new Map(prev.map((f) => [f.rel, f]))
+  for (const f of next) map.set(f.rel, f)
+  return [...map.values()]
+}
+
 function SearchPanel({
   cwd,
   onOpen,
@@ -1805,6 +2014,10 @@ function SearchPanel({
   const [replacing, setReplacing] = useState(false)
   const [lastReplace, setLastReplace] = useState<string | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
+  /** 本次结果是否来自内置搜索（rg 不可用 / 启动失败） */
+  const [fallback, setFallback] = useState(false)
+  /** 当前有效的 requestId；旧请求的迟到事件一律丢弃 */
+  const activeRef = useRef('')
 
   const options = useMemo<IdeSearchOptions>(
     () => ({
@@ -1820,52 +2033,88 @@ function SearchPanel({
   // 正则至少 1 个字符；字面量沿用旧 UI 的「至少 2 个字符」，避免扫全库
   const usable = regex ? q.length >= 1 : q.trim().length >= 2
 
+  // 主进程按 requestId 推送批次；旧请求的事件直接丢弃
+  useEffect(() => {
+    const off = window.api?.ide?.onSearchEvent((ev) => {
+      if (ev.requestId !== activeRef.current) return
+
+      if (ev.type === 'batch') {
+        setResults((prev) => mergeSearchFiles(ev.reset ? [] : prev, ev.files))
+        if (ev.fallback !== undefined) setFallback(ev.fallback)
+        setNote(ev.truncated ? (ev.note ?? t('ide.resultTruncated')) : null)
+        setSearched(true)
+        return
+      }
+
+      if (ev.type === 'done') {
+        setResults((prev) => [...prev].sort((a, b) => a.rel.localeCompare(b.rel)))
+        setNote(ev.truncated ? (ev.note ?? t('ide.resultTruncated')) : null)
+        if (ev.fallback !== undefined) setFallback(ev.fallback)
+        setSearched(true)
+        setBusy(false)
+        return
+      }
+
+      setError(ev.message)
+      setSearched(true)
+      setBusy(false)
+    })
+
+    return off
+  }, [t])
+
   useEffect(() => {
     if (!usable) {
+      activeRef.current = ''
       setResults([])
       setSearched(false)
       setBusy(false)
       setError(null)
       setNote(null)
+      setFallback(false)
       return
     }
 
-    let cancelled = false
+    const requestId = `s${Date.now().toString(36)}_${++searchSeq}`
+    // 立刻认领新请求：旧请求的迟到事件从这一刻起就不再影响界面
+    activeRef.current = requestId
     const timer = setTimeout(async () => {
+      const api = window.api?.ide
+      if (!api) return
+
+      setResults([])
       setBusy(true)
+      setSearched(false)
       setError(null)
       setNote(null)
+      setFallback(false)
+
       try {
-        const r = await window.api?.ide?.searchCode({ cwd, query: q, options })
-        if (cancelled) return
-        if (!r) {
-          setResults([])
-          setSearched(true)
+        const r = await api.startSearch({ cwd, query: q, options, requestId })
+        if (activeRef.current !== requestId) {
+          api.cancelSearch(requestId)
           return
         }
         if (!r.ok) {
-          setResults([])
           setError(r.message)
           setSearched(true)
+          setBusy(false)
           return
         }
-        setResults(r.data.files)
-        setNote(r.data.truncated ? (r.data.note ?? t('ide.resultTruncated')) : null)
-        setSearched(true)
+        setFallback(r.data.fallback)
       } catch (err) {
-        if (!cancelled) {
-          setResults([])
+        if (activeRef.current === requestId) {
           setError(err instanceof Error ? err.message : String(err))
           setSearched(true)
+          setBusy(false)
         }
-      } finally {
-        if (!cancelled) setBusy(false)
       }
     }, 350)
 
     return () => {
-      cancelled = true
       clearTimeout(timer)
+      // 新查询 / 面板卸载时立刻让主进程停掉旧搜索，而不是只丢弃结果
+      window.api?.ide?.cancelSearch(requestId)
     }
   }, [cwd, q, options, refreshTick, usable])
 
@@ -2080,6 +2329,9 @@ function SearchPanel({
               : t('ide.enterTwoChars')}
       </div>
       {note && !error && <div className="ide-searchnote">{note}</div>}
+      {fallback && !note && !error && (
+        <div className="ide-searchnote">{t('ide.searchFallback')}</div>
+      )}
       {lastReplace && <div className="ide-searchsum is-done">{lastReplace}</div>}
 
       <div className="ide-searchres">

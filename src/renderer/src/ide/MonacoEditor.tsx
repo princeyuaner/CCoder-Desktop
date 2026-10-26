@@ -30,6 +30,97 @@ function monoFont(): string {
   )
 }
 
+/** 大文件降级档位：0 正常，1 大，2 超大 */
+type EditorTier = 0 | 1 | 2
+
+const LARGE_LINES = 20_000
+const LARGE_UNITS = 1_000_000
+const HUGE_LINES = 50_000
+const HUGE_UNITS = 1_800_000
+
+function tierForModel(model: monaco.editor.ITextModel): EditorTier {
+  const lines = model.getLineCount()
+  const units = model.getValueLength()
+  if (lines > HUGE_LINES || units > HUGE_UNITS) return 2
+  if (lines > LARGE_LINES || units > LARGE_UNITS) return 1
+  return 0
+}
+
+/**
+ * 大文件时关掉全量渲染/装饰相关的功能。Monaco 的查找算法本身仍是 O(buffer)，
+ * 但 minimap、折叠、括号着色、occurrence highlight 这些会额外拖慢输入和滚动。
+ */
+function optionsForTier(
+  tier: EditorTier
+): monaco.editor.IEditorOptions & monaco.editor.IGlobalEditorOptions {
+  const minimap = {
+    enabled: tier === 0,
+    maxColumn: 100,
+    renderCharacters: false,
+    showSlider: 'mouseover' as const
+  }
+
+  if (tier === 0) {
+    return {
+      minimap,
+      folding: true,
+      bracketPairColorization: { enabled: true },
+      guides: { bracketPairs: false, indentation: true },
+      occurrencesHighlight: 'singleFile',
+      'semanticHighlighting.enabled': true,
+      maxTokenizationLineLength: 20_000,
+      stopRenderingLineAfter: -1,
+      hover: { enabled: 'on' },
+      links: true,
+      colorDecorators: true,
+      wordBasedSuggestions: 'currentDocument'
+    }
+  }
+
+  if (tier === 1) {
+    return {
+      minimap,
+      folding: false,
+      bracketPairColorization: { enabled: false },
+      guides: { bracketPairs: false, indentation: true },
+      occurrencesHighlight: 'off',
+      'semanticHighlighting.enabled': false,
+      maxTokenizationLineLength: 10_000,
+      stopRenderingLineAfter: 5_000,
+      hover: { enabled: 'on' },
+      links: true,
+      colorDecorators: true,
+      wordBasedSuggestions: 'off'
+    }
+  }
+
+  return {
+    minimap,
+    folding: false,
+    bracketPairColorization: { enabled: false },
+    guides: { bracketPairs: false, indentation: false },
+    occurrencesHighlight: 'off',
+    'semanticHighlighting.enabled': false,
+    maxTokenizationLineLength: 5_000,
+    stopRenderingLineAfter: 2_000,
+    hover: { enabled: 'off' },
+    links: false,
+    colorDecorators: false,
+    wordBasedSuggestions: 'off'
+  }
+}
+
+function applyEditorTier(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  model: monaco.editor.ITextModel,
+  tierRef: { current: EditorTier }
+): void {
+  const tier = tierForModel(model)
+  if (tier === tierRef.current) return
+  tierRef.current = tier
+  editor.updateOptions(optionsForTier(tier))
+}
+
 /** 把编辑器的当前选区换算成发给聊天用的行号 / 原文 / 定位点 */
 function selectionOf(
   editor: monaco.editor.ICodeEditor,
@@ -95,6 +186,8 @@ export function MonacoEditor({
   const viewsRef = useRef(new Map<string, monaco.editor.ICodeEditorViewState | null>())
   const relRef = useRef(file.rel)
   const applyingRef = useRef(false)
+  const tierRef = useRef<EditorTier>(0)
+  const tierTimer = useRef<number | null>(null)
   const propsRef = useRef({ file, onCursor, onChange, onSendSelection, onSendFile })
   propsRef.current = { file, onCursor, onChange, onSendSelection, onSendFile }
 
@@ -123,8 +216,11 @@ export function MonacoEditor({
     if (!host) return
     applyMonacoTheme()
     const initial = propsRef.current.file
+    const initialModel = ensureModel(initial)
+    const initialTier = tierForModel(initialModel)
+    tierRef.current = initialTier
     const editor = monaco.editor.create(host, {
-      model: ensureModel(initial),
+      model: initialModel,
       theme: 'ccoder',
       automaticLayout: true,
       fontFamily: monoFont(),
@@ -134,17 +230,12 @@ export function MonacoEditor({
       insertSpaces: true,
       detectIndentation: false,
       wordWrap: 'off',
-      minimap: {
-        enabled: true,
-        maxColumn: 100,
-        renderCharacters: false,
-        showSlider: 'mouseover'
-      },
+      largeFileOptimizations: true,
+      ...optionsForTier(initialTier),
       lineNumbers: 'on',
       lineNumbersMinChars: 3,
       lineDecorationsWidth: 6,
       glyphMargin: false,
-      folding: true,
       showFoldingControls: 'mouseover',
       smoothScrolling: false,
       cursorBlinking: 'smooth',
@@ -162,9 +253,15 @@ export function MonacoEditor({
       hideCursorInOverviewRuler: true,
       fixedOverflowWidgets: true,
       contextmenu: true,
+      /*
+       * Monaco 0.56 起默认用 Shadow DOM 渲染右键菜单。standalone 的主题只在
+       * .monaco-editor / .monaco-component 上定义 --vscode-* 颜色变量，而菜单的
+       * shadow host 挂在编辑器宿主下、不在 .monaco-editor 里面，变量继承不进去：
+       * 菜单背景透明、文字黑色，在深色主题下看起来就是「右键没反应」。
+       * 关掉 Shadow DOM 后菜单回到普通 DOM，主题变量正常生效。
+       */
+      useShadowDOM: false,
       mouseWheelZoom: false,
-      bracketPairColorization: { enabled: true },
-      guides: { bracketPairs: false, indentation: true },
       stickyScroll: { enabled: false },
       suggest: { showWords: false }
     })
@@ -180,6 +277,15 @@ export function MonacoEditor({
       editor.onDidChangeModelContent(() => {
         if (applyingRef.current) return
         propsRef.current.onChange(editor.getValue())
+
+        // 文件可能从普通变成超大（粘贴/生成）；1 秒防抖后只在跨档时重配
+        if (tierTimer.current !== null) window.clearTimeout(tierTimer.current)
+        tierTimer.current = window.setTimeout(() => {
+          tierTimer.current = null
+          const current = editorRef.current
+          const model = current?.getModel()
+          if (current && model) applyEditorTier(current, model, tierRef)
+        }, 1000)
       }),
       editor.onDidChangeCursorPosition((e) => {
         propsRef.current.onCursor(e.position.lineNumber, e.position.column)
@@ -187,6 +293,8 @@ export function MonacoEditor({
     ]
 
     return () => {
+      if (tierTimer.current !== null) window.clearTimeout(tierTimer.current)
+      tierTimer.current = null
       for (const d of disposables) d.dispose()
       host.__ccoderEditor = undefined
       host.__ccoderMonaco = undefined
@@ -245,6 +353,7 @@ export function MonacoEditor({
     applyingRef.current = true
     editor.setModel(model)
     applyingRef.current = false
+    applyEditorTier(editor, model, tierRef)
     const view = viewsRef.current.get(file.rel)
     if (view) editor.restoreViewState(view)
     else {
@@ -266,6 +375,7 @@ export function MonacoEditor({
     applyingRef.current = true
     model.setValue(file.text)
     applyingRef.current = false
+    applyEditorTier(editor, model, tierRef)
     if (view) editor.restoreViewState(view)
 
     // 文件变短时把光标 / 选区夹回合法范围

@@ -1,16 +1,44 @@
-import { existsSync, statSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { app, crashReporter, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { PermissionMode } from '../shared/events'
-import type { Channel, Settings } from '../shared/settings'
+import type { Channel, CliId, Settings } from '../shared/settings'
+import type { SyncConfig } from '../shared/sync'
 import type {
   PermissionDecision,
   QuestionAnswer,
+  SessionMetaUpdate,
   SessionSendInput,
   SessionStartOptions
 } from '../shared/session'
 import { loadSettings, saveSettings } from './settings-store'
+import {
+  coerceMcpInput,
+  isMcpScope,
+  MCP_SCOPES,
+  type DshHomeOption,
+  type McpMigrationPreview,
+  type McpMigrationResult,
+  type McpScope,
+  type McpServerInput
+} from '../shared/mcp'
+import {
+  asCliId,
+  clearMcpProbeCache,
+  listMcpServers,
+  removeMcpServer,
+  saveMcpServer,
+  setMcpEnabled,
+  testAllMcpServers,
+  testMcpServer
+} from './mcp-service'
+import { createMcpNativeContext, defaultDshHome, sourcePathFor } from './mcp-native'
+import { applyMigration, previewMigration } from './mcp-migration'
+import {
+  defaultDshHomeForSettings,
+  listDshHomeOptions
+} from './providers/dsh/runner'
 import { testChannel } from './claude-runner'
 import { checkCodexStatus, testCodexChannel } from './codex-runner'
 import { checkDshStatus, testDshChannel } from './providers/dsh/adapter'
@@ -24,7 +52,17 @@ import {
   startClaudeLogin,
   submitClaudeLoginCode
 } from './claude-auth'
-import { deleteStoredSession, listStoredSessions, readTranscript } from './session-store'
+import {
+  deleteStoredSession,
+  listStoredSessions,
+  readTranscript,
+  searchStoredSessions
+} from './session-store'
+import {
+  forgetSessionMeta,
+  getSessionMeta,
+  updateSessionMeta
+} from './session-meta-store'
 import { SessionManager } from './session-manager'
 import { searchWorkspaceFiles } from './workspace-search'
 import {
@@ -41,28 +79,41 @@ import {
 import {
   authorizeVcsSender,
   closeIdeWindow,
+  focusIdeWindow,
   hasIdeWindowUnder,
   isIdeSender,
   markIdeDirty,
   openFileInIde,
-  openIdeWindow
+  openIdeWindow,
+  sendToIdeSender,
+  sendToIdeWindow,
+  setIdeWindowHooks
 } from './ide-window'
+import {
+  cancelAllIdeSearches,
+  cancelIdeSearch,
+  cancelIdeSearchesForSender,
+  startIdeSearch
+} from './ide-search-service'
 import type {
   IdeCreateRequest,
   IdeDeleteRequest,
   IdeRenameRequest,
   IdeReplaceRequest,
   IdeSaveRequest,
-  IdeSearchRequest
+  IdeSearchRequest,
+  IdeSearchStartRequest
 } from '../shared/ide'
 import * as vcs from './vcs'
 import type {
+  VcsBranchListRequest,
   VcsCancelRequest,
   VcsCommitDetailRequest,
   VcsCommitRequest,
   VcsDiffRequest,
   VcsDiscardRequest,
   VcsLogRequest,
+  VcsMergeWorktreeRequest,
   VcsPathsRequest,
   VcsPullRequest,
   VcsPushRequest,
@@ -73,6 +124,7 @@ import type {
   VcsUpdateRequest,
   VcsWorktreeAddRequest,
   VcsWorktreeListRequest,
+  VcsWorktreeMapRequest,
   VcsWorktreePruneRequest,
   VcsWorktreeRemoveRequest
 } from '../shared/vcs'
@@ -85,12 +137,21 @@ import {
   setChatMainWindow
 } from './chat-bridge'
 import type { ChatActiveInfo, IdeSendPayload } from '../shared/ide-chat'
-import { pathKey } from './path-key'
+import { isSameOrInside, pathKey } from './path-key'
 import { applyNativeTheme, windowBg } from './window-theme'
 import { createUpdater, registerUpdaterIpc } from './updater'
 import { installCrashHandlers, logFilePath, logMain } from './crash-log'
 import { labelOf, labelWindow } from './window-log'
 import { safeSend } from './safe-send'
+import { configureSyncHost } from './sync/host'
+import {
+  disposeAllSync,
+  disposeSync,
+  ensureSync,
+  getSyncState,
+  saveSyncConfig,
+  syncNow
+} from './sync/manager'
 import type { RendererLogReport } from '../shared/log'
 import { resolveLanguage } from '../shared/i18n'
 import { applyLanguageSetting, initMainI18n, mainLocaleInfo, t } from './i18n'
@@ -234,7 +295,8 @@ function registerSettingsIpc(sessions: SessionManager): void {
     const fresh = loadSettings()
     // 先切语言再通知会话：settingsChanged 触发的提示要用新语言
     applyLanguageSetting(fresh.language)
-    // 凭据来源 / 官方默认模型是启动参数：让正在跑的会话在下一轮换进程
+    // 凭据来源是启动参数：让正在跑的会话在下一轮换进程。
+    // 官方默认模型只影响新会话 —— 已有会话的模型是各会话自己选的，不在这里跟。
     sessions.settingsChanged(before, fresh)
     pushSettings(fresh)
     return fresh
@@ -261,6 +323,259 @@ function registerSettingsIpc(sessions: SessionManager): void {
  * login 只负责拉起进程；URL / 输出 / 阶段由主进程广播（注册在 whenReady 里，
  * 见 initClaudeAuth），设置页订阅即可。授权码只从主进程写进 stdin。
  */
+/**
+ * MCP 的 IPC。
+ *
+ * cli / cwd / server 都来自渲染层，按不可信处理：cli 不认识就直接拒绝，
+ * server 先 coerce 成已知字段，再由 mcp-service 做业务校验。
+ */
+function registerMcpIpc(sessions: SessionManager): void {
+  const cliOrThrow = (raw: unknown): CliId => {
+    const cli = asCliId(raw)
+    if (!cli) throw new Error(t('mcp.error.invalidCli'))
+    return cli
+  }
+  const cwdOf = (raw: unknown): string =>
+    typeof raw === 'string' ? raw.slice(0, 4096) : ''
+
+  const context = (): ReturnType<typeof createMcpNativeContext> => {
+    const settings = loadSettings()
+    const options = listDshHomeOptions(settings)
+    const active = defaultDshHomeForSettings(settings)
+    const homes: string[] = []
+    const push = (p: string): void => {
+      if (!p) return
+      if (homes.some((h) => pathKey(h) === pathKey(p))) return
+      homes.push(p)
+    }
+    push(active)
+    for (const o of options) push(o.path)
+    return createMcpNativeContext({
+      backupRoot: join(app.getPath('userData'), 'mcp-backups'),
+      dshHomes: homes
+    })
+  }
+
+  /** dshHome 只接受主进程列出的 home，避免渲染进程写任意目录 */
+  const homeOf = (cli: CliId, raw: unknown, ctx: ReturnType<typeof context>): string | undefined => {
+    if (cli !== 'dsh') return undefined
+    const fallback = ctx.dshHomes[0] ?? defaultDshHome(ctx)
+    if (typeof raw !== 'string' || !raw.trim()) return fallback
+    const key = pathKey(raw)
+    return ctx.dshHomes.find((h) => pathKey(h) === key)
+  }
+
+  const scopeOf = (cli: CliId, raw: unknown): McpScope => {
+    if (!isMcpScope(raw) || !MCP_SCOPES[cli].includes(raw)) {
+      throw new Error(t('mcp.error.invalidScope'))
+    }
+    return raw
+  }
+
+  /** 写入 Claude local/project 前确认 cwd 是当前工作区，避免写到任意目录 */
+  const assertKnownCwd = (cwd: string): void => {
+    if (!cwd.trim()) throw new Error(t('mcp.error.cwdRequired'))
+    const settings = loadSettings()
+    const known = [settings.defaultCwd, ...settings.openedCwds].filter(Boolean)
+    if (!known.some((k) => pathKey(k) === pathKey(cwd))) {
+      throw new Error(t('mcp.error.cwdNotAllowed'))
+    }
+    try {
+      if (!statSync(cwd).isDirectory()) throw new Error('not a directory')
+    } catch {
+      throw new Error(t('mcp.error.cwdNotAllowed'))
+    }
+  }
+
+  const list = (
+    cli: CliId,
+    cwd: string,
+    home: string | undefined,
+    ctx: ReturnType<typeof context>
+  ) => listMcpServers(cli, cwd, ctx, { dshHome: home })
+
+  ipcMain.handle(
+    IPC.mcpList,
+    (_e, cliRaw: unknown, cwdRaw: unknown, dshHomeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      return list(cli, cwdOf(cwdRaw), homeOf(cli, dshHomeRaw, ctx), ctx)
+    }
+  )
+
+  ipcMain.handle(
+    IPC.mcpSave,
+    (_e, cliRaw: unknown, serverRaw: unknown, cwdRaw: unknown, dshHomeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const home = homeOf(cli, dshHomeRaw, ctx)
+      const cwd = cwdOf(cwdRaw)
+      const input: McpServerInput = coerceMcpInput(serverRaw)
+      if (input.scope === 'local' || input.scope === 'project') {
+        assertKnownCwd(input.cwd || cwd)
+      }
+      const result = saveMcpServer(cli, input, cwd, ctx, { dshHome: home })
+      if (result.ok) sessions.mcpChanged(cli, { scope: input.scope, cwd: input.cwd || cwd })
+      return result
+    }
+  )
+
+  ipcMain.handle(
+    IPC.mcpRemove,
+    (_e, cliRaw: unknown, idRaw: unknown, cwdRaw: unknown, dshHomeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const home = homeOf(cli, dshHomeRaw, ctx)
+      const cwd = cwdOf(cwdRaw)
+      if (cwd) assertKnownCwd(cwd)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      const result = removeMcpServer(cli, id, cwd, ctx, { dshHome: home })
+      if (result.ok) sessions.mcpChanged(cli)
+      return result
+    }
+  )
+
+  ipcMain.handle(
+    IPC.mcpSetEnabled,
+    (
+      _e,
+      cliRaw: unknown,
+      idRaw: unknown,
+      enabledRaw: unknown,
+      cwdRaw: unknown,
+      dshHomeRaw: unknown
+    ) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const home = homeOf(cli, dshHomeRaw, ctx)
+      const cwd = cwdOf(cwdRaw)
+      if (cwd) assertKnownCwd(cwd)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      const result = setMcpEnabled(cli, id, enabledRaw !== false, cwd, ctx, {
+        dshHome: home
+      })
+      if (result.ok) sessions.mcpChanged(cli)
+      return result
+    }
+  )
+
+  ipcMain.handle(
+    IPC.mcpTest,
+    (_e, cliRaw: unknown, serverRaw: unknown) =>
+      testMcpServer(cliOrThrow(cliRaw), coerceMcpInput(serverRaw))
+  )
+
+  ipcMain.handle(
+    IPC.mcpTestAll,
+    (_e, cliRaw: unknown, cwdRaw: unknown, dshHomeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      return testAllMcpServers(cli, cwdOf(cwdRaw), ctx, {
+        dshHome: homeOf(cli, dshHomeRaw, ctx)
+      })
+    }
+  )
+
+  ipcMain.handle(IPC.mcpDshHomes, (): DshHomeOption[] =>
+    listDshHomeOptions(loadSettings()).map((o) => ({
+      path: o.path,
+      label: o.channelName ?? '',
+      kind: o.kind,
+      active: o.active,
+      exists: o.exists
+    }))
+  )
+
+  ipcMain.handle(
+    IPC.mcpOpenConfig,
+    async (
+      _e,
+      cliRaw: unknown,
+      scopeRaw: unknown,
+      cwdRaw: unknown,
+      dshHomeRaw: unknown
+    ) => {
+      const cli = cliOrThrow(cliRaw)
+      const scope = scopeOf(cli, scopeRaw)
+      const ctx = context()
+      const cwd = cwdOf(cwdRaw)
+      if (scope === 'local' || scope === 'project') assertKnownCwd(cwd)
+      const file = sourcePathFor(cli, scope, { cwd, dshHome: homeOf(cli, dshHomeRaw, ctx) }, ctx)
+      if (!file) return { ok: false, error: t('mcp.error.invalidScope') }
+      const target = existsSync(file) ? file : dirname(file)
+      const err = await shell.openPath(target)
+      return err ? { ok: false, error: err } : { ok: true }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.mcpRevealConfig,
+    async (
+      _e,
+      cliRaw: unknown,
+      scopeRaw: unknown,
+      cwdRaw: unknown,
+      dshHomeRaw: unknown
+    ) => {
+      const cli = cliOrThrow(cliRaw)
+      const scope = scopeOf(cli, scopeRaw)
+      const ctx = context()
+      const cwd = cwdOf(cwdRaw)
+      if (scope === 'local' || scope === 'project') assertKnownCwd(cwd)
+      const file = sourcePathFor(cli, scope, { cwd, dshHome: homeOf(cli, dshHomeRaw, ctx) }, ctx)
+      if (!file) return { ok: false, error: t('mcp.error.invalidScope') }
+      if (existsSync(file)) shell.showItemInFolder(file)
+      else {
+        const err = await shell.openPath(dirname(file))
+        if (err) return { ok: false, error: err }
+      }
+      return { ok: true }
+    }
+  )
+
+  ipcMain.handle(IPC.mcpOpenBackups, async () => {
+    const dir = join(app.getPath('userData'), 'mcp-backups')
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      // openPath 会给出错误
+    }
+    const err = await shell.openPath(dir)
+    return err ? { ok: false, error: err } : { ok: true }
+  })
+
+  ipcMain.handle(IPC.mcpMigration, (_e, dshHomeRaw: unknown): McpMigrationPreview => {
+    const ctx = context()
+    const home =
+      homeOf('dsh', dshHomeRaw, ctx) ??
+      ctx.dshHomes[0] ??
+      defaultDshHomeForSettings(loadSettings())
+    return previewMigration(ctx, home)
+  })
+
+  ipcMain.handle(
+    IPC.mcpMigrate,
+    (_e, idsRaw: unknown, dshHomeRaw: unknown): McpMigrationResult => {
+      const ctx = context()
+      const home =
+        homeOf('dsh', dshHomeRaw, ctx) ??
+        ctx.dshHomes[0] ??
+        defaultDshHomeForSettings(loadSettings())
+      const ids = Array.isArray(idsRaw)
+        ? idsRaw.filter((x): x is string => typeof x === 'string').slice(0, 5000)
+        : []
+      const result = applyMigration(ids, ctx, home)
+      clearMcpProbeCache()
+      if (result.migrated > 0) {
+        sessions.mcpChanged('claude')
+        sessions.mcpChanged('codex')
+        sessions.mcpChanged('dsh')
+      }
+      return result
+    }
+  )
+}
+
 function registerClaudeAuthIpc(): void {
   ipcMain.handle(IPC.claudeAuthStatus, () => probeClaudeAuth())
   ipcMain.handle(IPC.claudeAuthLogin, () => startClaudeLogin())
@@ -354,6 +669,20 @@ function registerIdeIpc(): void {
   ipcMain.handle(IPC.ideSearchCode, (e, req: IdeSearchRequest) =>
     req && allow(e, req.cwd) ? searchCode(req) : denyRead()
   )
+  ipcMain.handle(IPC.ideSearchStart, (e, req: IdeSearchStartRequest) => {
+    if (!req || typeof req !== 'object' || typeof req.cwd !== 'string' || !allow(e, req.cwd)) {
+      return denyReadResult()
+    }
+    return startIdeSearch({
+      senderId: e.sender.id,
+      req,
+      send: (event) => sendToIdeSender(e.sender.id, IPC.ideSearchEvent, event)
+    })
+  })
+  ipcMain.on(IPC.ideSearchCancel, (e, requestId: unknown) => {
+    if (requestId === undefined) cancelIdeSearch(e.sender.id)
+    else if (typeof requestId === 'string') cancelIdeSearch(e.sender.id, requestId)
+  })
   ipcMain.handle(IPC.ideReplaceInWorkspace, (e, req: IdeReplaceRequest) =>
     req && allow(e, req.cwd) ? replaceInWorkspace(req) : denyWrite()
   )
@@ -375,8 +704,9 @@ function registerIdeIpc(): void {
 }
 
 /**
- * Git / SVN。只有绑定到该工作区的 IDE 窗口能调用 —— 渲染层传来的 cwd
- * 不可信，必须和窗口创建时记录的工作区一致。
+ * Git / SVN。IDE 窗口只能调用绑定到自己的那个工作区；聊天主窗口可以
+ * 调用已打开工作区的 VCS —— 「新建会话」弹窗要在主窗口里列分支、建工作树。
+ * 渲染层传来的 cwd 仍然按不可信处理，必须先过白名单。
  */
 function registerVcsIpc(sessions: SessionManager): void {
   const deny = (): { ok: false; error: { code: 'forbidden'; message: string } } => ({
@@ -387,8 +717,20 @@ function registerVcsIpc(sessions: SessionManager): void {
     ok: false,
     error: { code: 'busy', message }
   })
+  const knownWorkspace = (cwd: string): boolean => {
+    try {
+      const settings = loadSettings()
+      const known = [settings.defaultCwd, ...settings.openedCwds].filter(Boolean)
+      // 会话的 cwd 可能是工作区里的子目录（比如从子目录启动过 CLI）
+      return known.some((c) => isSameOrInside(cwd, c))
+    } catch {
+      return false
+    }
+  }
   const allow = (e: Electron.IpcMainInvokeEvent, cwd: unknown): boolean =>
-    typeof cwd === 'string' && authorizeVcsSender(e.sender.id, cwd)
+    typeof cwd === 'string' &&
+    (authorizeVcsSender(e.sender.id, cwd) ||
+      (isChatMainSender(e.sender.id) && knownWorkspace(cwd)))
 
   ipcMain.handle(IPC.vcsDetect, (e, cwd: string) =>
     allow(e, cwd) ? vcs.detect(cwd) : deny()
@@ -435,11 +777,27 @@ function registerVcsIpc(sessions: SessionManager): void {
   ipcMain.handle(IPC.vcsUpdate, (e, req: VcsUpdateRequest) =>
     req && allow(e, req.cwd) ? vcs.update(req) : deny()
   )
+  ipcMain.handle(IPC.vcsBranches, (e, req: VcsBranchListRequest) =>
+    req && allow(e, req.cwd) ? vcs.branches(req) : deny()
+  )
+  ipcMain.handle(IPC.vcsWorktreeMap, (e, req: VcsWorktreeMapRequest) => {
+    if (!req || !Array.isArray(req.cwds)) return deny()
+    const cwds = [...new Set(req.cwds)]
+      .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+      .slice(0, 500)
+    // 逐个 cwd 过白名单；失效/不可访问的目录直接忽略，不影响其它分组
+    const permitted = cwds.filter((c) => allow(e, c))
+    if (!permitted.length) return { ok: true, data: { entries: [] } }
+    return vcs.worktreeMap({ cwds: permitted })
+  })
   ipcMain.handle(IPC.vcsWorktreeList, (e, req: VcsWorktreeListRequest) =>
     req && allow(e, req.cwd) ? vcs.worktreeList(req) : deny()
   )
   ipcMain.handle(IPC.vcsWorktreeAdd, (e, req: VcsWorktreeAddRequest) =>
     req && allow(e, req.cwd) ? vcs.worktreeAdd(req) : deny()
+  )
+  ipcMain.handle(IPC.vcsMergeWorktree, (e, req: VcsMergeWorktreeRequest) =>
+    req && allow(e, req.cwd) ? vcs.mergeWorktree(req) : deny()
   )
   ipcMain.handle(IPC.vcsWorktreePrune, (e, req: VcsWorktreePruneRequest) =>
     req && allow(e, req.cwd) ? vcs.worktreePrune(req) : deny()
@@ -476,6 +834,49 @@ function registerVcsIpc(sessions: SessionManager): void {
   )
 }
 
+/** 目录同步：配置、状态、目录选择、手动触发。按 IDE 窗口绑定的工作区授权。 */
+function registerSyncIpc(): void {
+  const allow = (e: Electron.IpcMainInvokeEvent, cwd: unknown): cwd is string =>
+    typeof cwd === 'string' && authorizeVcsSender(e.sender.id, cwd)
+  const deny = (): never => {
+    throw new Error(t('main.workspaceForbidden'))
+  }
+
+  ipcMain.handle(IPC.syncGet, (e, cwd: string) => (allow(e, cwd) ? getSyncState(cwd) : deny()))
+
+  ipcMain.handle(IPC.syncSave, (e, cwd: string, config: unknown) => {
+    if (!allow(e, cwd)) deny()
+    if (!config || typeof config !== 'object') {
+      throw new Error(t('main.invalidPath'))
+    }
+    return saveSyncConfig(cwd, config as SyncConfig)
+  })
+
+  ipcMain.handle(IPC.syncPickDir, async (e, cwd: string, which: unknown) => {
+    if (!allow(e, cwd)) return null
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const title = which === 'dst' ? t('sync.dialog.pickTarget') : t('sync.dialog.pickSource')
+    const r = win
+      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'], title })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'], title })
+    return r.canceled ? null : (r.filePaths[0] ?? null)
+  })
+
+  ipcMain.handle(IPC.syncNow, (e, cwd: string) => {
+    if (!allow(e, cwd)) return { ok: false, message: t('main.workspaceForbidden') }
+    return syncNow(cwd)
+  })
+
+  ipcMain.handle(IPC.syncOpenTarget, async (e, cwd: string) => {
+    if (!allow(e, cwd)) return { ok: false, message: t('main.workspaceForbidden') }
+    const state = getSyncState(cwd)
+    const dst = state.config.dst
+    if (!dst) return { ok: false, message: t('sync.error.noDst') }
+    const err = await shell.openPath(dst)
+    return err ? { ok: false, message: err } : { ok: true }
+  })
+}
+
 /** IDE → 聊天：目标列表与引用投递 */
 function registerChatBridgeIpc(): void {
   ipcMain.on(IPC.chatReportActive, (e, info: ChatActiveInfo) => {
@@ -503,11 +904,27 @@ function broadcast(channel: string, payload: unknown): void {
 
 function registerSessionIpc(sessions: SessionManager): void {
   // 删会话要连进程一起收 —— 放在这里是因为它需要 SessionManager
-  ipcMain.handle(IPC.sessionsDelete, (_e, cwd: string, id: string) => {
+  ipcMain.handle(IPC.sessionsDelete, async (_e, cwd: string, id: string) => {
     // 正在跑的那条先把进程收掉，否则 Windows 上文件被占着 unlink 会 EPERM
     sessions.stopByProviderId(id)
-    return deleteStoredSession(cwd, id)
+    const r = await deleteStoredSession(cwd, id)
+    // 记录都删了，重命名 / 置顶 / 归档也没有存在的意义
+    if (r.ok) forgetSessionMeta(cwd, id)
+    return r
   })
+
+  // 重命名 / 置顶 / 归档只动应用自己的那一份元数据，不碰 CLI 的记录文件
+  ipcMain.handle(IPC.sessionsMeta, () => getSessionMeta())
+  ipcMain.handle(IPC.sessionsSetMeta, (_e, update: SessionMetaUpdate) =>
+    updateSessionMeta(update)
+  )
+  ipcMain.handle(IPC.sessionsSearch, (_e, query: string, limit?: number, offset?: number) =>
+    searchStoredSessions(
+      typeof query === 'string' ? query : '',
+      limit,
+      offset
+    )
+  )
 
   // 工作区不是自动扫出来的，得用户手动打开 —— 这里就是那个"打开"
   ipcMain.handle(IPC.sessionsPickDir, async (e) => {
@@ -524,6 +941,9 @@ function registerSessionIpc(sessions: SessionManager): void {
   ipcMain.handle(IPC.sessionStart, (_e, o: SessionStartOptions) => sessions.start(o))
   ipcMain.handle(IPC.sessionSend, (_e, id: string, input: SessionSendInput) =>
     sessions.send(id, input)
+  )
+  ipcMain.handle(IPC.sessionCommand, (_e, id: string, name: string, args?: string) =>
+    sessions.command(id, name, args)
   )
   ipcMain.on(IPC.sessionInterrupt, (_e, id: string) => sessions.interrupt(id))
   ipcMain.on(IPC.sessionStop, (_e, id: string) => sessions.stop(id))
@@ -545,6 +965,16 @@ function registerSessionIpc(sessions: SessionManager): void {
 }
 
 app.whenReady().then(() => {
+  // Windows 的系统通知需要一个稳定的 AppUserModelID；打包配置里的 appId
+  // 与它保持一致。非 Windows 上是空操作。
+  if (process.platform === 'win32') {
+    try {
+      app.setAppUserModelId('com.ccoder.desktop')
+    } catch {
+      // 个别环境不支持，不影响同步本身
+    }
+  }
+
   // 建窗口前先定语言和主题：原生对话框 / IPC 返回值和首屏都要用
   const initial = loadSettings()
   const systemLocale = app.getSystemLocale?.() ?? app.getLocale()
@@ -628,12 +1058,34 @@ app.whenReady().then(() => {
 
   registerWindowIpc()
   registerSettingsIpc(sessions)
+  registerMcpIpc(sessions)
   registerClaudeAuthIpc()
   registerSessionIpc(sessions)
   registerWorkspaceIpc()
   registerIdeIpc()
   registerVcsIpc(sessions)
+  registerSyncIpc()
   registerChatBridgeIpc()
+
+  // 同步服务 → IDE 窗口的出口与生命周期。必须在建窗口之前装好：
+  // IDE 窗口一打开就要按工作区恢复上次启用的同步。
+  configureSyncHost({
+    send: (cwd, channel, payload) => sendToIdeWindow(cwd, channel, payload),
+    focus: (cwd, openLog) => {
+      focusIdeWindow(cwd)
+      sendToIdeWindow(cwd, IPC.syncFocus, { cwd, openLog })
+    }
+  })
+  setIdeWindowHooks({
+    onOpened: (cwd) => {
+      ensureSync(cwd)
+    },
+    onClosed: (cwd) => {
+      void disposeSync(cwd)
+    },
+    onSenderClosed: (senderId) => cancelIdeSearchesForSender(senderId)
+  })
+
   createWindow()
 
   app.on('activate', () => {
@@ -645,6 +1097,8 @@ app.whenReady().then(() => {
     logMain('app', 'before-quit')
     sessions.stopAll()
     disposeClaudeAuth()
+    cancelAllIdeSearches()
+    void disposeAllSync()
   })
 
   // 和 before-quit 配对：有 before-quit 没 will-quit / quit 说明退出卡在收尾阶段
