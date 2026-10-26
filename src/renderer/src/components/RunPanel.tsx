@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MessageKey } from '@shared/i18n'
-import type { RunAgent, RunState, RunTask } from '../run-state'
+import type { RunAgent, RunBackgroundTask, RunState, RunTask } from '../run-state'
 import { useI18n } from '../i18n'
 import { fmtClock, fmtTokens } from './format'
 import { IconChevronRight } from './Icons'
@@ -41,12 +41,20 @@ export function RunPanel({
   const now = useNow(live)
   const [reportId, setReportId] = useState<string | null>(null)
 
-  if (run.tasks.length === 0 && run.agents.length === 0) return null
+  if (
+    run.tasks.length === 0 &&
+    run.agents.length === 0 &&
+    run.background.length === 0
+  ) {
+    return null
+  }
 
   const done = run.tasks.filter((t) => t.status === 'completed').length
   const active = run.tasks.filter((t) => t.status === 'in_progress').length
   const agentsDone = run.agents.filter((a) => a.status !== 'running').length
   const agentsActive = run.agents.length - agentsDone
+  const backgroundDone = run.background.filter((b) => b.status !== 'running').length
+  const backgroundActive = run.background.length - backgroundDone
   /*
    * 只在进行中显示计时。结束后不拿「主对话这一轮」的时长冒充整轮耗时 ——
    * 后台子代理可能比主对话多跑几分钟，那个数字会和卡片上的耗时打架。
@@ -65,6 +73,17 @@ export function RunPanel({
       t('runpanel.summary.agents', { done: agentsDone, total: run.agents.length })
     )
     if (agentsActive) bits.push(t('runpanel.summary.agentsActive', { n: agentsActive }))
+  }
+  if (run.background.length) {
+    bits.push(
+      t('runpanel.summary.background', {
+        done: backgroundDone,
+        total: run.background.length
+      })
+    )
+    if (backgroundActive) {
+      bits.push(t('runpanel.summary.agentsActive', { n: backgroundActive }))
+    }
   }
 
   return (
@@ -162,6 +181,27 @@ export function RunPanel({
             <div className="rsec__list">
               {run.agents.map((a) => (
                 <AgentCard key={a.id} agent={a} now={now} onOpenReport={setReportId} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/*
+          后台 shell / workflow 单列。它们不是子代理（没有 agentType），
+          但同样会在主对话结束后继续跑 —— 混进子代理区会让人误以为
+          是 Agent 调用，单列才能一眼看出「还有命令在后台跑」。
+        */}
+        {run.background.length > 0 && (
+          <section className="rsec">
+            <div className="rsec__h">
+              <span className="rsec__t">{t('runpanel.backgroundTasks')}</span>
+              <span className="rsec__n">
+                {backgroundDone} / {run.background.length}
+              </span>
+            </div>
+            <div className="rsec__list">
+              {run.background.map((task) => (
+                <BackgroundCard key={task.id} task={task} now={now} />
               ))}
             </div>
           </section>
@@ -348,6 +388,91 @@ function AgentCard({
             <span key={s}>{s}</span>
           ))}
           {ms != null && <span className="tail">{fmtClock(ms)}</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── 后台任务（后台 shell / workflow） ─────────────────────── */
+
+function BackgroundCard({
+  task,
+  now
+}: {
+  task: RunBackgroundTask
+  now: number
+}): JSX.Element {
+  const { t } = useI18n()
+  const running = task.status === 'running'
+  const stopped = task.status === 'stopped'
+  const failed = task.status === 'error'
+  const unknown = task.status === 'unknown'
+  const stateText = running
+    ? t('agentState.running')
+    : stopped
+      ? t('agentState.stopped')
+      : unknown
+        ? t('agentState.unknown')
+        : failed
+          ? t('agentState.failed')
+          : t('agentState.done')
+  const ms =
+    task.ms ?? (running && task.startedAt ? now - task.startedAt : undefined)
+  const description = task.description || t('runpanel.backgroundTask')
+  const tip = task.outputFile ? `${description}\n${task.outputFile}` : description
+  const detail = failed || stopped ? task.error || task.result : task.result
+  // 结果和描述一模一样时只显示一次 —— 后台命令尤其容易这样
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase()
+  const showResult = !!detail && norm(detail) !== norm(description)
+
+  return (
+    <div
+      className={`ragent is-${
+        running ? 'run' : failed ? 'bad' : stopped || unknown ? 'stopped' : 'done'
+      }`}
+    >
+      <div className="ragent__top">
+        <span className="ragent__glyph is-other">▣</span>
+        <div className="ragent__id">
+          <div className="ragent__name">
+            {t('runpanel.backgroundTask')}
+            <span>{t('runpanel.background')}</span>
+          </div>
+          <div className="ragent__desc" title={tip}>
+            {description}
+          </div>
+        </div>
+        <span
+          className={`ragent__state ${
+            running
+              ? ''
+              : failed
+                ? 'is-bad'
+                : stopped || unknown
+                  ? 'is-stopped'
+                  : 'is-done'
+          }`}
+        >
+          {running ? <i /> : failed ? '!' : stopped ? '■' : unknown ? '?' : '✓'}{' '}
+          {stateText}
+        </span>
+      </div>
+
+      {running ? (
+        <div className="ragent__live" title={task.activity}>
+          <span className="ragent__spin">◌</span>
+          {task.activity || t('runpanel.backgroundRunning')}
+        </div>
+      ) : (
+        showResult && (
+          <div className={`ragent__result ${failed ? 'is-bad' : ''}`}>{detail}</div>
+        )
+      )}
+
+      {ms != null && (
+        <div className="ragent__meta">
+          <span className="tail">{fmtClock(ms)}</span>
         </div>
       )}
     </div>

@@ -107,9 +107,15 @@
   color: var(--text-muted);
   letter-spacing: 0.4px;
 }
+/* 「新建工作区」常驻，不用等 hover 才看得到 */
+.sidebar__newws {
+  margin-left: 4px;
+}
 .sidebar__section-tools {
   display: flex;
   gap: 2px;
+  /* 新建按钮常驻在标题旁，工具组仍然靠右 */
+  margin-left: auto;
   opacity: 0;
   transition: opacity 0.12s;
 }
@@ -553,6 +559,10 @@
 }
 .session__main > .session__cli {
   margin-top: 1px;
+}
+/* 置顶标记在 CLI 图标左边，跟图标视觉中心对齐 */
+.session__main > .session__pin {
+  margin-top: 3px;
 }
 .session__del {
   flex: none;

@@ -255,6 +255,10 @@ export type AgentEvent =
       /** 触发它的 Agent / Task 工具调用 id */
       toolUseId?: string
       description: string
+      /**
+       * 子代理类型。**没有它就不是子代理** —— 后台 shell / workflow
+       * 也会发 task_started，界面把它们单列成「后台任务」。
+       */
       agentType?: string
       isBackground?: boolean
       skipTranscript?: boolean

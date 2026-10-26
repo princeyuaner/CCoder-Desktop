@@ -252,7 +252,8 @@ const api: WindowApi = {
       ipcRenderer.invoke(IPC.sessionsSetMeta, update),
     search: (query: string, limit?: number, offset?: number): Promise<SessionSearchResult> =>
       ipcRenderer.invoke(IPC.sessionsSearch, query, limit, offset),
-    pickDir: (): Promise<string | null> => ipcRenderer.invoke(IPC.sessionsPickDir)
+    pickDir: (title?: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.sessionsPickDir, title)
   },
 
   workspace: {

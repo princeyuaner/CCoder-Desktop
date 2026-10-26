@@ -71,6 +71,7 @@ export function App(): JSX.Element {
     running,
     completed,
     pending: pendingApprovals,
+    background,
     sort,
     toggleSort,
     refresh
@@ -220,7 +221,14 @@ export function App(): JSX.Element {
       const sessions = group.sessions.filter((s) => {
         if (!metaOf(s, meta).archived || showArchived) return true
         // 归档只是从默认列表里收起来：正在跑 / 等审批 / 用户正看着的那条不能消失
-        if (running.has(s.id) || pendingApprovals.has(s.id)) return true
+        // 正在跑 / 等审批 / 后台还有任务：归档了也得留在列表里，否则用户看不到它
+        if (
+          running.has(s.id) ||
+          pendingApprovals.has(s.id) ||
+          background.has(s.id)
+        ) {
+          return true
+        }
         return (
           active.kind === 'stored' && active.id === s.id && sameCwd(active.cwd, s.cwd)
         )
@@ -244,6 +252,7 @@ export function App(): JSX.Element {
     showArchived,
     running,
     pendingApprovals,
+    background,
     active,
     sort,
     worktreeMap
@@ -335,9 +344,12 @@ export function App(): JSX.Element {
     void save({ ...settings, openedCwds: opened.filter((c) => !sameCwd(c, cwd)) })
   }
 
-  /** 弹系统目录选择器 */
-  const pickWorkspace = async (): Promise<void> => {
-    const dir = await window.api?.sessions.pickDir()
+  /**
+   * 弹系统目录选择器。`title` 只是对话框标题 —— 选了目录就加进侧栏，
+   * 不在这里建文件夹；原生选择器自己带「新建文件夹」。
+   */
+  const pickWorkspace = async (title?: string): Promise<void> => {
+    const dir = await window.api?.sessions.pickDir(title)
     if (dir) await openWorkspace(dir)
   }
 
@@ -453,6 +465,7 @@ export function App(): JSX.Element {
           running={running}
           completed={completed}
           pending={pendingApprovals}
+          background={background}
           sort={sort}
           onToggleSort={toggleSort}
           activeId={activeStoredId}
@@ -461,7 +474,7 @@ export function App(): JSX.Element {
           onRequestNewSession={setNewSessionCwd}
           onCloseWorkspace={closeWorkspace}
           onOpenIde={(cwd) => void window.api?.ide?.open(cwd)}
-          onPickWorkspace={() => void pickWorkspace()}
+          onPickWorkspace={(title) => void pickWorkspace(title)}
           onDeleteSession={setPendingDelete}
           onRefresh={() => void refresh()}
           onOpenSettings={() => setView('settings')}

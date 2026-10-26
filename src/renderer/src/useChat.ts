@@ -24,12 +24,19 @@ import type {
   SessionStatus,
   SessionStatusPayload
 } from '@shared/session'
-import { emptyRunState, reduceRun, startRun, type RunState } from './run-state'
+import {
+  emptyRunState,
+  isBackgroundAgent,
+  reduceRun,
+  startRun,
+  type RunState
+} from './run-state'
 import {
   approvalFromEvent,
   clearPendingApproval,
   setPendingApproval
 } from './pending-approvals'
+import { clearBackgroundRunning, setBackgroundRunning } from './background-tasks'
 
 /**
  * 转写区的一项 = 一张卡。
@@ -991,6 +998,39 @@ class ChatController {
       this.pendingSteps += stepDelta
     }
     this.patch(patch)
+
+    /*
+     * 后台任务的状态只有 run-state 知道；侧栏只认 CLI session id，
+     * 这里转存一份「还在跑的任务 id」，它据此续着显示「后台运行中」。
+     */
+    if (
+      e.t === 'tool_result' ||
+      e.t === 'task_started' ||
+      e.t === 'task_progress' ||
+      e.t === 'task_updated' ||
+      e.t === 'task_notification'
+    ) {
+      this.syncBackground()
+    }
+  }
+
+  /**
+   * 把当前还在跑的后台工作同步给侧栏；空 = 收掉标记。
+   *
+   * 后台命令和「后台启动的子代理」都算 —— 主对话这一轮结束时它们都可能
+   * 还没跑完，界面上不能写「已完成」。
+   */
+  private syncBackground(): void {
+    const ids = [
+      ...this.snap.run.background
+        .filter((b) => b.status === 'running')
+        .map((b) => b.taskId),
+      ...this.snap.run.agents
+        // startedAt=0 是历史回放，那时进程早没了，不能当成还在跑
+        .filter((a) => a.status === 'running' && a.startedAt > 0 && isBackgroundAgent(a))
+        .map((a) => a.taskId ?? a.id)
+    ]
+    setBackgroundRunning(this.providerSessionId, ids)
   }
 
   handleStatus = (p: SessionStatusPayload): void => {
@@ -1007,6 +1047,8 @@ class ChatController {
       // 进程都不跑了，侧栏那行别再挂着「待审批」
       clearPendingApproval(this.providerSessionId)
     }
+    // 进程退出 = 后台任务也没了；idle 不能清 —— 后台命令这时可能还在跑
+    if (p.status === 'exited') clearBackgroundRunning(this.providerSessionId)
     if (p.message) next.notice = p.message
     this.patch(next)
     // 本轮真的结束了才发下一条 —— 用 status 而不是 turn_end，
@@ -1272,6 +1314,7 @@ class ChatController {
     this.pendingSteps = 0
     this.listeners.clear()
     clearPendingApproval(this.providerSessionId)
+    clearBackgroundRunning(this.providerSessionId)
     const id = this.liveId
     this.liveId = null
     if (id) {

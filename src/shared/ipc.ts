@@ -421,8 +421,11 @@ export interface WindowApi {
      * 标题匹配由渲染层用本地列表完成（那边才知道用户改过的标题）。
      */
     search(query: string, limit?: number, offset?: number): Promise<SessionSearchResult>
-    /** 弹系统目录选择器给「打开工作区」用。取消返回 null */
-    pickDir(): Promise<string | null>
+    /**
+     * 弹系统目录选择器给工作区用。`title` 是对话框标题（缺省「打开工作区」）。
+     * 取消返回 null。
+     */
+    pickDir(title?: string): Promise<string | null>
   }
 
   /** 工作区文件检索 —— @ 引用用。主进程异步扫描并缓存，返回相对路径。 */

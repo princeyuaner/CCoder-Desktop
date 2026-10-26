@@ -70,9 +70,41 @@ export interface RunAgent {
   info?: AgentRunInfo
 }
 
+/**
+ * 后台任务（后台 shell / workflow）。
+ *
+ * 和子代理分开：它们没有 agentType，CLI 也不会给它一份「报告」，但会持续
+ * 发 task_started / task_progress / task_notification。主对话那一轮结束时
+ * 它们很可能还在跑 —— 界面必须能看见，不能笼统标成「已完成」。
+ */
+export type RunBackgroundStatus = 'running' | 'ok' | 'error' | 'stopped' | 'unknown'
+
+export interface RunBackgroundTask {
+  id: string
+  /** CLI 分配的任务 id */
+  taskId: string
+  /** 命令 / 任务描述。CLI 没给时渲染层兜底成「后台任务」 */
+  description: string
+  status: RunBackgroundStatus
+  /** 进入运行的时刻；历史回放拿不到，为 0 */
+  startedAt: number
+  /** CLI 回执里的耗时 */
+  ms?: number
+  /** 完成时的一句话结果（来自 task_notification） */
+  result?: string
+  /** 失败 / 停止原因 */
+  error?: string
+  /** CLI 回传的输出文件路径。只展示，不在这里读 */
+  outputFile?: string
+  /** 实时活动（task_progress 的 summary） */
+  activity?: string
+}
+
 export interface RunState {
   tasks: RunTask[]
   agents: RunAgent[]
+  /** 后台任务：跨轮保留，和子代理并列但单独展示 */
+  background: RunBackgroundTask[]
   /** 本轮开始时刻（用户发出消息时）；0 = 未知 */
   startedAt: number
   endedAt?: number
@@ -96,6 +128,7 @@ export function emptyRunState(): RunState {
   return {
     tasks: [],
     agents: [],
+    background: [],
     startedAt: 0,
     steps: 0,
     added: 0,
@@ -116,6 +149,7 @@ export function startRun(prev: RunState, at: number): RunState {
   return {
     ...prev,
     agents: prev.agents,
+    background: prev.background,
     startedAt: at,
     endedAt: undefined,
     durationMs: undefined,
@@ -589,8 +623,8 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
     }
 
     /*
-     * 任务系统事件。后台代理的状态由它们推进，而不是由 Agent 工具的回执。
-     * 这些事件不影响步数/改动量，只更新对应的子代理卡片。
+     * 任务系统事件。后台代理 / 后台命令的状态由它们推进，而不是由工具回执。
+     * 这些事件不影响步数/改动量，只更新对应的子代理卡片或后台任务。
      */
     case 'task_started': {
       const base = live ? { ...state, endedAt: undefined, durationMs: undefined } : state
@@ -609,8 +643,40 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
         }
         return { ...base, agents }
       }
-      // 没有 agentType 的 task_started 是后台 shell/workflow，不建子代理卡
-      if (!e.agentType) return base
+      /*
+       * 没有 agentType 的 task_started 是后台 shell/workflow。它不是子代理，
+       * 但也不能丢：单独记进 background，轮末和侧栏靠它判断「活儿还没干完」。
+       *
+       * 历史回放不知道它后来有没有跑完（开始时刻也没有），先标 unknown；
+       * 后面的 task_updated / task_notification 如果存在会把它改成最终状态。
+       */
+      if (!e.agentType) {
+        const bIdx = base.background.findIndex((b) => b.taskId === e.taskId)
+        if (bIdx >= 0) {
+          const prev = base.background[bIdx]
+          const background = base.background.slice()
+          background[bIdx] = {
+            ...prev,
+            description: e.description || prev.description,
+            status: live && prev.status === 'unknown' ? 'running' : prev.status,
+            startedAt: prev.startedAt || (live ? now : 0)
+          }
+          return { ...base, background }
+        }
+        return {
+          ...base,
+          background: [
+            {
+              id: `bg:${e.taskId}`,
+              taskId: e.taskId,
+              description: e.description,
+              status: live ? 'running' : 'unknown',
+              startedAt: live ? now : 0
+            },
+            ...base.background
+          ]
+        }
+      }
       const agent: RunAgent = {
         id: e.toolUseId || `task:${e.taskId}`,
         tool: 'Agent',
@@ -626,7 +692,19 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
 
     case 'task_progress': {
       const idx = findAgentIndex(state.agents, e.taskId, e.toolUseId)
-      if (idx < 0) return state
+      if (idx < 0) {
+        const bIdx = state.background.findIndex((b) => b.taskId === e.taskId)
+        if (bIdx < 0) return state
+        const prev = state.background[bIdx]
+        const background = state.background.slice()
+        background[bIdx] = {
+          ...prev,
+          description: e.description || prev.description,
+          ms: e.durationMs ?? prev.ms,
+          activity: prev.status === 'running' ? e.summary || prev.activity : prev.activity
+        }
+        return { ...state, background }
+      }
       const prev = state.agents[idx]
       const info = mergeAgentInfo(prev.info, {
         agentType: e.agentType,
@@ -650,7 +728,40 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
 
     case 'task_updated': {
       const idx = findAgentIndex(state.agents, e.taskId)
-      if (idx < 0) return state
+      if (idx < 0) {
+        const bIdx = state.background.findIndex((b) => b.taskId === e.taskId)
+        if (bIdx < 0) return state
+        const prev = state.background[bIdx]
+        const map: Record<string, RunBackgroundStatus> = {
+          pending: 'running',
+          running: 'running',
+          completed: 'ok',
+          failed: 'error',
+          killed: 'error',
+          paused: 'running'
+        }
+        const mapped = e.status ? (map[e.status] ?? prev.status) : prev.status
+        /*
+         * 历史回放里也可能有中间态（running）。进程早就不在了，不能把
+         * 它算成「现在还在跑」——保持 unknown，只接受终态通知。
+         */
+        const status = !live && mapped === 'running' ? prev.status : mapped
+        const endMs = e.endTime
+          ? e.endTime > 1e12
+            ? e.endTime
+            : e.endTime * 1000
+          : undefined
+        const background = state.background.slice()
+        background[bIdx] = {
+          ...prev,
+          description: e.description || prev.description,
+          status,
+          ms: endMs && prev.startedAt ? endMs - prev.startedAt : prev.ms,
+          error: status === 'error' ? clipError(e.error || prev.error) : undefined,
+          activity: status === 'running' ? prev.activity : undefined
+        }
+        return { ...state, background }
+      }
       const prev = state.agents[idx]
       const map: Record<string, RunAgentStatus> = {
         pending: 'running',
@@ -684,9 +795,35 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
 
     case 'task_notification': {
       const idx = findAgentIndex(state.agents, e.taskId, e.toolUseId)
-      const status: RunAgentStatus =
+      const status: 'ok' | 'stopped' | 'error' =
         e.status === 'completed' ? 'ok' : e.status === 'stopped' ? 'stopped' : 'error'
-      const info = mergeAgentInfo(idx >= 0 ? state.agents[idx].info : undefined, {
+
+      if (idx < 0) {
+        /*
+         * 不是子代理就找后台任务。后台 shell 的通知以前在这里被整条丢掉，
+         * 结果既看不到完成、也无法把轮末的「运行中」收掉。
+         */
+        const bIdx = state.background.findIndex((b) => b.taskId === e.taskId)
+        if (bIdx < 0) return state
+        const prev = state.background[bIdx]
+        const summary = e.summary ? (summaryOfContent(e.summary) ?? e.summary) : undefined
+        const background = state.background.slice()
+        background[bIdx] = {
+          ...prev,
+          status,
+          ms: e.durationMs ?? prev.ms,
+          result: summary ?? prev.result,
+          error:
+            status === 'error'
+              ? clipError(e.reason || summary || prev.error)
+              : undefined,
+          outputFile: e.outputFile || prev.outputFile,
+          activity: undefined
+        }
+        return { ...state, background }
+      }
+
+      const info = mergeAgentInfo(state.agents[idx].info, {
         agentId: e.taskId,
         status: e.status,
         durationMs: e.durationMs,
@@ -694,15 +831,6 @@ export function reduceRun(state: RunState, e: AgentEvent, live = true): RunState
         toolUseCount: e.toolUses,
         summary: e.summary || undefined
       })
-
-      if (idx < 0) {
-        /*
-         * 找不到对应卡片就丢掉这条通知。后台 shell 也会发 task_notification，
-         * 它们的 tool_use_id 指向 Bash 调用；如果在这里补卡，执行台会被
-         * 一堆「Background command ...」冒充成子代理。
-         */
-        return state
-      }
 
       const prev = state.agents[idx]
       const agents = state.agents.slice()

@@ -18,6 +18,7 @@ import { ChatHeader } from './ChatHeader'
 import { ConfirmModal } from './ConfirmModal'
 import { IconArrowRight, IconBranch, IconOpenInIde } from './Icons'
 import { notify } from '../notice'
+import { isBackgroundAgent } from '../run-state'
 import { TabBar, type TabKey } from './TabBar'
 import { Transcript } from './Transcript'
 import { Composer, type ModelSelection } from './Composer'
@@ -200,7 +201,23 @@ export function MainPane({
    * 误标成已完成。只要还有 running 的代理，面板就继续显示运行中。
    */
   const agentsRunning = chat.run.agents.filter((a) => a.status === 'running').length
-  const panelLive = running || agentsRunning > 0
+  /**
+   * 后台 shell / workflow / 后台子代理还在跑。
+   *
+   * 主对话这一轮可能已经结束，但它们没跑完 —— 执行台要继续显示运行中，
+   * 轮末也不能写「已完成」。
+   */
+  const backgroundRunning =
+    chat.run.background.filter((b) => b.status === 'running').length +
+    // 后台启动的子代理同样可能在轮末之后继续跑
+    chat.run.agents.filter(
+      (a) =>
+        a.status === 'running' &&
+        // 历史回放里的 startedAt=0，不能当成还在跑
+        a.startedAt > 0 &&
+        isBackgroundAgent(a)
+    ).length
+  const panelLive = running || agentsRunning > 0 || backgroundRunning > 0
 
   /**
    * 执行台的展开状态。
@@ -209,7 +226,10 @@ export function MainPane({
    * 用户手动收起来之后记 false，这一轮不再自己弹开；换会话时复位。
    */
   const [panelPref, setPanelPref] = useState<boolean | null>(null)
-  const hasRunInfo = chat.run.tasks.length > 0 || chat.run.agents.length > 0
+  const hasRunInfo =
+    chat.run.tasks.length > 0 ||
+    chat.run.agents.length > 0 ||
+    chat.run.background.length > 0
   const panelOpen = hasRunInfo && (panelPref ?? true)
 
   useEffect(() => {
@@ -525,6 +545,7 @@ export function MainPane({
           tab={tab}
           status={chat.status}
           agentsRunning={agentsRunning}
+          backgroundRunning={backgroundRunning}
           // 等待占位的计时起点跟着会话状态走，切走再切回来能续上
           waitingSince={chat.waitingSince}
           // 换会话时转写区的滚动位置要复位。带上 cli —— 换 CLI 也是换会话

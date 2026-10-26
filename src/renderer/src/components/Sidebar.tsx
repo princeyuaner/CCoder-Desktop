@@ -19,7 +19,6 @@ import {
   IconClock,
   IconDeepSeek,
   IconFolder,
-  IconFolderPlus,
   IconGear,
   IconMore,
   IconPencil,
@@ -63,6 +62,13 @@ interface SidebarProps {
    * 当前会话不在里面显示跑马灯 —— 它的审批面板就在主区里。
    */
   pending: ReadonlyMap<string, PendingApproval>
+  /**
+   * 后台任务还在跑的会话（CLI session id）。
+   *
+   * 主对话那一轮已经结束、后台 shell 还没跑完时用它 —— 行尾写
+   * 「后台运行中」，不能标成「已完成」。
+   */
+  background: ReadonlySet<string>
   /** 会话行排序：创建时间 / 最近活动 */
   sort: SessionSort
   onToggleSort: () => void
@@ -78,8 +84,11 @@ interface SidebarProps {
   onCloseWorkspace: (cwd: string) => void
   /** 打开该工作区的独立 IDE 窗口 */
   onOpenIde: (cwd: string) => void
-  /** 弹系统目录选择器，挑一个新目录加进列表 */
-  onPickWorkspace: () => void
+  /**
+   * 弹系统目录选择器，挑一个目录加进列表。
+   * 标题由调用方给：新建工作区时用「新建工作区」。
+   */
+  onPickWorkspace: (title?: string) => void
   onDeleteSession: (s: StoredSession) => void
   onRefresh: () => void
   onOpenSettings: () => void
@@ -107,6 +116,7 @@ export function Sidebar({
   running,
   completed,
   pending,
+  background,
   sort,
   onToggleSort,
   activeId,
@@ -134,9 +144,8 @@ export function Sidebar({
   /** 正在内联重命名的会话键；同一时间只允许一行 */
   const [renamingKey, setRenamingKey] = useState<string | null>(null)
 
-  const openMenu = (s: StoredSession, el: HTMLElement): void => {
-    const r = el.getBoundingClientRect()
-    setMenu({ s, x: r.left, y: r.bottom + 5 })
+  const openMenu = (s: StoredSession, x: number, y: number): void => {
+    setMenu({ s, x, y })
   }
 
   const startRename = (s: StoredSession): void => {
@@ -175,6 +184,14 @@ export function Sidebar({
 
       <div className="sidebar__section-head">
         <span className="sidebar__section-title">{t('sidebar.workspace')}</span>
+        <button
+          className="iconbtn iconbtn--sm sidebar__newws"
+          title={t('sidebar.newWorkspace')}
+          aria-label={t('sidebar.newWorkspace')}
+          onClick={() => onPickWorkspace(t('sidebar.newWorkspace'))}
+        >
+          <IconPlus width={14} height={14} />
+        </button>
         <div className="sidebar__section-tools">
           <button
             className="iconbtn"
@@ -189,13 +206,6 @@ export function Sidebar({
             onClick={onToggleSort}
           >
             <IconSort width={14} height={14} />
-          </button>
-          <button
-            className="iconbtn"
-            title={t('sidebar.pickWorkspace')}
-            onClick={onPickWorkspace}
-          >
-            <IconFolderPlus width={14} height={14} />
           </button>
         </div>
       </div>
@@ -216,6 +226,7 @@ export function Sidebar({
             running={running}
             completed={completed}
             pending={pending}
+            background={background}
             activeId={activeId}
             worktreeBranches={worktreeBranches}
             meta={meta}
@@ -276,6 +287,7 @@ function WorkspaceGroup({
   running,
   completed,
   pending,
+  background,
   activeId,
   worktreeBranches,
   meta,
@@ -294,6 +306,7 @@ function WorkspaceGroup({
   running: Set<string>
   completed: ReadonlySet<string>
   pending: ReadonlyMap<string, PendingApproval>
+  background: ReadonlySet<string>
   activeId: string | null
   worktreeBranches: Record<string, string>
   meta: SessionMetaMap
@@ -304,7 +317,7 @@ function WorkspaceGroup({
   onOpenIde: (cwd: string) => void
   onDeleteSession: (s: StoredSession) => void
   onRefresh: () => void
-  onOpenMenu: (s: StoredSession, el: HTMLElement) => void
+  onOpenMenu: (s: StoredSession, x: number, y: number) => void
   onCommitRename: (s: StoredSession, value: string) => void
   onCancelRename: () => void
 }): JSX.Element {
@@ -415,6 +428,7 @@ function WorkspaceGroup({
             active={s.id === activeId}
             running={running.has(s.id)}
             done={completed.has(s.id)}
+            background={background.has(s.id)}
             approval={pending.get(s.id)}
             renaming={renamingKey === key}
             onSelect={() => {
@@ -422,7 +436,7 @@ function WorkspaceGroup({
               onRefresh()
             }}
             onDelete={() => onDeleteSession(s)}
-            onOpenMenu={(el) => onOpenMenu(s, el)}
+            onOpenMenu={(x, y) => onOpenMenu(s, x, y)}
             onCommitRename={(value) => onCommitRename(s, value)}
             onCancelRename={onCancelRename}
           />
@@ -446,6 +460,7 @@ function SessionRow({
   active,
   running,
   done,
+  background,
   approval,
   renaming,
   onSelect,
@@ -462,13 +477,15 @@ function SessionRow({
   running: boolean
   /** 刚跑完、用户还没点开看过 */
   done: boolean
+  /** 主对话已结束，但后台任务还在跑 */
+  background: boolean
   /** 这条会话正在等的审批；没有就是 undefined */
   approval?: PendingApproval
   /** 正在内联重命名 */
   renaming: boolean
   onSelect: () => void
   onDelete: () => void
-  onOpenMenu: (el: HTMLElement) => void
+  onOpenMenu: (x: number, y: number) => void
   onCommitRename: (value: string) => void
   onCancelRename: () => void
 }): JSX.Element {
@@ -501,7 +518,7 @@ function SessionRow({
         }`}
       >
         <div className="session__main session__main--rename">
-          <CliMark cli={s.cli} running={running && !waiting} />
+          <CliMark cli={s.cli} running={(running || background) && !waiting} />
           <RenameInput initial={title} onCommit={onCommitRename} onCancel={onCancelRename} />
         </div>
       </div>
@@ -513,6 +530,11 @@ function SessionRow({
       className={`session ${active ? 'is-active' : ''} ${waiting ? 'is-pending' : ''} ${
         archived ? 'is-archived' : ''
       }`}
+      onContextMenu={(e) => {
+        // 右键整行弹出操作菜单，位置跟着光标走
+        e.preventDefault()
+        onOpenMenu(e.clientX, e.clientY)
+      }}
     >
       <button
         className="session__main"
@@ -525,17 +547,17 @@ function SessionRow({
           等审批时进程还活着，但卡在用户这里 —— 不是"在干活"，
           别让图标继续跳，把注意力留给跑马灯。
         */}
-        <CliMark cli={s.cli} running={running && !waiting} />
+        <CliMark cli={s.cli} running={(running || background) && !waiting} />
+        {pinned && (
+          <IconPin
+            className="session__pin"
+            width={11}
+            height={11}
+            aria-label={t('sidebar.pinned')}
+          />
+        )}
         <span className="session__text">
           <span className="session__line1">
-            {pinned && (
-              <IconPin
-                className="session__pin"
-                width={11}
-                height={11}
-                aria-label={t('sidebar.pinned')}
-              />
-            )}
             {waiting ? (
               <PendingTitle text={`${label} · ${detail}`} />
             ) : (
@@ -558,14 +580,20 @@ function SessionRow({
               */
               <span
                 className={`session__time ${
-                  running ? 'session__time--running' : done ? 'session__time--done' : ''
+                  running || background
+                    ? 'session__time--running'
+                    : done
+                      ? 'session__time--done'
+                      : ''
                 }`}
               >
                 {running
                   ? t('sidebar.running')
-                  : done
-                    ? t('sidebar.done')
-                    : formatRelativeTime(s.updatedAt, locale, 'short')}
+                  : background
+                    ? t('sidebar.backgroundRunning')
+                    : done
+                      ? t('sidebar.done')
+                      : formatRelativeTime(s.updatedAt, locale, 'short')}
               </span>
             )}
           </span>
@@ -582,7 +610,10 @@ function SessionRow({
         className="session__more"
         title={t('sidebar.sessionActions')}
         aria-haspopup="menu"
-        onClick={(e) => onOpenMenu(e.currentTarget)}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          onOpenMenu(r.left, r.bottom + 5)
+        }}
       >
         <IconMore width={14} height={14} />
       </button>

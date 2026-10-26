@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { baseName } from '@shared/path'
 import type { StoredSession } from '@shared/session'
 import { subscribePendingApprovals, type PendingApproval } from './pending-approvals'
+import { subscribeBackgroundRunning } from './background-tasks'
 
 export interface WorkspaceView {
   cwd: string
@@ -54,6 +55,13 @@ export function useSessions(activeId: string | null): {
    * 清掉。侧栏拿它给**不是当前会话**的行挂跑马灯。
    */
   pending: ReadonlyMap<string, PendingApproval>
+  /**
+   * 后台任务还在跑的会话（CLI 的 session id）。
+   *
+   * 主对话这一轮可能已经结束（idle），但后台 shell 还在干活 —— 这些行
+   * 不能标「已完成」，侧栏会写「后台运行中」。
+   */
+  background: ReadonlySet<string>
   /** 当前排序方式 */
   sort: SessionSort
   toggleSort: () => void
@@ -64,6 +72,8 @@ export function useSessions(activeId: string | null): {
   const [running, setRunning] = useState<Set<string>>(() => new Set())
   const [completed, setCompleted] = useState<ReadonlySet<string>>(() => new Set())
   const [pending, setPending] = useState<ReadonlyMap<string, PendingApproval>>(() => new Map())
+  /** 后台任务还在跑的会话 —— 由各 ChatController 同步过来 */
+  const [background, setBackground] = useState<ReadonlySet<string>>(() => new Set())
   // 默认按创建时间：运行中的会话写盘不会改变行序
   const [sort, setSort] = useState<SessionSort>('created')
   const lastAt = useRef(0)
@@ -82,6 +92,8 @@ export function useSessions(activeId: string | null): {
   const runningRef = useRef<Set<string>>(new Set())
   /** 用户此刻正在看的会话；它跑完时不该再挂「已完成」 */
   const activeRef = useRef<string | null>(activeId)
+  /** status 事件里要同步判断「还有没有后台任务」，不能用异步 state */
+  const backgroundRef = useRef<ReadonlySet<string>>(new Set())
 
   const refresh = useCallback(async (): Promise<StoredSession[]> => {
     if (!window.api?.sessions) {
@@ -267,9 +279,16 @@ export function useSessions(activeId: string | null): {
       /*
        * 一轮跑完了。只认 idle：
        * - exited 是用户主动停掉/删掉的，不是「完成」；
-       * - 正看着的那条也不标 —— 结果就在眼前，没必要再点一次收角标。
+       * - 正看着的那条也不标 —— 结果就在眼前，没必要再点一次收角标；
+       * - 后台 shell 还在跑的话也不算完成，等它结束（通知到达后会自动开始
+       *   下一轮，或者由 background 订阅把标记补上）。
        */
-      if (p.status === 'idle' && wasRunning && id !== activeRef.current) {
+      if (
+        p.status === 'idle' &&
+        wasRunning &&
+        id !== activeRef.current &&
+        !backgroundRef.current.has(id)
+      ) {
         setCompleted((prev) => {
           if (prev.has(id)) return prev
           const next = new Set(prev)
@@ -293,6 +312,29 @@ export function useSessions(activeId: string | null): {
    * subscribe 时会先回放一次当前快照，界面重挂载不会丢。
    */
   useEffect(() => subscribePendingApprovals(setPending), [])
+
+  /**
+   * 「哪条会话还有后台任务在跑」。
+   *
+   * 主对话的 idle 事件先到、后台任务事件后到也没关系：一旦某个会话出现
+   * 后台任务，这里会把它上一轮标上的「已完成」撤回 —— 活还没干完。
+   */
+  useEffect(() => {
+    return subscribeBackgroundRunning((ids) => {
+      const prev = backgroundRef.current
+      backgroundRef.current = ids
+      setBackground(ids)
+      for (const id of ids) {
+        if (prev.has(id)) continue
+        setCompleted((cur) => {
+          if (!cur.has(id)) return cur
+          const next = new Set(cur)
+          next.delete(id)
+          return next
+        })
+      }
+    })
+  }, [])
 
   const toggleSort = useCallback((): void => {
     setSort((s) => (s === 'created' ? 'recent' : 'created'))
@@ -324,5 +366,15 @@ export function useSessions(activeId: string | null): {
     return out
   }, [sessions, sort])
 
-  return { workspaces, loading, running, completed, pending, sort, toggleSort, refresh }
+  return {
+    workspaces,
+    loading,
+    running,
+    completed,
+    pending,
+    background,
+    sort,
+    toggleSort,
+    refresh
+  }
 }

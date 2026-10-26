@@ -1,5 +1,4 @@
 import type { AgentEvent } from '../../../shared/events'
-import { t } from '../../i18n'
 
 /**
  * CLI 的 task_* system 事件 → 归一化 AgentEvent。
@@ -50,21 +49,25 @@ export function taskSystemEvent(raw: Record<string, unknown>): AgentEvent | null
   switch (str(raw.subtype)) {
     case 'task_started': {
       const taskId = str(raw.task_id)
+      if (!taskId) return null
       const toolUseId = str(raw.tool_use_id) || undefined
       const taskType = str(raw.task_type)
+      /*
+       * agentType 只给真正的子代理。后台 shell 也会发 task_started，而且
+       * **带 tool_use_id** —— 不能拿「有 tool_use_id」当代理判据，否则会把
+       * 后台命令显示成两张重复的「subagent」卡片。
+       *
+       * 没有 agentType 的任务不再丢弃：渲染层把它们单列成「后台任务」，
+       * 轮末据此继续显示运行中，而不是「已完成」。
+       */
       const agentType =
         str(raw.subagent_type) || (taskType === 'local_agent' ? 'agent' : undefined)
-      /*
-       * 只认真正的子代理。后台 shell 也会发 task_started，而且**带 tool_use_id** ——
-       * 之前拿「有 tool_use_id 就当代理」的判据，会把后台命令显示成两张
-       * 重复的「subagent」卡片（描述同时进了标题和结果行）。
-       */
-      if (!taskId || !agentType) return null
       return {
         t: 'task_started',
         taskId,
         toolUseId,
-        description: str(raw.description) || agentType || t('agentType.subagent'),
+        // 描述交给渲染层兜底：后台任务的空描述不能写成「子代理」
+        description: str(raw.description) || agentType || '',
         agentType,
         isBackground: raw.is_backgrounded === true ? true : undefined,
         skipTranscript: raw.skip_transcript === true ? true : undefined

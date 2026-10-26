@@ -100,6 +100,10 @@ interface DisplayPrefs {
    * 已经结束的会话里会一直有个秒表在走。
    */
   live: boolean
+  /** 还在跑的后台任务数：轮末据此把「已完成」换成「后台任务运行中」 */
+  backgroundRunning: number
+  /** 最后一条 turn 分隔条 —— 只有它的状态还跟着实时任务走 */
+  lastTurnId: string | null
 }
 
 const DEFAULT_DISPLAY: DisplayPrefs = {
@@ -107,7 +111,9 @@ const DEFAULT_DISPLAY: DisplayPrefs = {
   thinkingOpen: false,
   toolDetail: 'full',
   cwd: '',
-  live: false
+  live: false,
+  backgroundRunning: 0,
+  lastTurnId: null
 }
 
 const DisplayContext = createContext<DisplayPrefs>(DEFAULT_DISPLAY)
@@ -196,6 +202,11 @@ interface Props {
    * 带上这个数才能把占位文案说准。
    */
   agentsRunning: number
+  /**
+   * 主对话结束后仍在跑的后台任务数。大于 0 时最后一轮的「已完成」
+   * 要改成「后台任务运行中」—— 活还没干完，别给用户一个假的结束。
+   */
+  backgroundRunning: number
   /** 当前等待的起点（Date.now()）。切走再切回来时占位行靠它续上计时 */
   waitingSince?: number
   /** 换会话时用它复位滚动位置 */
@@ -213,6 +224,7 @@ export function Transcript({
   tab,
   status,
   agentsRunning,
+  backgroundRunning,
   waitingSince,
   sessionKey,
   showTimestamps,
@@ -248,6 +260,14 @@ export function Transcript({
   const settleUntilRef = useRef(0)
   const [showJump, setShowJump] = useState(false)
 
+  /** 最后一条 turn 分隔条：只有它还需要跟着实时任务状态变 */
+  const lastTurnId = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].kind === 'turn') return items[i].id
+    }
+    return null
+  }, [items])
+
   // 只在设置真的变了时换 context 值，避免每来一个 delta 都把消费方全部重渲染
   const display = useMemo<DisplayPrefs>(
     () => ({
@@ -255,9 +275,11 @@ export function Transcript({
       thinkingOpen,
       toolDetail,
       cwd,
-      live: status === 'running' || status === 'starting'
+      live: status === 'running' || status === 'starting',
+      backgroundRunning,
+      lastTurnId
     }),
-    [showTimestamps, thinkingOpen, toolDetail, cwd, status]
+    [showTimestamps, thinkingOpen, toolDetail, cwd, status, backgroundRunning, lastTurnId]
   )
 
   /** 贴到底部，并记下浏览器实际落在哪儿（内容比视口短时会被夹到 0） */
@@ -999,7 +1021,18 @@ function SystemRow({ item }: { item: Extract<ChatItem, { kind: 'system' }> }): J
 
 function TurnSep({ item }: { item: Extract<ChatItem, { kind: 'turn' }> }): JSX.Element {
   const { t, tn, locale } = useI18n()
-  const bits: string[] = [t('transcript.turnDone')]
+  const { backgroundRunning, lastTurnId } = useContext(DisplayContext)
+  /*
+   * 最后一轮结束时后台任务可能还在跑（比如后台打包）。这时不能写
+   * 「已完成」—— 用户会以为活干完了，结果却还没回来。
+   * 更早的轮次保持原样：那些轮本来就结束了。
+   */
+  const pendingBackground = backgroundRunning > 0 && item.id === lastTurnId
+  const bits: string[] = [
+    pendingBackground
+      ? tn('transcript.turnBackgroundRunning', backgroundRunning)
+      : t('transcript.turnDone')
+  ]
   // 历史回放拿不到每轮耗时（jsonl 里没这个字段），此时就不显示
   if (item.durationMs) {
     bits.push(t('transcript.duration', { duration: formatDuration(item.durationMs, locale) }))

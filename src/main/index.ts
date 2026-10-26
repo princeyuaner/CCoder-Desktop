@@ -927,11 +927,22 @@ function registerSessionIpc(sessions: SessionManager): void {
   )
 
   // 工作区不是自动扫出来的，得用户手动打开 —— 这里就是那个"打开"
-  ipcMain.handle(IPC.sessionsPickDir, async (e) => {
+  ipcMain.handle(IPC.sessionsPickDir, async (e, title?: string) => {
     const win = BrowserWindow.fromWebContents(e.sender)
+    // 调用方可以带标题（如「新建工作区」）；不带就沿用默认的「打开工作区」
+    const dialogTitle =
+      typeof title === 'string' && title.trim()
+        ? title.trim()
+        : t('main.dialog.openWorkspace')
     const r = win
-      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: t('main.dialog.openWorkspace') })
-      : await dialog.showOpenDialog({ properties: ['openDirectory'], title: t('main.dialog.openWorkspace') })
+      ? await dialog.showOpenDialog(win, {
+          properties: ['openDirectory'],
+          title: dialogTitle
+        })
+      : await dialog.showOpenDialog({
+          properties: ['openDirectory'],
+          title: dialogTitle
+        })
     return r.canceled ? null : (r.filePaths[0] ?? null)
   })
 
