@@ -600,7 +600,7 @@ export const en = {
     'Since Codex 0.163 only the Responses API is supported (wire_api = responses); upstream removed Chat Completions. The gateway must expose /v1/responses.',
   'channel.modelProtocol.dshLabel': 'DeepSeek Harness adapter',
   'channel.modelProtocol.dshHint':
-    'The model is resolved by dsh own adapter; the name is passed through ACP session/set_config_option.',
+    'The model is resolved by dsh own adapter; the name is passed through the dsh Web session/selectModel endpoint.',
   'channel.auth.label': 'Authentication',
   'channel.auth.hintAnthropic':
     'Choosing wrong causes persistent 401s: most gateways use Bearer; Anthropic official uses x-api-key',
@@ -773,6 +773,27 @@ export const en = {
   'dsh.nodeBadTitle': 'Node 24+ required',
   'dsh.nodeBadBody':
     'DeepSeek Harness was found, but the current Node does not support import.meta.main (dsh uses it to decide whether to start). Install Node 24 or set NODE_BIN to point at it, then re-check.',
+  'dsh.web.resumeMissing':
+    'This dsh session is no longer on disk (deleted or owned by another process), so it cannot be resumed. Start a new session.',
+  'dsh.web.followLost': 'Session event stream disconnected: {detail}',
+  'dsh.web.modelUnavailable':
+    'DeepSeek Harness did not accept model "{model}"; continuing with the default model. {detail}',
+  'dsh.web.effortUnavailable':
+    'DeepSeek Harness does not support reasoning effort "{effort}" (available: {options}); using the model default.',
+  'dsh.web.emptyPrompt': 'The message is empty; nothing was sent.',
+  'dsh.web.offline':
+    'The DeepSeek Harness web service is reconnecting; this message was not sent. Try again shortly.',
+  'dsh.web.promptFailed': 'DeepSeek Harness turn failed: {detail}',
+  'dsh.web.commandFailed': 'DeepSeek Harness command failed: {detail}',
+  'dsh.web.answerLost': 'The answer did not reach DeepSeek Harness: {detail}',
+  'dsh.web.connectionLost': 'Disconnected from the DeepSeek Harness web service; reconnecting…',
+  'dsh.web.startFailed': 'DeepSeek Harness web service failed to start: {detail}',
+
+  /* ── Permissions (shared by DSH) ───────────────────────── */
+  'dsh.permission.allow': 'Allow',
+  'dsh.permission.allowAlways': 'Always allow {tool} this session',
+  'dsh.permission.deny': 'Deny',
+  'dsh.permission.denyAlways': 'Always deny this session',
 
   /* ── About / updates ────────────────────────────────────── */
   'about.tagline': 'Claude Code, Codex CLI and DeepSeek Harness in one desktop window.',

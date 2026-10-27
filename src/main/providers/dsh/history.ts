@@ -1,12 +1,10 @@
 import { closeSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs'
 import { join, normalize } from 'node:path'
 import { decompress } from 'fzstd'
-import type { AgentEvent, Usage } from '../../../shared/events'
+import type { AgentEvent } from '../../../shared/events'
 import type { StoredSession } from '../../../shared/session'
-import type { ToolStat } from '../../../shared/tool'
 import { t } from '../../i18n'
-import { diffLines } from '../permission-preview'
-import { normalizeToolInput, toolFailed, uiToolName } from './adapter'
+import { DshEventTranslator } from './events'
 import { listDshHomes } from './runner'
 
 /**
@@ -380,41 +378,6 @@ export function listDshSessionFiles(): DshSessionFile[] {
 
 /* ── 历史回放 ─────────────────────────────────────────────── */
 
-function parseArguments(raw: unknown): Record<string, unknown> {
-  if (typeof raw === 'string') {
-    if (!raw.trim()) return {}
-    try {
-      return obj(JSON.parse(raw)) ?? {}
-    } catch {
-      return { raw }
-    }
-  }
-  return obj(raw) ?? {}
-}
-
-function contentText(content: unknown): string {
-  const parts: string[] = []
-  for (const item of arr(content)) {
-    const o = obj(item)
-    if (!o) continue
-    const type = str(o.type)
-    if (type === 'text') parts.push(str(o.text))
-    else if (type === 'image') parts.push('[图片]')
-    // grep / read 的结果会再套一层 tool-result
-    else if (type === 'tool-result') parts.push(contentText(o.content))
-  }
-  return parts.filter(Boolean).join('\n')
-}
-
-function emptyUsage(): Usage {
-  return {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheCreationTokens: 0
-  }
-}
-
 /**
  * 把一份 dsh 会话回放成 AgentEvent。
  *
@@ -463,226 +426,30 @@ export function readDshTranscript(file: string, cwd: string, sessionId = ''): Ag
   }
 
   const out: AgentEvent[] = []
-  let started = false
-  const start = (): void => {
-    if (started) return
-    started = true
-    out.push({
-      t: 'session_started',
-      sessionId,
-      provider: 'dsh',
-      model,
-      cwd: headerCwd || cwd,
-      tools: [],
-      permissionMode: 'standard'
-    })
-  }
-
-  let turnStart = 0
-  let steps = 0
-  /** 本轮累计（所有 step 的请求之和） */
-  let totals = emptyUsage()
-  /** 本轮最后一次请求 —— 上下文占用按它算 */
-  let lastRequest: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } | null =
-    null
-  /** assistant/message 与 tool/call 会各报一次同一个调用，按 id 去重 */
-  const seenCalls = new Set<string>()
-  /** 工具结果里要补的调用信息（生成文件时算增删行数） */
-  const callInputs = new Map<string, Record<string, unknown>>()
-
-  const emitCall = (id: string, rawName: string, args: unknown): void => {
-    if (!id || seenCalls.has(id)) return
-    seenCalls.add(id)
-    const input = normalizeToolInput(parseArguments(args), [])
-    callInputs.set(id, input)
-    const name = uiToolName(rawName, '')
-    const path = str(input.file_path) || str(input.path)
-    out.push({ t: 'tool_started', id, name, ...(path ? { path } : {}) })
-    out.push({ t: 'tool_call', id, name, input })
-  }
+  const translator = new DshEventTranslator({
+    sessionId,
+    cwd: headerCwd || cwd,
+    initialModel: model,
+    initialContextWindow: contextWindow,
+    headerCwd,
+    live: false,
+    emitStarted: true,
+    onEvent: (e) => out.push(e)
+  })
 
   for (const rec of records) {
     const type = str(rec.type)
     const data = obj(rec.data) ?? {}
-    const time = num(rec.time)
-
     if (type === 'session') {
       if (!headerCwd) headerCwd = str(data.cwd)
       continue
     }
-
-    if (type === 'request/context') {
-      model = str(data.model) || model
-      contextWindow = num(data.contextWindow) || contextWindow
-      continue
-    }
-
-    if (type === 'user/message') {
-      if (str(obj(data.source)?.kind) !== 'user') continue
-      const text = arr(data.content)
-        .map((b) => (str(obj(b)?.type) === 'text' ? str(obj(b)?.text) : ''))
-        .filter(Boolean)
-        .join('\n')
-        .trim()
-      if (!text) continue
-      start()
-      out.push({
-        t: 'user_message',
-        text,
-        at: time > 0 ? new Date(time).toISOString() : ''
-      })
-      continue
-    }
-
-    if (type === 'turn/start') {
-      start()
-      turnStart = time
-      steps = 0
-      totals = emptyUsage()
-      lastRequest = null
-      out.push({ t: 'turn_started' })
-      continue
-    }
-
-    if (type === 'step/start') {
-      steps += 1
-      continue
-    }
-
-    if (type === 'assistant/message') {
-      start()
-      const msg = obj(data.message) ?? {}
-      for (const block of arr(msg.content)) {
-        const b = obj(block)
-        if (!b) continue
-        const kind = str(b.type)
-        if (kind === 'reasoning') {
-          const thinking = str(b.text)
-          if (thinking) out.push({ t: 'thinking_delta', text: thinking })
-          continue
-        }
-        if (kind === 'text') {
-          const body = str(b.text)
-          if (body) out.push({ t: 'text_delta', text: body })
-          continue
-        }
-        if (kind === 'tool-call') {
-          emitCall(str(b.id), str(b.name), b.arguments)
-        }
-      }
-
-      const usage = obj(data.usage)
-      if (usage) {
-        const input = num(usage.inputTokens)
-        const output = num(usage.outputTokens)
-        const cacheRead = num(usage.cacheReadTokens)
-        const cacheWrite = num(usage.cacheWriteTokens)
-        const total = num(usage.totalTokens) || input + output + cacheRead + cacheWrite
-        totals = {
-          inputTokens: totals.inputTokens + input,
-          outputTokens: totals.outputTokens + output,
-          cacheReadTokens: totals.cacheReadTokens + cacheRead,
-          cacheCreationTokens: totals.cacheCreationTokens + cacheWrite
-        }
-        lastRequest = { input, output, cacheRead, cacheWrite, total }
-      }
-      continue
-    }
-
-    if (type === 'tool/call') {
-      start()
-      emitCall(str(data.callId), str(data.name), data.arguments)
-      continue
-    }
-
-    if (type === 'tool/result') {
-      const msg = obj(data.message) ?? {}
-      const id = str(msg.toolCallId) || str(data.toolCallId)
-      if (!id) continue
-
-      const content = clip(contentText(msg.content))
-      const failed =
-        msg.isError === true || data.error !== undefined || toolFailed(content, data.error)
-      const meta = obj(data.meta) ?? {}
-      const diffs = arr(meta.diffs).map(obj).filter((d): d is Record<string, unknown> => !!d)
-      const created = str(meta.operation) === 'create'
-
-      let stat: ToolStat | undefined
-      if (diffs.length > 0) {
-        let added = 0
-        let removed = 0
-        for (const d of diffs) {
-          const before = d.oldText == null ? '' : str(d.oldText)
-          const lines = diffLines(before, str(d.newText))
-          added += lines.filter((l) => l.kind === 'add').length
-          removed += lines.filter((l) => l.kind === 'del').length
-        }
-        stat = { added, removed }
-      }
-
-      out.push({
-        t: 'tool_result',
-        id,
-        status: failed ? 'error' : 'ok',
-        content,
-        ...(stat ? { stat } : {}),
-        ...(created ? { created: true } : {})
-      })
-
-      for (const d of diffs) {
-        const path = str(d.path) || str(meta.path)
-        if (!path) continue
-        const before = d.oldText == null ? '' : str(d.oldText)
-        const lines = diffLines(before, str(d.newText))
-        out.push({
-          t: 'file_change',
-          path,
-          added: lines.filter((l) => l.kind === 'add').length,
-          removed: lines.filter((l) => l.kind === 'del').length,
-          ...(d.oldText == null ? { created: true } : {}),
-          source: 'agent'
-        })
-      }
-      if (diffs.length === 0 && created) {
-        const path = str(meta.path) || str(callInputs.get(id)?.file_path)
-        if (path) out.push({ t: 'file_change', path, created: true, source: 'agent' })
-      }
-      callInputs.delete(id)
-      continue
-    }
-
-    if (type === 'turn/end') {
-      const last = lastRequest
-      const usage: Usage = {
-        ...totals,
-        ...(last
-          ? {
-              contextTokens: last.total,
-              contextUsage: {
-                inputTokens: last.input,
-                outputTokens: last.output,
-                cacheReadTokens: last.cacheRead,
-                cacheCreationTokens: last.cacheWrite
-              },
-              contextPercent:
-                contextWindow > 0
-                  ? Math.round(Math.min(100, (last.total / contextWindow) * 100) * 10) / 10
-                  : undefined
-            }
-          : {})
-      }
-      out.push({
-        t: 'turn_end',
-        durationMs: turnStart > 0 && time >= turnStart ? time - turnStart : 0,
-        usage,
-        steps
-      })
-      turnStart = 0
-      steps = 0
-      totals = emptyUsage()
-      lastRequest = null
-      continue
-    }
+    translator.push({
+      type,
+      seq: num(rec.seq),
+      time: num(rec.time),
+      data
+    })
   }
 
   return out

@@ -42,7 +42,7 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 
 ### 会话
 
-- **三 CLI 并行**：Claude Code（Anthropic 协议）、Codex CLI（OpenAI 协议）与 DeepSeek Harness（ACP）可同时使用，渠道、模型、凭据完全独立。
+- **三 CLI 并行**：Claude Code（Anthropic 协议）、Codex CLI（OpenAI 协议）与 DeepSeek Harness（Web 协议）可同时使用，渠道、模型、凭据完全独立。
 - **多工作区 / 多会话**：每个工作区可以同时挂多条会话，后台继续跑，侧栏增量更新状态。
 - **复用 CLI 的会话存储**：直接读取 `~/.claude/projects`、`~/.codex/sessions`、`~/.dsh/sessions` 等 CLI 自己的记录，终端里跑的 CLI 和界面里看到的是同一份历史，不需要二次导入。
 - **续接历史会话**：打开旧会话后可以继续对话，CLI 侧使用 `--resume` 接回上下文。
@@ -128,7 +128,8 @@ npm run dev
 ```bash
 npm run typecheck
 npm run build
-npm run verify:dsh   # 不花钱的 ACP 协议自检（隔离的 DSH_HOME，不需要 API Key）
+npm run verify:dsh      # 不花钱的 ACP 协议自检（隔离的 DSH_HOME，不需要 API Key）
+npm run verify:dsh:web  # 不花钱的 Web 协议自检（启动真实 dsh web，验证会话/历史/审批事件形状）
 ```
 
 ### 打包
@@ -153,7 +154,7 @@ npm run package
 
 - **Claude Code**：查找 `%APPDATA%\npm`、`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\claude` 和 `PATH` 里的 `claude.cmd` / `claude.exe`。可以用 `CLAUDE_BIN` 指定绝对路径。
 - **Codex CLI**：查找 `%APPDATA%\npm`、`%LOCALAPPDATA%\Programs\codex`、`%LOCALAPPDATA%\codex\bin`、`%USERPROFILE%\.codex\bin`、`%ProgramFiles%\codex` 和 `PATH`。可以用 `CODEX_BIN` 指定绝对路径。
-- **DeepSeek Harness**：`npm i -g @deepseek-ai/dsh` 后自动解析 npm 全局包里的 `lib/bin.js`，用**系统 Node 24+** 以 `--profile acp` 启动（Electron 内置的 Node 20 不支持 `import.meta.main`，会静默退出）。可以用 `DSH_BIN` / `NODE_BIN` 指定路径，用 `DSH_HOME` 指定数据目录（默认优先复用 `~/.dsh`）。
+- **DeepSeek Harness**：`npm i -g @deepseek-ai/dsh` 后自动解析 npm 全局包里的 `lib/bin.js`，用**系统 Node 24+** 以 `--profile web --no-open --port 0` 启动（Electron 内置的 Node 20 不支持 `import.meta.main`，会静默退出）。可以用 `DSH_BIN` / `NODE_BIN` 指定路径，用 `DSH_HOME` 指定数据目录（默认优先复用 `~/.dsh`）。旧版 dsh 没有 web profile 时，设置 `CCCODER_DSH_TRANSPORT=acp` 可退回 ACP。
 
 Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进命令行。dsh 不经过 shell，直接用 node 拉起 `bin.js`。
 
@@ -165,7 +166,8 @@ Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进�
 
 - **渠道**：Base URL、密钥、模型、small/fast 模型、额外环境变量。Claude 只接受 Anthropic 兼容端点，Codex 只接受 OpenAI 兼容端点。
 - **官方登录**：Claude Code 可以直接使用 CLI 自己的 OAuth 登录（设置里会显示登录状态、账号和凭据类型）。DeepSeek Harness 默认使用 `~/.dsh` 里已经配好的 Harness 凭据，也可以切到「API 渠道」手动填 `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`。
-- **Harness 模型 / 思考深度**：通过 ACP 的 `session/set_config_option` 下发，模型目录由 dsh 自己返回，不在应用里硬编码。
+- **Harness 模型 / 思考深度**：通过 Web 的 `session/selectModel` 下发，模型目录由 dsh 自己返回，不在应用里硬编码；审批走 `approval/request` waterfall，提问走 `user-questions/request` waterfall，因此 AskUserQuestion / 计划审阅在 Web 模式下可用（ACP 没有 elicitation）。
+- **Harness Web 模式说明**：同一个 DSH_HOME 共享一个 `dsh --profile web` 进程，多个会话复用它；空闲 10 分钟后自动回收。MCP 配置仍写在 `profiles/acp/cordis.patch.yml`，启动 Web 时以 `--patch` 叠加到 web profile。侧栏历史/搜索仍直接读 dsh 的 zstd 会话日志（和终端、ACP 共用一份）。如果 dsh 版本没有 web profile，设置 `CCCODER_DSH_TRANSPORT=acp` 退回 ACP。
 - **权限模式**：标准、接受编辑、自动、计划、免询问、绕过。
 - **思考深度**：低 / 中 / 高 / 极高 / 最高，对应 CLI 的 `--effort`；会话里还可以单独覆盖。
 
@@ -177,7 +179,7 @@ Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进�
 | 密钥 | 同上；优先用 Electron `safeStorage`（Windows DPAPI）加密，加密不可用时降级为明文并在 `v` 字段标记 |
 | IDE 窗口位置 | `%APPDATA%\ccoder-desktop\ide-windows.json` |
 | 会话记录 | CLI 自己维护（如 `~/.claude/projects/<cwd>/<session-id>.jsonl`、`~/.codex/sessions/`、`~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd`） |
-| MCP 配置 | 直接读写 CLI 原生文件：`~/.claude.json` / `<cwd>/.mcp.json`、`$CODEX_HOME/config.toml`、`<DSH_HOME>/profiles/acp/cordis.patch.yml`；env/headers 是明文 |
+| MCP 配置 | 直接读写 CLI 原生文件：`~/.claude.json` / `<cwd>/.mcp.json`、`$CODEX_HOME/config.toml`、`<DSH_HOME>/profiles/acp/cordis.patch.yml`（Web 模式启动时把这层作为 `--patch` 叠加到 web profile，避免维护两份）；env/headers 是明文 |
 | MCP 写入备份 | `%APPDATA%\ccoder-desktop\mcp-backups\<cli>\`（迁移前另有一份 `migration\` 备份） |
 | 日志 | `%APPDATA%\ccoder-desktop\logs\main.log` |
 | 原生崩溃 dump | `%APPDATA%\ccoder-desktop\Crashpad` |
@@ -265,7 +267,7 @@ src/
     providers/
       claude/              Claude Code 适配（stream-json、历史回放、登录）
       codex/               Codex app-server 适配与历史
-      dsh/                 DeepSeek Harness 适配（ACP、zstd 历史回放、安装探测）
+      dsh/                 DeepSeek Harness 适配（Web 协议、ACP 退路、zstd 历史回放、安装探测）
     ide-window.ts          独立 IDE 窗口与窗口鉴权
     ide-fs.ts / ide-watch.ts  文件读写、路径越界检查、目录监听
     vcs/                   Git / SVN 后端
@@ -378,7 +380,7 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 
 ### Sessions
 
-- **Three CLIs side by side**: Claude Code (Anthropic protocol), Codex CLI (OpenAI protocol), and DeepSeek Harness (ACP), with independent channels, models, and credentials.
+- **Three CLIs side by side**: Claude Code (Anthropic protocol), Codex CLI (OpenAI protocol), and DeepSeek Harness (Web protocol), with independent channels, models, and credentials.
 - **Multiple workspaces / sessions**: each workspace can host several sessions; they keep running in the background while the sidebar updates their status incrementally.
 - **Reuse CLI session storage**: reads `~/.claude/projects`, `~/.codex/sessions`, `~/.dsh/sessions`, and other CLI-owned records. Terminal sessions and the app see the same history — no re-import needed.
 - **Resume historical sessions**: continue an old session and the CLI reconnects with `--resume`.
@@ -463,7 +465,8 @@ npm run dev
 ```bash
 npm run typecheck
 npm run build
-npm run verify:dsh   # offline ACP self-check in an isolated DSH_HOME; no API key needed
+npm run verify:dsh      # offline ACP self-check in an isolated DSH_HOME; no API key needed
+npm run verify:dsh:web  # offline Web self-check: real dsh web + sessions/history/approval shapes
 ```
 
 ### Packaging
@@ -488,7 +491,7 @@ The app resolves CLI paths itself, regardless of the terminal you launch it from
 
 - **Claude Code**: looks in `%APPDATA%\npm`, `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\claude`, and `PATH` for `claude.cmd` / `claude.exe`. Set `CLAUDE_BIN` to pin an absolute path.
 - **Codex CLI**: looks in `%APPDATA%\npm`, `%LOCALAPPDATA%\Programs\codex`, `%LOCALAPPDATA%\codex\bin`, `%USERPROFILE%\.codex\bin`, `%ProgramFiles%\codex`, and `PATH`. Set `CODEX_BIN` to pin a path.
-- **DeepSeek Harness**: after `npm i -g @deepseek-ai/dsh`, resolves `lib/bin.js` inside the global package and starts it with the **system Node 24+** in `--profile acp` mode (Electron's bundled Node 20 lacks `import.meta.main` and exits silently). Set `DSH_BIN` / `NODE_BIN` for paths and `DSH_HOME` for the data directory (defaults to `~/.dsh`).
+- **DeepSeek Harness**: after `npm i -g @deepseek-ai/dsh`, resolves `lib/bin.js` inside the global package and starts it with the **system Node 24+** in `--profile web --no-open --port 0` mode (Electron's bundled Node 20 lacks `import.meta.main` and exits silently). Set `DSH_BIN` / `NODE_BIN` for paths and `DSH_HOME` for the data directory (defaults to `~/.dsh`). Older dsh versions without a web profile can use the ACP fallback via `CCCODER_DSH_TRANSPORT=acp`.
 
 On Windows, `.cmd` files run through `cmd.exe`; prompt content goes over stdin and is never spliced into the command line. dsh is started directly with node, not through a shell.
 
@@ -500,7 +503,8 @@ Settings are grouped by CLI:
 
 - **Channels**: base URL, key, model, small / fast model, and extra environment variables. Claude accepts only Anthropic-compatible endpoints; Codex only OpenAI-compatible ones.
 - **Official login**: Claude Code can use its own OAuth login (status, account, and credential type are shown in Settings). DeepSeek Harness uses the credentials already configured in `~/.dsh` by default, or an API channel with `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`.
-- **Harness model / effort**: sent through ACP `session/set_config_option`; the model catalog comes from dsh itself and is not hard-coded in the app.
+- **Harness model / effort**: sent through Web `session/selectModel`; the model catalog comes from dsh itself and is not hard-coded in the app. Approvals use the `approval/request` waterfall and questions use `user-questions/request`, so AskUserQuestion and plan review work in Web mode (ACP has no elicitation).
+- **Harness Web mode**: one `dsh --profile web` process per DSH_HOME is shared by all its sessions and reclaimed after 10 idle minutes. MCP config still lives in `profiles/acp/cordis.patch.yml` and is overlaid onto the web profile with `--patch`. Sidebar history/search still reads dsh's zstd session logs directly (the same files the terminal and ACP use). Older dsh versions without a web profile can use `CCCODER_DSH_TRANSPORT=acp`.
 - **Permission mode**: standard, accept edits, auto, plan, don't ask, bypass.
 - **Effort**: low / medium / high / xhigh / max, mapped to the CLI's `--effort`; can be overridden per session.
 
@@ -512,7 +516,7 @@ Settings are grouped by CLI:
 | Secrets | Same file; encrypted with Electron `safeStorage` (Windows DPAPI) when available, otherwise plaintext marked in the `v` field |
 | IDE window geometry | `%APPDATA%\ccoder-desktop\ide-windows.json` |
 | Session records | Owned by the CLIs (e.g. `~/.claude/projects/<cwd>/<session-id>.jsonl`, `~/.codex/sessions/`, `~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd`) |
-| MCP config | Read/written in place: `~/.claude.json` / `<cwd>/.mcp.json`, `$CODEX_HOME/config.toml`, `<DSH_HOME>/profiles/acp/cordis.patch.yml`; env/headers are plaintext |
+| MCP config | Read/written in place: `~/.claude.json` / `<cwd>/.mcp.json`, `$CODEX_HOME/config.toml`, `<DSH_HOME>/profiles/acp/cordis.patch.yml` (Web mode overlays this layer onto the web profile with `--patch`, so there is only one copy to maintain); env/headers are plaintext |
 | MCP write backups | `%APPDATA%\ccoder-desktop\mcp-backups\<cli>\` (plus a `migration\` backup before a legacy migration) |
 | Logs | `%APPDATA%\ccoder-desktop\logs\main.log` |
 | Native crash dumps | `%APPDATA%\ccoder-desktop\Crashpad` |
@@ -600,7 +604,7 @@ src/
     providers/
       claude/              Claude Code adapter (stream-json, history replay, login)
       codex/               Codex app-server adapter and history
-      dsh/                 DeepSeek Harness adapter (ACP, zstd history replay, install detection)
+      dsh/                 DeepSeek Harness adapter (Web protocol, ACP fallback, zstd history replay, install detection)
     ide-window.ts          Standalone IDE window and window authorization
     ide-fs.ts / ide-watch.ts  File IO, path escape checks, directory watching
     vcs/                   Git / SVN backends

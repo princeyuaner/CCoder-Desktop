@@ -145,6 +145,11 @@
 .rsec:last-child {
   flex-grow: 1;
 }
+/* 任务清单是执行台的主内容，给得比子代理区高：
+ * 默认能看四五条，再多才滚。 */
+.rsec--tasks {
+  min-height: 180px;
+}
 .rsec__list {
   flex: 1 1 auto;
   min-height: 0;

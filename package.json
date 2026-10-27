@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "verify:dsh": "node tools/verify-dsh.cjs",
+    "verify:dsh:web": "node -e \"require('node:fs').mkdirSync('.tmp-build',{recursive:true})\" && npx esbuild tools/_dsh-web-probe.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --external:ws --alias:electron=./tools/electron-stub.cjs --outfile=.tmp-build/dsh-web-probe.cjs && node .tmp-build/dsh-web-probe.cjs",
     "verify:mcp": "npx esbuild src/main/mcp-native/index.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/mcp-native.cjs && node tools/verify-mcp-native.cjs",
     "verify:mcp:migrate": "npx esbuild src/main/mcp-migration.ts --bundle --platform=node --format=cjs --external:electron --outfile=.tmp-build/mcp-migration.cjs && node tools/verify-mcp-migration.cjs",
     "verify:mcp:probe": "npx esbuild src/main/mcp-probe.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/mcp-probe.cjs && node tools/verify-mcp-probe.cjs",
@@ -34,6 +35,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "smol-toml": "^1.9.1",
+    "ws": "^8.22.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
@@ -41,6 +43,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^4.3.4",
     "@vscode/ripgrep": "^1.18.0",
     "electron": "^33.2.1",

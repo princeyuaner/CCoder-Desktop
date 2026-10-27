@@ -149,7 +149,7 @@ export function RunPanel({
        */}
       <div className="runpanel__body">
         {run.tasks.length > 0 && (
-          <section className="rsec">
+          <section className="rsec rsec--tasks">
             <div className="rsec__h">
               <span className="rsec__t">{t('runpanel.tasks')}</span>
               <span className="rsec__n">

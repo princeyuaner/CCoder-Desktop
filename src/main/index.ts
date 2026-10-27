@@ -60,6 +60,7 @@ import {
 import { testChannel } from './claude-runner'
 import { checkCodexStatus, testCodexChannel } from './codex-runner'
 import { checkDshStatus, testDshChannel } from './providers/dsh/adapter'
+import { disposeAllDshWebHosts } from './providers/dsh/web/host'
 import {
   cancelClaudeLogin,
   claudeLoginSnapshot,
@@ -1528,6 +1529,7 @@ app.whenReady().then(() => {
   app.on('before-quit', () => {
     logMain('app', 'before-quit')
     sessions.stopAll()
+    disposeAllDshWebHosts()
     disposeClaudeAuth()
     cancelAllIdeSearches()
     killAllTerminals()

@@ -586,7 +586,7 @@ export const zh = {
     'Codex 0.163 起只支持 Responses API（wire_api = responses）；上游已经移除 Chat Completions。渠道网关必须提供 /v1/responses 入口。',
   'channel.modelProtocol.dshLabel': 'DeepSeek Harness 适配器',
   'channel.modelProtocol.dshHint':
-    '模型由 dsh 自己的适配器解析；模型名会通过 ACP 的 session/set_config_option 传给它。',
+    '模型由 dsh 自己的适配器解析；模型名会通过 dsh Web 的 session/selectModel 传给它。',
   'channel.auth.label': '认证方式',
   'channel.auth.hintAnthropic':
     '选错会一直 401：多数中转网关用 Bearer，Anthropic 官方用 x-api-key',
@@ -754,6 +754,26 @@ export const zh = {
   'dsh.nodeBadTitle': '需要 Node 24+',
   'dsh.nodeBadBody':
     '已经找到 DeepSeek Harness，但当前的 Node 不支持 import.meta.main（dsh 用它判断是否启动）。安装 Node 24 或设置 NODE_BIN 指向它，然后重新检测。',
+  'dsh.web.resumeMissing':
+    '这条 dsh 会话已经不在磁盘上（可能被删除或被其他进程占用），无法继续；请新建会话。',
+  'dsh.web.followLost': '会话事件流断开：{detail}',
+  'dsh.web.modelUnavailable':
+    'DeepSeek Harness 没有接受模型「{model}」，继续使用默认模型。{detail}',
+  'dsh.web.effortUnavailable':
+    'DeepSeek Harness 不支持思考深度「{effort}」（可选：{options}），已改用模型默认档。',
+  'dsh.web.emptyPrompt': '消息内容为空，未发送。',
+  'dsh.web.offline': 'DeepSeek Harness Web 服务正在重连，这条消息没有发送，请稍后重试。',
+  'dsh.web.promptFailed': 'DeepSeek Harness 轮次失败：{detail}',
+  'dsh.web.commandFailed': 'DeepSeek Harness 指令执行失败：{detail}',
+  'dsh.web.answerLost': '答复没有送达 DeepSeek Harness：{detail}',
+  'dsh.web.connectionLost': '与 DeepSeek Harness Web 服务的连接断开，正在重连…',
+  'dsh.web.startFailed': 'DeepSeek Harness Web 服务启动失败：{detail}',
+
+  /* ── 权限（DSH 共用） ───────────────────────────────────── */
+  'dsh.permission.allow': '允许',
+  'dsh.permission.allowAlways': '本会话总是允许 {tool}',
+  'dsh.permission.deny': '拒绝',
+  'dsh.permission.denyAlways': '本会话总是拒绝',
 
   /* ── 关于 / 更新 ────────────────────────────────────────── */
   'about.tagline': '把 Claude Code、Codex CLI 和 DeepSeek Harness 装进一个桌面窗口。',
