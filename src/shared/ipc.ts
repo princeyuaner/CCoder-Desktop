@@ -46,6 +46,7 @@ import type {
   IdeCreateRequest,
   IdeDeleteRequest,
   IdeDeleteResult,
+  IdeEncoding,
   IdeEntry,
   IdeEntryChange,
   IdeFsChanged,
@@ -209,6 +210,8 @@ export const IPC = {
   ideListDir: 'ide:list-dir',
   ideReadFile: 'ide:read-file',
   ideReadImage: 'ide:read-image',
+  /** 在系统文件管理器里打开文件所在目录并选中文件 */
+  ideRevealInOs: 'ide:reveal-in-os',
   ideSearchCode: 'ide:search-code',
   /** 流式搜索：启动 / 取消 / 主进程推送批次 */
   ideSearchStart: 'ide:search-start',
@@ -646,8 +649,10 @@ export interface WindowApi {
     /** IDE 渲染进程订阅「打开这个文件」；返回取消订阅函数 */
     onReveal(cb: (target: IdeTarget) => void): () => void
     listDir(cwd: string, rel: string): Promise<IdeEntry[]>
-    readFile(cwd: string, rel: string): Promise<IdeFsResult<IdeTextFile>>
+    readFile(cwd: string, rel: string, encoding?: IdeEncoding): Promise<IdeFsResult<IdeTextFile>>
     readImage(cwd: string, rel: string): Promise<IdeFsResult<IdeImage>>
+    /** 在系统文件管理器中打开 rel 所在目录并选中它 */
+    revealInOs(cwd: string, rel: string): Promise<{ ok: boolean; message?: string }>
     searchCode(req: IdeSearchRequest): Promise<IdeSearchResult>
     /** 启动流式搜索；结果通过 onSearchEvent 推送 */
     startSearch(req: IdeSearchStartRequest): Promise<IdeSearchStartResult>

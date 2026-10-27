@@ -5,6 +5,7 @@ import {
   type LanguageSetting
 } from './i18n/locale'
 import type { MessageKey } from './i18n/catalog'
+import { normalizeKeybindings, type KeybindingOverrides } from './keybindings'
 
 /**
  * 渠道（channel）= 一个 API 端点 + 凭据 + 模型。
@@ -591,6 +592,11 @@ export interface Settings {
   /* ── 内置 IDE ───────────────────────────────────────────── */
   /** 编辑器偏好；独立 IDE 窗口与主窗口共享同一份 */
   editor: EditorSettings
+  /**
+   * IDE 快捷键覆盖项（commandId → 组合键 / null=解绑）。
+   * 只存和默认值不同的项，默认值见 shared/keybindings.ts。
+   */
+  keybindings: KeybindingOverrides
   /** 语言服务器总开关；关闭后只用 Monaco 自带的 worker */
   lsp: LspSettings
   /** CLI 更新检查 */
@@ -631,6 +637,7 @@ export function defaultSettings(): Settings {
     toolDetail: 'full',
     sendKey: 'enter',
     editor: { ...DEFAULT_EDITOR_SETTINGS },
+    keybindings: {},
     lsp: { ...DEFAULT_LSP_SETTINGS },
     cliUpdate: { ...DEFAULT_CLI_UPDATE_PREFS }
   }
@@ -704,6 +711,7 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
       src.toolDetail === 'compact' || src.toolDetail === 'hidden' ? src.toolDetail : 'full',
     sendKey: src.sendKey === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
     editor: normalizeEditorSettings(src.editor),
+    keybindings: normalizeKeybindings(src.keybindings),
     lsp: normalizeLspSettings(src.lsp),
     cliUpdate: normalizeCliUpdatePrefs(src.cliUpdate)
   }

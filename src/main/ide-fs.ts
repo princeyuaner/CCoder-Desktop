@@ -1,29 +1,32 @@
 import { promises as fs } from 'node:fs'
+import iconv from 'iconv-lite'
 import { t } from './i18n'
 import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path'
-import type {
-  IdeCreateRequest,
-  IdeDeleteRequest,
-  IdeDeleteResult,
-  IdeEntry,
-  IdeEntryChange,
-  IdeEol,
-  IdeFsErrorCode,
-  IdeFsResult,
-  IdeImage,
-  IdeRenameRequest,
-  IdeReplaceData,
-  IdeReplaceFileResult,
-  IdeReplaceRequest,
-  IdeReplaceResult,
-  IdeReplaceTotals,
-  IdeSaveRequest,
-  IdeSearchData,
-  IdeSearchFile,
-  IdeSearchMatch,
-  IdeSearchRequest,
-  IdeSearchResult,
-  IdeTextFile
+import {
+  isIdeEncoding,
+  type IdeCreateRequest,
+  type IdeDeleteRequest,
+  type IdeDeleteResult,
+  type IdeEncoding,
+  type IdeEntry,
+  type IdeEntryChange,
+  type IdeEol,
+  type IdeFsErrorCode,
+  type IdeFsResult,
+  type IdeImage,
+  type IdeRenameRequest,
+  type IdeReplaceData,
+  type IdeReplaceFileResult,
+  type IdeReplaceRequest,
+  type IdeReplaceResult,
+  type IdeReplaceTotals,
+  type IdeSaveRequest,
+  type IdeSearchData,
+  type IdeSearchFile,
+  type IdeSearchMatch,
+  type IdeSearchRequest,
+  type IdeSearchResult,
+  type IdeTextFile
 } from '../shared/ide'
 import { listWorkspaceFilesDetailed, resetWorkspaceSearchCache } from './workspace-search'
 import { isIgnoredDirName } from './workspace-ignore'
@@ -144,6 +147,14 @@ function resolveInside(cwd: string, rel: string): string {
   return abs
 }
 
+/**
+ * 把工作区相对路径换成绝对路径，并拒绝越界。
+ * 只做字面检查、不碰 fs —— 「在系统文件管理器中显示」的目标可能刚被删除。
+ */
+export function workspaceAbsolutePath(cwd: string, rel: string): string {
+  return resolveInside(cwd, rel)
+}
+
 /** 真实路径也要在真实根目录下 —— 防止工作区里的符号链接指到外面 */
 async function realInside(cwd: string, rel: string): Promise<string> {
   const rootReal = await fs.realpath(resolve(cwd))
@@ -192,7 +203,10 @@ function toFailure(err: unknown): IdeFsResult<never> {
     case 'ENOSPC':
       return failure('too-large', t('ideError.diskFull'))
     default:
-      return failure('unknown', err instanceof Error ? err.message : String(err))
+      return failure(
+        'unknown',
+        (err instanceof Error && err.message) || errorCode(err) || String(err) || 'unknown'
+      )
   }
 }
 
@@ -294,6 +308,94 @@ function eolOf(text: string): IdeEol {
   return crlf > 0 && crlf >= lf ? 'crlf' : 'lf'
 }
 
+/* ── 文本编码 ─────────────────────────────────────────── */
+
+function utf16BomOf(buf: Buffer): 'utf16le' | 'utf16be' | null {
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return 'utf16le'
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) return 'utf16be'
+  return null
+}
+
+function hasUtf8Bom(buf: Buffer): boolean {
+  return buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf
+}
+
+function decodeForced(buf: Buffer, encoding: IdeEncoding): string {
+  switch (encoding) {
+    case 'utf8': {
+      const start = hasUtf8Bom(buf) ? 3 : 0
+      return buf.subarray(start).toString('utf8')
+    }
+    case 'utf8bom': {
+      const start = hasUtf8Bom(buf) ? 3 : 0
+      return buf.subarray(start).toString('utf8')
+    }
+    case 'utf16le': {
+      const start = utf16BomOf(buf) === 'utf16le' ? 2 : 0
+      return iconv.decode(buf.subarray(start), 'utf16-le')
+    }
+    case 'utf16be': {
+      const start = utf16BomOf(buf) === 'utf16be' ? 2 : 0
+      return iconv.decode(buf.subarray(start), 'utf16-be')
+    }
+    case 'gbk':
+      return iconv.decode(buf, 'gb18030')
+  }
+}
+
+/**
+ * 自动识别编码。
+ *
+ * 先看 BOM；没有 BOM 时优先按严格 UTF-8 解码，失败再按 GB18030（GBK
+ * 超集）解。截断的大文件可能是 UTF-8 多字节字符被切了一半，这时不要再
+ * 往 GBK 上猜，直接用宽松 UTF-8。
+ */
+function decodeAuto(
+  buf: Buffer,
+  truncated: boolean
+): { text: string; encoding: IdeEncoding } {
+  if (hasUtf8Bom(buf)) {
+    return { text: buf.subarray(3).toString('utf8'), encoding: 'utf8bom' }
+  }
+  const bom = utf16BomOf(buf)
+  if (bom === 'utf16le') {
+    return { text: iconv.decode(buf.subarray(2), 'utf16-le'), encoding: 'utf16le' }
+  }
+  if (bom === 'utf16be') {
+    return { text: iconv.decode(buf.subarray(2), 'utf16-be'), encoding: 'utf16be' }
+  }
+  try {
+    return {
+      text: new TextDecoder('utf-8', { fatal: true }).decode(buf),
+      encoding: 'utf8'
+    }
+  } catch {
+    if (truncated) return { text: buf.toString('utf8'), encoding: 'utf8' }
+    return { text: iconv.decode(buf, 'gb18030'), encoding: 'gbk' }
+  }
+}
+
+function encodeText(text: string, encoding: IdeEncoding): Buffer {
+  switch (encoding) {
+    case 'utf8':
+      return Buffer.from(text, 'utf8')
+    case 'utf8bom':
+      return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(text, 'utf8')])
+    case 'utf16le':
+      return Buffer.concat([Buffer.from([0xff, 0xfe]), iconv.encode(text, 'utf16-le')])
+    case 'utf16be':
+      return Buffer.concat([Buffer.from([0xfe, 0xff]), iconv.encode(text, 'utf16-be')])
+    case 'gbk': {
+      const bytes = iconv.encode(text, 'gb18030')
+      // iconv 遇到无法表示的字符会静默写 '?'，这里宁可报错也不要毁文件
+      if (iconv.decode(bytes, 'gb18030') !== text) {
+        throw new IdeFsError('unknown', t('ideError.encodingLossy'))
+      }
+      return bytes
+    }
+  }
+}
+
 /**
  * 校验并写回一段文本（LF 输入，按 eol 还原）。保存和全部替换共用，
  * 保证越界 / 符号链接 / mtime 冲突 / 大小限制的行为完全一致。
@@ -304,6 +406,7 @@ async function writeTextBody(
   abs: string,
   textLf: string,
   eol: IdeEol | undefined,
+  encoding: IdeEncoding | undefined,
   expectedMtimeMs: number | undefined,
   force: boolean
 ): Promise<void> {
@@ -314,7 +417,8 @@ async function writeTextBody(
   // 编辑器统一用 LF；落盘时还原原文件的换行风格
   const body = textLf.replace(/\r\n?/g, '\n')
   const text = eol === 'crlf' ? body.replace(/\n/g, '\r\n') : body
-  if (Buffer.byteLength(text, 'utf8') > MAX_WRITE_BYTES) {
+  const bytes = encodeText(text, encoding ?? 'utf8')
+  if (bytes.length > MAX_WRITE_BYTES) {
     throw new IdeFsError('too-large', t('ideError.tooLargeSave'))
   }
 
@@ -329,14 +433,14 @@ async function writeTextBody(
     ) {
       throw new IdeFsError('conflict', t('ideError.externalModified'))
     }
-    await fs.writeFile(real, text, 'utf8')
+    await fs.writeFile(real, bytes)
   } else {
     if (!force && typeof expectedMtimeMs === 'number') {
       throw new IdeFsError('missing', t('ideError.externalDeleted'))
     }
     await ensureParentInside(cwd, abs)
     // wx：如果刚好有人抢先建了同名文件，不要覆盖
-    await fs.writeFile(abs, text, { encoding: 'utf8', flag: 'wx' })
+    await fs.writeFile(abs, bytes, { flag: 'wx' })
   }
 }
 
@@ -345,8 +449,18 @@ export async function saveTextFile(req: IdeSaveRequest): Promise<IdeFsResult<Ide
     const cwd = req?.cwd
     const { rel, abs } = writeTarget(cwd, req?.rel)
     const raw = typeof req.text === 'string' ? req.text : ''
-    await writeTextBody(cwd, rel, abs, raw, req.eol, req.expectedMtimeMs, req.force === true)
-    return ok(await readTextFile(cwd, rel))
+    const encoding = isIdeEncoding(req.encoding) ? req.encoding : undefined
+    await writeTextBody(
+      cwd,
+      rel,
+      abs,
+      raw,
+      req.eol,
+      encoding,
+      req.expectedMtimeMs,
+      req.force === true
+    )
+    return ok(await readTextFile(cwd, rel, encoding))
   } catch (err) {
     return toFailure(err)
   }
@@ -473,16 +587,21 @@ export async function listDir(cwd: string, rel: string): Promise<IdeEntry[]> {
 /** 读文本：预期内的失败用 IdeFsResult 返回，UI 按 code 判断，不靠文案 */
 export async function readTextFileResult(
   cwd: string,
-  rel: string
+  rel: string,
+  encoding?: IdeEncoding
 ): Promise<IdeFsResult<IdeTextFile>> {
   try {
-    return ok(await readTextFile(cwd, rel))
+    return ok(await readTextFile(cwd, rel, encoding))
   } catch (err) {
     return toFailure(err)
   }
 }
 
-export async function readTextFile(cwd: string, rel: string): Promise<IdeTextFile> {
+export async function readTextFile(
+  cwd: string,
+  rel: string,
+  encoding?: IdeEncoding
+): Promise<IdeTextFile> {
   const real = await realInside(cwd, rel)
   const st = await fs.stat(real)
   if (!st.isFile()) throw new IdeFsError('not-file', t('ideError.notAFile'))
@@ -497,13 +616,28 @@ export async function readTextFile(cwd: string, rel: string): Promise<IdeTextFil
     await fd.close()
   }
 
-  // 前 8KB 里有 NUL 就当二进制；文本文件里出现 NUL 基本只会是数据文件
+  const forced = isIdeEncoding(encoding) ? encoding : undefined
   const head = buf.subarray(0, Math.min(buf.length, 8192))
-  const binary = head.includes(0)
-  const decoded = binary ? '' : buf.toString('utf8')
+  // 前 8KB 里有 NUL 就当二进制；UTF-16 天然带 NUL，有 BOM 或用强制编码时不按二进制处理
+  const utf16 = forced === 'utf16le' || forced === 'utf16be' || utf16BomOf(buf) !== null
+  const binary = !utf16 && head.includes(0)
+  const truncated = st.size > take
+
+  let decoded = ''
+  let detected: IdeEncoding = forced ?? 'utf8'
+  if (!binary) {
+    if (forced) {
+      decoded = decodeForced(buf, forced)
+      detected = forced
+    } else {
+      const auto = decodeAuto(buf, truncated)
+      decoded = auto.text
+      detected = auto.encoding
+    }
+  }
+
   const eol = eolOf(decoded)
   const text = decoded.replace(/\r\n?/g, '\n')
-  const truncated = st.size > take
 
   return {
     rel: posix(normRel(rel)),
@@ -514,6 +648,7 @@ export async function readTextFile(cwd: string, rel: string): Promise<IdeTextFil
     binary,
     mtimeMs: st.mtimeMs,
     eol,
+    encoding: detected,
     editable: !binary && !truncated
   }
 }
@@ -1052,6 +1187,7 @@ export async function replaceInWorkspace(
           plan.abs,
           plan.textLf,
           plan.eol,
+          undefined,
           plan.mtimeMs,
           false
         )

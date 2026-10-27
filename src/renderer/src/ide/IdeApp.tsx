@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent
 } from 'react'
 import type {
+  IdeEncoding,
   IdeEntry,
   IdeFsChanged,
   IdeImage,
@@ -26,6 +27,13 @@ import {
   type Settings
 } from '@shared/settings'
 import { SYNC_BUBBLE_ROWS, type SyncSnapshot } from '@shared/sync'
+import {
+  formatBinding,
+  matchBinding,
+  normalizeKeybindings,
+  resolveKeybindings,
+  type KeybindingOverrides
+} from '@shared/keybindings'
 import { baseName } from '@shared/path'
 import { IconFolder, IconSearch } from '../components/Icons'
 import { applyAppearance } from '../appearance'
@@ -44,6 +52,8 @@ import { VcsDiffView } from './VcsDiffView'
 import { useVcsStatus } from './useVcsStatus'
 import { BottomPanel, type BottomTab } from './BottomPanel'
 import { CommandPalette, type CommandItem } from './CommandPalette'
+import { SettingsDialog, type SettingsSection } from './SettingsDialog'
+import { EncodingMenu, ENCODING_LABEL_KEY } from './EncodingMenu'
 import { TerminalView } from './TerminalView'
 import { OutlineList } from './OutlineList'
 import { activeEditor, formatActiveDocument, runEditorAction } from './editor-actions'
@@ -114,6 +124,8 @@ interface Tab {
   kind: TabKind
   rel: string
   title: string
+  /** 固定后留在最左侧，批量关闭时保留 */
+  pinned?: boolean
 }
 
 interface TreeTarget {
@@ -131,6 +143,12 @@ interface TreeMenuState {
   x: number
   y: number
   target: TreeTarget
+}
+
+interface TabMenuState {
+  x: number
+  y: number
+  key: string
 }
 
 interface DialogAction {
@@ -250,7 +268,12 @@ const P = {
   sync: 'M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5',
   alert: 'M8 2.4 14.4 13H1.6zM8 6v3.2M8 11.2h.01',
   terminal: 'M2.5 3.5h11v9h-11zM4.5 6.2l2 1.8-2 1.8M8.2 10h3.2',
-  command: 'M5.5 3.5 10 8l-4.5 4.5'
+  command: 'M5.5 3.5 10 8l-4.5 4.5',
+  settings:
+    'M8 6.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6M13 8c0-.3 0-.6-.1-.9l1.2-.9-1.2-2-1.4.5c-.5-.4-1-.6-1.6-.8l-.2-1.4H6.3l-.2 1.4c-.6.2-1.1.5-1.6.8l-1.4-.5-1.2 2 1.2.9c0 .3-.1.6-.1.9s0 .6.1.9l-1.2.9 1.2 2 1.4-.5c.5.4 1 .6 1.6.8l.2 1.4h3.4l.2-1.4c.6-.2 1.1-.5 1.6-.8l1.4.5 1.2-2-1.2-.9c.1-.3.1-.6.1-.9',
+  sliders:
+    'M2.5 4h4.2M9.8 4h3.7M2.5 8h7.3M13 8h.5M2.5 12h1.7M7.3 12h6.2M8.2 2.5v3M6.7 6.5v3M4.4 10.5v3',
+  pin: 'M9.6 2.2 13.8 6.4l-2.1.7-1.8 1.8.2 2-1.1 1.1-3-3-2.8 2.8-.8-.8 2.8-2.8-3-3 1.1-1.1 2 .2 1.8-1.8z'
 } as const
 
 /* ── 窗口标题栏 ───────────────────────────────────────── */
@@ -369,6 +392,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [view, setView] = useState<View>('files')
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
+  /** 页签右键菜单 / 拖动排序状态 */
+  const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
+  const [dragTabKey, setDragTabKey] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ key: string; after: boolean } | null>(null)
+  /** 状态栏编码菜单 */
+  const [encodingMenuOpen, setEncodingMenuOpen] = useState(false)
   const [fileCache, setFileCache] = useState<Record<string, IdeTextFile>>({})
   const [imageCache, setImageCache] = useState<Record<string, IdeImage>>({})
   const [diffCache, setDiffCache] = useState<Record<string, VcsDiffData>>({})
@@ -398,6 +427,34 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [jump, setJump] = useState<{ rel: string; line: number } | null>(null)
   /** 资源管理器当前选中的文件 / 文件夹 */
   const [treeTarget, setTreeTarget] = useState<TreeTarget>({ rel: '', kind: 'dir' })
+  /**
+   * 「在资源管理器中显示当前文件」：rel + nonce。
+   * nonce 让同一个文件连续触发时也能重新展开 / 滚动。
+   */
+  const [reveal, setReveal] = useState<{ rel: string; nonce: number } | null>(null)
+  /** 快捷键覆盖项；默认值在 shared/keybindings.ts */
+  const [keybindingOverrides, setKeybindingOverrides] = useState<KeybindingOverrides>({})
+  const resolvedKeybindings = useMemo(
+    () => resolveKeybindings(keybindingOverrides),
+    [keybindingOverrides]
+  )
+  /** 键盘 effect 只注册一次，通过 ref 读最新的命令表和按键表 */
+  const commandsRef = useRef<CommandItem[]>([])
+  const keybindingsRef = useRef(resolvedKeybindings)
+  keybindingsRef.current = resolvedKeybindings
+  const treeTargetRef = useRef(treeTarget)
+  treeTargetRef.current = treeTarget
+  /** 最近一次从主进程拿到的完整设置；改快捷键时要在它上面打补丁再写回 */
+  const settingsRef = useRef<Settings | null>(null)
+  /** 设置弹窗：快捷键和编辑器设置共用一个窗口，左侧竖排页签切换 */
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsSection>('keybindings')
+  const settingsOpenRef = useRef(false)
+  settingsOpenRef.current = settingsOpen
+  /** 设置弹窗的保存状态：空转 / 保存中 / 已保存 / 失败 */
+  const [settingsSaveState, setSettingsSaveState] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle')
   /** 正在{t('ide.newFile')} / 文件夹时顶部的输入条 */
   const [creating, setCreating] = useState<CreateState | null>(null)
   const [menu, setMenu] = useState<TreeMenuState | null>(null)
@@ -717,8 +774,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     const apply = (s: Settings): void => {
       applyLanguageSetting(s.language)
       applyAppearance(s)
+      settingsRef.current = s
       setEditorPrefs(normalizeEditorSettings(s.editor))
       setLspEnabled(s.lsp?.enabled !== false)
+      setKeybindingOverrides(normalizeKeybindings(s.keybindings))
     }
     void window.api?.settings
       .get()
@@ -805,7 +864,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         const saved = JSON.parse(raw) as { tabs?: Tab[]; active?: string | null }
         if (Array.isArray(saved.tabs)) {
           const valid = saved.tabs.filter(
-            (t) => t && typeof t.key === 'string' && typeof t.rel === 'string'
+            (t) =>
+              t &&
+              typeof t.key === 'string' &&
+              typeof t.rel === 'string' &&
+              (t.kind === 'file' || t.kind === 'image' || t.kind === 'diff')
           )
           setTabs(valid)
           setActiveKey(valid.some((t) => t.key === saved.active) ? saved.active ?? null : valid[0]?.key ?? null)
@@ -837,7 +900,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       try {
         if (tab.kind === 'file') {
           const r = await api.ide.readFile(cwd, tab.rel)
-          if (!r.ok) throw new Error(r.message)
+          if (!r.ok) throw new Error(r.message || t('ide.openFailedUnknown'))
           // 崩溃前没来得及保存的草稿优先于磁盘内容；baseText 仍记磁盘文本，
           // 这样标签会保持「未保存」状态，保存时照常走冲突检测。
           const draft = pendingDraftsRef.current[tab.rel]
@@ -851,11 +914,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           ensureImportedModels(cwd, tab.rel, restored.text, api.ide.readFile)
         } else if (tab.kind === 'image') {
           const r = await api.ide.readImage(cwd, tab.rel)
-          if (!r.ok) throw new Error(r.message)
+          if (!r.ok) throw new Error(r.message || t('ide.openFailedUnknown'))
           setImageCache((m) => ({ ...m, [tab.rel]: r.data }))
         } else {
           const r = await api.vcs.diff({ cwd, rel: tab.rel, source: 'head' })
-          if (!r.ok) throw new Error(r.error.message)
+          if (!r.ok) throw new Error(r.error.message || t('ide.openFailedUnknown'))
           setDiffCache((m) => ({ ...m, [tab.rel]: r.data }))
         }
       } catch (err) {
@@ -870,7 +933,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         setLoadingKey((k) => (k === tab.key ? null : k))
       }
     },
-    [api, cwd, fileCache, imageCache, diffCache]
+    [api, cwd, fileCache, imageCache, diffCache, t]
   )
 
   useEffect(() => {
@@ -878,7 +941,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   }, [activeTab, ensureTab])
 
   const openTab = useCallback((tab: Tab, line?: number) => {
-    setTabs((list) => (list.some((t) => t.key === tab.key) ? list : [...list, tab]))
+    setTabs((list) => {
+      if (list.some((t) => t.key === tab.key)) return list
+      if (!tab.pinned) return [...list, tab]
+      // 重新打开固定页签时放回固定区末尾，而不是追加到普通页签后面
+      const index = list.filter((t) => t.pinned).length
+      const next = [...list]
+      next.splice(index, 0, tab)
+      return next
+    })
     setActiveKey(tab.key)
     if (tab.kind === 'file' && line) setJump({ rel: tab.rel, line })
   }, [])
@@ -991,6 +1062,122 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     [activeKey, tabs]
   )
 
+  /** 命令面板 / 空状态 / 右键菜单里显示的当前按键 */
+  const displayBindingOf = useCallback(
+    (id: string): string | undefined => {
+      const binding = resolvedKeybindings[id]
+      return binding ? formatBinding(binding) : undefined
+    },
+    [resolvedKeybindings]
+  )
+
+  /**
+   * 在资源管理器中显示当前文件：切回文件视图、展开到文件所在目录，
+   * 并把该文件选中。TreeDir 根据 reveal.rel 自动展开祖先目录；
+   * 目录是异步读的，滚动由下面的 effect 轮询等待。
+   */
+  const revealInExplorer = useCallback((): void => {
+    if (!activeTab || !activeTab.rel) {
+      showFlash(t('ide.command.noActiveFile'))
+      return
+    }
+    const rel = activeTab.rel
+    setView('files')
+    setSidebarOpen(true)
+    setTreeTarget({ rel, kind: 'file' })
+    setReveal((prev) => ({ rel, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [activeTab, showFlash, t])
+
+  /** 在系统文件管理器里打开当前文件所在目录，并选中当前文件 */
+  const openContainingFolder = useCallback((): void => {
+    // 当前在设置页签时，退回到文件树里选中的文件
+    const rel = activeTab?.rel || (treeTarget.kind === 'file' ? treeTarget.rel : '')
+    if (!rel) {
+      setNotice(t('ide.command.noActiveFile'))
+      return
+    }
+    const reveal = api?.ide?.revealInOs
+    if (!reveal) {
+      setNotice(t('ide.command.openContainingFailed'))
+      return
+    }
+    void reveal(cwd, rel)
+      .then((r) => {
+        if (!r.ok) setNotice(r.message || t('ide.command.openContainingFailed'))
+      })
+      .catch(() => setNotice(t('ide.command.openContainingFailed')))
+  }, [activeTab, api, cwd, t, treeTarget])
+
+  /** 快捷键页签里的改动：先本地生效，再把整份设置写回主进程 */
+  /** 把设置补丁写回主进程；编辑器设置和快捷键页签共用 */
+  const saveSettingsPatch = useCallback(
+    (patch: Partial<Settings>): void => {
+      if (patch.keybindings) setKeybindingOverrides(patch.keybindings)
+      if (patch.editor) setEditorPrefs(normalizeEditorSettings(patch.editor))
+      if (patch.lsp) setLspEnabled(patch.lsp.enabled !== false)
+
+      const base = settingsRef.current
+      if (!base || !api?.settings) return
+      const next = { ...base, ...patch }
+      settingsRef.current = next
+      setSettingsSaveState('saving')
+      void api.settings
+        .save(next)
+        .then((fresh) => {
+          settingsRef.current = fresh
+          setSettingsSaveState('saved')
+        })
+        .catch(() => {
+          setSettingsSaveState('error')
+          setNotice(t('ide.editorSettings.failed'))
+        })
+    },
+    [api, t]
+  )
+
+  const saveKeybindings = useCallback(
+    (next: KeybindingOverrides): void => {
+      saveSettingsPatch({ keybindings: next })
+    },
+    [saveSettingsPatch]
+  )
+
+  /** 打开设置弹窗；不传 section 时停留在上次看过的页签 */
+  const openSettings = useCallback((section?: SettingsSection): void => {
+    setQuickOpen(false)
+    setPalette(null)
+    if (section) setSettingsTab(section)
+    setSettingsOpen(true)
+  }, [])
+
+  const closeSettings = useCallback((): void => {
+    setSettingsOpen(false)
+  }, [])
+
+  useEffect(() => {
+    if (!reveal || view !== 'files' || !sidebarOpen) return
+    let cancelled = false
+    let tries = 0
+    const findRow = (): HTMLElement | undefined =>
+      Array.from(document.querySelectorAll<HTMLElement>('.ide-trow[data-rel]')).find(
+        (el) => el.dataset.rel === reveal.rel
+      )
+    const tick = (): void => {
+      if (cancelled) return
+      const row = findRow()
+      if (row) {
+        row.scrollIntoView({ block: 'nearest' })
+        return
+      }
+      // 目录列表走 IPC，祖先目录展开后行才会出现；最多等约 2 秒
+      if (tries++ < 40) window.setTimeout(tick, 50)
+    }
+    tick()
+    return () => {
+      cancelled = true
+    }
+  }, [reveal, sidebarOpen, view])
+
   const togglePanel = useCallback(
     (tab: BottomTab): void => {
       // 面板属于「文件 / 搜索」工作区；在 VCS / 同步页按快捷键时先切回来，
@@ -1025,55 +1212,69 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     return window.api?.ide?.onReveal((t) => openFile(t.rel, t.line))
   }, [openFile])
 
-  const closeTab = useCallback(
-    (key: string) => {
-      const closing = tabs.find((t) => t.key === key)
-      if (closing) {
-        clearExternal(closing.rel)
+  const closeTabs = useCallback(
+    (keys: string[]) => {
+      const set = new Set(keys)
+      if (set.size === 0) return
+      const closing = tabs.filter((t) => set.has(t.key))
+      if (closing.length === 0) return
+
+      for (const tab of closing) {
+        clearExternal(tab.rel)
         // 关闭 = 放弃这个缓冲区。缓存留着的话，「重新打开」会把已经
         // 明确丢弃的脏内容又带回来，草稿也会被下一次持久化写回去。
-        delete pendingDraftsRef.current[closing.rel]
-        if (closing.kind === 'file') {
+        delete pendingDraftsRef.current[tab.rel]
+        if (tab.kind === 'file') {
           setFileCache((m) => {
-            if (!(closing.rel in m)) return m
+            if (!(tab.rel in m)) return m
             const next = { ...m }
-            delete next[closing.rel]
+            delete next[tab.rel]
             return next
           })
           setBaseText((m) => {
-            if (!(closing.rel in m)) return m
+            if (!(tab.rel in m)) return m
             const next = { ...m }
-            delete next[closing.rel]
+            delete next[tab.rel]
             return next
           })
-        } else if (closing.kind === 'image') {
+        } else if (tab.kind === 'image') {
           setImageCache((m) => {
             const next = { ...m }
-            delete next[closing.rel]
+            delete next[tab.rel]
             return next
           })
         } else {
           setDiffCache((m) => {
             const next = { ...m }
-            delete next[closing.rel]
+            delete next[tab.rel]
             return next
           })
         }
-        closedTabsRef.current = [closing, ...closedTabsRef.current].slice(0, 20)
       }
+      closedTabsRef.current = [...closing, ...closedTabsRef.current].slice(0, 20)
+
       setTabs((list) => {
-        const i = list.findIndex((t) => t.key === key)
-        const next = list.filter((t) => t.key !== key)
+        const next = list.filter((t) => !set.has(t.key))
         setActiveKey((cur) => {
-          if (cur !== key) return cur
-          const fallback = next[i] ?? next[i - 1] ?? null
-          return fallback?.key ?? null
+          if (!cur || !set.has(cur)) return cur
+          const oldIndex = list.findIndex((t) => t.key === cur)
+          if (oldIndex < 0) return next[0]?.key ?? null
+          // 优先选右侧最近的存活页签，其次左侧；和常见编辑器一致
+          for (let d = 1; d < list.length; d++) {
+            const after = list[oldIndex + d]
+            if (after && !set.has(after.key)) return after.key
+            const before = list[oldIndex - d]
+            if (before && !set.has(before.key)) return before.key
+          }
+          return next[0]?.key ?? null
         })
         return next
       })
     },
     [clearExternal, tabs]
   )
+
+  const closeTab = useCallback((key: string) => closeTabs([key]), [closeTabs])
 
   /* ── 保存 / 脏状态 ───────────────────────────────────── */
 
@@ -1083,7 +1284,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   }, [vcs])
 
   const saveDoc = useCallback(
-    async (rel: string, force = false): Promise<boolean> => {
+    async (
+      rel: string,
+      force = false,
+      encoding?: IdeEncoding,
+      alwaysWrite = false
+    ): Promise<boolean> => {
       const file = fileCache[rel]
       if (!api?.ide || !file) return false
       if (file.binary) {
@@ -1095,7 +1301,14 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         return false
       }
       // 磁盘上已删除的干净缓冲区也要走 saveFile，才能弹出现有的“重新创建”
-      if (!isDirty(rel) && !force && external[extKey(rel)] !== 'deleted') return true
+      if (
+        !isDirty(rel) &&
+        !force &&
+        !alwaysWrite &&
+        external[extKey(rel)] !== 'deleted'
+      ) {
+        return true
+      }
       // 同一个文件已有保存在飞：等它完成，自动保存会在下一轮看到新的脏状态
       if (!force && (savingRelsRef.current.get(extKey(rel)) ?? 0) > 0) return true
 
@@ -1119,6 +1332,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           text,
           expectedMtimeMs: file.mtimeMs,
           eol: file.eol,
+          encoding: encoding ?? file.encoding,
           force
         })
         if (!r.ok) {
@@ -1132,7 +1346,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   label: t('ide.overwrite'),
                   kind: 'danger',
                   run: async () => {
-                    await saveDoc(rel, true)
+                    await saveDoc(rel, true, encoding, alwaysWrite)
                   }
                 }
               ]
@@ -1147,7 +1361,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   label: t('ide.recreate'),
                   kind: 'primary',
                   run: async () => {
-                    await saveDoc(rel, true)
+                    await saveDoc(rel, true, encoding, alwaysWrite)
                   }
                 }
               ]
@@ -1168,7 +1382,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                 ...cur,
                 size: r.data.size,
                 mtimeMs: r.data.mtimeMs,
-                eol: r.data.eol
+                eol: r.data.eol,
+                encoding: r.data.encoding
               }
             }
           }
@@ -1196,6 +1411,40 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       }
     },
     [api, clearExternal, cwd, editorPrefs.trimTrailingWhitespace, external, fileCache, isDirty, showFlash, vcs]
+  )
+
+  /** 以指定编码重新读盘；有未保存修改时不允许，避免直接覆盖缓冲区 */
+  const reopenWithEncoding = useCallback(
+    async (rel: string, encoding: IdeEncoding): Promise<void> => {
+      if (!api?.ide) return
+      if (isDirty(rel)) {
+        setNotice(t('ide.encoding.unsaved'))
+        return
+      }
+      const r = await api.ide.readFile(cwd, rel, encoding)
+      if (!r.ok) {
+        setNotice(t('ide.openFailed', { error: r.message }))
+        return
+      }
+      setFileCache((m) => ({ ...m, [rel]: r.data }))
+      setBaseText((m) => ({ ...m, [rel]: r.data.text }))
+      clearExternal(rel)
+      ensureImportedModels(cwd, rel, r.data.text, api.ide.readFile)
+      showFlash(
+        t('ide.encoding.reopened', {
+          encoding: t(ENCODING_LABEL_KEY[encoding])
+        })
+      )
+    },
+    [api, clearExternal, cwd, isDirty, showFlash, t]
+  )
+
+  /** 按指定编码写盘；即使文件没有修改也强制写一次，用于编码转换 */
+  const saveWithEncoding = useCallback(
+    (rel: string, encoding: IdeEncoding): void => {
+      void saveDoc(rel, false, encoding, true)
+    },
+    [saveDoc]
   )
 
   const saveAll = useCallback(async (): Promise<boolean> => {
@@ -1412,6 +1661,19 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     [api, applyRename, cwd, refresh, showFlash]
   )
 
+  /** 快捷键 / 命令面板调用的「重命名选中的文件树项」 */
+  const renameTreeTarget = useCallback((): void => {
+    const target = treeTargetRef.current
+    if (!target.rel) return
+    setPrompt({
+      title: t('ide.renameTitle'),
+      message: t('ide.renameMessage'),
+      value: target.rel,
+      confirmLabel: t('ide.rename'),
+      run: (value) => renameTarget(target, value)
+    })
+  }, [renameTarget, t])
+
   const dropTabsUnder = useCallback(
     (prefix: string): void => {
       const active = tabs.find((t) => t.key === activeKey)
@@ -1491,6 +1753,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     [api, cwd, dropTabsUnder, isDirty, refresh, showFlash, tabs]
   )
 
+  /** 快捷键 / 命令面板调用的「删除选中的文件树项」 */
+  const deleteTreeTarget = useCallback((): void => {
+    const target = treeTargetRef.current
+    if (target.rel) requestDelete(target)
+  }, [requestDelete])
+
   const requestCloseTab = useCallback(
     (key: string) => {
       const tab = tabs.find((t) => t.key === key)
@@ -1515,6 +1783,82 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       })
     },
     [tabs, isDirty, closeTab, saveDoc]
+  )
+
+  /** 拖动页签排序；固定页签始终留在左侧 */
+  const reorderTab = useCallback((fromKey: string, toKey: string, after: boolean): void => {
+    setTabs((list) => {
+      const from = list.find((t) => t.key === fromKey)
+      const target = list.find((t) => t.key === toKey)
+      if (!from || !target || fromKey === toKey) return list
+      const without = list.filter((t) => t.key !== fromKey)
+      let index = without.findIndex((t) => t.key === toKey) + (after ? 1 : 0)
+      if (!!from.pinned !== !!target.pinned) {
+        // 跨固定区拖动时落在分组边界，不把两种页签混在一起
+        index = without.filter((t) => t.pinned).length
+      }
+      const next = [...without]
+      next.splice(index, 0, from)
+      return next
+    })
+  }, [])
+
+  const togglePin = useCallback((key: string): void => {
+    setTabs((list) => {
+      const tab = list.find((t) => t.key === key)
+      if (!tab) return list
+      const without = list.filter((t) => t.key !== key)
+      const pinnedCount = without.filter((t) => t.pinned).length
+      const next = [...without]
+      next.splice(pinnedCount, 0, { ...tab, pinned: !tab.pinned })
+      return next
+    })
+  }, [])
+
+  /** 批量关闭：有脏文件时先问「保存 / 不保存」 */
+  const closeManyWithPrompt = useCallback(
+    (keys: string[]): void => {
+      const targets = tabs.filter((t) => keys.includes(t.key))
+      if (targets.length === 0) return
+      const dirty = targets.filter((t) => t.kind === 'file' && isDirty(t.rel))
+      if (dirty.length === 0) {
+        closeTabs(keys)
+        return
+      }
+      setDialog({
+        title: t('ide.tab.closeManyTitle'),
+        message: t('ide.tab.closeManyMessage', { n: dirty.length }),
+        actions: [
+          { label: t('common.cancel'), run: () => undefined },
+          {
+            label: t('ide.tab.dontSaveAndClose'),
+            kind: 'danger',
+            run: () => closeTabs(keys)
+          },
+          {
+            label: t('ide.tab.saveAndClose'),
+            kind: 'primary',
+            run: async () => {
+              for (const item of dirty) {
+                if (!(await saveDoc(item.rel))) return
+              }
+              closeTabs(keys)
+            }
+          }
+        ]
+      })
+    },
+    [tabs, isDirty, closeTabs, saveDoc, t]
+  )
+
+  const copyTabPath = useCallback(
+    (rel: string): void => {
+      void navigator.clipboard
+        .writeText(rel)
+        .then(() => showFlash(t('ide.tab.copied')))
+        .catch(() => undefined)
+    },
+    [showFlash, t]
   )
 
   const requestWindowClose = useCallback(() => {
@@ -1555,145 +1899,64 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     api?.ide?.setDirty(dirtyCount > 0)
   }, [api, dirtyCount])
 
+  useEffect(() => {
+    setEncodingMenuOpen(false)
+  }, [activeKey])
+
   useEffect(() => api?.ide?.onCloseRequest(requestWindowClose), [api, requestWindowClose])
 
   useEffect(() => {
+    /** 终端有焦点时仍然放行的应用级命令；其余按键留给 shell / readline */
+    const TERMINAL_GLOBAL = new Set([
+      'view.toggleTerminal',
+      'view.commandPalette',
+      'view.toggleProblems',
+      'search.workspace',
+      'view.settings'
+    ])
+    /** 只在文件树有选中项、且焦点不在输入框时响应的命令 */
+    const TREE_ONLY = new Set(['explorer.rename', 'explorer.delete'])
+
     const onKey = (e: KeyboardEvent): void => {
-      const mod = e.ctrlKey || e.metaKey
       const target = e.target as HTMLElement | null
       const typing =
         target?.tagName === 'TEXTAREA' ||
         target?.tagName === 'INPUT' ||
         target?.isContentEditable === true
-      const key = e.key.toLowerCase()
-      const handled = (fn: () => void): void => {
-        e.preventDefault()
-        e.stopPropagation()
-        fn()
-      }
 
-      /*
-       * 终端有焦点时，把按键尽量交给 shell（Ctrl+W、Ctrl+P、Alt+← 等
-       * 在 readline / TUI 里都是有效输入），只保留几个应用级全局键。
-       */
-      const inTerminal = !!(target?.closest?.('.xterm'))
-      const terminalGlobal =
-        mod &&
-        (key === '`' ||
-          (e.shiftKey && (key === 'p' || key === 'm' || key === 'f')))
-      if (inTerminal && !terminalGlobal) return
+      // 设置弹窗自己有键盘处理（Esc 关闭、快捷键录制），不要再触发编辑器命令
+      if (settingsOpenRef.current) return
 
-      if (mod && e.shiftKey && key === 'p') {
-        handled(() => {
-          setQuickOpen(false)
-          setPalette('commands')
-        })
-      } else if (mod && !e.shiftKey && key === 'p') {
-        handled(() => {
-          setPalette(null)
-          setQuickOpenSeed('')
-          setQuickOpen(true)
-        })
-      } else if (mod && e.shiftKey && key === 'f') {
-        handled(() => {
-          setView('search')
-          setSidebarOpen(true)
-        })
-      } else if (mod && !e.shiftKey && key === 's') {
-        handled(() => {
-          if (activeTab?.kind === 'file') void saveDoc(activeTab.rel)
-        })
-      } else if (mod && e.shiftKey && key === 's') {
-        handled(() => void saveAll())
-      } else if (mod && !e.shiftKey && key === 'w') {
-        handled(() => {
-          if (activeKey) requestCloseTab(activeKey)
-        })
-      } else if (mod && e.shiftKey && key === 't') {
-        handled(() => reopenClosedTab())
-      } else if (mod && !e.shiftKey && key === 't') {
-        handled(() => {
-          setPalette(null)
-          setQuickOpenSeed('#')
-          setQuickOpen(true)
-        })
-      } else if (mod && !e.shiftKey && key === 'g') {
-        handled(() => {
-          if (!runEditorAction('editor.action.gotoLine')) {
-            setNotice(t('ide.command.noEditor'))
-          }
-        })
-      } else if (mod && e.shiftKey && key === 'o') {
-        handled(() => {
-          if (outlineCountRef.current === 0) {
-            showFlash(t('ide.command.symbolEmpty'))
-            return
-          }
-          setQuickOpen(false)
-          setPalette('symbols')
-        })
-      } else if (mod && key === '`') {
-        handled(() => togglePanel('terminal'))
-      } else if (mod && e.shiftKey && key === 'm') {
-        handled(() => togglePanel('problems'))
-      } else if (mod && !e.shiftKey && key === 'b') {
-        handled(() => setSidebarOpen((v) => !v))
-      } else if (mod && e.key === 'Tab') {
-        handled(() => switchTab(e.shiftKey ? -1 : 1))
-      } else if (!mod && e.altKey && e.key === 'ArrowLeft') {
-        handled(() => {
-          if (!goBack()) showFlash(t('ide.command.backEmpty'))
-        })
-      } else if (!mod && e.altKey && e.key === 'ArrowRight') {
-        handled(() => {
-          if (!goForward()) showFlash(t('ide.command.backEmpty'))
-        })
-      } else if (!mod && e.altKey && e.shiftKey && key === 'f') {
-        handled(() => {
-          void formatActiveDocument().then((ok) => {
-            if (!ok) setNotice(t('ide.command.formatUnavailable'))
-          })
-        })
-      } else if (!typing && e.key === 'F2' && treeTarget.rel) {
-        e.preventDefault()
-        const target = treeTarget
-        setPrompt({
-          title: t('ide.renameTitle'),
-          message: t('ide.renameMessage'),
-          value: target.rel,
-          confirmLabel: t('ide.rename'),
-          run: (value) => renameTarget(target, value)
-        })
-      } else if (!typing && e.key === 'Delete' && treeTarget.rel) {
-        e.preventDefault()
-        requestDelete(treeTarget)
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape') {
         setQuickOpen(false)
         setPalette(null)
         setMenu(null)
+        return
+      }
+
+      const inTerminal = !!(target?.closest?.('.xterm'))
+      for (const command of commandsRef.current) {
+        const binding = keybindingsRef.current[command.id]
+        if (!binding || !matchBinding(binding, e)) continue
+        // 终端里的 Ctrl+W / Ctrl+P / Alt+← 等是 shell 的输入，不能抢
+        if (inTerminal && !TERMINAL_GLOBAL.has(command.id)) return
+        if (
+          TREE_ONLY.has(command.id) &&
+          (typing || !treeTargetRef.current.rel)
+        ) {
+          return
+        }
+        e.preventDefault()
+        e.stopPropagation()
+        void command.run()
+        return
       }
     }
     // 捕获阶段：Ctrl+G / Ctrl+Shift+O 等 Monaco 自己也有绑定，先由应用层
     // 决定用哪个实现，避免两个浮层同时打开。
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [
-    activeKey,
-    activeTab,
-    goBack,
-    goForward,
-    renameTarget,
-    reopenClosedTab,
-    requestCloseTab,
-    requestDelete,
-    saveAll,
-    saveDoc,
-    showFlash,
-    switchTab,
-    t,
-    togglePanel,
-    treeTarget
-  ])
+  }, [])
 
   const activeFile = activeTab?.kind === 'file' ? fileCache[activeTab.rel] : undefined
   const activeImage = activeTab?.kind === 'image' ? imageCache[activeTab.rel] : undefined
@@ -1888,7 +2151,18 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           <span>{activeFile.language}</span>
           <span>{t('ide.lines', { n: activeFile.text.split('\n').length })}</span>
           <span>{activeFile.eol === 'crlf' ? 'CRLF' : 'LF'}</span>
-          <span>UTF-8</span>
+          {activeFile.binary || activeFile.truncated ? (
+            <span>{t(ENCODING_LABEL_KEY[activeFile.encoding])}</span>
+          ) : (
+            <button
+              type="button"
+              className="ide-status-encoding"
+              title={t('ide.encoding.button')}
+              onClick={() => setEncodingMenuOpen(true)}
+            >
+              {t(ENCODING_LABEL_KEY[activeFile.encoding])}
+            </button>
+          )}
         </>
       )
     }
@@ -1920,7 +2194,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'file.save',
         label: t('ide.command.save'),
         group: file,
-        keybinding: 'Ctrl+S',
+        keybinding: displayBindingOf('file.save'),
         run: () => {
           if (activeTab?.kind === 'file') void saveDoc(activeTab.rel)
         }
@@ -1929,26 +2203,28 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'file.saveAll',
         label: t('ide.command.saveAll'),
         group: file,
-        keybinding: 'Ctrl+Shift+S',
+        keybinding: displayBindingOf('file.saveAll'),
         run: () => void saveAll()
       },
       {
         id: 'file.newFile',
         label: t('ide.command.newFile'),
         group: file,
+        keybinding: displayBindingOf('file.newFile'),
         run: () => startCreate('file')
       },
       {
         id: 'file.newFolder',
         label: t('ide.command.newFolder'),
         group: file,
+        keybinding: displayBindingOf('file.newFolder'),
         run: () => startCreate('dir')
       },
       {
         id: 'file.quickOpen',
         label: t('ide.command.quickOpen'),
         group: file,
-        keybinding: 'Ctrl+P',
+        keybinding: displayBindingOf('file.quickOpen'),
         run: () => {
           setQuickOpenSeed('')
           setQuickOpen(true)
@@ -1958,7 +2234,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'file.closeTab',
         label: t('ide.command.closeTab'),
         group: file,
-        keybinding: 'Ctrl+W',
+        keybinding: displayBindingOf('file.closeTab'),
         run: () => {
           if (activeKey) requestCloseTab(activeKey)
         }
@@ -1967,14 +2243,42 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'file.reopenTab',
         label: t('ide.command.reopenTab'),
         group: file,
-        keybinding: 'Ctrl+Shift+T',
+        keybinding: displayBindingOf('file.reopenTab'),
         run: reopenClosedTab
+      },
+      {
+        id: 'file.revealInExplorer',
+        label: t('ide.command.revealInExplorer'),
+        group: file,
+        keybinding: displayBindingOf('file.revealInExplorer'),
+        run: revealInExplorer
+      },
+      {
+        id: 'file.openContainingFolder',
+        label: t('ide.command.openContainingFolder'),
+        group: file,
+        keybinding: displayBindingOf('file.openContainingFolder'),
+        run: openContainingFolder
+      },
+      {
+        id: 'explorer.rename',
+        label: t('ide.command.rename'),
+        group: file,
+        keybinding: displayBindingOf('explorer.rename'),
+        run: renameTreeTarget
+      },
+      {
+        id: 'explorer.delete',
+        label: t('ide.command.delete'),
+        group: file,
+        keybinding: displayBindingOf('explorer.delete'),
+        run: deleteTreeTarget
       },
       {
         id: 'search.workspace',
         label: t('ide.command.search'),
         group: edit,
-        keybinding: 'Ctrl+Shift+F',
+        keybinding: displayBindingOf('search.workspace'),
         run: () => {
           setView('search')
           setSidebarOpen(true)
@@ -1984,7 +2288,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'edit.format',
         label: t('ide.command.format'),
         group: edit,
-        keybinding: 'Shift+Alt+F',
+        keybinding: displayBindingOf('edit.format'),
         run: () => {
           void formatActiveDocument().then((ok) => {
             if (!ok) setNotice(t('ide.command.formatUnavailable'))
@@ -1995,7 +2299,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.goToLine',
         label: t('ide.command.goToLine'),
         group: nav,
-        keybinding: 'Ctrl+G',
+        keybinding: displayBindingOf('nav.goToLine'),
         run: () => {
           if (!runEditorAction('editor.action.gotoLine')) {
             setNotice(t('ide.command.noEditor'))
@@ -2006,7 +2310,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.goToSymbol',
         label: t('ide.command.goToSymbol'),
         group: nav,
-        keybinding: 'Ctrl+Shift+O',
+        keybinding: displayBindingOf('nav.goToSymbol'),
         run: () => {
           if (outlineSymbols.length === 0) {
             showFlash(t('ide.command.symbolEmpty'))
@@ -2019,7 +2323,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.goToWorkspaceSymbol',
         label: t('ide.command.goToWorkspaceSymbol'),
         group: nav,
-        keybinding: 'Ctrl+T',
+        keybinding: displayBindingOf('nav.goToWorkspaceSymbol'),
         run: () => {
           setPalette(null)
           setQuickOpenSeed('#')
@@ -2030,7 +2334,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.quickFix',
         label: t('ide.command.quickFix'),
         group: nav,
-        keybinding: 'Ctrl+.',
+        keybinding: displayBindingOf('nav.quickFix'),
         run: () => {
           if (!runEditorAction('editor.action.quickFix')) {
             setNotice(t('ide.command.noEditor'))
@@ -2041,6 +2345,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.goToDeclaration',
         label: t('ide.command.goToDeclaration'),
         group: nav,
+        keybinding: displayBindingOf('nav.goToDeclaration'),
         run: () => {
           if (!runEditorAction('editor.action.revealDeclaration')) {
             setNotice(t('ide.command.noEditor'))
@@ -2051,7 +2356,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.goToImplementation',
         label: t('ide.command.goToImplementation'),
         group: nav,
-        keybinding: 'Ctrl+F12',
+        keybinding: displayBindingOf('nav.goToImplementation'),
         run: () => {
           if (!runEditorAction('editor.action.goToImplementation')) {
             setNotice(t('ide.command.noEditor'))
@@ -2062,6 +2367,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.goToTypeDefinition',
         label: t('ide.command.goToTypeDefinition'),
         group: nav,
+        keybinding: displayBindingOf('nav.goToTypeDefinition'),
         run: () => {
           if (!runEditorAction('editor.action.goToTypeDefinition')) {
             setNotice(t('ide.command.noEditor'))
@@ -2072,6 +2378,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.signatureHelp',
         label: t('ide.command.signatureHelp'),
         group: nav,
+        keybinding: displayBindingOf('nav.signatureHelp'),
         run: () => {
           if (!runEditorAction('editor.action.triggerParameterHints')) {
             setNotice(t('ide.command.noEditor'))
@@ -2082,7 +2389,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.back',
         label: t('ide.command.navBack'),
         group: nav,
-        keybinding: 'Alt+←',
+        keybinding: displayBindingOf('nav.back'),
         run: () => {
           if (!goBack()) showFlash(t('ide.command.backEmpty'))
         }
@@ -2091,61 +2398,103 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         id: 'nav.forward',
         label: t('ide.command.navForward'),
         group: nav,
-        keybinding: 'Alt+→',
+        keybinding: displayBindingOf('nav.forward'),
         run: () => {
           if (!goForward()) showFlash(t('ide.command.backEmpty'))
+        }
+      },
+      {
+        id: 'view.settings',
+        label: t('ide.command.settings'),
+        group: view,
+        keybinding: displayBindingOf('view.settings'),
+        run: () => openSettings()
+      },
+      {
+        id: 'view.commandPalette',
+        label: t('ide.command.title'),
+        group: view,
+        keybinding: displayBindingOf('view.commandPalette'),
+        run: () => {
+          setQuickOpen(false)
+          setPalette('commands')
         }
       },
       {
         id: 'view.toggleSidebar',
         label: t('ide.command.toggleSidebar'),
         group: view,
-        keybinding: 'Ctrl+B',
+        keybinding: displayBindingOf('view.toggleSidebar'),
         run: () => setSidebarOpen((v) => !v)
       },
       {
         id: 'view.toggleProblems',
         label: t('ide.command.toggleProblems'),
         group: view,
-        keybinding: 'Ctrl+Shift+M',
+        keybinding: displayBindingOf('view.toggleProblems'),
         run: () => togglePanel('problems')
       },
       {
         id: 'view.toggleTerminal',
         label: t('ide.command.toggleTerminal'),
         group: view,
-        keybinding: 'Ctrl+`',
+        keybinding: displayBindingOf('view.toggleTerminal'),
         run: () => togglePanel('terminal')
       },
       {
         id: 'view.closePanel',
         label: t('ide.command.closePanel'),
         group: view,
+        keybinding: displayBindingOf('view.closePanel'),
         run: () => setPanelOpen(false)
       },
       {
         id: 'view.refresh',
         label: t('ide.command.refresh'),
         group: view,
+        keybinding: displayBindingOf('view.refresh'),
         run: refresh
+      },
+      {
+        id: 'tab.next',
+        label: t('ide.command.tabNext'),
+        group: view,
+        keybinding: displayBindingOf('tab.next'),
+        run: () => switchTab(1)
+      },
+      {
+        id: 'tab.prev',
+        label: t('ide.command.tabPrev'),
+        group: view,
+        keybinding: displayBindingOf('tab.prev'),
+        run: () => switchTab(-1)
       }
     ]
   }, [
     activeKey,
     activeTab,
+    deleteTreeTarget,
+    displayBindingOf,
     goBack,
     goForward,
     outlineSymbols.length,
+    openContainingFolder,
+    openSettings,
     refresh,
+    renameTreeTarget,
     reopenClosedTab,
     requestCloseTab,
+    revealInExplorer,
     saveAll,
     saveDoc,
     showFlash,
     startCreate,
+    switchTab,
     t,
     togglePanel
   ])
+
+  commandsRef.current = commands
 
   return (
     <div className="ide-app">
@@ -2161,7 +2510,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         >
           <IconSearch width={14} height={14} />
           <span>{t('ide.searchPlaceholder')}</span>
-          <kbd>Ctrl P</kbd>
+          {displayBindingOf('file.quickOpen') && (
+            <kbd>{displayBindingOf('file.quickOpen')}</kbd>
+          )}
         </button>
         <div className="ide-toolbar-right">
           <span
@@ -2182,6 +2533,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           )}
           <button className="ide-iconbtn" title={t('ide.refresh')} onClick={refresh}>
             <Ico d={P.refresh} />
+          </button>
+          <button
+            className="ide-iconbtn ide-settings-btn"
+            title={`${t('ide.settings.title')}${
+              displayBindingOf('view.settings') ? ` (${displayBindingOf('view.settings')})` : ''
+            }`}
+            onClick={() => openSettings()}
+          >
+            <Ico d={P.settings} />
           </button>
           {dirtyCount > 0 ? (
             <button
@@ -2348,6 +2708,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   defaultOpen
                   git={gitMap}
                   selectedRel={treeTarget.rel}
+                  revealRel={reveal?.rel ?? null}
+                  revealSeq={reveal?.nonce ?? 0}
                   onSelect={setTreeTarget}
                   onMenu={(target, e) => {
                     e.preventDefault()
@@ -2378,22 +2740,78 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             {tabs.map((tab) => (
               <div
                 key={tab.key}
-                className={`ide-tab ${tab.key === activeKey ? 'on' : ''}`}
+                className={`ide-tab ${tab.key === activeKey ? 'on' : ''}${
+                  tab.pinned ? ' is-pinned' : ''
+                }${dragTabKey === tab.key ? ' is-dragging' : ''}${
+                  dropTarget?.key === tab.key
+                    ? dropTarget.after
+                      ? ' is-drop-after'
+                      : ' is-drop-before'
+                    : ''
+                }`}
                 title={tab.rel}
+                draggable
                 onClick={() => setActiveKey(tab.key)}
                 onAuxClick={(e) => {
                   if (e.button === 1) requestCloseTab(tab.key)
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setActiveKey(tab.key)
+                  setTabMenu({ x: e.clientX, y: e.clientY, key: tab.key })
+                }}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', tab.key)
+                  setDragTabKey(tab.key)
+                  setDropTarget(null)
+                }}
+                onDragOver={(e) => {
+                  if (!dragTabKey || dragTabKey === tab.key) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  setDropTarget({
+                    key: tab.key,
+                    after: e.clientX > rect.left + rect.width / 2
+                  })
+                }}
+                onDragLeave={() => {
+                  if (dropTarget?.key === tab.key) setDropTarget(null)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (dragTabKey && dropTarget) {
+                    reorderTab(dragTabKey, dropTarget.key, dropTarget.after)
+                  }
+                  setDragTabKey(null)
+                  setDropTarget(null)
+                }}
+                onDragEnd={() => {
+                  setDragTabKey(null)
+                  setDropTarget(null)
                 }}
               >
                 {tab.kind === 'file' && isDirty(tab.rel) ? (
                   <span className="ide-tab-dirty" title={t('ide.unsavedDot')} />
                 ) : (
                   <Ico
-                    d={tab.kind === 'image' ? P.image : tab.kind === 'diff' ? P.diff : P.file}
+                    d={
+                      tab.kind === 'image'
+                        ? P.image
+                        : tab.kind === 'diff'
+                          ? P.diff
+                          : P.file
+                    }
                     size={12}
                   />
                 )}
                 <span className="ide-tab-title">{tab.title}</span>
+                {tab.pinned && (
+                  <span className="ide-tab-pin" title={t('ide.tab.pinned')}>
+                    <Ico d={P.pin} size={10} />
+                  </span>
+                )}
                 {external[extKey(tab.rel)] && (
                   <span
                     className={`ide-tab-ext is-${external[extKey(tab.rel)]}`}
@@ -2451,7 +2869,13 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           )}
 
           <div className="ide-content">
-            {!activeTab && <EmptyState />}
+            {!activeTab && (
+              <EmptyState
+                quickOpenKey={displayBindingOf('file.quickOpen')}
+                saveKey={displayBindingOf('file.save')}
+                searchKey={displayBindingOf('search.workspace')}
+              />
+            )}
             {activeTab && loadingKey === activeTab.key && (
               <div className="ide-loading">
                 {t('ide.loadingFile', { rel: activeTab.rel })}
@@ -2694,6 +3118,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       {menu && (
         <TreeMenu
           state={menu}
+          renameKey={displayBindingOf('explorer.rename')}
+          deleteKey={displayBindingOf('explorer.delete')}
           onClose={() => setMenu(null)}
           onNewFile={(target) => startCreate('file', target)}
           onNewFolder={(target) => startCreate('dir', target)}
@@ -2720,7 +3146,59 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         />
       )}
 
+      {tabMenu &&
+        (() => {
+          const tab = tabs.find((item) => item.key === tabMenu.key)
+          if (!tab) return null
+          const index = tabs.findIndex((item) => item.key === tab.key)
+          const others = tabs.filter((item) => item.key !== tab.key && !item.pinned)
+          const right = tabs.slice(index + 1).filter((item) => !item.pinned)
+          return (
+            <TabMenu
+              state={tabMenu}
+              tab={tab}
+              closeKey={displayBindingOf('file.closeTab')}
+              reopenKey={displayBindingOf('file.reopenTab')}
+              canCloseOthers={others.length > 0}
+              canCloseRight={right.length > 0}
+              canReopen={closedTabsRef.current.length > 0}
+              onClose={() => setTabMenu(null)}
+              onCloseTab={() => requestCloseTab(tab.key)}
+              onCloseOthers={() => closeManyWithPrompt(others.map((item) => item.key))}
+              onCloseRight={() => closeManyWithPrompt(right.map((item) => item.key))}
+              onCloseAll={() => closeManyWithPrompt(tabs.map((item) => item.key))}
+              onTogglePin={() => togglePin(tab.key)}
+              onCopyPath={() => copyTabPath(tab.rel)}
+              onReopen={() => reopenClosedTab()}
+            />
+          )
+        })()}
+
+      {encodingMenuOpen && activeTab?.kind === 'file' && activeFile && !activeFile.binary && !activeFile.truncated && (
+        <EncodingMenu
+          current={activeFile.encoding}
+          dirty={isDirty(activeTab.rel)}
+          onReopen={(encoding) => void reopenWithEncoding(activeTab.rel, encoding)}
+          onSave={(encoding) => saveWithEncoding(activeTab.rel, encoding)}
+          onClose={() => setEncodingMenuOpen(false)}
+        />
+      )}
+
       {prompt && <PromptDialog state={prompt} onClose={() => setPrompt(null)} />}
+
+      {settingsOpen && (
+        <SettingsDialog
+          tab={settingsTab}
+          onTab={setSettingsTab}
+          onClose={closeSettings}
+          overrides={keybindingOverrides}
+          onKeybindingsChange={saveKeybindings}
+          editor={editorPrefs}
+          lsp={{ enabled: lspEnabled }}
+          saveState={settingsSaveState}
+          onEditorChange={saveSettingsPatch}
+        />
+      )}
 
       {dialog && (
         <ConfirmDialog
@@ -2747,6 +3225,8 @@ function TreeDir({
   defaultOpen = false,
   git,
   selectedRel,
+  revealRel,
+  revealSeq = 0,
   onSelect,
   onMenu,
   onOpen
@@ -2759,6 +3239,10 @@ function TreeDir({
   defaultOpen?: boolean
   git: Record<string, VcsChange>
   selectedRel: string
+  /** 「在资源管理器中显示」的目标文件：位于本目录下时就自动展开 */
+  revealRel?: string | null
+  /** 同一个文件重复触发时靠它重新展开已经收起的目录 */
+  revealSeq?: number
   onSelect: (target: TreeTarget) => void
   onMenu: (target: TreeTarget, e: ReactMouseEvent) => void
   onOpen: (rel: string, line?: number) => void
@@ -2769,6 +3253,13 @@ function TreeDir({
   const [failed, setFailed] = useState(false)
   const [loadedVersion, setLoadedVersion] = useState(-1)
   const target: TreeTarget = { rel, kind: 'dir' }
+  const revealOpen =
+    !!revealRel && (rel === '' || revealRel === rel || revealRel.startsWith(`${rel}/`))
+
+  // 目标文件在更深层目录里：先展开当前层，子目录会各自继续展开
+  useEffect(() => {
+    if (revealOpen) setOpen(true)
+  }, [revealOpen, revealSeq])
 
   useEffect(() => {
     if (!open || loadedVersion === version) return
@@ -2802,6 +3293,7 @@ function TreeDir({
         }`}
         style={{ paddingLeft: 8 + depth * 12 }}
         title={rel || cwd}
+        data-rel={rel}
         onClick={() => {
           onSelect(target)
           setOpen((o) => !o)
@@ -2842,6 +3334,8 @@ function TreeDir({
                 version={version}
                 git={git}
                 selectedRel={selectedRel}
+                revealRel={revealRel}
+                revealSeq={revealSeq}
                 onSelect={onSelect}
                 onMenu={onMenu}
                 onOpen={onOpen}
@@ -2888,6 +3382,7 @@ function FileRow({
       className={`ide-trow is-file ${selected ? 'is-sel' : ''}`}
       style={{ paddingLeft: 26 + depth * 12 }}
       title={entry.rel}
+      data-rel={entry.rel}
       onClick={() => {
         onSelect(target)
         onOpen(entry.rel)
@@ -3785,6 +4280,8 @@ function DiffViewer({ diff }: { diff: VcsDiffData }): JSX.Element {
 
 function TreeMenu({
   state,
+  renameKey,
+  deleteKey,
   onClose,
   onNewFile,
   onNewFolder,
@@ -3793,6 +4290,8 @@ function TreeMenu({
   onSend
 }: {
   state: TreeMenuState
+  renameKey?: string
+  deleteKey?: string
   onClose: () => void
   onNewFile: (target: TreeTarget) => void
   onNewFolder: (target: TreeTarget) => void
@@ -3869,7 +4368,7 @@ function TreeMenu({
             >
               <Ico d={P.rename} size={13} />
               {t('ide.rename')}
-              <kbd>F2</kbd>
+              {renameKey && <kbd>{renameKey}</kbd>}
             </button>
             <button
               className="is-danger"
@@ -3880,10 +4379,109 @@ function TreeMenu({
             >
               <Ico d={P.trash} size={13} />
               {t('ide.delete')}
-              <kbd>Del</kbd>
+              {deleteKey && <kbd>{deleteKey}</kbd>}
             </button>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+function TabMenu({
+  state,
+  tab,
+  closeKey,
+  reopenKey,
+  canCloseOthers,
+  canCloseRight,
+  canReopen,
+  onClose,
+  onCloseTab,
+  onCloseOthers,
+  onCloseRight,
+  onCloseAll,
+  onTogglePin,
+  onCopyPath,
+  onReopen
+}: {
+  state: TabMenuState
+  tab: Tab
+  closeKey?: string
+  reopenKey?: string
+  canCloseOthers: boolean
+  canCloseRight: boolean
+  canReopen: boolean
+  onClose: () => void
+  onCloseTab: () => void
+  onCloseOthers: () => void
+  onCloseRight: () => void
+  onCloseAll: () => void
+  onTogglePin: () => void
+  onCopyPath: () => void
+  onReopen: () => void
+}): JSX.Element {
+  const { t } = useI18n()
+  const left = Math.max(8, Math.min(state.x, window.innerWidth - 208))
+  const top = Math.max(8, Math.min(state.y, window.innerHeight - 300))
+
+  useEffect(() => {
+    const close = (): void => onClose()
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const run = (fn: () => void) => (): void => {
+    onClose()
+    fn()
+  }
+
+  return (
+    <div
+      className="ide-ctx-overlay"
+      onMouseDown={onClose}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        onClose()
+      }}
+    >
+      <div className="ide-ctx" style={{ left, top }} onMouseDown={(e) => e.stopPropagation()}>
+        <button onClick={run(onCloseTab)}>
+          <Ico d={P.close} size={13} />
+          {t('ide.tab.close')}
+          {closeKey && <kbd>{closeKey}</kbd>}
+        </button>
+        <button disabled={!canCloseOthers} onClick={run(onCloseOthers)}>
+          {t('ide.tab.closeOthers')}
+        </button>
+        <button disabled={!canCloseRight} onClick={run(onCloseRight)}>
+          {t('ide.tab.closeRight')}
+        </button>
+        <button onClick={run(onCloseAll)}>{t('ide.tab.closeAll')}</button>
+        <span className="ide-ctx-sep" />
+        <button onClick={run(onTogglePin)}>
+          <Ico d={P.pin} size={13} />
+          {tab.pinned ? t('ide.tab.unpin') : t('ide.tab.pin')}
+        </button>
+        <button onClick={run(onCopyPath)}>
+          <Ico d={P.file} size={13} />
+          {t('ide.tab.copyPath')}
+        </button>
+        <span className="ide-ctx-sep" />
+        <button disabled={!canReopen} onClick={run(onReopen)}>
+          <Ico d={P.file} size={13} />
+          {t('ide.tab.reopen')}
+          {reopenKey && <kbd>{reopenKey}</kbd>}
+        </button>
       </div>
     </div>
   )
@@ -3988,16 +4586,36 @@ function ConfirmDialog({
   )
 }
 
-function EmptyState(): JSX.Element {
+function EmptyState({
+  quickOpenKey,
+  saveKey,
+  searchKey
+}: {
+  quickOpenKey?: string
+  saveKey?: string
+  searchKey?: string
+}): JSX.Element {
   const { t } = useI18n()
   return (
     <div className="ide-empty">
       <div className="ide-empty-logo">C</div>
       <div className="ide-empty-t">{t('ide.emptyTitle')}</div>
       <div className="ide-empty-s">
-        <div><kbd>Ctrl P</kbd> {t('ide.emptyQuickOpen')}</div>
-        <div><kbd>Ctrl S</kbd> {t('ide.emptySave')}</div>
-        <div><kbd>Ctrl Shift F</kbd> {t('ide.emptySearch')}</div>
+        {quickOpenKey && (
+          <div>
+            <kbd>{quickOpenKey}</kbd> {t('ide.emptyQuickOpen')}
+          </div>
+        )}
+        {saveKey && (
+          <div>
+            <kbd>{saveKey}</kbd> {t('ide.emptySave')}
+          </div>
+        )}
+        {searchKey && (
+          <div>
+            <kbd>{searchKey}</kbd> {t('ide.emptySearch')}
+          </div>
+        )}
         <div>{t('ide.emptyContextMenu')}</div>
       </div>
     </div>

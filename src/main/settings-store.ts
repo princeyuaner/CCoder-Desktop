@@ -50,6 +50,7 @@ interface StoredSettings {
   toolDetail?: Settings['toolDetail']
   sendKey?: Settings['sendKey']
   editor?: Settings['editor']
+  keybindings?: Settings['keybindings']
   lsp?: Settings['lsp']
   /** @deprecated v1 遗留，只在读取时兼容 */
   activeChannelId?: string | null
@@ -148,6 +149,7 @@ export function loadSettings(): Settings {
     toolDetail: raw.toolDetail,
     sendKey: raw.sendKey,
     editor: raw.editor,
+    keybindings: raw.keybindings,
     lsp: raw.lsp
   })
 }
@@ -187,6 +189,7 @@ export function saveSettings(s: Settings): void {
     toolDetail: s.toolDetail,
     sendKey: s.sendKey,
     editor: s.editor,
+    keybindings: s.keybindings ?? {},
     lsp: s.lsp
   }
 

@@ -68,6 +68,14 @@ export interface IdeTerminalExitEvent {
 
 export type IdeEol = 'lf' | 'crlf'
 
+/** 编辑器支持的文本编码；GBK 用 GB18030 解码 / 编码（GBK 的超集） */
+export const IDE_ENCODINGS = ['utf8', 'utf8bom', 'gbk', 'utf16le', 'utf16be'] as const
+export type IdeEncoding = (typeof IDE_ENCODINGS)[number]
+
+export function isIdeEncoding(value: unknown): value is IdeEncoding {
+  return typeof value === 'string' && (IDE_ENCODINGS as readonly string[]).includes(value)
+}
+
 export interface IdeTextFile {
   rel: string
   /**
@@ -87,6 +95,8 @@ export interface IdeTextFile {
   mtimeMs?: number
   /** 原文件的换行风格 */
   eol?: IdeEol
+  /** 读取时识别（或用户指定）的编码；保存时按它写回 */
+  encoding: IdeEncoding
   /** 可以安全地整体写回（非二进制且未截断） */
   editable?: boolean
 }
@@ -119,6 +129,8 @@ export interface IdeSaveRequest {
   expectedMtimeMs?: number
   /** 保留原文件的换行风格；默认 LF */
   eol?: IdeEol
+  /** 写回时使用的编码；省略时按 UTF-8 */
+  encoding?: IdeEncoding
   /** 用户确认覆盖外部改动 / 重建已删除文件时置 true */
   force?: boolean
 }

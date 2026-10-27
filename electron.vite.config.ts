@@ -15,7 +15,16 @@ export default defineConfig({
     // 打包配置排除了 node_modules，外部化它们会让安装包里缺依赖
     plugins: [
       externalizeDepsPlugin({
-        exclude: ['micromatch', 'electron-updater', 'fzstd', 'jsonc-parser', 'smol-toml', 'yaml', 'ws']
+        exclude: [
+          'micromatch',
+          'electron-updater',
+          'fzstd',
+          'jsonc-parser',
+          'smol-toml',
+          'yaml',
+          'ws',
+          'iconv-lite'
+        ]
       })
     ],
     build: {

@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -30,6 +30,7 @@
     "@xterm/xterm": "^6.0.0",
     "electron-updater": "^6.8.9",
     "fzstd": "^0.1.1",
+    "iconv-lite": "^0.6.3",
     "jsonc-parser": "^3.3.1",
     "micromatch": "^4.0.8",
     "monaco-editor": "^0.57.0",

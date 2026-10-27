@@ -399,8 +399,9 @@ const api: WindowApi = {
       return () => ipcRenderer.off(IPC.ideFsChanged, listener)
     },
     listDir: (cwd, rel) => ipcRenderer.invoke(IPC.ideListDir, cwd, rel),
-    readFile: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadFile, cwd, rel),
+    readFile: (cwd, rel, encoding) => ipcRenderer.invoke(IPC.ideReadFile, cwd, rel, encoding),
     readImage: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadImage, cwd, rel),
+    revealInOs: (cwd, rel) => ipcRenderer.invoke(IPC.ideRevealInOs, cwd, rel),
     searchCode: (req) => ipcRenderer.invoke(IPC.ideSearchCode, req),
     startSearch: (req) => ipcRenderer.invoke(IPC.ideSearchStart, req),
     cancelSearch: (requestId) => ipcRenderer.send(IPC.ideSearchCancel, requestId),

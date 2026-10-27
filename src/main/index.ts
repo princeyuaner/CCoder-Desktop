@@ -103,7 +103,8 @@ import {
   renameEntry,
   replaceInWorkspace,
   saveTextFile,
-  searchCode
+  searchCode,
+  workspaceAbsolutePath
 } from './ide-fs'
 import {
   authorizeVcsSender,
@@ -145,6 +146,7 @@ import type { LspNotification, LspRequest, LspStartRequest } from '../shared/lsp
 import type {
   IdeCreateRequest,
   IdeDeleteRequest,
+  IdeEncoding,
   IdeRenameRequest,
   IdeReplaceRequest,
   IdeSaveRequest,
@@ -1048,12 +1050,34 @@ function registerIdeIpc(): void {
   ipcMain.handle(IPC.ideListDir, (e, cwd: string, rel: string) =>
     allow(e, cwd) ? listDir(cwd, rel) : denyRead()
   )
-  ipcMain.handle(IPC.ideReadFile, (e, cwd: string, rel: string) =>
-    allow(e, cwd) ? readTextFileResult(cwd, rel) : denyReadResult()
+  ipcMain.handle(
+    IPC.ideReadFile,
+    (e, cwd: string, rel: string, encoding?: IdeEncoding) =>
+      allow(e, cwd) ? readTextFileResult(cwd, rel, encoding) : denyReadResult()
   )
   ipcMain.handle(IPC.ideReadImage, (e, cwd: string, rel: string) =>
     allow(e, cwd) ? readImageResult(cwd, rel) : denyReadResult()
   )
+  ipcMain.handle(IPC.ideRevealInOs, (e, cwd: string, rel: string) => {
+    if (!allow(e, cwd)) return { ok: false, message: t('main.workspaceForbidden') }
+    if (typeof rel !== 'string' || !rel) {
+      return { ok: false, message: t('ideError.relativeRequired') }
+    }
+    try {
+      const abs = workspaceAbsolutePath(cwd, rel)
+      if (existsSync(abs)) {
+        shell.showItemInFolder(abs)
+        return { ok: true }
+      }
+      // 文件已被删除（例如正在看历史 diff）时退回到所在目录
+      const parent = dirname(abs)
+      if (!existsSync(parent)) return { ok: false, message: t('ideError.missing') }
+      void shell.openPath(parent)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) }
+    }
+  })
   ipcMain.handle(IPC.ideSearchCode, (e, req: IdeSearchRequest) =>
     req && allow(e, req.cwd) ? searchCode(req) : denyRead()
   )

@@ -7,11 +7,6 @@ import {
   cliDef,
   DEFAULT_MONO_FONT,
   DEFAULT_UI_FONT,
-  EDITOR_AUTO_SAVE_DELAYS,
-  EDITOR_AUTO_SAVE_LABEL_KEY,
-  EDITOR_FONT_SIZES,
-  EDITOR_TAB_SIZES,
-  EDITOR_WORD_WRAP_LABEL_KEY,
   EFFORT_HINT_KEY,
   EFFORT_LABEL_KEY,
   effortLevelsFor,
@@ -29,8 +24,6 @@ import {
   type ChannelTestResult,
   type CliConfig,
   type CliId,
-  type EditorAutoSave,
-  type EditorWordWrap,
   type SendKey,
   type Settings,
   type ThemeMode,
@@ -60,7 +53,6 @@ import { IconChevronLeft, IconPlus } from './Icons'
 type Page =
   | { kind: 'cli'; id: CliId }
   | { kind: 'general' }
-  | { kind: 'editor' }
   | { kind: 'permissions' }
   | { kind: 'mcp' }
   | { kind: 'skills' }
@@ -355,9 +347,6 @@ export function SettingsPage({
           <div className="settings__navgroup">{t('settings.nav.system')}</div>
           <NavItem active={page.kind === 'general'} onClick={() => setPage({ kind: 'general' })}>
             {t('settings.nav.general')}
-          </NavItem>
-          <NavItem active={page.kind === 'editor'} onClick={() => setPage({ kind: 'editor' })}>
-            {t('settings.nav.editor')}
           </NavItem>
           <NavItem active={page.kind === 'permissions'} onClick={() => setPage({ kind: 'permissions' })}>
             {t('settings.nav.permissions')}
@@ -871,241 +860,6 @@ export function SettingsPage({
                     <p className="field__hint">
                       {t('settings.sendKeyHint')}
                     </p>
-                  </div>
-                </div>
-              </section>
-            </>
-          )}
-
-          {page.kind === 'editor' && (
-            <>
-              <section className="chform">
-                <h2 className="chform__title">{t('settings.editor')}</h2>
-                <p className="section-lead">{t('settings.editor.lead')}</p>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.editor.fontSize')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.editor.fontSize}
-                      onChange={(e) =>
-                        patch({
-                          editor: { ...draft.editor, fontSize: Number(e.target.value) }
-                        })
-                      }
-                    >
-                      {EDITOR_FONT_SIZES.map((n) => (
-                        <option key={n} value={n}>
-                          {n}px
-                        </option>
-                      ))}
-                    </select>
-                    <p className="field__hint">{t('settings.editor.fontSizeHint')}</p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.editor.tabSize')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.editor.tabSize}
-                      onChange={(e) =>
-                        patch({
-                          editor: { ...draft.editor, tabSize: Number(e.target.value) }
-                        })
-                      }
-                    >
-                      {EDITOR_TAB_SIZES.map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="field__hint">{t('settings.editor.tabSizeHint')}</p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.editor.indent')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.editor.insertSpaces ? 'spaces' : 'tab'}
-                      onChange={(e) =>
-                        patch({
-                          editor: {
-                            ...draft.editor,
-                            insertSpaces: e.target.value === 'spaces'
-                          }
-                        })
-                      }
-                    >
-                      <option value="spaces">{t('settings.editor.indent.spaces')}</option>
-                      <option value="tab">{t('settings.editor.indent.tab')}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.editor.wordWrap')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.editor.wordWrap}
-                      onChange={(e) =>
-                        patch({
-                          editor: {
-                            ...draft.editor,
-                            wordWrap: e.target.value as EditorWordWrap
-                          }
-                        })
-                      }
-                    >
-                      {(Object.keys(EDITOR_WORD_WRAP_LABEL_KEY) as EditorWordWrap[]).map(
-                        (k) => (
-                          <option key={k} value={k}>
-                            {t(EDITOR_WORD_WRAP_LABEL_KEY[k])}
-                          </option>
-                        )
-                      )}
-                    </select>
-                    <p className="field__hint">{t('settings.editor.wordWrapHint')}</p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.editor.minimap')}</label>
-                  <div className="field__body">
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={draft.editor.minimap}
-                        onChange={(e) =>
-                          patch({
-                            editor: { ...draft.editor, minimap: e.target.checked }
-                          })
-                        }
-                      />
-                      <span>
-                        {draft.editor.minimap
-                          ? t('settings.editor.minimap.on')
-                          : t('settings.editor.minimap.off')}
-                      </span>
-                    </label>
-                    <p className="field__hint">{t('settings.editor.minimapHint')}</p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.editor.autoSave')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.editor.autoSave}
-                      onChange={(e) =>
-                        patch({
-                          editor: {
-                            ...draft.editor,
-                            autoSave: e.target.value as EditorAutoSave
-                          }
-                        })
-                      }
-                    >
-                      {(Object.keys(EDITOR_AUTO_SAVE_LABEL_KEY) as EditorAutoSave[]).map(
-                        (k) => (
-                          <option key={k} value={k}>
-                            {t(EDITOR_AUTO_SAVE_LABEL_KEY[k])}
-                          </option>
-                        )
-                      )}
-                    </select>
-                    <p className="field__hint">{t('settings.editor.autoSaveHint')}</p>
-                  </div>
-                </div>
-
-                {draft.editor.autoSave === 'afterDelay' && (
-                  <div className="field">
-                    <label className="field__label">
-                      {t('settings.editor.autoSaveDelay')}
-                    </label>
-                    <div className="field__body">
-                      <select
-                        className="input"
-                        value={draft.editor.autoSaveDelayMs}
-                        onChange={(e) =>
-                          patch({
-                            editor: {
-                              ...draft.editor,
-                              autoSaveDelayMs: Number(e.target.value)
-                            }
-                          })
-                        }
-                      >
-                        {EDITOR_AUTO_SAVE_DELAYS.map((ms) => (
-                          <option key={ms} value={ms}>
-                            {ms / 1000}s
-                          </option>
-                        ))}
-                      </select>
-                      <p className="field__hint">
-                        {t('settings.editor.autoSaveDelayHint')}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="field">
-                  <label className="field__label">
-                    {t('settings.editor.trimWhitespace')}
-                  </label>
-                  <div className="field__body">
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={draft.editor.trimTrailingWhitespace}
-                        onChange={(e) =>
-                          patch({
-                            editor: {
-                              ...draft.editor,
-                              trimTrailingWhitespace: e.target.checked
-                            }
-                          })
-                        }
-                      />
-                      <span>
-                        {draft.editor.trimTrailingWhitespace
-                          ? t('common.enabled')
-                          : t('common.disabled')}
-                      </span>
-                    </label>
-                    <p className="field__hint">
-                      {t('settings.editor.trimWhitespaceHint')}
-                    </p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="chform chform--sep">
-                <h2 className="chform__title">{t('settings.lsp')}</h2>
-                <p className="section-lead">{t('settings.lsp.lead')}</p>
-                <div className="field">
-                  <label className="field__label">{t('settings.lsp.enabled')}</label>
-                  <div className="field__body">
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={draft.lsp.enabled}
-                        onChange={(e) =>
-                          patch({ lsp: { ...draft.lsp, enabled: e.target.checked } })
-                        }
-                      />
-                      <span>
-                        {draft.lsp.enabled ? t('common.enabled') : t('common.disabled')}
-                      </span>
-                    </label>
-                    <p className="field__hint">{t('settings.lsp.enabledHint')}</p>
                   </div>
                 </div>
               </section>
