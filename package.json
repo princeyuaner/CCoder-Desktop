@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -19,10 +19,13 @@
     "verify:rg": "node tools/stage-rg.cjs && npx esbuild src/main/rg-path.ts --bundle --platform=node --format=cjs --outfile=tools/_rg-path.cjs && npx esbuild src/main/rg-files.ts --bundle --platform=node --format=cjs --outfile=tools/_rg-files.cjs && npx esbuild src/main/rg-search.ts --bundle --platform=node --format=cjs --outfile=tools/_rg-search.cjs && npx esbuild src/main/ide-search.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-search.cjs && npx esbuild src/main/ide-search-service.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-search-service.cjs && npx esbuild src/main/ide-fs.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-fs.cjs && node tools/verify-rg-search.cjs",
     "verify:files": "npx esbuild src/main/workspace-search.ts --bundle --platform=node --format=cjs --outfile=tools/_workspace-search.cjs && node tools/verify-files.cjs",
     "verify:ide-search": "npx esbuild src/main/ide-fs.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-fs.cjs && node tools/verify-ide-search.cjs",
+    "verify:lsp": "npx esbuild src/main/lsp/host.ts --bundle --platform=node --format=cjs --outfile=tools/_lsp-host.cjs && npx esbuild src/renderer/src/ide/lsp-diff.ts --bundle --platform=node --format=cjs --outfile=tools/_lsp-diff.cjs && node tools/verify-lsp.cjs",
     "verify:packaged-rg": "node tools/verify-packaged-rg.cjs",
     "package": "node tools/stage-rg.cjs && electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "electron-updater": "^6.8.9",
     "fzstd": "^0.1.1",
     "jsonc-parser": "^3.3.1",
@@ -34,12 +37,12 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@vscode/ripgrep": "^1.18.0",
     "@types/micromatch": "^4.0.10",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vscode/ripgrep": "^1.18.0",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",

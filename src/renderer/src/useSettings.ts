@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { defaultSettings, type Channel, type ChannelTestResult, type Settings } from '@shared/settings'
+import {
+  defaultSettings,
+  normalizeSettings,
+  type Channel,
+  type ChannelTestResult,
+  type Settings
+} from '@shared/settings'
 import { applyLanguageSetting, tr } from './i18n'
 
 export interface SettingsApi {
@@ -25,16 +31,19 @@ export function useSettings(): SettingsApi {
     void window.api!.settings
       .get()
       .then((s) => {
-        setSettings(s)
-        applyLanguageSetting(s.language)
+        // 主进程通常会规范化；这里再兜一次，旧配置 / 测试桩缺字段时界面不崩
+        const next = normalizeSettings(s)
+        setSettings(next)
+        applyLanguageSetting(next.language)
       })
       // 主进程没起来 / 通道没注册时也要能渲染，不能卡在「加载中」
       .catch(() => undefined)
       .finally(() => setLoading(false))
     return window.api!.settings.onChanged((s) => {
-      setSettings(s)
+      const next = normalizeSettings(s)
+      setSettings(next)
       // 主窗口和每个 IDE 窗口都走这里，运行时切换语言立即生效
-      applyLanguageSetting(s.language)
+      applyLanguageSetting(next.language)
     })
   }, [available])
 
@@ -44,7 +53,7 @@ export function useSettings(): SettingsApi {
         setSettings(next)
         return next
       }
-      const fresh = await window.api!.settings.save(next)
+      const fresh = normalizeSettings(await window.api!.settings.save(next))
       setSettings(fresh)
       // 广播到达前先本地生效，设置页的 draft 预览不会回弹一下
       applyLanguageSetting(fresh.language)

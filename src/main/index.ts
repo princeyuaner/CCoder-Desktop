@@ -113,6 +113,24 @@ import {
   cancelIdeSearchesForSender,
   startIdeSearch
 } from './ide-search-service'
+import {
+  killAllTerminals,
+  killTerminal,
+  killTerminalsForSender,
+  resizeTerminal,
+  startTerminal,
+  writeTerminal
+} from './ide-terminal'
+import {
+  configureLspHost,
+  killAllLsp,
+  notifyLsp,
+  requestLsp,
+  startLsp,
+  stopLsp,
+  stopLspForSender
+} from './lsp/host'
+import type { LspNotification, LspRequest, LspStartRequest } from '../shared/lsp'
 import type {
   IdeCreateRequest,
   IdeDeleteRequest,
@@ -120,7 +138,8 @@ import type {
   IdeReplaceRequest,
   IdeSaveRequest,
   IdeSearchRequest,
-  IdeSearchStartRequest
+  IdeSearchStartRequest,
+  IdeTerminalStartRequest
 } from '../shared/ide'
 import * as vcs from './vcs'
 import type {
@@ -966,6 +985,7 @@ function registerWorkspaceIpc(): void {
 
 /** 独立 IDE 窗口的文件 / 搜索能力。写操作按窗口绑定的工作区授权。 */
 function registerIdeIpc(): void {
+  configureLspHost({ send: sendToIdeSender, log: logMain })
   ipcMain.handle(IPC.ideOpen, (_e, cwd: string) => openIdeWindow(cwd))
   ipcMain.handle(IPC.ideOpenFile, (_e, cwd: string, file: string, line?: number) =>
     openFileInIde(cwd, file, line)
@@ -1029,6 +1049,71 @@ function registerIdeIpc(): void {
   ipcMain.handle(IPC.ideDeleteEntry, (e, req: IdeDeleteRequest) =>
     req && allow(e, req.cwd) ? deleteEntry(req) : denyWrite()
   )
+
+  ipcMain.handle(IPC.ideTerminalStart, (e, req: IdeTerminalStartRequest) => {
+    if (
+      !req ||
+      typeof req.cwd !== 'string' ||
+      typeof req.id !== 'string' ||
+      !allow(e, req.cwd)
+    ) {
+      return { ok: false, error: t('main.workspaceForbidden') }
+    }
+    return startTerminal(e.sender.id, req.cwd, req.id, req.cols, req.rows)
+  })
+  ipcMain.on(IPC.ideTerminalWrite, (e, id: unknown, data: unknown) => {
+    if (typeof id === 'string' && typeof data === 'string') {
+      writeTerminal(e.sender.id, id, data)
+    }
+  })
+  ipcMain.on(IPC.ideTerminalResize, (e, id: unknown, cols: unknown, rows: unknown) => {
+    if (typeof id === 'string' && typeof cols === 'number' && typeof rows === 'number') {
+      resizeTerminal(e.sender.id, id, cols, rows)
+    }
+  })
+  ipcMain.on(IPC.ideTerminalKill, (e, id: unknown) => {
+    if (typeof id === 'string') killTerminal(e.sender.id, id)
+  })
+
+  ipcMain.handle(IPC.lspStart, (e, req: LspStartRequest) => {
+    if (
+      !req ||
+      typeof req.cwd !== 'string' ||
+      typeof req.language !== 'string' ||
+      !allow(e, req.cwd)
+    ) {
+      return { ok: false, code: 'forbidden', error: t('main.workspaceForbidden') }
+    }
+    return startLsp(e.sender.id, req.cwd, req.language)
+  })
+  ipcMain.on(IPC.lspStop, (e, cwd: unknown, language: unknown) => {
+    if (typeof cwd !== 'string' || !authorizeVcsSender(e.sender.id, cwd)) return
+    stopLsp(e.sender.id, cwd, typeof language === 'string' ? language : undefined)
+  })
+  ipcMain.handle(IPC.lspRequest, (e, req: LspRequest) => {
+    if (
+      !req ||
+      typeof req.cwd !== 'string' ||
+      typeof req.language !== 'string' ||
+      typeof req.method !== 'string' ||
+      !allow(e, req.cwd)
+    ) {
+      return { ok: false, code: 'forbidden', error: t('main.workspaceForbidden') }
+    }
+    return requestLsp(e.sender.id, req)
+  })
+  ipcMain.on(IPC.lspNotify, (e, req: LspNotification) => {
+    if (
+      !req ||
+      typeof req.cwd !== 'string' ||
+      typeof req.language !== 'string' ||
+      typeof req.method !== 'string' ||
+      !authorizeVcsSender(e.sender.id, req.cwd)
+    ) {
+      return
+    }
+    notifyLsp(e.sender.id, req)
+  })
 
   ipcMain.on(IPC.ideDirty, (e, dirty: unknown) => markIdeDirty(e.sender.id, dirty === true))
   ipcMain.on(IPC.ideConfirmClose, (e) => closeIdeWindow(e.sender.id))
@@ -1426,7 +1511,11 @@ app.whenReady().then(() => {
     onClosed: (cwd) => {
       void disposeSync(cwd)
     },
-    onSenderClosed: (senderId) => cancelIdeSearchesForSender(senderId)
+    onSenderClosed: (senderId) => {
+      cancelIdeSearchesForSender(senderId)
+      killTerminalsForSender(senderId)
+      stopLspForSender(senderId)
+    }
   })
 
   createWindow()
@@ -1441,6 +1530,8 @@ app.whenReady().then(() => {
     sessions.stopAll()
     disposeClaudeAuth()
     cancelAllIdeSearches()
+    killAllTerminals()
+    killAllLsp()
     void disposeAllSync()
   })
 

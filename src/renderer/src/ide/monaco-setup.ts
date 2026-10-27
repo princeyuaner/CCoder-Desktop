@@ -81,13 +81,52 @@ typescript.javascriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
   noSyntaxValidation: false
 })
-typescript.typescriptDefaults.setCompilerOptions({
+const compilerOptions = {
   allowNonTsExtensions: true,
   target: typescript.ScriptTarget.ESNext,
+  module: typescript.ModuleKind.ESNext,
   moduleResolution: typescript.ModuleResolutionKind.NodeJs,
   jsx: typescript.JsxEmit.ReactJSX,
   allowJs: true
-})
+}
+typescript.typescriptDefaults.setCompilerOptions(compilerOptions)
+typescript.javascriptDefaults.setCompilerOptions(compilerOptions)
+/*
+ * 默认情况下 worker 只同步「被查询过」的 model。tsProject.ts 会为 import
+ * 目标创建隐藏 model；不 eagerly 同步的话它们不会出现在
+ * getScriptFileNames 里，跨文件跳转仍然找不到。
+ */
+typescript.typescriptDefaults.setEagerModelSync(true)
+typescript.javascriptDefaults.setEagerModelSync(true)
+
+/**
+ * LSP 会话就绪后关掉 Monaco 自带的 TS worker provider。
+ *
+ * 两套语言服务同时开会让补全出现两份、跳转弹两个 peek；诊断也会在
+ * 问题面板里重复。关掉 worker 后仍保留 tokenizer（语法高亮）和
+ * 编辑器本身。没有找到 LSP 时再打开，回到原来的行为。
+ */
+export function setTsWorkerMode(enabled: boolean): void {
+  const config = {
+    completionItems: enabled,
+    hovers: enabled,
+    documentSymbols: enabled,
+    definitions: enabled,
+    references: enabled,
+    documentHighlights: enabled,
+    rename: enabled,
+    diagnostics: enabled,
+    documentRangeFormattingEdits: enabled,
+    // 下面几项目前没有 LSP provider 映射。保留 worker 的能力，
+    // 免得打开语言服务器之后，快速修复 / 签名提示反而消失。
+    signatureHelp: true,
+    onTypeFormattingEdits: true,
+    codeActions: true,
+    inlayHints: true
+  }
+  typescript.typescriptDefaults.setModeConfiguration(config)
+  typescript.javascriptDefaults.setModeConfiguration(config)
+}
 
 const LANGUAGE: Record<string, string> = {
   TypeScript: 'typescript',
@@ -124,6 +163,8 @@ const LANGUAGE: Record<string, string> = {
 const BY_EXT: Record<string, string> = {
   ts: 'typescript',
   tsx: 'typescript',
+  mts: 'typescript',
+  cts: 'typescript',
   js: 'javascript',
   jsx: 'javascript',
   mjs: 'javascript',

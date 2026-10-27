@@ -42,6 +42,30 @@ export interface IdeFsChanged {
   generic: boolean
 }
 
+/* ── 内置终端 ─────────────────────────────────────────────── */
+
+export interface IdeTerminalStartRequest {
+  cwd: string
+  /** 渲染层生成，窗口内唯一；主进程按 webContents 隔离 */
+  id: string
+  cols?: number
+  rows?: number
+}
+
+export type IdeTerminalStartResult =
+  | { ok: true; shell: string }
+  | { ok: false; error: string }
+
+export interface IdeTerminalDataEvent {
+  id: string
+  data: string
+}
+
+export interface IdeTerminalExitEvent {
+  id: string
+  code: number | null
+}
+
 export type IdeEol = 'lf' | 'crlf'
 
 export interface IdeTextFile {

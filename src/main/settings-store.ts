@@ -49,6 +49,8 @@ interface StoredSettings {
   thinkingOpen?: boolean
   toolDetail?: Settings['toolDetail']
   sendKey?: Settings['sendKey']
+  editor?: Settings['editor']
+  lsp?: Settings['lsp']
   /** @deprecated v1 遗留，只在读取时兼容 */
   activeChannelId?: string | null
   /** @deprecated v1 遗留，只在读取时兼容 */
@@ -144,7 +146,9 @@ export function loadSettings(): Settings {
     showTimestamps: raw.showTimestamps,
     thinkingOpen: raw.thinkingOpen,
     toolDetail: raw.toolDetail,
-    sendKey: raw.sendKey
+    sendKey: raw.sendKey,
+    editor: raw.editor,
+    lsp: raw.lsp
   })
 }
 
@@ -181,7 +185,9 @@ export function saveSettings(s: Settings): void {
     showTimestamps: s.showTimestamps,
     thinkingOpen: s.thinkingOpen,
     toolDetail: s.toolDetail,
-    sendKey: s.sendKey
+    sendKey: s.sendKey,
+    editor: s.editor,
+    lsp: s.lsp
   }
 
   const target = file()

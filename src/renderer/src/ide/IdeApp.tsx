@@ -19,6 +19,12 @@ import type {
 import type { VcsChange, VcsDiffData } from '@shared/vcs'
 import type { ChatTargetInfo } from '@shared/ide-chat'
 import type { FileMatch } from '@shared/workspace'
+import {
+  DEFAULT_EDITOR_SETTINGS,
+  normalizeEditorSettings,
+  type EditorSettings,
+  type Settings
+} from '@shared/settings'
 import { SYNC_BUBBLE_ROWS, type SyncSnapshot } from '@shared/sync'
 import { baseName } from '@shared/path'
 import { IconFolder, IconSearch } from '../components/Icons'
@@ -36,6 +42,18 @@ import { useSync } from './useSync'
 import { useI18n } from '../i18n'
 import { VcsDiffView } from './VcsDiffView'
 import { useVcsStatus } from './useVcsStatus'
+import { BottomPanel, type BottomTab } from './BottomPanel'
+import { CommandPalette, type CommandItem } from './CommandPalette'
+import { TerminalView } from './TerminalView'
+import { OutlineList } from './OutlineList'
+import { activeEditor, formatActiveDocument, runEditorAction } from './editor-actions'
+import { parseOutline, type OutlineKind, type OutlineSymbol } from './outline'
+import { ensureImportedModels, refreshImportedModels } from './tsProject'
+import type { MessageKey } from '@shared/i18n'
+import { relFromUri, subscribeProblems, type IdeProblem } from './problems'
+import { monaco, monacoLanguage } from './monaco-setup'
+import { useLsp } from './useLsp'
+import { isLspLanguage, type LspOpenDoc } from './lsp-client'
 import '../styles/ide.css'
 import '../styles/sync.css'
 
@@ -56,6 +74,39 @@ type ExternalChange = 'modified' | 'deleted'
 /** 外部变化标记的键：Windows 上路径大小写不敏感 */
 function extKey(rel: string): string {
   return window.api?.platform === 'win32' ? rel.toLowerCase() : rel
+}
+
+/* ── 崩溃恢复：未保存草稿 ──────────────────────────────── */
+
+/** 每个工作区一份草稿；localStorage 在崩溃 / 断电后仍然可读 */
+const draftStoreKey = (cwd: string): string => `ccoder:ide:drafts:${cwd}`
+/** 单个文件 / 整个工作区的草稿上限，避免把 localStorage 撑爆 */
+const DRAFT_FILE_MAX_CHARS = 300_000
+const DRAFT_TOTAL_MAX_CHARS = 1_500_000
+
+function readDrafts(cwd: string): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(draftStoreKey(cwd))
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, string> = {}
+    for (const [rel, text] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof text === 'string' && text.length <= DRAFT_FILE_MAX_CHARS) out[rel] = text
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeDrafts(cwd: string, drafts: Record<string, string>): void {
+  try {
+    if (Object.keys(drafts).length === 0) localStorage.removeItem(draftStoreKey(cwd))
+    else localStorage.setItem(draftStoreKey(cwd), JSON.stringify(drafts))
+  } catch {
+    // 配额满了 / 隐私模式：草稿恢复失效，但不能影响正常编辑
+  }
 }
 
 interface Tab {
@@ -109,6 +160,18 @@ interface CursorPos {
 }
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'avif'])
+
+const OUTLINE_KIND_KEY: Record<OutlineKind, MessageKey> = {
+  function: 'ide.outline.kind.function',
+  class: 'ide.outline.kind.class',
+  interface: 'ide.outline.kind.interface',
+  type: 'ide.outline.kind.type',
+  enum: 'ide.outline.kind.enum',
+  module: 'ide.outline.kind.module',
+  constant: 'ide.outline.kind.constant',
+  method: 'ide.outline.kind.method',
+  symbol: 'ide.outline.kind.symbol'
+}
 
 function posixPath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
@@ -184,7 +247,10 @@ const P = {
   rename: 'M3 12.5l6.6-6.6 2.5 2.5-6.6 6.6H3zM9.2 5.7l1.5-1.5 2.5 2.5-1.5 1.5',
   trash: 'M2.8 4.2h10.4M5.8 4.2V2.3h4.4v1.9M4.2 4.2l.6 9.2h6.4l.6-9.2M6.6 6.6v4.4M9.4 6.6v4.4',
   more: 'M3.4 8h.01M8 8h.01M12.6 8h.01',
-  sync: 'M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5'
+  sync: 'M12.5 5A5.5 5.5 0 0 0 3 7M3 3.5V7h3.5M3.5 11A5.5 5.5 0 0 0 13 9M13 12.5V9h-3.5',
+  alert: 'M8 2.4 14.4 13H1.6zM8 6v3.2M8 11.2h.01',
+  terminal: 'M2.5 3.5h11v9h-11zM4.5 6.2l2 1.8-2 1.8M8.2 10h3.2',
+  command: 'M5.5 3.5 10 8l-4.5 4.5'
 } as const
 
 /* ── 窗口标题栏 ───────────────────────────────────────── */
@@ -313,6 +379,20 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [treeVersion, setTreeVersion] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
+  /** 命令面板 / 符号选择共用一个浮层；mode 决定列的是命令还是当前文件符号 */
+  const [palette, setPalette] = useState<'commands' | 'symbols' | null>(null)
+  /** 底部面板：tab 记住上次选择，open 控制显示；终端组件始终挂载以保住会话 */
+  const [panelTab, setPanelTab] = useState<BottomTab>('problems')
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [problems, setProblems] = useState<IdeProblem[]>([])
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  /** outlineSymbols 声明在键盘 effect 之后；用 ref 让快捷键能读到最新数量 */
+  const outlineCountRef = useRef(0)
+  /** 文件导航历史（Alt+← / Alt+→） */
+  const navHistoryRef = useRef<{ list: { rel: string; line?: number }[]; index: number }>({
+    list: [],
+    index: -1
+  })
   const [jump, setJump] = useState<{ rel: string; line: number } | null>(null)
   /** 资源管理器当前选中的文件 / 文件夹 */
   const [treeTarget, setTreeTarget] = useState<TreeTarget>({ rel: '', kind: 'dir' })
@@ -343,6 +423,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const vcsRefreshTimer = useRef<number | null>(null)
 
   const api = window.api
+  /** 编辑器偏好：主窗口与所有 IDE 窗口共享 settings.editor */
+  const [editorPrefs, setEditorPrefs] = useState<EditorSettings>(DEFAULT_EDITOR_SETTINGS)
+  /** 语言服务器总开关；设置加载前先按默认值（开）运行 */
+  const [lspEnabled, setLspEnabled] = useState(true)
+  /** 崩溃恢复：启动时读一次，之后由 ensureTab 在打开文件时应用 */
+  const pendingDraftsRef = useRef<Record<string, string>>({})
+  const draftsLoadedRef = useRef(false)
+  /** 用户明确选择「不保存并关闭」后，beforeunload 不能再把草稿写回去 */
+  const discardDraftsRef = useRef(false)
+  /** 最近关闭的标签（Ctrl+Shift+T 重新打开）；只在内存里，不跨窗口 */
+  const closedTabsRef = useRef<Tab[]>([])
   const vcs = useVcsStatus(cwd)
   const sync = useSync(cwd)
   const [syncLogOpen, setSyncLogOpen] = useState(false)
@@ -351,6 +442,30 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const syncAnnounced = useRef<number | null>(null)
   const syncReady = useRef(false)
   const activeTab = tabs.find((t) => t.key === activeKey) ?? null
+
+  /* ── 语言服务器 ───────────────────────────────────────── */
+  const { syncDocs: syncLspDocs, states: lspStates } = useLsp(cwd, lspEnabled)
+  const lspDocs = useMemo<LspOpenDoc[]>(() => {
+    const out: LspOpenDoc[] = []
+    for (const tab of tabs) {
+      if (tab.kind !== 'file') continue
+      const file = fileCache[tab.rel]
+      if (!file || file.binary || file.truncated) continue
+      const language = monacoLanguage(file.language, file.rel)
+      if (!isLspLanguage(language)) continue
+      out.push({ rel: tab.rel, language, text: file.text })
+    }
+    return out
+  }, [fileCache, tabs])
+  useEffect(() => {
+    syncLspDocs(lspDocs)
+  }, [lspDocs, syncLspDocs])
+
+  const activeLspFile = activeTab?.kind === 'file' ? fileCache[activeTab.rel] : undefined
+  const activeLanguage = activeLspFile
+    ? monacoLanguage(activeLspFile.language, activeLspFile.rel)
+    : null
+  const activeLsp = activeLanguage ? lspStates[activeLanguage] : undefined
 
   const isDirty = useCallback(
     (rel: string): boolean => {
@@ -483,6 +598,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         void vcs.refresh()
       }, 600)
 
+      // 已打开文件的隐藏 import model 也要跟上磁盘变化
+      if (api?.ide && batch.rels.length > 0) {
+        const openRels = new Set(Object.keys(liveRef.current.fileCache))
+        void refreshImportedModels(cwd, batch.rels, api.ide.readFile, openRels)
+      }
+
       const all = batch.generic || batch.truncated
       const changed = batch.rels.map(extKey)
       const touches = (rel: string): boolean => {
@@ -584,14 +705,30 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     document.title = `CCoder IDE — ${baseName(cwd)}`
   }, [cwd])
 
-  // 主窗口改语言/主题/字号/缩放时，已经开着的 IDE 窗口也跟着变
+  // 主窗口改语言/主题/字号/缩放/编辑器偏好时，已经开着的 IDE 窗口也跟着变
   useEffect(() => {
-    const off = window.api?.settings.onChanged((s) => {
+    const apply = (s: Settings): void => {
       applyLanguageSetting(s.language)
       applyAppearance(s)
-    })
+      setEditorPrefs(normalizeEditorSettings(s.editor))
+      setLspEnabled(s.lsp?.enabled !== false)
+    }
+    void window.api?.settings
+      .get()
+      .then(apply)
+      .catch(() => undefined)
+    const off = window.api?.settings.onChanged(apply)
     return () => off?.()
   }, [])
+
+  // 草稿要在「恢复标签」之前读进 ref —— 否则 active tab 的首次读取会错过草稿
+  useEffect(() => {
+    pendingDraftsRef.current = readDrafts(cwd)
+    draftsLoadedRef.current = true
+  }, [cwd])
+
+  // Monaco 的 marker（TS 语法、JSON / CSS / HTML 校验）就是问题面板的数据源
+  useEffect(() => subscribeProblems(cwd, setProblems), [cwd])
 
   /* ── 目录同步：通知点击 / 气泡 ─────────────────────────── */
   useEffect(() => {
@@ -694,8 +831,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         if (tab.kind === 'file') {
           const r = await api.ide.readFile(cwd, tab.rel)
           if (!r.ok) throw new Error(r.message)
-          setFileCache((m) => ({ ...m, [tab.rel]: r.data }))
+          // 崩溃前没来得及保存的草稿优先于磁盘内容；baseText 仍记磁盘文本，
+          // 这样标签会保持「未保存」状态，保存时照常走冲突检测。
+          const draft = pendingDraftsRef.current[tab.rel]
+          const restored =
+            typeof draft === 'string' && draft !== r.data.text
+              ? { ...r.data, text: draft }
+              : r.data
+          setFileCache((m) => ({ ...m, [tab.rel]: restored }))
           setBaseText((m) => (tab.rel in m ? m : { ...m, [tab.rel]: r.data.text }))
+          // 把相对路径 import 的目标也建进 Monaco，TS worker 才能跨文件解析
+          ensureImportedModels(cwd, tab.rel, restored.text, api.ide.readFile)
         } else if (tab.kind === 'image') {
           const r = await api.ide.readImage(cwd, tab.rel)
           if (!r.ok) throw new Error(r.message)
@@ -731,8 +877,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   }, [])
 
   const openFile = useCallback(
-    (rel: string, line?: number) => {
+    (rel: string, line?: number, recordHistory = true) => {
+      if (recordHistory) {
+        const h = navHistoryRef.current
+        const last = h.list[h.index]
+        if (!last || last.rel !== rel || last.line !== line) {
+          h.list = [...h.list.slice(0, h.index + 1), { rel, line }].slice(-50)
+          h.index = h.list.length - 1
+        }
+      }
       setView('files')
+      setSidebarOpen(true)
       openTab(tabOf(isImageRel(rel) ? 'image' : 'file', rel), line)
     },
     [openTab]
@@ -743,6 +898,107 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       openTab(tabOf('diff', rel))
     },
     [openTab]
+  )
+
+  /*
+   * Monaco 默认会在**同一个编辑器实例**里切换 model 来跳转到另一个文件，
+   * 但我们的标签 / 状态栏由 React 管理，直接切 model 会让两边对不上。
+   * 拦截 openCodeEditor：跨文件跳转走 openFile，打开（或聚焦）真正的标签。
+   */
+  useEffect(() => {
+    const disposable = monaco.editor.registerEditorOpener({
+      openCodeEditor(_source, resource, selectionOrPosition) {
+        const rel = relFromUri(resource, cwd)
+        if (!rel) {
+          // 工作区外的目标（node_modules 类型声明、lib.d.ts 等）没有 tab 可开。
+          // 放行会让 Monaco 直接换 model，和 React 管理的标签状态对不上。
+          showFlash(t('ide.outsideWorkspace'))
+          return true
+        }
+        let line: number | undefined
+        if (selectionOrPosition) {
+          line =
+            'startLineNumber' in selectionOrPosition
+              ? selectionOrPosition.startLineNumber
+              : selectionOrPosition.lineNumber
+        }
+        openFile(rel, line)
+        return true
+      }
+    })
+    return () => disposable.dispose()
+  }, [cwd, openFile, showFlash, t])
+
+  /** 跳转到文件某一行；已经在当前文件时直接动编辑器，避免同一行点两次没反应 */
+  const jumpTo = useCallback(
+    (rel: string, line: number) => {
+      const tab = tabOf(isImageRel(rel) ? 'image' : 'file', rel)
+      if (activeKey === tab.key) {
+        const editor = activeEditor()
+        if (editor) {
+          editor.revealLineInCenter(line)
+          editor.setPosition({ lineNumber: Math.max(1, line), column: 1 })
+          editor.focus()
+          return
+        }
+      }
+      openFile(rel, line)
+    },
+    [activeKey, openFile]
+  )
+
+  const goBack = useCallback((): boolean => {
+    const h = navHistoryRef.current
+    if (h.index <= 0) return false
+    h.index -= 1
+    const entry = h.list[h.index]
+    if (entry) openFile(entry.rel, entry.line, false)
+    return true
+  }, [openFile])
+
+  const goForward = useCallback((): boolean => {
+    const h = navHistoryRef.current
+    if (h.index >= h.list.length - 1) return false
+    h.index += 1
+    const entry = h.list[h.index]
+    if (entry) openFile(entry.rel, entry.line, false)
+    return true
+  }, [openFile])
+
+  const reopenClosedTab = useCallback((): void => {
+    const tab = closedTabsRef.current.shift()
+    if (!tab) {
+      showFlash(t('ide.command.reopenEmpty'))
+      return
+    }
+    openTab(tab)
+  }, [openTab, showFlash, t])
+
+  const switchTab = useCallback(
+    (delta: number): void => {
+      if (tabs.length < 2) return
+      const index = tabs.findIndex((x) => x.key === activeKey)
+      const next = tabs[(index + delta + tabs.length) % tabs.length]
+      if (next) setActiveKey(next.key)
+    },
+    [activeKey, tabs]
+  )
+
+  const togglePanel = useCallback(
+    (tab: BottomTab): void => {
+      // 面板属于「文件 / 搜索」工作区；在 VCS / 同步页按快捷键时先切回来，
+      // 否则状态栏按钮看起来没反应（面板被藏在上一个工作区里）
+      const wasHidden = view !== 'files' && view !== 'search'
+      if (wasHidden) setView('files')
+      // 从 VCS / 同步页切回来时总是打开；只有已经在文件页才做开关切换
+      if (panelTab === tab && !wasHidden) {
+        setPanelOpen((v) => !v)
+      } else {
+        setPanelTab(tab)
+        setPanelOpen(true)
+      }
+    },
+    [panelTab, view]
   )
 
   /*
@@ -765,7 +1021,39 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const closeTab = useCallback(
     (key: string) => {
       const closing = tabs.find((t) => t.key === key)
-      if (closing) clearExternal(closing.rel)
+      if (closing) {
+        clearExternal(closing.rel)
+        // 关闭 = 放弃这个缓冲区。缓存留着的话，「重新打开」会把已经
+        // 明确丢弃的脏内容又带回来，草稿也会被下一次持久化写回去。
+        delete pendingDraftsRef.current[closing.rel]
+        if (closing.kind === 'file') {
+          setFileCache((m) => {
+            if (!(closing.rel in m)) return m
+            const next = { ...m }
+            delete next[closing.rel]
+            return next
+          })
+          setBaseText((m) => {
+            if (!(closing.rel in m)) return m
+            const next = { ...m }
+            delete next[closing.rel]
+            return next
+          })
+        } else if (closing.kind === 'image') {
+          setImageCache((m) => {
+            const next = { ...m }
+            delete next[closing.rel]
+            return next
+          })
+        } else {
+          setDiffCache((m) => {
+            const next = { ...m }
+            delete next[closing.rel]
+            return next
+          })
+        }
+        closedTabsRef.current = [closing, ...closedTabsRef.current].slice(0, 20)
+      }
       setTabs((list) => {
         const i = list.findIndex((t) => t.key === key)
         const next = list.filter((t) => t.key !== key)
@@ -801,15 +1089,27 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       }
       // 磁盘上已删除的干净缓冲区也要走 saveFile，才能弹出现有的“重新创建”
       if (!isDirty(rel) && !force && external[extKey(rel)] !== 'deleted') return true
+      // 同一个文件已有保存在飞：等它完成，自动保存会在下一轮看到新的脏状态
+      if (!force && (savingRelsRef.current.get(extKey(rel)) ?? 0) > 0) return true
 
       const savingKey = extKey(rel)
+      // 「保存时删除行尾空白」只在写盘前生效一次；编辑器内容同步更新，
+      // 撤销栈仍然是 Monaco 自己的，不怕误删。
+      const text = editorPrefs.trimTrailingWhitespace
+        ? file.text.replace(/[ \t]+$/gm, '')
+        : file.text
+      if (text !== file.text) {
+        setFileCache((m) =>
+          m[rel] ? { ...m, [rel]: { ...m[rel], text } } : m
+        )
+      }
       setSavingRel(rel)
       savingRelsRef.current.set(savingKey, (savingRelsRef.current.get(savingKey) ?? 0) + 1)
       try {
         const r = await api.ide.saveFile({
           cwd,
           rel,
-          text: file.text,
+          text,
           expectedMtimeMs: file.mtimeMs,
           eol: file.eol,
           force
@@ -850,9 +1150,27 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           }
           return false
         }
-        setFileCache((m) => ({ ...m, [rel]: r.data }))
+        // 保存期间用户可能继续输入：这种情况下不能拿磁盘快照覆盖当前缓冲区，
+        // 只更新 mtime 等元数据；baseText 用刚写盘的文本，标签继续保持未保存。
+        setFileCache((m) => {
+          const cur = m[rel]
+          if (cur && cur.text !== text) {
+            return {
+              ...m,
+              [rel]: {
+                ...cur,
+                size: r.data.size,
+                mtimeMs: r.data.mtimeMs,
+                eol: r.data.eol
+              }
+            }
+          }
+          return { ...m, [rel]: r.data }
+        })
         setBaseText((m) => ({ ...m, [rel]: r.data.text }))
+        delete pendingDraftsRef.current[rel]
         clearExternal(rel)
+        ensureImportedModels(cwd, rel, r.data.text, api.ide.readFile)
         showFlash(t('ide.saved', { name: baseName(rel) }))
         void vcs.refresh()
         return true
@@ -870,7 +1188,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         setSavingRel((cur) => (cur === rel ? null : cur))
       }
     },
-    [api, clearExternal, cwd, external, fileCache, isDirty, showFlash, vcs]
+    [api, clearExternal, cwd, editorPrefs.trimTrailingWhitespace, external, fileCache, isDirty, showFlash, vcs]
   )
 
   const saveAll = useCallback(async (): Promise<boolean> => {
@@ -881,6 +1199,97 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     return true
   }, [dirtyRels, saveDoc])
 
+  /* ── 自动保存 / 崩溃恢复 ─────────────────────────────── */
+
+  const dirtyRelsRef = useRef(dirtyRels)
+  dirtyRelsRef.current = dirtyRels
+  const saveDocRef = useRef(saveDoc)
+  saveDocRef.current = saveDoc
+
+  // 停止输入后自动保存。弹窗 / 新建输入条开着时先让路，避免一次保存
+  // 在用户还没处理完冲突时又弹出第二个对话框。
+  useEffect(() => {
+    if (editorPrefs.autoSave !== 'afterDelay') return
+    if (dirtyRels.length === 0 || dialog || prompt || creating) return
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        // 顺序保存：遇到冲突对话框就停下来，不要同时弹好几个
+        for (const rel of [...dirtyRelsRef.current]) {
+          if (!isDirty(rel)) continue
+          if (!(await saveDocRef.current(rel))) break
+        }
+      })()
+    }, editorPrefs.autoSaveDelayMs)
+    return () => window.clearTimeout(timer)
+  }, [
+    creating,
+    dialog,
+    dirtyRels,
+    editorPrefs.autoSave,
+    editorPrefs.autoSaveDelayMs,
+    isDirty,
+    prompt
+  ])
+
+  // 窗口失焦时保存（切到浏览器 / 终端再回来，通常比定时保存更符合直觉）
+  useEffect(() => {
+    if (editorPrefs.autoSave !== 'onFocusChange') return
+    const onBlur = (): void => {
+      void (async () => {
+        for (const rel of [...dirtyRelsRef.current]) {
+          if (!isDirty(rel)) continue
+          if (!(await saveDocRef.current(rel))) break
+        }
+      })()
+    }
+    window.addEventListener('blur', onBlur)
+    return () => window.removeEventListener('blur', onBlur)
+  }, [editorPrefs.autoSave, isDirty])
+
+  /**
+   * 把未保存的草稿写进 localStorage。崩溃 / 断电后下次打开同一个工作区，
+   * ensureTab 会用草稿覆盖磁盘文本，但 baseText 仍保留磁盘内容，
+   * 所以标签保持「未保存」，保存时照常走冲突检测。
+   */
+  const persistDrafts = useCallback((): void => {
+    if (!draftsLoadedRef.current || discardDraftsRef.current) return
+    const { fileCache: cache, baseText: bases } = liveRef.current
+    const candidates: Record<string, string> = {}
+    // 还没被打开过的标签：保留上次读进来的草稿
+    for (const [rel, text] of Object.entries(pendingDraftsRef.current)) {
+      if (!(rel in cache)) candidates[rel] = text
+    }
+    // 已打开的文件：只存真正脏的；用户改回磁盘内容时草稿要消失
+    for (const [rel, file] of Object.entries(cache)) {
+      if (!file || file.binary || file.truncated) continue
+      const base = bases[rel]
+      if (base === undefined || file.text === base) continue
+      if (file.text.length > DRAFT_FILE_MAX_CHARS) continue
+      candidates[rel] = file.text
+    }
+    const next: Record<string, string> = {}
+    let total = 0
+    for (const [rel, text] of Object.entries(candidates)) {
+      if (total + text.length > DRAFT_TOTAL_MAX_CHARS) break
+      next[rel] = text
+      total += text.length
+    }
+    pendingDraftsRef.current = next
+    writeDrafts(cwd, next)
+  }, [cwd])
+
+  useEffect(() => {
+    if (!draftsLoadedRef.current) return
+    const timer = window.setTimeout(persistDrafts, 400)
+    return () => window.clearTimeout(timer)
+  }, [baseText, fileCache, persistDrafts])
+
+  useEffect(() => {
+    const flush = (): void => persistDrafts()
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [persistDrafts])
+
   /* ── 新建 / 重命名 / 删除 ───────────────────────────── */
 
   const startCreate = useCallback(
@@ -889,6 +1298,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       const dirRel = t.kind === 'dir' ? t.rel : dirOfRel(t.rel)
       setMenu(null)
       setView('files')
+      setSidebarOpen(true)
       setCreating({ dirRel, kind, value: '' })
     },
     [treeTarget]
@@ -915,6 +1325,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   const applyRename = useCallback(
     (oldRel: string, newRel: string): void => {
+      // 还没打开过的草稿也按新路径存，否则重命名后恢复不到
+      const drafts: Record<string, string> = {}
+      for (const [rel, text] of Object.entries(pendingDraftsRef.current)) {
+        drafts[remapPath(rel, oldRel, newRel)] = text
+      }
+      pendingDraftsRef.current = drafts
       setTabs((list) =>
         list.map((t) => {
           const rel = remapPath(t.rel, oldRel, newRel)
@@ -1001,6 +1417,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
         return next
       })
+      for (const rel of Object.keys(pendingDraftsRef.current)) {
+        if (underPath(rel, prefix)) delete pendingDraftsRef.current[rel]
+      }
       const drop = <T,>(rec: Record<string, T>): Record<string, T> =>
         Object.fromEntries(Object.entries(rec).filter(([key]) => !underPath(key, prefix)))
       setFileCache(drop)
@@ -1104,18 +1523,26 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         {
           label: t('ide.dontSaveAndClose'),
           kind: 'danger',
-          run: () => api?.ide?.confirmClose()
+          run: () => {
+            // 明确选择「不保存」= 放弃草稿，下次打开不能再恢复出来
+            discardDraftsRef.current = true
+            pendingDraftsRef.current = {}
+            writeDrafts(cwd, {})
+            api?.ide?.confirmClose()
+          }
         },
         {
           label: t('ide.saveAllAndClose'),
           kind: 'primary',
           run: async () => {
+            // 保存成功的文件由 saveDoc 自己删草稿；还没打开过的标签的草稿
+            // 要保留，所以这里不设 discard 标记。
             if (await saveAll()) api?.ide?.confirmClose()
           }
         }
       ]
     })
-  }, [api, dirtyCount, saveAll])
+  }, [api, cwd, dirtyCount, saveAll])
 
   useEffect(() => {
     api?.ide?.setDirty(dirtyCount > 0)
@@ -1131,18 +1558,88 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         target?.tagName === 'TEXTAREA' ||
         target?.tagName === 'INPUT' ||
         target?.isContentEditable === true
-      if (mod && !e.shiftKey && e.key.toLowerCase() === 'p') {
+      const key = e.key.toLowerCase()
+      const handled = (fn: () => void): void => {
         e.preventDefault()
-        setQuickOpen(true)
-      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault()
-        setView('search')
-      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        if (activeTab?.kind === 'file') void saveDoc(activeTab.rel)
-      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'w') {
-        e.preventDefault()
-        if (activeKey) requestCloseTab(activeKey)
+        e.stopPropagation()
+        fn()
+      }
+
+      /*
+       * 终端有焦点时，把按键尽量交给 shell（Ctrl+W、Ctrl+P、Alt+← 等
+       * 在 readline / TUI 里都是有效输入），只保留几个应用级全局键。
+       */
+      const inTerminal = !!(target?.closest?.('.xterm'))
+      const terminalGlobal =
+        mod &&
+        (key === '`' ||
+          (e.shiftKey && (key === 'p' || key === 'm' || key === 'f')))
+      if (inTerminal && !terminalGlobal) return
+
+      if (mod && e.shiftKey && key === 'p') {
+        handled(() => {
+          setQuickOpen(false)
+          setPalette('commands')
+        })
+      } else if (mod && !e.shiftKey && key === 'p') {
+        handled(() => {
+          setPalette(null)
+          setQuickOpen(true)
+        })
+      } else if (mod && e.shiftKey && key === 'f') {
+        handled(() => {
+          setView('search')
+          setSidebarOpen(true)
+        })
+      } else if (mod && !e.shiftKey && key === 's') {
+        handled(() => {
+          if (activeTab?.kind === 'file') void saveDoc(activeTab.rel)
+        })
+      } else if (mod && e.shiftKey && key === 's') {
+        handled(() => void saveAll())
+      } else if (mod && !e.shiftKey && key === 'w') {
+        handled(() => {
+          if (activeKey) requestCloseTab(activeKey)
+        })
+      } else if (mod && e.shiftKey && key === 't') {
+        handled(() => reopenClosedTab())
+      } else if (mod && !e.shiftKey && key === 'g') {
+        handled(() => {
+          if (!runEditorAction('editor.action.gotoLine')) {
+            setNotice(t('ide.command.noEditor'))
+          }
+        })
+      } else if (mod && e.shiftKey && key === 'o') {
+        handled(() => {
+          if (outlineCountRef.current === 0) {
+            showFlash(t('ide.command.symbolEmpty'))
+            return
+          }
+          setQuickOpen(false)
+          setPalette('symbols')
+        })
+      } else if (mod && key === '`') {
+        handled(() => togglePanel('terminal'))
+      } else if (mod && e.shiftKey && key === 'm') {
+        handled(() => togglePanel('problems'))
+      } else if (mod && !e.shiftKey && key === 'b') {
+        handled(() => setSidebarOpen((v) => !v))
+      } else if (mod && e.key === 'Tab') {
+        handled(() => switchTab(e.shiftKey ? -1 : 1))
+      } else if (!mod && e.altKey && e.key === 'ArrowLeft') {
+        handled(() => {
+          if (!goBack()) showFlash(t('ide.command.backEmpty'))
+        })
+      } else if (!mod && e.altKey && e.key === 'ArrowRight') {
+        handled(() => {
+          if (!goForward()) showFlash(t('ide.command.backEmpty'))
+        })
+      } else if (!mod && e.altKey && e.shiftKey && key === 'f') {
+        handled(() => {
+          void formatActiveDocument().then((ok) => {
+            if (!ok) setNotice(t('ide.command.formatUnavailable'))
+          })
+        })
       } else if (!typing && e.key === 'F2' && treeTarget.rel) {
         e.preventDefault()
         const target = treeTarget
@@ -1158,16 +1655,72 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         requestDelete(treeTarget)
       } else if (e.key === 'Escape') {
         setQuickOpen(false)
+        setPalette(null)
         setMenu(null)
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [activeKey, activeTab, requestCloseTab, saveDoc, treeTarget, requestDelete, renameTarget])
+    // 捕获阶段：Ctrl+G / Ctrl+Shift+O 等 Monaco 自己也有绑定，先由应用层
+    // 决定用哪个实现，避免两个浮层同时打开。
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [
+    activeKey,
+    activeTab,
+    goBack,
+    goForward,
+    renameTarget,
+    reopenClosedTab,
+    requestCloseTab,
+    requestDelete,
+    saveAll,
+    saveDoc,
+    showFlash,
+    switchTab,
+    t,
+    togglePanel,
+    treeTarget
+  ])
 
   const activeFile = activeTab?.kind === 'file' ? fileCache[activeTab.rel] : undefined
   const activeImage = activeTab?.kind === 'image' ? imageCache[activeTab.rel] : undefined
   const activeDiff = activeTab?.kind === 'diff' ? diffCache[activeTab.rel] : undefined
+
+  // 切回一个已经缓存的文件时 ensureTab 不会再读盘，这里补一次 import 扫描。
+  // 不在每次敲键时重扫：保存 / 切标签已经覆盖了 import 变化的场景。
+  useEffect(() => {
+    if (!api?.ide || !activeTab || activeTab.kind !== 'file' || !activeFile) return
+    ensureImportedModels(cwd, activeTab.rel, activeFile.text, api.ide.readFile)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab?.key, api, cwd])
+
+  /** 当前文件的大纲：正则扫描，所有语言都能给出可跳转的符号 */
+  const [outlineSymbols, setOutlineSymbols] = useState<OutlineSymbol[]>([])
+  const outlineRel = activeTab?.kind === 'file' ? activeTab.rel : null
+  const outlineText = activeFile?.text
+  outlineCountRef.current = outlineSymbols.length
+  useEffect(() => {
+    if (!outlineRel || outlineText === undefined) {
+      setOutlineSymbols([])
+      return
+    }
+    // 打字时不必每个字符都扫一遍整个文件
+    const timer = window.setTimeout(
+      () => setOutlineSymbols(parseOutline(outlineText, outlineRel)),
+      180
+    )
+    return () => window.clearTimeout(timer)
+  }, [outlineRel, outlineText])
+
+  const symbolCommands = useMemo<CommandItem[]>(() => {
+    if (!activeTab || activeTab.kind !== 'file') return []
+    return outlineSymbols.map((s, i) => ({
+      id: `sym:${i}:${s.line}:${s.name}`,
+      label: s.name,
+      group: t(OUTLINE_KIND_KEY[s.kind]),
+      keybinding: String(s.line),
+      run: () => jumpTo(activeTab.rel, s.line)
+    }))
+  }, [activeTab, jumpTo, outlineSymbols, t])
 
   /* ── IDE → 聊天 ───────────────────────────────────────── */
 
@@ -1288,6 +1841,181 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     return null
   })()
 
+  const problemErrors = problems.filter((p) => p.severity === 'error').length
+  const problemWarnings = problems.filter((p) => p.severity === 'warning').length
+  const panelVisible = panelOpen && (view === 'files' || view === 'search')
+
+  const commands = useMemo<CommandItem[]>(() => {
+    const file = t('ide.command.group.file')
+    const edit = t('ide.command.group.edit')
+    const view = t('ide.command.group.view')
+    const nav = t('ide.command.group.nav')
+    return [
+      {
+        id: 'file.save',
+        label: t('ide.command.save'),
+        group: file,
+        keybinding: 'Ctrl+S',
+        run: () => {
+          if (activeTab?.kind === 'file') void saveDoc(activeTab.rel)
+        }
+      },
+      {
+        id: 'file.saveAll',
+        label: t('ide.command.saveAll'),
+        group: file,
+        keybinding: 'Ctrl+Shift+S',
+        run: () => void saveAll()
+      },
+      {
+        id: 'file.newFile',
+        label: t('ide.command.newFile'),
+        group: file,
+        run: () => startCreate('file')
+      },
+      {
+        id: 'file.newFolder',
+        label: t('ide.command.newFolder'),
+        group: file,
+        run: () => startCreate('dir')
+      },
+      {
+        id: 'file.quickOpen',
+        label: t('ide.command.quickOpen'),
+        group: file,
+        keybinding: 'Ctrl+P',
+        run: () => setQuickOpen(true)
+      },
+      {
+        id: 'file.closeTab',
+        label: t('ide.command.closeTab'),
+        group: file,
+        keybinding: 'Ctrl+W',
+        run: () => {
+          if (activeKey) requestCloseTab(activeKey)
+        }
+      },
+      {
+        id: 'file.reopenTab',
+        label: t('ide.command.reopenTab'),
+        group: file,
+        keybinding: 'Ctrl+Shift+T',
+        run: reopenClosedTab
+      },
+      {
+        id: 'search.workspace',
+        label: t('ide.command.search'),
+        group: edit,
+        keybinding: 'Ctrl+Shift+F',
+        run: () => {
+          setView('search')
+          setSidebarOpen(true)
+        }
+      },
+      {
+        id: 'edit.format',
+        label: t('ide.command.format'),
+        group: edit,
+        keybinding: 'Shift+Alt+F',
+        run: () => {
+          void formatActiveDocument().then((ok) => {
+            if (!ok) setNotice(t('ide.command.formatUnavailable'))
+          })
+        }
+      },
+      {
+        id: 'nav.goToLine',
+        label: t('ide.command.goToLine'),
+        group: nav,
+        keybinding: 'Ctrl+G',
+        run: () => {
+          if (!runEditorAction('editor.action.gotoLine')) {
+            setNotice(t('ide.command.noEditor'))
+          }
+        }
+      },
+      {
+        id: 'nav.goToSymbol',
+        label: t('ide.command.goToSymbol'),
+        group: nav,
+        keybinding: 'Ctrl+Shift+O',
+        run: () => {
+          if (outlineSymbols.length === 0) {
+            showFlash(t('ide.command.symbolEmpty'))
+            return
+          }
+          setPalette('symbols')
+        }
+      },
+      {
+        id: 'nav.back',
+        label: t('ide.command.navBack'),
+        group: nav,
+        keybinding: 'Alt+←',
+        run: () => {
+          if (!goBack()) showFlash(t('ide.command.backEmpty'))
+        }
+      },
+      {
+        id: 'nav.forward',
+        label: t('ide.command.navForward'),
+        group: nav,
+        keybinding: 'Alt+→',
+        run: () => {
+          if (!goForward()) showFlash(t('ide.command.backEmpty'))
+        }
+      },
+      {
+        id: 'view.toggleSidebar',
+        label: t('ide.command.toggleSidebar'),
+        group: view,
+        keybinding: 'Ctrl+B',
+        run: () => setSidebarOpen((v) => !v)
+      },
+      {
+        id: 'view.toggleProblems',
+        label: t('ide.command.toggleProblems'),
+        group: view,
+        keybinding: 'Ctrl+Shift+M',
+        run: () => togglePanel('problems')
+      },
+      {
+        id: 'view.toggleTerminal',
+        label: t('ide.command.toggleTerminal'),
+        group: view,
+        keybinding: 'Ctrl+`',
+        run: () => togglePanel('terminal')
+      },
+      {
+        id: 'view.closePanel',
+        label: t('ide.command.closePanel'),
+        group: view,
+        run: () => setPanelOpen(false)
+      },
+      {
+        id: 'view.refresh',
+        label: t('ide.command.refresh'),
+        group: view,
+        run: refresh
+      }
+    ]
+  }, [
+    activeKey,
+    activeTab,
+    goBack,
+    goForward,
+    outlineSymbols.length,
+    refresh,
+    reopenClosedTab,
+    requestCloseTab,
+    saveAll,
+    saveDoc,
+    showFlash,
+    startCreate,
+    t,
+    togglePanel
+  ])
+
   return (
     <div className="ide-app">
       <IdeTitleBar cwd={cwd} onClose={requestWindowClose} />
@@ -1345,10 +2073,24 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
       <div className="ide-body">
         <nav className="ide-activity">
-          <button className={`ide-act ${view === 'files' ? 'on' : ''}`} title={t('ide.explorer')} onClick={() => setView('files')}>
+          <button
+            className={`ide-act ${view === 'files' ? 'on' : ''}`}
+            title={t('ide.explorer')}
+            onClick={() => {
+              setView('files')
+              setSidebarOpen(true)
+            }}
+          >
             <Ico d={P.files} size={17} />
           </button>
-          <button className={`ide-act ${view === 'search' ? 'on' : ''}`} title={t('ide.searchCodeTitle')} onClick={() => setView('search')}>
+          <button
+            className={`ide-act ${view === 'search' ? 'on' : ''}`}
+            title={t('ide.searchCodeTitle')}
+            onClick={() => {
+              setView('search')
+              setSidebarOpen(true)
+            }}
+          >
             <Ico d={P.search} size={17} />
           </button>
           <button
@@ -1373,44 +2115,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           </button>
         </nav>
 
-        {view === 'sync' ? (
-          <SyncWorkspace
-            cwd={cwd}
-            sync={sync}
-            logOpen={syncLogOpen}
-            onOpenLog={() => setSyncLogOpen(true)}
-            onCloseLog={() => setSyncLogOpen(false)}
-            onNotice={setNotice}
-          />
-        ) : view === 'vcs' ? (
-          <VcsWorkspace
-            cwd={cwd}
-            detect={vcs.detect}
-            status={vcs.status}
-            loading={vcs.loading}
-            error={vcs.error}
-            onRefresh={() => void vcs.refresh()}
-            onMutated={(filesChanged) => {
-              if (!filesChanged) return
-              // 不冲掉有未保存修改的草稿；下次保存会按 mtime 发现磁盘已变
-              const keep = new Set(dirtyRels)
-              const onlyDirty = <T,>(rec: Record<string, T>): Record<string, T> =>
-                Object.fromEntries(Object.entries(rec).filter(([rel]) => keep.has(rel)))
-              setFileCache(onlyDirty)
-              setBaseText(onlyDirty)
-              setImageCache({})
-              setDiffCache({})
-              const keepExternal = new Set(dirtyRels.map(extKey))
-              setExternal((m) =>
-                Object.fromEntries(Object.entries(m).filter(([key]) => keepExternal.has(key)))
-              )
-              setTreeVersion((v) => v + 1)
-            }}
-            onNotice={showFlash}
-            onOpenFile={(rel) => openFile(rel)}
-          />
-        ) : (
-          <>
+        <div className={`ide-files ${view === 'sync' || view === 'vcs' ? 'is-hidden' : ''}`}>
+        {sidebarOpen && (
         <aside className={`ide-side ${view === 'search' ? 'is-search' : ''}`}>
           {view === 'files' && (
             <div className="ide-explorer">
@@ -1486,6 +2192,14 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   </div>
                 </form>
               )}
+              {activeTab?.kind === 'file' && (
+                <OutlineList
+                  symbols={outlineSymbols}
+                  onJump={(line) => {
+                    if (activeTab?.kind === 'file') jumpTo(activeTab.rel, line)
+                  }}
+                />
+              )}
               <div className="ide-tree">
                 <TreeDir
                   key={cwd}
@@ -1519,7 +2233,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             />
           )}
         </aside>
+        )}
 
+        <div className="ide-workbench">
         <section className="ide-editor">
           <div className="ide-tabs">
             {tabs.map((tab) => (
@@ -1614,8 +2330,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                 />
               ) : (
                 <MonacoEditor
+                  cwd={cwd}
                   file={activeFile}
                   jumpLine={jump?.rel === activeTab.rel ? jump.line : undefined}
+                  prefs={editorPrefs}
                   onCursor={(line, col) =>
                     setCursor({ rel: activeTab.rel, line, col })
                   }
@@ -1640,7 +2358,62 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           </div>
 
         </section>
-          </>
+
+        <BottomPanel
+          open={panelOpen}
+          tab={panelTab}
+          onTab={setPanelTab}
+          onClose={() => setPanelOpen(false)}
+          problems={problems}
+          onJump={jumpTo}
+          terminal={
+            <TerminalView
+              cwd={cwd}
+              active={panelVisible && panelTab === 'terminal'}
+              fontSize={editorPrefs.fontSize}
+            />
+          }
+        />
+        </div>
+        </div>
+
+        {view === 'sync' && (
+          <SyncWorkspace
+            cwd={cwd}
+            sync={sync}
+            logOpen={syncLogOpen}
+            onOpenLog={() => setSyncLogOpen(true)}
+            onCloseLog={() => setSyncLogOpen(false)}
+            onNotice={setNotice}
+          />
+        )}
+        {view === 'vcs' && (
+          <VcsWorkspace
+            cwd={cwd}
+            detect={vcs.detect}
+            status={vcs.status}
+            loading={vcs.loading}
+            error={vcs.error}
+            onRefresh={() => void vcs.refresh()}
+            onMutated={(filesChanged) => {
+              if (!filesChanged) return
+              // 不冲掉有未保存修改的草稿；下次保存会按 mtime 发现磁盘已变
+              const keep = new Set(dirtyRels)
+              const onlyDirty = <T,>(rec: Record<string, T>): Record<string, T> =>
+                Object.fromEntries(Object.entries(rec).filter(([rel]) => keep.has(rel)))
+              setFileCache(onlyDirty)
+              setBaseText(onlyDirty)
+              setImageCache({})
+              setDiffCache({})
+              const keepExternal = new Set(dirtyRels.map(extKey))
+              setExternal((m) =>
+                Object.fromEntries(Object.entries(m).filter(([key]) => keepExternal.has(key)))
+              )
+              setTreeVersion((v) => v + 1)
+            }}
+            onNotice={showFlash}
+            onOpenFile={(rel) => openFile(rel)}
+          />
         )}
       </div>
 
@@ -1670,6 +2443,40 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             {syncChipText}
             {syncSnap?.lastRoundAtMs && <em>{clockOf(syncSnap.lastRoundAtMs)}</em>}
           </button>
+        )}
+        <button
+          className={`ide-status-btn ${panelVisible && panelTab === 'problems' ? 'on' : ''}`}
+          title={t('ide.command.toggleProblems')}
+          onClick={() => togglePanel('problems')}
+        >
+          <Ico d={P.alert} size={11} />
+          <em className={problemErrors > 0 ? 'is-error' : undefined}>{problemErrors}</em>
+          <em className={problemWarnings > 0 ? 'is-warning' : undefined}>{problemWarnings}</em>
+        </button>
+        <button
+          className={`ide-status-btn ${panelVisible && panelTab === 'terminal' ? 'on' : ''}`}
+          title={t('ide.terminal.toggle')}
+          onClick={() => togglePanel('terminal')}
+        >
+          <Ico d={P.terminal} size={11} />
+          {t('ide.terminal.title')}
+        </button>
+        {lspEnabled && activeLsp && (
+          <span
+            className={`ide-status-lsp is-${activeLsp.state}`}
+            title={
+              activeLsp.message ??
+              (activeLsp.server
+                ? t('ide.lsp.serverTip', { server: activeLsp.server })
+                : t('ide.lsp.starting'))
+            }
+          >
+            {activeLsp.state === 'ready'
+              ? 'LSP'
+              : activeLsp.state === 'starting'
+                ? t('ide.lsp.starting')
+                : t('ide.lsp.error')}
+          </span>
         )}
         <span className="ide-status-right">
           {view !== 'vcs' && activeTab && <span className="ide-status-rel">{activeTab.rel}</span>}
@@ -1725,7 +2532,23 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       )}
 
       {quickOpen && (
-        <QuickOpen cwd={cwd} onClose={() => setQuickOpen(false)} onOpen={(rel) => { setQuickOpen(false); openFile(rel) }} />
+        <QuickOpen
+          cwd={cwd}
+          commands={commands}
+          symbols={symbolCommands}
+          onClose={() => setQuickOpen(false)}
+          onOpen={(rel) => {
+            setQuickOpen(false)
+            openFile(rel)
+          }}
+        />
+      )}
+
+      {palette && (
+        <CommandPalette
+          commands={palette === 'symbols' ? symbolCommands : commands}
+          onClose={() => setPalette(null)}
+        />
       )}
 
       {menu && (
@@ -2367,10 +3190,14 @@ function SearchPanel({
 
 function QuickOpen({
   cwd,
+  commands,
+  symbols,
   onClose,
   onOpen
 }: {
   cwd: string
+  commands: CommandItem[]
+  symbols: CommandItem[]
   onClose: () => void
   onOpen: (rel: string) => void
 }): JSX.Element {
@@ -2381,11 +3208,41 @@ function QuickOpen({
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const raw = q.trim()
+  const mode: 'file' | 'command' | 'symbol' = raw.startsWith('>')
+    ? 'command'
+    : raw.startsWith('@')
+      ? 'symbol'
+      : 'file'
+  const term = mode === 'file' ? raw.toLowerCase() : raw.slice(1).trim().toLowerCase()
+
+  const paletteItems = useMemo(() => {
+    if (mode === 'file') return []
+    const source = mode === 'command' ? commands : symbols
+    if (!term) return source.slice(0, 80)
+    return source
+      .filter((c) =>
+        `${c.label} ${c.group ?? ''} ${c.keybinding ?? ''}`.toLowerCase().includes(term)
+      )
+      .slice(0, 80)
+  }, [commands, mode, symbols, term])
+
+  const count = mode === 'file' ? items.length : paletteItems.length
+
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
   useEffect(() => {
+    setActive(0)
+  }, [q, mode])
+
+  useEffect(() => {
+    if (mode !== 'file') {
+      setItems([])
+      setBusy(false)
+      return
+    }
     let cancelled = false
     const timer = setTimeout(async () => {
       setBusy(true)
@@ -2405,9 +3262,16 @@ function QuickOpen({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [q, cwd])
+  }, [q, cwd, mode])
 
   const choose = (m?: FileMatch): void => {
+    if (mode !== 'file') {
+      const item = paletteItems[active]
+      if (!item) return
+      onClose()
+      void item.run()
+      return
+    }
     const item = m ?? items[active]
     if (item) onOpen(item.path)
   }
@@ -2420,7 +3284,13 @@ function QuickOpen({
           <input
             ref={inputRef}
             value={q}
-            placeholder={t('ide.quickOpenPlaceholder')}
+            placeholder={
+              mode === 'command'
+                ? t('ide.command.placeholder')
+                : mode === 'symbol'
+                  ? t('ide.outline.show')
+                  : t('ide.quickOpenPlaceholder')
+            }
             spellCheck={false}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
@@ -2429,7 +3299,7 @@ function QuickOpen({
                 onClose()
               } else if (e.key === 'ArrowDown') {
                 e.preventDefault()
-                setActive((a) => Math.min(items.length - 1, a + 1))
+                setActive((a) => Math.min(Math.max(0, count - 1), a + 1))
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
                 setActive((a) => Math.max(0, a - 1))
@@ -2441,20 +3311,41 @@ function QuickOpen({
           />
           {busy && <span className="ide-spin" />}
         </div>
+        {!q && (
+          <div className="ide-qo-hint">{t('ide.quickOpenHint')}</div>
+        )}
         <div className="ide-qo-list">
-          {items.map((m, i) => (
-            <button
-              key={m.path}
-              className={`ide-qo-row ${i === active ? 'on' : ''}`}
-              onMouseEnter={() => setActive(i)}
-              onClick={() => choose(m)}
-            >
-              <Ico d={P.file} size={13} />
-              <span className="ide-qo-name">{m.name}</span>
-              <span className="ide-qo-dir">{m.dir}</span>
-            </button>
-          ))}
-          {!busy && items.length === 0 && <div className="ide-emptyhint">{t('ide.noMatchingFiles')}</div>}
+          {mode === 'file' &&
+            items.map((m, i) => (
+              <button
+                key={m.path}
+                className={`ide-qo-row ${i === active ? 'on' : ''}`}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => choose(m)}
+              >
+                <Ico d={P.file} size={13} />
+                <span className="ide-qo-name">{m.name}</span>
+                <span className="ide-qo-dir">{m.dir}</span>
+              </button>
+            ))}
+          {mode !== 'file' &&
+            paletteItems.map((c, i) => (
+              <button
+                key={c.id}
+                className={`ide-qo-row ide-palette-row ${i === active ? 'on' : ''}`}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => choose()}
+              >
+                <span className="ide-palette-label">{c.label}</span>
+                {c.group && <span className="ide-palette-group">{c.group}</span>}
+                {c.keybinding && <kbd>{c.keybinding}</kbd>}
+              </button>
+            ))}
+          {!busy && count === 0 && (
+            <div className="ide-emptyhint">
+              {mode === 'file' ? t('ide.noMatchingFiles') : t('ide.command.empty')}
+            </div>
+          )}
         </div>
         <div className="ide-qo-foot">
           <span>{t('ide.keySelect')}</span>

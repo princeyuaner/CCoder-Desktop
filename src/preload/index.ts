@@ -39,13 +39,29 @@ import type {
   StoredSession
 } from '../shared/session'
 import type { AgentEvent } from '../shared/events'
-import type { IdeFsChanged, IdeSearchStreamEvent, IdeTarget } from '../shared/ide'
+import type {
+  IdeFsChanged,
+  IdeSearchStreamEvent,
+  IdeTarget,
+  IdeTerminalDataEvent,
+  IdeTerminalExitEvent,
+  IdeTerminalStartRequest
+} from '../shared/ide'
 import type {
   ChatActiveInfo,
   ChatTargetInfo,
   IdeSendPayload,
   IdeSendResult
 } from '../shared/ide-chat'
+import type {
+  LspDiagnosticsEvent,
+  LspNotification,
+  LspRequest,
+  LspResponse,
+  LspStartRequest,
+  LspStartResult,
+  LspStateEvent
+} from '../shared/lsp'
 import type { VcsApi } from '../shared/vcs'
 import type { SyncFocusPayload, SyncStatusPush } from '../shared/sync'
 import type { UpdateInstallResult, UpdateState } from '../shared/update'
@@ -388,6 +404,48 @@ const api: WindowApi = {
       }
     },
     confirmClose: () => ipcRenderer.send(IPC.ideConfirmClose)
+  },
+
+  terminal: {
+    start: (req: IdeTerminalStartRequest) =>
+      ipcRenderer.invoke(IPC.ideTerminalStart, req),
+    write: (id: string, data: string) => ipcRenderer.send(IPC.ideTerminalWrite, id, data),
+    resize: (id: string, cols: number, rows: number) =>
+      ipcRenderer.send(IPC.ideTerminalResize, id, cols, rows),
+    kill: (id: string) => ipcRenderer.send(IPC.ideTerminalKill, id),
+    onData: (cb: (event: IdeTerminalDataEvent) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, event: IdeTerminalDataEvent): void =>
+        cb(event)
+      ipcRenderer.on(IPC.ideTerminalData, listener)
+      return () => ipcRenderer.off(IPC.ideTerminalData, listener)
+    },
+    onExit: (cb: (event: IdeTerminalExitEvent) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, event: IdeTerminalExitEvent): void =>
+        cb(event)
+      ipcRenderer.on(IPC.ideTerminalExit, listener)
+      return () => ipcRenderer.off(IPC.ideTerminalExit, listener)
+    }
+  },
+
+  lsp: {
+    start: (req: LspStartRequest): Promise<LspStartResult> =>
+      ipcRenderer.invoke(IPC.lspStart, req),
+    stop: (cwd: string, language?: string) =>
+      ipcRenderer.send(IPC.lspStop, cwd, language),
+    request: (req: LspRequest): Promise<LspResponse> =>
+      ipcRenderer.invoke(IPC.lspRequest, req),
+    notify: (req: LspNotification) => ipcRenderer.send(IPC.lspNotify, req),
+    onDiagnostics: (cb: (event: LspDiagnosticsEvent) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, event: LspDiagnosticsEvent): void =>
+        cb(event)
+      ipcRenderer.on(IPC.lspDiagnostics, listener)
+      return () => ipcRenderer.off(IPC.lspDiagnostics, listener)
+    },
+    onState: (cb: (event: LspStateEvent) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, event: LspStateEvent): void => cb(event)
+      ipcRenderer.on(IPC.lspState, listener)
+      return () => ipcRenderer.off(IPC.lspState, listener)
+    }
   },
 
   sync: {

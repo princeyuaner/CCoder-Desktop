@@ -278,6 +278,10 @@ export function openIdeWindow(cwd: string, initialTarget?: IdeTarget): void {
   const senderId = win.webContents.id
   senderCwds.set(senderId, key)
   senderWindows.set(senderId, win)
+  // 渲染进程崩溃时不会触发 closed；先收掉这个 sender 的搜索 / 终端子进程
+  win.webContents.on('render-process-gone', () => {
+    hooks.onSenderClosed?.(senderId)
+  })
   hooks.onOpened?.(cwd)
 
   /*

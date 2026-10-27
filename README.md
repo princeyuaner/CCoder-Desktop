@@ -59,6 +59,12 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 
 - 一个工作区一个窗口，窗口位置 / 大小记忆在 `ide-windows.json`。
 - Monaco 编辑器、文件树、快速打开（`Ctrl+P`）、工作区搜索与全局替换。
+- **编辑器偏好**：字号、制表符宽度、缩进方式、自动换行、代码缩略图、自动保存、保存时删除行尾空白。设置同时作用于所有 IDE 窗口。
+- **命令与导航**：命令面板（`Ctrl+Shift+P`）、快速打开里的 `>` 命令 / `@` 符号、大纲、问题面板、跳转到行（`Ctrl+G`）、前进 / 后退、重开已关闭标签（`Ctrl+Shift+T`）、保存全部（`Ctrl+Shift+S`）。
+- **崩溃恢复**：未保存的草稿按工作区写入本地存储，崩溃 / 断电后重新打开同一工作区会自动恢复。
+- **内置终端**（Ctrl + 反引号）：在当前工作区启动 cmd，支持常规命令、颜色和简单的本地行编辑。
+- **TS / JS 语言智能（回落）**：没有语言服务器时，相对路径 `import` 的目标会被自动加入 Monaco 的 TypeScript worker，支持跨文件跳转定义、查找引用、重命名和文档符号。
+- **语言服务器（LSP）**：自动探测（TypeScript 优先项目 `node_modules`，其余查 `PATH`）`typescript-language-server`、`pyright`、`pylsp`、`gopls`、`rust-analyzer`、`clangd`、`yaml-language-server`、`bash-language-server`、`lua-language-server`，提供跳转定义、查找引用、重命名、悬停、补全、格式化，并把 `publishDiagnostics` 汇总到问题面板。可在设置 → 编辑器 → 语言服务里关闭。
 - 未保存修改保护；外部（Agent / 终端 / 其他编辑器）改动会实时推送到窗口。
 - 渲染超大文件导致无响应时提供「强制关闭」逃生口，不依赖渲染层。
 - 文件读写和 VCS 写操作按窗口绑定的工作区鉴权，越界路径会被拒绝。
@@ -292,6 +298,7 @@ src/
 - Electron 33 + React 18 + TypeScript 5.7
 - electron-vite 2 / Vite 5（主进程、preload、渲染层分别打包）
 - Monaco Editor（IDE 与 diff）
+- xterm.js（内置终端）
 - electron-updater（GitHub Releases）
 - micromatch（工作区文件匹配）
 
@@ -305,6 +312,13 @@ src/
 - 历史会话回放受 CLI 记录内容限制：旧记录里没有每轮耗时 / 输出 token，界面会显示 `0 tok` 或只显示「已完成」。
 - 便携版不支持自动更新。
 - Monaco 编辑器自带的下拉菜单 / 查找控件仍为英文；应用自己的 IDE 外壳、搜索面板和提示已跟随界面语言。
+- 内置终端使用管道而不是 PTY：常规命令、颜色和输出可用，但全屏 TUI（vim / top）、Ctrl+C 终止当前命令、窗口尺寸变化后的重排不可用。
+- 语言服务器不随应用打包：需要自己安装 `typescript-language-server`、`pyright`、`gopls`、`rust-analyzer`、`clangd` 等。TS / JS 会优先用项目 `node_modules/typescript-language-server`（版本跟项目走）；其他语言只从 `PATH` 查找，**不会**执行工作区 `node_modules/.bin` 里的同名程序。找不到服务器时，TS / JS 回落到 Monaco 自带的 worker（只解析相对路径 `import`，语义诊断关闭），其他语言只有语法高亮。
+- LSP 只同步已经打开的标签；服务器后台索引整个工作区，但未打开文件的重命名编辑不会自动写盘 —— 应用只把 `WorkspaceEdit` 交给 Monaco，已经打开的标签会变成未保存状态，没打开的文件需要先打开再改。`workspace/applyEdit` 被拒绝，服务器不能绕过保存 / 冲突流程直接改文件。
+- 工作区外的诊断（`node_modules`、TypeScript `lib.d.ts`、Rust 标准库）不会进入问题面板；跳转定义仍可以落到这些文件，但点击时会提示「工作区外」而不是新开标签。
+- 每个 IDE 窗口各自启动语言服务器，不跨窗口共享；同一窗口里 TypeScript / JavaScript 共用一个 `typescript-language-server` 进程。窗口关闭或渲染进程崩溃时会结束这些进程。
+- 语言服务器可能为了分析而在项目里执行构建脚本 / 过程宏（`rust-analyzer`、`cargo check`、`clangd` 的编译数据库等）。当前没有 Workspace Trust 提示：只在你信任的工作区启用 LSP，拿不准时到设置 → 编辑器 → 语言服务里关掉。
+- 编辑器尚未实现分屏 / 多编辑器组；切换工作区视图时编辑器和终端会保留，但同一文件不能并排编辑。
 - 界面提供简体中文 / English；系统语言为中文（含繁体）时用简体中文，其余语言用 English。
 
 ---
@@ -316,7 +330,7 @@ src/
 ## 致谢
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 与 [Codex CLI](https://github.com/openai/codex) 提供底层能力；相关商标归各自所有者。
-- [Electron](https://www.electronjs.org/)、[React](https://react.dev/)、[Monaco Editor](https://microsoft.github.io/monaco-editor/)、[electron-vite](https://electron-vite.org/)。
+- [Electron](https://www.electronjs.org/)、[React](https://react.dev/)、[Monaco Editor](https://microsoft.github.io/monaco-editor/)、[xterm.js](https://xtermjs.org/)、[electron-vite](https://electron-vite.org/)。
 
 ---
 
@@ -381,6 +395,11 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 
 - One window per workspace; window position and size are remembered in `ide-windows.json`.
 - Monaco editor, file tree, quick open (`Ctrl+P`), workspace search, and replace all.
+- **Editor preferences**: font size, tab size, indentation, word wrap, minimap, auto-save, and trim-trailing-whitespace-on-save. Shared by every IDE window.
+- **Commands and navigation**: command palette (`Ctrl+Shift+P`), `>` commands / `@` symbols in quick open, outline, problems panel, go to line (`Ctrl+G`), back/forward, reopen closed tab (`Ctrl+Shift+T`), save all (`Ctrl+Shift+S`).
+- **Crash recovery**: unsaved drafts are stored per workspace and restored when the same workspace is opened again.
+- **Built-in terminal** (Ctrl + backtick): starts cmd in the current workspace, with regular commands, colors, and simple local line editing.
+- **TS/JS language intelligence**: relative-import targets are added to Monaco's TypeScript worker, enabling cross-file go-to-definition, find references, rename, and document symbols.
 - Unsaved-change protection; external changes (agent / terminal / another editor) are pushed to the window live.
 - A forced-close escape hatch when an oversized file makes the renderer unresponsive — it does not depend on the renderer.
 - File and VCS writes are authorized against the workspace bound to the window; out-of-tree paths are rejected.
@@ -614,6 +633,7 @@ src/
 - Electron 33 + React 18 + TypeScript 5.7
 - electron-vite 2 / Vite 5 (main, preload, and renderer bundled separately)
 - Monaco Editor (IDE and diffs)
+- xterm.js (built-in terminal)
 - electron-updater (GitHub Releases)
 - micromatch (workspace file matching)
 
@@ -627,6 +647,10 @@ src/
 - Historical replay is limited by what the CLIs record: older entries may lack per-turn duration / output tokens, in which case the UI shows `0 tok` or only "Completed".
 - The portable build does not support auto-update.
 - Monaco's built-in menus and find widget remain English-only; the app's own IDE shell, search panel, and prompts follow the interface language.
+- The built-in terminal uses pipes rather than a PTY: regular commands, colors, and output work, but full-screen TUI apps (vim / top), Ctrl+C to stop the current command, and resize reflow are not available.
+- Language intelligence currently covers relative `import`s in TypeScript / JavaScript; Python, Go, Rust, and others still only have syntax highlighting. TS semantic diagnostics stay off to avoid a wall of red squiggles without node_modules type information.
+- Cross-file rename (F2) currently only works reliably for open tabs; edits to hidden import models are not written to disk, and the disk version wins when such a file is opened. Go-to-definition and find-references are read-only and unaffected.
+- The editor does not implement split panes / multiple editor groups yet; editors and the terminal survive view switches, but the same file cannot be edited side by side.
 - The UI ships Simplified Chinese and English; Chinese system locales (including Traditional Chinese) resolve to Simplified Chinese, and all others resolve to English.
 
 ---

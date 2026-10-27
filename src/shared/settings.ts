@@ -238,6 +238,142 @@ export const TOOL_DETAIL_LABEL_KEY: Record<ToolDetail, MessageKey> = {
   hidden: 'toolDetail.hidden'
 }
 
+/* ── 内置 IDE 编辑器 ─────────────────────────────────────── */
+
+/** 自动换行的三种状态：关 / 按窗口宽度 / 按固定列宽 */
+export type EditorWordWrap = 'off' | 'on' | 'bounded'
+
+export const EDITOR_WORD_WRAP_LABEL_KEY: Record<EditorWordWrap, MessageKey> = {
+  off: 'editor.wordWrap.off',
+  on: 'editor.wordWrap.on',
+  bounded: 'editor.wordWrap.bounded'
+}
+
+/**
+ * 自动保存。`afterDelay` 是停止输入后延迟保存；`onFocusChange` 是窗口
+ * 失焦时保存（切到终端 / 浏览器回来时通常更符合直觉）。
+ */
+export type EditorAutoSave = 'off' | 'afterDelay' | 'onFocusChange'
+
+export const EDITOR_AUTO_SAVE_LABEL_KEY: Record<EditorAutoSave, MessageKey> = {
+  off: 'editor.autoSave.off',
+  afterDelay: 'editor.autoSave.afterDelay',
+  onFocusChange: 'editor.autoSave.onFocusChange'
+}
+
+/**
+ * IDE 编辑器的可配置项。
+ *
+ * 之前这些全部写死在 MonacoEditor 里，用户换不了字号 / 制表符 / 换行方式。
+ * 这里集中成一份可落盘的配置，主窗口和每个 IDE 窗口都读同一份。
+ */
+export interface EditorSettings {
+  /** 字号（px） */
+  fontSize: number
+  /** 一个 tab 的列宽 */
+  tabSize: number
+  /** true = 插入空格，false = 插入制表符 */
+  insertSpaces: boolean
+  /** 自动换行 */
+  wordWrap: EditorWordWrap
+  /** 代码缩略图 */
+  minimap: boolean
+  /** 自动保存策略 */
+  autoSave: EditorAutoSave
+  /** afterDelay 策略下的防抖时间（ms） */
+  autoSaveDelayMs: number
+  /** 保存时去掉行尾空白 */
+  trimTrailingWhitespace: boolean
+}
+
+export const EDITOR_FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const
+export const EDITOR_TAB_SIZES = [2, 3, 4, 8] as const
+export const EDITOR_AUTO_SAVE_DELAYS = [500, 1000, 2000, 5000] as const
+
+export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+  fontSize: 12,
+  tabSize: 2,
+  insertSpaces: true,
+  wordWrap: 'off',
+  minimap: true,
+  autoSave: 'off',
+  autoSaveDelayMs: 1000,
+  trimTrailingWhitespace: false
+}
+
+export function clampEditorFontSize(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 12
+  const clamped = Math.min(24, Math.max(10, n))
+  return EDITOR_FONT_SIZES.reduce(
+    (best, option) => (Math.abs(option - clamped) < Math.abs(best - clamped) ? option : best),
+    EDITOR_FONT_SIZES[0] as number
+  )
+}
+
+export function clampEditorTabSize(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 2
+  const clamped = Math.min(8, Math.max(2, n))
+  return EDITOR_TAB_SIZES.reduce(
+    (best, option) => (Math.abs(option - clamped) < Math.abs(best - clamped) ? option : best),
+    EDITOR_TAB_SIZES[0] as number
+  )
+}
+
+export function clampAutoSaveDelay(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 1000
+  const clamped = Math.min(30_000, Math.max(300, n))
+  // 设置页只列固定几档；落到档位中间的值会让 select 显示空白
+  return EDITOR_AUTO_SAVE_DELAYS.reduce(
+    (best, option) => (Math.abs(option - clamped) < Math.abs(best - clamped) ? option : best),
+    EDITOR_AUTO_SAVE_DELAYS[0] as number
+  )
+}
+
+export function isEditorWordWrap(v: unknown): v is EditorWordWrap {
+  return v === 'off' || v === 'on' || v === 'bounded'
+}
+
+export function isEditorAutoSave(v: unknown): v is EditorAutoSave {
+  return v === 'off' || v === 'afterDelay' || v === 'onFocusChange'
+}
+
+export function normalizeEditorSettings(raw: Partial<EditorSettings> | null | undefined): EditorSettings {
+  const src = raw ?? {}
+  return {
+    fontSize: clampEditorFontSize(src.fontSize),
+    tabSize: clampEditorTabSize(src.tabSize),
+    insertSpaces: src.insertSpaces !== false,
+    wordWrap: isEditorWordWrap(src.wordWrap) ? src.wordWrap : DEFAULT_EDITOR_SETTINGS.wordWrap,
+    minimap: src.minimap !== false,
+    autoSave: isEditorAutoSave(src.autoSave) ? src.autoSave : DEFAULT_EDITOR_SETTINGS.autoSave,
+    autoSaveDelayMs: clampAutoSaveDelay(src.autoSaveDelayMs),
+    trimTrailingWhitespace: src.trimTrailingWhitespace === true
+  }
+}
+
+/* ── 语言服务器 ─────────────────────────────────────────── */
+
+/**
+ * 语言服务器（LSP）设置。
+ *
+ * 目前只有总开关：服务器从**项目 node_modules / node_modules/.bin /
+ * PATH** 自动探测，不内置二进制，也不让用户填任意命令 —— 那个入口
+ * 等于把工作区里的配置文件变成执行命令，等有 workspace trust 再说。
+ */
+export interface LspSettings {
+  enabled: boolean
+}
+
+export const DEFAULT_LSP_SETTINGS: LspSettings = {
+  enabled: true
+}
+
+export function normalizeLspSettings(
+  raw: Partial<LspSettings> | null | undefined
+): LspSettings {
+  return { enabled: raw?.enabled !== false }
+}
+
 /** 界面可选的字体栈。存的是完整 CSS font-family，自定义字体也能直接落盘 */
 export interface FontPreset {
   labelKey: MessageKey
@@ -423,6 +559,12 @@ export interface Settings {
   /* ── 输入 ───────────────────────────────────────────────── */
   /** 发送快捷键 */
   sendKey: SendKey
+
+  /* ── 内置 IDE ───────────────────────────────────────────── */
+  /** 编辑器偏好；独立 IDE 窗口与主窗口共享同一份 */
+  editor: EditorSettings
+  /** 语言服务器总开关；关闭后只用 Monaco 自带的 worker */
+  lsp: LspSettings
 }
 
 export function emptyCliConfig(id: CliId): CliConfig {
@@ -457,7 +599,9 @@ export function defaultSettings(): Settings {
     showTimestamps: false,
     thinkingOpen: false,
     toolDetail: 'full',
-    sendKey: 'enter'
+    sendKey: 'enter',
+    editor: { ...DEFAULT_EDITOR_SETTINGS },
+    lsp: { ...DEFAULT_LSP_SETTINGS }
   }
 }
 
@@ -527,7 +671,9 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
     thinkingOpen: src.thinkingOpen === true,
     toolDetail:
       src.toolDetail === 'compact' || src.toolDetail === 'hidden' ? src.toolDetail : 'full',
-    sendKey: src.sendKey === 'ctrlEnter' ? 'ctrlEnter' : 'enter'
+    sendKey: src.sendKey === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
+    editor: normalizeEditorSettings(src.editor),
+    lsp: normalizeLspSettings(src.lsp)
   }
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { IdeTextFile } from '@shared/ide'
+import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from '@shared/settings'
 import { applyMonacoTheme, monaco, monacoLanguage } from './monaco-setup'
 import { useI18n } from '../i18n'
 
@@ -110,15 +111,43 @@ function optionsForTier(
   }
 }
 
+function preferencesOptions(
+  prefs: EditorSettings
+): monaco.editor.IEditorOptions & monaco.editor.IGlobalEditorOptions {
+  return {
+    fontSize: prefs.fontSize,
+    tabSize: prefs.tabSize,
+    insertSpaces: prefs.insertSpaces,
+    wordWrap: prefs.wordWrap,
+    wordWrapColumn: 100,
+    minimap: { enabled: prefs.minimap }
+  }
+}
+
+function mergedOptions(
+  tier: EditorTier,
+  prefs: EditorSettings
+): monaco.editor.IEditorOptions & monaco.editor.IGlobalEditorOptions {
+  const base = optionsForTier(tier)
+  const prefsOptions = preferencesOptions(prefs)
+  return {
+    ...base,
+    ...prefsOptions,
+    // 大文件档位下强制关掉 minimap，优先保证输入 / 滚动流畅
+    minimap: { ...base.minimap, ...prefsOptions.minimap, enabled: prefs.minimap && tier === 0 }
+  }
+}
+
 function applyEditorTier(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel,
-  tierRef: { current: EditorTier }
+  tierRef: { current: EditorTier },
+  prefs: EditorSettings
 ): void {
   const tier = tierForModel(model)
   if (tier === tierRef.current) return
   tierRef.current = tier
-  editor.updateOptions(optionsForTier(tier))
+  editor.updateOptions(mergedOptions(tier, prefs))
 }
 
 /** 把编辑器的当前选区换算成发给聊天用的行号 / 原文 / 定位点 */
@@ -165,15 +194,21 @@ function selectionOf(
  * 变化时按文本比较，只有真的不同才回写 model，避免打字时把光标重置。
  */
 export function MonacoEditor({
+  cwd,
   file,
   jumpLine,
+  prefs = DEFAULT_EDITOR_SETTINGS,
   onCursor,
   onChange,
   onSendSelection,
   onSendFile
 }: {
+  /** 工作区绝对路径：用来生成 file:// model URI，让 TS worker 能解析 import */
+  cwd: string
   file: IdeTextFile
   jumpLine?: number
+  /** 设置页里的编辑器偏好；不传时用默认值（测试 / 旧调用方） */
+  prefs?: EditorSettings
   onCursor: (line: number, col: number) => void
   onChange: (text: string) => void
   onSendSelection: (sel: EditorSelection) => void
@@ -188,25 +223,33 @@ export function MonacoEditor({
   const applyingRef = useRef(false)
   const tierRef = useRef<EditorTier>(0)
   const tierTimer = useRef<number | null>(null)
+  const prefsRef = useRef(prefs)
+  prefsRef.current = prefs
+  const cwdRef = useRef(cwd)
+  cwdRef.current = cwd
   const propsRef = useRef({ file, onCursor, onChange, onSendSelection, onSendFile })
   propsRef.current = { file, onCursor, onChange, onSendSelection, onSendFile }
 
   const ensureModel = useCallback((next: IdeTextFile): monaco.editor.ITextModel => {
     const lang = monacoLanguage(next.language, next.rel)
-    let model = modelsRef.current.get(next.rel)
+    const abs = `${cwdRef.current.replace(/\\/g, '/').replace(/\/+$/, '')}/${next.rel}`
+    const uri = monaco.Uri.file(abs)
+    // tsProject 可能已经为 import 目标建了同名 model；不能重复 createModel
+    let model = modelsRef.current.get(next.rel) ?? monaco.editor.getModel(uri) ?? undefined
     if (!model || model.isDisposed()) {
-      model = monaco.editor.createModel(
-        next.text,
-        lang,
-        monaco.Uri.parse(`ccoder:///${encodeURIComponent(next.rel)}`)
-      )
+      model = monaco.editor.createModel(next.text, lang, uri)
       modelsRef.current.set(next.rel, model)
     } else if (model.getValue() !== next.text) {
       applyingRef.current = true
       model.setValue(next.text)
       applyingRef.current = false
     }
+    if (!modelsRef.current.has(next.rel)) modelsRef.current.set(next.rel, model)
     if (model.getLanguageId() !== lang) monaco.editor.setModelLanguage(model, lang)
+    model.updateOptions({
+      tabSize: prefsRef.current.tabSize,
+      insertSpaces: prefsRef.current.insertSpaces
+    })
     return model
   }, [])
 
@@ -224,14 +267,10 @@ export function MonacoEditor({
       theme: 'ccoder',
       automaticLayout: true,
       fontFamily: monoFont(),
-      fontSize: 12,
-      lineHeight: 19,
-      tabSize: 2,
-      insertSpaces: true,
+      lineHeight: Math.round(prefsRef.current.fontSize * 1.55),
       detectIndentation: false,
-      wordWrap: 'off',
       largeFileOptimizations: true,
-      ...optionsForTier(initialTier),
+      ...mergedOptions(initialTier, prefsRef.current),
       lineNumbers: 'on',
       lineNumbersMinChars: 3,
       lineDecorationsWidth: 6,
@@ -284,7 +323,7 @@ export function MonacoEditor({
           tierTimer.current = null
           const current = editorRef.current
           const model = current?.getModel()
-          if (current && model) applyEditorTier(current, model, tierRef)
+          if (current && model) applyEditorTier(current, model, tierRef, prefsRef.current)
         }, 1000)
       }),
       editor.onDidChangeCursorPosition((e) => {
@@ -353,7 +392,7 @@ export function MonacoEditor({
     applyingRef.current = true
     editor.setModel(model)
     applyingRef.current = false
-    applyEditorTier(editor, model, tierRef)
+    applyEditorTier(editor, model, tierRef, prefsRef.current)
     const view = viewsRef.current.get(file.rel)
     if (view) editor.restoreViewState(view)
     else {
@@ -375,7 +414,7 @@ export function MonacoEditor({
     applyingRef.current = true
     model.setValue(file.text)
     applyingRef.current = false
-    applyEditorTier(editor, model, tierRef)
+    applyEditorTier(editor, model, tierRef, prefsRef.current)
     if (view) editor.restoreViewState(view)
 
     // 文件变短时把光标 / 选区夹回合法范围
@@ -399,6 +438,21 @@ export function MonacoEditor({
       )
     }
   }, [file.text, file.rel])
+
+  // 设置页改了编辑器偏好：已打开的窗口立即跟上，不用重开
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    editor.updateOptions({
+      ...mergedOptions(tierRef.current, prefs),
+      lineHeight: Math.round(prefs.fontSize * 1.55)
+    })
+    for (const model of modelsRef.current.values()) {
+      if (!model.isDisposed()) {
+        model.updateOptions({ tabSize: prefs.tabSize, insertSpaces: prefs.insertSpaces })
+      }
+    }
+  }, [prefs])
 
   // 从聊天工具卡 / 搜索跳转到某一行
   useEffect(() => {

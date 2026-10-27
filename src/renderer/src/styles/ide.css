@@ -2756,3 +2756,320 @@
 [data-theme='sepia'] .ide-vcs-st.is-d,
 [data-theme='sepia'] .ide-vcs-st.is-c.is-conflict,
 [data-theme='sepia'] .ide-vcs-st.is-u { color: #b03a32; }
+
+/* ── 工作区 + 底部面板 ─────────────────────────────────── */
+.ide-workbench {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ide-panel {
+  flex: none;
+  height: 240px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--border-soft);
+}
+.ide-panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ide-panel-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+  border-radius: 4px;
+}
+.ide-panel-tab:hover { color: var(--text-dim); }
+.ide-panel-tab.on {
+  color: var(--text);
+  background: var(--bg-active);
+}
+.ide-panel-tab em {
+  font-style: normal;
+  font-size: 9.5px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--bg-raised);
+  color: var(--text-faint);
+}
+.ide-panel-tab em.is-error { color: #f0b0b0; background: rgba(217, 138, 138, .16); }
+.ide-panel-tab em.is-warning { color: #e8c88a; background: rgba(224, 175, 104, .14); }
+.ide-panel-spacer { flex: 1; }
+.ide-panel-close { width: 22px; height: 22px; }
+.ide-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.ide-panel-pane {
+  height: 100%;
+  overflow: auto;
+}
+.ide-panel-pane.is-term {
+  overflow: hidden;
+}
+.is-hidden {
+  display: none !important;
+}
+
+/* ── 终端 ────────────────────────────────────────────── */
+.ide-terminal-wrap {
+  position: relative;
+  height: 100%;
+  background: var(--bg-app);
+}
+.ide-terminal {
+  position: absolute;
+  inset: 0;
+  padding: 6px 0 0 8px;
+}
+.ide-terminal .xterm {
+  height: 100%;
+}
+.ide-term-tools {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity .12s;
+  z-index: 2;
+}
+.ide-terminal-wrap:hover .ide-term-tools {
+  opacity: 1;
+}
+.ide-term-tools button {
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.ide-term-tools button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.ide-panel-empty {
+  padding: 18px 16px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* ── 大纲 ────────────────────────────────────────────── */
+.ide-outline {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 34%;
+  min-height: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ide-outline.is-collapsed { max-height: none; }
+.ide-outline-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .4px;
+  color: var(--text-muted);
+}
+.ide-outline-head em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+.ide-outline-list {
+  overflow: auto;
+  padding-bottom: 5px;
+}
+.ide-outline-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 21px;
+  padding-right: 9px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.ide-outline-row:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.ide-outline-kind {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 1px;
+  background: #8ab4f8;
+  opacity: .75;
+}
+.ide-outline-row.is-class .ide-outline-kind { background: #e0af68; }
+.ide-outline-row.is-interface .ide-outline-kind,
+.ide-outline-row.is-type .ide-outline-kind { background: #7fd1c1; }
+.ide-outline-row.is-enum .ide-outline-kind { background: #c79bf0; }
+.ide-outline-row.is-method .ide-outline-kind { background: #9aa0a6; }
+.ide-outline-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-outline-row em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--text-faint);
+}
+
+/* ── 问题面板 ────────────────────────────────────────── */
+.ide-problems { padding: 3px 0; }
+.ide-problem-group { padding-bottom: 4px; }
+.ide-problem-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-problem-file em {
+  margin-left: auto;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 9.5px;
+  color: var(--text-faint);
+}
+.ide-problem-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 12px 3px 26px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.ide-problem-row:hover { background: var(--bg-hover); color: var(--text); }
+.ide-problem-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #8a8a90;
+}
+.ide-problem-row.is-error .ide-problem-dot { background: #e06c6c; }
+.ide-problem-row.is-warning .ide-problem-dot { background: #e0af68; }
+.ide-problem-row.is-info .ide-problem-dot { background: #8ab4f8; }
+.ide-problem-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-problem-pos,
+.ide-problem-src {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* ── 状态栏按钮 ──────────────────────────────────────── */
+.ide-status-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0 5px;
+  font-size: 10.5px;
+  color: #8a8a90;
+  flex: none;
+  white-space: nowrap;
+}
+.ide-status-btn:hover,
+.ide-status-btn.on {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.ide-status-btn em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.ide-status-btn em.is-error { color: #e58b8b; }
+.ide-status-btn em.is-warning { color: #e0af68; }
+
+/* 语言服务器状态：只在当前文件有对应会话时出现 */
+.ide-status-lsp {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  flex: none;
+  white-space: nowrap;
+  cursor: default;
+}
+.ide-status-lsp.is-ready { color: #7fb98a; }
+.ide-status-lsp.is-starting { color: var(--text-faint); }
+.ide-status-lsp.is-error { color: #d08a8a; }
+
+/* ── 命令面板 ────────────────────────────────────────── */
+.ide-palette { width: 560px; }
+.ide-palette-glyph {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ide-palette-list { max-height: 52vh; }
+.ide-palette-row { gap: 10px; }
+.ide-palette-label { flex: 1; min-width: 0; text-align: left; }
+.ide-palette-group {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.ide-palette-row kbd { flex: none; }
+.ide-qo-hint {
+  padding: 2px 12px 8px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.ide-files {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.ide-workbench {
+  min-height: 0;
+}
+.ide-editor {
+  min-height: 0;
+}

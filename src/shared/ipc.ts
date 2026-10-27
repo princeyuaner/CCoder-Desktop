@@ -61,6 +61,10 @@ import type {
   IdeSearchStartResult,
   IdeSearchStreamEvent,
   IdeTarget,
+  IdeTerminalDataEvent,
+  IdeTerminalExitEvent,
+  IdeTerminalStartRequest,
+  IdeTerminalStartResult,
   IdeTextFile
 } from './ide'
 import type {
@@ -69,6 +73,15 @@ import type {
   IdeSendPayload,
   IdeSendResult
 } from './ide-chat'
+import type {
+  LspDiagnosticsEvent,
+  LspNotification,
+  LspRequest,
+  LspResponse,
+  LspStartRequest,
+  LspStartResult,
+  LspStateEvent
+} from './lsp'
 import type { VcsApi } from './vcs'
 import type { SyncApi } from './sync'
 import type { UpdateInstallResult, UpdateState } from './update'
@@ -200,6 +213,24 @@ export const IPC = {
   ideConfirmClose: 'ide:confirm-close',
   /** 主进程 → IDE 渲染进程：一批工作区文件变化（已去抖 / 合并 / 过滤） */
   ideFsChanged: 'ide:fs-changed',
+
+  /** IDE 内置终端：启动 / 写入 / 调整大小 / 结束 */
+  ideTerminalStart: 'ide:terminal-start',
+  ideTerminalWrite: 'ide:terminal-write',
+  ideTerminalResize: 'ide:terminal-resize',
+  ideTerminalKill: 'ide:terminal-kill',
+  /** 主进程 → IDE 渲染进程：输出 / 退出 */
+  ideTerminalData: 'ide:terminal-data',
+  ideTerminalExit: 'ide:terminal-exit',
+
+  /** 语言服务器：启动 / 停止 / 请求 / 通知 / 诊断 / 状态 */
+  lspStart: 'lsp:start',
+  lspStop: 'lsp:stop',
+  lspRequest: 'lsp:request',
+  lspNotify: 'lsp:notify',
+  /** 主进程 → IDE 渲染进程：诊断 / 会话状态 */
+  lspDiagnostics: 'lsp:diagnostics',
+  lspState: 'lsp:state',
 
   /** IDE：列出这个工作区可选的聊天目标 */
   ideChatTargets: 'ide:chat-targets',
@@ -521,6 +552,36 @@ export interface WindowApi {
     openSession(cwd: string): Promise<{ ok: boolean; message?: string }>
     /** 主窗口：接收上面的请求 */
     onOpenSession(cb: (cwd: string) => void): () => void
+  }
+
+  /**
+   * 内置终端。只有绑定到工作区的 IDE 窗口能调用；主进程按
+   * webContents 隔离会话，窗口关闭时统一结束子进程。
+   */
+  terminal: {
+    start(req: IdeTerminalStartRequest): Promise<IdeTerminalStartResult>
+    write(id: string, data: string): void
+    resize(id: string, cols: number, rows: number): void
+    kill(id: string): void
+    onData(cb: (event: IdeTerminalDataEvent) => void): () => void
+    onExit(cb: (event: IdeTerminalExitEvent) => void): () => void
+  }
+
+  /**
+   * 语言服务器（LSP）。
+   *
+   * 只有绑定到工作区的 IDE 窗口能调用；主进程按 webContents 启动和隔离
+   * 服务器进程。找不到服务器时 start 返回 not-found，渲染层回落到
+   * Monaco 自带 worker，不影响基本编辑。
+   */
+  lsp: {
+    start(req: LspStartRequest): Promise<LspStartResult>
+    /** 关闭这个工作区的会话；不传 language 时全部关闭 */
+    stop(cwd: string, language?: string): void
+    request(req: LspRequest): Promise<LspResponse>
+    notify(req: LspNotification): void
+    onDiagnostics(cb: (event: LspDiagnosticsEvent) => void): () => void
+    onState(cb: (event: LspStateEvent) => void): () => void
   }
 
   /**
