@@ -236,6 +236,10 @@
 .session__time--done {
   color: var(--ok);
 }
+/* 上一轮跑挂了的行：说「错误」，不能看起来像正常结束 */
+.session__time--error {
+  color: var(--danger);
+}
 
 /* ── 工作树会话：标题下方的分支行 ─────────────────────────
  *
@@ -829,12 +833,16 @@
   width: 100%;
   height: 100%;
 }
-/* 品牌色：Claude 是珊瑚橙 #D97757；OpenAI 本来就是黑白，不硬安一个绿 */
+/* 品牌色：Claude 是珊瑚橙 #D97757；OpenAI 本来就是黑白，不硬安一个绿；
+   DSH 用 DeepSeek 官方蓝 —— 三个字形本身就能分开，不必再叠底色 */
 .session__cli--claude svg {
   fill: #d97757;
 }
 .session__cli--codex svg {
   fill: #e8e8e8;
+}
+.session__cli--dsh svg {
+  fill: var(--brand-dsh);
 }
 
 /*

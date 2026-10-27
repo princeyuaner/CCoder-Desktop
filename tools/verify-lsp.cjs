@@ -40,6 +40,7 @@ import fs from 'node:fs'
 const marker = process.env.MOCK_LSP_MARKER || ''
 const logFile = process.env.MOCK_LSP_LOG || ''
 const docs = new Map()
+let firstUri = ''
 let buffer = Buffer.alloc(0)
 
 function log(entry) {
@@ -81,13 +82,29 @@ function handle(message) {
 
   switch (method) {
     case 'initialize': {
+      log({ type: 'initialize', params })
       respond(id, {
         capabilities: {
           textDocumentSync: 2,
           definitionProvider: true,
+          declarationProvider: true,
+          implementationProvider: true,
+          typeDefinitionProvider: true,
           referencesProvider: true,
           renameProvider: true,
           hoverProvider: true,
+          documentHighlightProvider: true,
+          documentSymbolProvider: true,
+          signatureHelpProvider: { triggerCharacters: ['(', ','] },
+          semanticTokensProvider: {
+            full: true,
+            legend: {
+              tokenTypes: ['class', 'property', 'variable'],
+              tokenModifiers: ['readonly']
+            }
+          },
+          codeActionProvider: true,
+          workspaceSymbolProvider: true,
           completionProvider: { triggerCharacters: ['.'] },
           documentFormattingProvider: true
         }
@@ -125,6 +142,7 @@ function handle(message) {
     case 'textDocument/didOpen': {
       const doc = params?.textDocument || {}
       docs.set(doc.uri, doc.text || '')
+      if (!firstUri) firstUri = doc.uri || ''
       notify('textDocument/publishDiagnostics', {
         uri: doc.uri,
         version: doc.version,
@@ -168,6 +186,132 @@ function handle(message) {
           end: { line: 2, character: 5 }
         }
       })
+      return
+    case 'textDocument/declaration':
+    case 'textDocument/implementation':
+    case 'textDocument/typeDefinition':
+      respond(id, {
+        uri: params?.textDocument?.uri,
+        range: {
+          start: { line: 3, character: 1 },
+          end: { line: 3, character: 4 }
+        }
+      })
+      return
+    case 'textDocument/documentSymbol':
+      respond(id, [
+        {
+          name: 'MockClass',
+          detail: 'class MockClass',
+          kind: 5,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 4, character: 0 }
+          },
+          selectionRange: {
+            start: { line: 0, character: 6 },
+            end: { line: 0, character: 15 }
+          },
+          children: [
+            {
+              name: 'mockMethod',
+              kind: 6,
+              range: {
+                start: { line: 2, character: 2 },
+                end: { line: 3, character: 3 }
+              },
+              selectionRange: {
+                start: { line: 2, character: 2 },
+                end: { line: 2, character: 12 }
+              }
+            }
+          ]
+        }
+      ])
+      return
+    case 'textDocument/documentHighlight':
+      respond(id, [
+        {
+          range: { start: { line: 0, character: 6 }, end: { line: 0, character: 11 } },
+          kind: 2
+        },
+        {
+          range: { start: { line: 1, character: 0 }, end: { line: 1, character: 5 } },
+          kind: 3
+        }
+      ])
+      return
+    case 'textDocument/signatureHelp':
+      respond(id, {
+        signatures: [
+          {
+            label: 'mockFn(a: number, b: string)',
+            documentation: { kind: 'markdown', value: 'Mock signature.' },
+            parameters: [{ label: [7, 16], documentation: 'first' }, { label: [18, 27] }],
+            activeParameter: 1
+          }
+        ],
+        activeSignature: 0,
+        activeParameter: 1
+      })
+      return
+    case 'textDocument/semanticTokens/full':
+      respond(id, {
+        data: [0, 0, 5, 0, 0, 0, 6, 6, 1, 1]
+      })
+      return
+    case 'textDocument/codeAction':
+      respond(id, [
+        {
+          title: 'Mock quick fix',
+          kind: 'quickfix',
+          isPreferred: true,
+          edit: {
+            changes: {
+              [params?.textDocument?.uri]: [
+                {
+                  range: { start: { line: 1, character: 0 }, end: { line: 1, character: 5 } },
+                  newText: 'fixed'
+                }
+              ]
+            }
+          }
+        },
+        {
+          title: 'Lazy fix',
+          kind: 'quickfix',
+          data: { id: 1, uri: params?.textDocument?.uri }
+        }
+      ])
+      return
+    case 'codeAction/resolve':
+      respond(id, {
+        title: params?.title || 'Lazy fix',
+        kind: 'quickfix',
+        edit: {
+          changes: {
+            [params?.data?.uri]: [
+              {
+                range: { start: { line: 1, character: 0 }, end: { line: 1, character: 5 } },
+                newText: 'resolved'
+              }
+            ]
+          }
+        }
+      })
+      return
+    case 'workspace/symbol':
+      respond(id, [
+        {
+          name: 'mainFn',
+          kind: 12,
+          containerName: 'main.ts',
+          location: {
+            uri: firstUri,
+            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } }
+          }
+        }
+      ])
       return
     case 'textDocument/references':
       respond(id, [
@@ -331,6 +475,30 @@ async function main() {
     )
     assert.ok(ready, 'should emit ready state')
 
+    // initialize 时声明的能力要覆盖新增的编辑器功能
+    const initLog = await waitFor(() => {
+      try {
+        const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n')
+        return lines
+          .map((line) => JSON.parse(line))
+          .find((entry) => entry.type === 'initialize')
+      } catch {
+        return null
+      }
+    })
+    assert.ok(initLog, 'initialize params should be logged')
+    const caps = initLog.params.capabilities
+    assert.ok(caps.textDocument.codeAction, 'should advertise codeAction')
+    assert.ok(caps.textDocument.documentHighlight, 'should advertise documentHighlight')
+    assert.ok(caps.textDocument.implementation, 'should advertise implementation')
+    assert.ok(caps.textDocument.typeDefinition, 'should advertise typeDefinition')
+    assert.ok(caps.textDocument.declaration, 'should advertise declaration')
+    assert.ok(caps.workspace.symbol, 'should advertise workspace/symbol')
+    assert.deepEqual(caps.textDocument.codeAction.resolveSupport, { properties: ['edit'] })
+    assert.ok(caps.textDocument.semanticTokens, 'should advertise semanticTokens')
+    assert.equal(caps.textDocument.semanticTokens.requests.full, true)
+    assert.equal(started.capabilities.semanticTokensProvider.legend.tokenTypes[0], 'class')
+
     const definition = await req('textDocument/definition', {
       textDocument: { uri },
       position: { line: 1, character: 2 }
@@ -376,6 +544,75 @@ async function main() {
     })
     assert.equal(formatting.ok, true)
     assert.equal(formatting.result[0].newText, '// formatted by mock\n')
+
+    const declaration = await req('textDocument/declaration', {
+      textDocument: { uri },
+      position: { line: 1, character: 2 }
+    })
+    assert.equal(declaration.ok, true)
+    assert.equal(declaration.result.range.start.line, 3)
+
+    const implementation = await req('textDocument/implementation', {
+      textDocument: { uri },
+      position: { line: 1, character: 2 }
+    })
+    assert.equal(implementation.ok, true)
+    assert.equal(implementation.result.range.start.character, 1)
+
+    const typeDefinition = await req('textDocument/typeDefinition', {
+      textDocument: { uri },
+      position: { line: 1, character: 2 }
+    })
+    assert.equal(typeDefinition.ok, true)
+
+    const documentSymbols = await req('textDocument/documentSymbol', {
+      textDocument: { uri }
+    })
+    assert.equal(documentSymbols.ok, true)
+    assert.equal(documentSymbols.result[0].name, 'MockClass')
+    assert.equal(documentSymbols.result[0].children[0].name, 'mockMethod')
+
+    const highlights = await req('textDocument/documentHighlight', {
+      textDocument: { uri },
+      position: { line: 1, character: 2 }
+    })
+    assert.equal(highlights.ok, true)
+    assert.equal(highlights.result.length, 2)
+    assert.equal(highlights.result[1].kind, 3)
+
+    const signature = await req('textDocument/signatureHelp', {
+      textDocument: { uri },
+      position: { line: 1, character: 8 },
+      context: { triggerKind: 1, isRetrigger: false }
+    })
+    assert.equal(signature.ok, true)
+    assert.equal(signature.result.signatures[0].label, 'mockFn(a: number, b: string)')
+    assert.deepEqual(signature.result.signatures[0].parameters[0].label, [7, 16])
+
+    const semanticTokens = await req('textDocument/semanticTokens/full', {
+      textDocument: { uri }
+    })
+    assert.equal(semanticTokens.ok, true)
+    assert.deepEqual(semanticTokens.result.data, [0, 0, 5, 0, 0, 0, 6, 6, 1, 1])
+
+    const codeActions = await req('textDocument/codeAction', {
+      textDocument: { uri },
+      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 5 } },
+      context: { diagnostics: [], triggerKind: 1 }
+    })
+    assert.equal(codeActions.ok, true)
+    assert.equal(codeActions.result.length, 2)
+    assert.equal(codeActions.result[0].isPreferred, true)
+    assert.equal(codeActions.result[0].edit.changes[uri][0].newText, 'fixed')
+
+    const resolved = await req('codeAction/resolve', codeActions.result[1])
+    assert.equal(resolved.ok, true)
+    assert.equal(resolved.result.edit.changes[uri][0].newText, 'resolved')
+
+    const workspaceSymbols = await req('workspace/symbol', { query: 'main' })
+    assert.equal(workspaceSymbols.ok, true)
+    assert.equal(workspaceSymbols.result[0].name, 'mainFn')
+    assert.equal(workspaceSymbols.result[0].kind, 12)
 
     // 白名单：没列进去的方法不能透传
     const blocked = await req('workspace/executeCommand', {})
@@ -507,7 +744,10 @@ async function main() {
 
     console.log('verify:lsp ok')
     console.log('  framing: split header/body, incremental didChange')
-    console.log('  requests: definition, references, hover, completion, rename, formatting')
+    console.log('  requests: definition, declaration, implementation, typeDefinition, references,')
+    console.log('            hover, completion, rename, formatting, documentSymbol,')
+    console.log('            documentHighlight, signatureHelp, semanticTokens, codeAction/resolve,')
+    console.log('            workspace/symbol')
     console.log('  diagnostics: publishDiagnostics -> IPC event')
     console.log('  server requests: configuration, applyEdit')
     console.log('  lifecycle: per-window sessions, shutdown/exit, not-found, unsupported')

@@ -67,7 +67,7 @@ const CLI_META: Record<
 > = {
   claude: { short: 'Claude', name: 'Claude Code', icon: IconClaudeCode, color: '#d97757' },
   codex: { short: 'Codex', name: 'Codex CLI', icon: IconOpenAI, color: 'var(--text)' },
-  dsh: { short: 'DSH', name: 'DeepSeek Harness', icon: IconDeepSeek, color: '#6aa8ff' }
+  dsh: { short: 'DSH', name: 'DeepSeek Harness', icon: IconDeepSeek, color: 'var(--brand-dsh)' }
 }
 
 type Filter = 'all' | 'connected' | 'error' | 'disabled'

@@ -10,6 +10,12 @@ import type {
 } from '../shared/claude'
 import type { Channel, ChannelTestResult, CliId, Settings } from '../shared/settings'
 import type {
+  CliUpdateEvent,
+  CliUpdateRunResult,
+  CliUpdateState,
+  CliUpdateStates
+} from '../shared/cli-update'
+import type {
   DshHomeOption,
   McpListResult,
   McpMigrationPreview,
@@ -287,6 +293,23 @@ const api: WindowApi = {
       const listener = (_e: Electron.IpcRendererEvent, ev: ClaudeAuthEvent): void => cb(ev)
       ipcRenderer.on(IPC.claudeAuthEvent, listener)
       return () => ipcRenderer.off(IPC.claudeAuthEvent, listener)
+    }
+  },
+
+  cliUpdate: {
+    states: (): Promise<CliUpdateStates> => ipcRenderer.invoke(IPC.cliUpdateStates),
+    check: (cli: CliId, force?: boolean): Promise<CliUpdateState> =>
+      ipcRenderer.invoke(IPC.cliUpdateCheck, cli, force === true),
+    run: (cli: CliId): Promise<CliUpdateRunResult> => ipcRenderer.invoke(IPC.cliUpdateRun, cli),
+    runElevated: (cli: CliId): Promise<CliUpdateRunResult> =>
+      ipcRenderer.invoke(IPC.cliUpdateElevated, cli),
+    cancel: (): Promise<CliUpdateRunResult> => ipcRenderer.invoke(IPC.cliUpdateCancel),
+    onState: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, ev: CliUpdateEvent): void => {
+        if (ev && ev.t === 'state') cb(ev.state)
+      }
+      ipcRenderer.on(IPC.cliUpdateEvent, listener)
+      return () => ipcRenderer.off(IPC.cliUpdateEvent, listener)
     }
   },
 

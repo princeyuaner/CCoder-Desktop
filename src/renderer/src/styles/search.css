@@ -143,7 +143,7 @@
   color: var(--text-dim);
 }
 .search__cli--dsh {
-  color: #5b9df5;
+  color: var(--brand-dsh);
 }
 
 .search__texts {

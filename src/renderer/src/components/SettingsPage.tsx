@@ -43,11 +43,13 @@ import { applyLanguageSetting, getSystemLocale, useI18n } from '../i18n'
 import { useSettings } from '../useSettings'
 import { useCodexStatus } from '../useCodexStatus'
 import { useClaudeAuth } from '../useClaudeAuth'
+import { useCliUpdate } from '../useCliUpdate'
 import { useDshStatus } from '../useDshStatus'
 import { useUpdater } from '../useUpdater'
 import { AboutPanel } from './AboutPanel'
 import { ChannelForm } from './ChannelForm'
 import { ClaudeAuthPanel } from './ClaudeAuthPanel'
+import { CliUpdatePanel } from './CliUpdatePanel'
 import { CodexStatusPanel } from './CodexStatusPanel'
 import { DshStatusPanel } from './DshStatusPanel'
 import { McpManagerPage } from './McpManagerPage'
@@ -102,6 +104,8 @@ export function SettingsPage({
   const dshStatus = useDshStatus(page.kind === 'cli' && page.id === 'dsh', dshChannelId)
   /** 版本与更新状态。和右下角的更新提醒共用主进程里的同一份状态。 */
   const updater = useUpdater()
+  /** 三个 CLI 的版本检查 / 更新状态。导航上的「可更新」也读它。 */
+  const cliUpdate = useCliUpdate()
   /** 退出登录前提醒用：当前有多少条会话在跑 */
   const [runningSessions, setRunningSessions] = useState(0)
 
@@ -126,9 +130,9 @@ export function SettingsPage({
     setDraft(settings)
   }, [loading, settings, draft])
 
-  // 退出登录只会影响"下一轮"请求，先让用户知道有几条会话还在跑
+  // 退出登录 / 更新前提醒用：当前有多少条会话在跑
   useEffect(() => {
-    if (page.kind !== 'cli' || page.id !== 'claude') return
+    if (page.kind !== 'cli') return
     let alive = true
     void window.api?.session
       .running()
@@ -236,6 +240,8 @@ export function SettingsPage({
   const selected = cfg?.channels.find((c) => c.id === selectedId) ?? null
   /** 当前渠道是否已经带了凭据 —— Codex 有它就不必登录 ChatGPT */
   const activeCfgChannel = cfg?.channels.find((c) => c.id === cfg.activeChannelId) ?? null
+  /** 当前 CLI 的更新状态；没装时不显示「更新」这一块（上面的安装引导已说明） */
+  const updateState = page.kind === 'cli' ? (cliUpdate.states?.[page.id] ?? null) : null
 
   // 换 CLI / 换渠道时把上一次的测试结果收掉，免得张冠李戴
   useEffect(() => {
@@ -371,8 +377,15 @@ export function SettingsPage({
               onClick={() => setPage({ kind: 'cli', id: d.id })}
             >
               {d.name}
-              {!d.ready && (
+              {!d.ready ? (
                 <span className="settings__navtag">{t('settings.nav.notReady')}</span>
+              ) : (
+                draft.cliUpdate.tagInNav &&
+                cliUpdate.states?.[d.id]?.phase === 'available' && (
+                  <span className="settings__navtag settings__navtag--warn">
+                    {t('cliUpdate.navTag')}
+                  </span>
+                )
               )}
             </NavItem>
           ))}
@@ -443,6 +456,25 @@ export function SettingsPage({
 
               {page.id === 'codex' && (
                 <p className="section-lead">{t('settings.codex.lead')}</p>
+              )}
+
+              {(!updateState || updateState.installed) && (
+                <CliUpdatePanel
+                  cli={page.id}
+                  name={cliDef(page.id).name}
+                  state={updateState}
+                  autoCheck={draft.cliUpdate.autoCheck}
+                  tagInNav={draft.cliUpdate.tagInNav}
+                  runningSessions={runningSessions}
+                  onAutoCheck={(v) =>
+                    patch({ cliUpdate: { ...draft.cliUpdate, autoCheck: v } })
+                  }
+                  onTagInNav={(v) => patch({ cliUpdate: { ...draft.cliUpdate, tagInNav: v } })}
+                  onCheck={(force) => cliUpdate.check(page.id, force)}
+                  onRun={() => cliUpdate.run(page.id)}
+                  onRunElevated={() => cliUpdate.runElevated(page.id)}
+                  onCancel={cliUpdate.cancel}
+                />
               )}
 
               {(page.id === 'claude' || page.id === 'dsh') && cfg.authMode === 'official' ? (

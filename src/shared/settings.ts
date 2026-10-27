@@ -374,6 +374,21 @@ export function normalizeLspSettings(
   return { enabled: raw?.enabled !== false }
 }
 
+export const DEFAULT_CLI_UPDATE_PREFS: CliUpdatePrefs = {
+  autoCheck: true,
+  tagInNav: true
+}
+
+/** 老版本落盘的设置没有这个字段 —— 补成「开着」，这是更有用的默认值 */
+export function normalizeCliUpdatePrefs(
+  raw: Partial<CliUpdatePrefs> | null | undefined
+): CliUpdatePrefs {
+  return {
+    autoCheck: raw?.autoCheck !== false,
+    tagInNav: raw?.tagInNav !== false
+  }
+}
+
 /** 界面可选的字体栈。存的是完整 CSS font-family，自定义字体也能直接落盘 */
 export interface FontPreset {
   labelKey: MessageKey
@@ -450,14 +465,14 @@ export function clampChatFontSize(v: unknown): number {
 export type CliId = 'claude' | 'codex' | 'dsh'
 
 /**
- * DeepSeek Harness 在没配渠道时使用的默认模型。
+ * DeepSeek Harness 新会话使用的默认模型。
  *
- * 值是 dsh 运行时目录里的**模型 id**，不是显示名：0.2 的目录里 V4.1 Flash
- * 的 id 是 `deepseek-flash`（显示名「DeepSeek-V4.1-Flash」），Pro 是
- * `deepseek-v4-pro`。写错 id 的话 dsh 会回一句「没有这个模型」然后静默用
- * 它自己的默认值。
+ * 0.2.1 的内置目录把 V4.1 Flash 的 id 写成 `deepseek-flash`，但网关已经把这个
+ * id 下线，只认 `deepseek-v4.1-flash`（请求会回 `Model ... has been deprecated`）。
+ * 应用启动 dsh 时会用 patch 覆盖模型目录（见 providers/dsh/runner.ts），这里
+ * 必须和 patch 里的 id 保持一致。
  */
-export const DSH_DEFAULT_MODEL = 'deepseek-flash'
+export const DSH_DEFAULT_MODEL = 'deepseek-v4.1-flash'
 
 export interface CliDef {
   id: CliId
@@ -514,6 +529,19 @@ export interface CliConfig {
   officialModel: string
 }
 
+/**
+ * CLI 更新检查的偏好。
+ *
+ * 只影响「什么时候去问 npm registry」和「要不要在导航上打标记」，
+ * 不涉及是否自动安装 —— 安装永远由用户点按钮触发。
+ */
+export interface CliUpdatePrefs {
+  /** 打开设置页 / 每 6 小时自动检查一次 */
+  autoCheck: boolean
+  /** 有新版本时在设置导航的 CLI 名称旁显示「可更新」 */
+  tagInNav: boolean
+}
+
 export interface Settings {
   clis: Record<CliId, CliConfig>
   /**
@@ -565,6 +593,8 @@ export interface Settings {
   editor: EditorSettings
   /** 语言服务器总开关；关闭后只用 Monaco 自带的 worker */
   lsp: LspSettings
+  /** CLI 更新检查 */
+  cliUpdate: CliUpdatePrefs
 }
 
 export function emptyCliConfig(id: CliId): CliConfig {
@@ -601,7 +631,8 @@ export function defaultSettings(): Settings {
     toolDetail: 'full',
     sendKey: 'enter',
     editor: { ...DEFAULT_EDITOR_SETTINGS },
-    lsp: { ...DEFAULT_LSP_SETTINGS }
+    lsp: { ...DEFAULT_LSP_SETTINGS },
+    cliUpdate: { ...DEFAULT_CLI_UPDATE_PREFS }
   }
 }
 
@@ -673,7 +704,8 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
       src.toolDetail === 'compact' || src.toolDetail === 'hidden' ? src.toolDetail : 'full',
     sendKey: src.sendKey === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
     editor: normalizeEditorSettings(src.editor),
-    lsp: normalizeLspSettings(src.lsp)
+    lsp: normalizeLspSettings(src.lsp),
+    cliUpdate: normalizeCliUpdatePrefs(src.cliUpdate)
   }
 }
 

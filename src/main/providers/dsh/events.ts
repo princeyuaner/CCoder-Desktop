@@ -106,6 +106,31 @@ function contentText(content: unknown): string {
   return parts.filter(Boolean).join('\n')
 }
 
+/**
+ * 落定通知的正文：第一段是 dsh 自己写的状态句，第二段常是
+ * `Its closing message:` 标签 —— 卡片要的是孩子最后说的话。
+ */
+function closingText(msg: Obj): string {
+  const texts = arr(msg.content)
+    .map((b) => obj(b))
+    .filter((b): b is Obj => !!b && str(b.type) === 'text')
+    .map((b) => str(b.text))
+  let i = 1
+  if (texts[i] === 'Its closing message:') i += 1
+  return texts.slice(i).join('\n').trim()
+}
+
+/**
+ * 落定通知只有一句人话，没有结构化状态字段，只能按措辞还原：
+ * `was stopped` = 被叫停，其余失败措辞 = 失败，默认算完成。
+ */
+function settleStatus(notice: string): 'completed' | 'failed' | 'stopped' {
+  const s = notice.toLowerCase()
+  if (s.includes('was stopped')) return 'stopped'
+  if (/failed|ran out of room|declined|ended abnormally/.test(s)) return 'failed'
+  return 'completed'
+}
+
 function parseArguments(raw: unknown): Obj {
   if (typeof raw === 'string') {
     if (!raw.trim()) return {}
@@ -143,6 +168,12 @@ export class DshEventTranslator {
   } | null = null
   private seenCalls = new Set<string>()
   private callInputs = new Map<string, Obj>()
+  /** callId → dsh 原始工具名；只有它还是小写的 subagent，不能拿归一化后的 Task 判断 */
+  private callNames = new Map<string, string>()
+  /** 子会话 id → 触发它的 callId。结束时收件箱只报子会话 id，靠它找回卡片 */
+  private subagentCalls = new Map<string, string>()
+  /** callId → 启动时刻，用来补卡片的耗时 */
+  private subagentStartedAt = new Map<string, number>()
   private streamedText = ''
   private streamedThinking = ''
   private live: boolean
@@ -192,6 +223,7 @@ export class DshEventTranslator {
   private emitCall(id: string, rawName: string, args: unknown): void {
     if (!id || this.seenCalls.has(id)) return
     this.seenCalls.add(id)
+    this.callNames.set(id, rawName)
     const input = normalizeToolInput(parseArguments(args), [])
     this.callInputs.set(id, input)
     const name = uiToolName(rawName, '')
@@ -311,6 +343,8 @@ export class DshEventTranslator {
       if (!id) return
 
       const content = clip(contentText(msg.content))
+      // 子代理是异步的：这句回执只是「已开跑」，结束要等收件箱里的落定通知
+      this.noteSubagentLaunch(id, content, time)
       const failed =
         msg.isError === true || data.error !== undefined || toolFailed(content, data.error)
       const meta = obj(data.meta) ?? {}
@@ -412,8 +446,61 @@ export class DshEventTranslator {
       return
     }
 
+    if (type === 'agent/inbox/spliced') {
+      this.settleSubagents(data, time)
+      return
+    }
+
     // system/developer/user-context、approval、todo、plan、compaction、job、
-    // subagent 等：UI 暂时没有对应事件，安静忽略。
+    // subagent/catalog 等：UI 暂时没有对应事件，安静忽略。
+  }
+
+  /**
+   * dsh 的 subagent 工具是**异步**的：`tool/result` 只有一句
+   * `started subagent <id>`，真正的结束语在孩子落定后由收件箱塞进来。
+   * 这句回执本身不是结果 —— 记下 子会话 id → callId 的对应关系即可。
+   */
+  private noteSubagentLaunch(callId: string, content: string, time: number): void {
+    const raw = this.callNames.get(callId) ?? ''
+    if (!/subagent/i.test(raw)) return
+    const childId = /started subagent\s+([0-9A-Za-z_-]+)/.exec(content)?.[1]
+    if (!childId) return
+    this.subagentCalls.set(childId, callId)
+    if (time > 0) this.subagentStartedAt.set(callId, time)
+  }
+
+  /**
+   * 子会话落定 → 把对应的子代理卡片改成终态。
+   *
+   * 不翻译这条通知，右侧执行台的子代理卡片会永远停在「运行中」，
+   * 计时器还会一直往上走 —— 因为整场会话里再没有任何事件会关掉它。
+   */
+  private settleSubagents(data: Obj, time: number): void {
+    for (const item of arr(data.inserted)) {
+      const msg = obj(item)
+      if (!msg) continue
+      const source = obj(msg.source) ?? {}
+      if (str(source.kind) !== 'subagent-settled') continue
+
+      const childId = str(source.senderSessionId)
+      const callId = childId ? this.subagentCalls.get(childId) : undefined
+      if (!childId || !callId) continue
+
+      const notice = str(source.summary)
+      const body = closingText(msg)
+      const status = settleStatus(notice || body)
+      const startedAt = this.subagentStartedAt.get(callId)
+      const durationMs = time > 0 && startedAt && time > startedAt ? time - startedAt : undefined
+
+      this.onEvent({
+        t: 'task_notification',
+        taskId: childId,
+        toolUseId: callId,
+        status,
+        summary: body || notice,
+        ...(durationMs ? { durationMs } : {})
+      })
+    }
   }
 
   /** 实时 assistant-stream 帧；历史回放不会调用。 */

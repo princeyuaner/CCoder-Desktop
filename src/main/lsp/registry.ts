@@ -120,7 +120,9 @@ function executableNames(name: string): string[] {
     .split(';')
     .map((x) => x.trim())
     .filter(Boolean)
-  return [name, ...exts.map((ext) => `${name}${ext.toLowerCase()}`)]
+  // Windows 上优先带 PATHEXT 扩展名的文件。npm 全局安装会同时生成
+  // 无扩展名的 sh 壳（给 Git Bash）和 .cmd 壳；直接 spawn 前者会 ENOENT。
+  return [...exts.map((ext) => `${name}${ext.toLowerCase()}`), name]
 }
 
 /** 在 PATH 上找命令；找不到返回 null。 */

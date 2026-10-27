@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<title>CLI 更新 · 设置页效果图</title>
+<style>
+/* ══════════════════════════════════════════════════════════
+   1. 设计 token（照抄 src/renderer/src/styles/tokens.css）
+   ══════════════════════════════════════════════════════════ */
+:root{
+  color-scheme: dark;
+  --bg-app:#191919; --bg-sidebar:#141414; --bg-raised:#232323;
+  --bg-hover:#1f1f1f; --bg-active:#2a2a2a;
+  --border:#2c2c2c; --border-soft:#242424;
+  --text:#e8e8e8; --text-dim:#a8a8a8; --text-muted:#8a8a8a; --text-faint:#6b6b6b;
+  --accent:#e8e8e8; --accent-fg:#191919;
+  --ok:#4b9e5f; --warn:#c9a227; --danger:#e5534b; --running:#d97757;
+  --br-accent:#7aa2c8; --br-text:#a9c6e2;
+  --radius-card:12px; --radius-chip:8px; --radius-sm:6px; --radius-pill:999px;
+  --font-ui:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;
+  --font-mono:'JetBrains Mono','Cascadia Mono',Consolas,monospace;
+  --titlebar-h:36px; --pane-pad-x:40px;
+  /* 原型专用 */
+  --page:#0f0f0f; --page-grid:#1a1a1a;
+}
+:root[data-theme='light']{
+  color-scheme: light;
+  --bg-app:#f6f6f7; --bg-sidebar:#efeff1; --bg-raised:#ffffff;
+  --bg-hover:#e9e9ec; --bg-active:#e2e2e6;
+  --border:#d7d7dc; --border-soft:#e5e5e8;
+  --text:#1d1d1f; --text-dim:#4c4c53; --text-muted:#6c6c75; --text-faint:#95959e;
+  --accent:#1d1d1f; --accent-fg:#ffffff;
+  --ok:#2f8a45; --warn:#a97b0b; --danger:#c83b32; --running:#b04a28;
+  --br-accent:#3f6f9d; --br-text:#2f5f8a;
+  --page:#e9e9ec; --page-grid:#e2e2e6;
+}
+
+*,*::before,*::after{box-sizing:border-box;}
+html,body{margin:0;height:100%;}
+body{
+  background:
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--page-grid) 70%, transparent), transparent 55%),
+    var(--page);
+  color:var(--text);
+  font-family:var(--font-ui);
+  font-size:14px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  padding:26px 26px 60px;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;}
+code{font-family:var(--font-mono);}
+
+/* 原型自己的顶栏，和应用界面无关 */
+.mockbar{
+  max-width:1240px;margin:0 auto 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+}
+.mockbar__dot{width:9px;height:9px;border-radius:50%;background:var(--warn);flex:none;}
+.mockbar__t{margin:0;font-size:14px;font-weight:600;letter-spacing:.2px;}
+.mockbar__sub{font-size:12.5px;color:var(--text-faint);}
+.mockbar__right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.seg{display:inline-flex;padding:2px;gap:2px;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-pill);}
+.seg button{padding:4px 12px;font-size:12px;color:var(--text-muted);border-radius:var(--radius-pill);}
+.seg button.is-on{background:var(--bg-active);color:var(--text);}
+
+/* ══════════════════════════════════════════════════════════
+   2. 窗口外壳（标题栏 + 设置页骨架）
+   ══════════════════════════════════════════════════════════ */
+.win{
+  width:1180px;max-width:100%;margin:0 auto;height:836px;
+  display:grid;grid-template-rows:var(--titlebar-h) 1fr;
+  background:var(--bg-app);
+  border:1px solid var(--border);
+  border-radius:10px;
+  overflow:hidden;
+  box-shadow:0 26px 70px rgba(0,0,0,.5),0 2px 0 rgba(255,255,255,.03) inset;
+}
+:root[data-theme='light'] .win{box-shadow:0 26px 60px rgba(0,0,0,.16);}
+
+.titlebar{
+  display:flex;align-items:center;gap:10px;padding:0 8px 0 12px;
+  background:var(--bg-sidebar);border-bottom:1px solid var(--border-soft);
+}
+.titlebar__brand{display:flex;align-items:center;gap:8px;}
+.titlebar__brand-name{font-size:12.5px;color:var(--text-muted);letter-spacing:.3px;}
+.titlebar__right{margin-left:auto;display:flex;align-items:center;gap:2px;}
+.titlebar__panel{display:grid;place-items:center;width:30px;height:26px;color:var(--text-muted);border-radius:var(--radius-sm);}
+.titlebar__panel:hover{background:var(--bg-hover);color:var(--text);}
+.wctl{display:grid;place-items:center;width:34px;height:26px;color:var(--text-muted);border-radius:var(--radius-sm);}
+.wctl:hover{background:var(--bg-hover);color:var(--text);}
+.wctl--close:hover{background:#c42b1c;color:#fff;}
+
+.settings{display:grid;grid-template-rows:auto 1fr;min-height:0;min-width:0;}
+
+.settings__head{
+  display:flex;align-items:center;gap:12px;padding:14px var(--pane-pad-x) 12px;
+  border-bottom:1px solid var(--border-soft);background:var(--bg-app);
+}
+.settings__title{margin:0;font-size:15px;font-weight:600;}
+.settings__head-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+.saved-flash{font-size:12.5px;color:var(--text-faint);}
+
+.settings__body{display:grid;grid-template-columns:168px 1fr;min-height:0;}
+.settings__nav{display:flex;flex-direction:column;gap:2px;padding:14px 12px;border-right:1px solid var(--border-soft);background:var(--bg-app);}
+.settings__navgroup{padding:12px 12px 5px;font-size:11.5px;font-weight:600;letter-spacing:.5px;color:var(--text-faint);}
+.settings__navgroup:first-child{padding-top:2px;}
+.settings__navitem{
+  display:flex;align-items:center;gap:6px;padding:7px 10px;font-size:13.5px;color:var(--text-dim);
+  border-radius:var(--radius-sm);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  width:100%;
+}
+.settings__navitem:hover{background:var(--bg-hover);color:var(--text);}
+.settings__navitem.is-active{background:var(--bg-active);color:var(--text);}
+.settings__navtag{
+  margin-left:auto;padding:1px 6px;font-size:10.5px;color:var(--text-faint);
+  background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-pill);
+}
+.settings__navtag--warn{
+  color:var(--warn);border-color:color-mix(in srgb,var(--warn) 38%,var(--border));
+  background:color-mix(in srgb,var(--warn) 10%,transparent);
+}
+
+.settings__content{min-height:0;overflow-y:auto;padding:20px var(--pane-pad-x) 32px;}
+.settings__content > *{max-width:640px;}
+
+/* ── 组件：按钮 / 徽标 / 开关 / 卡片 ────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;font-size:13px;
+  border-radius:var(--radius-chip);border:1px solid transparent;white-space:nowrap;}
+.btn--ghost{color:var(--text-dim);border-color:var(--border);}
+.btn--ghost:hover{background:var(--bg-raised);color:var(--text);}
+.btn--primary{color:var(--accent-fg);background:var(--accent);font-weight:500;}
+.btn--primary:hover{filter:brightness(.92);}
+.btn--danger{color:var(--danger);border-color:#4a2a28;}
+.btn--danger:hover{background:#2a1a19;}
+.btn--xs{padding:3px 9px;font-size:12px;}
+.btn__ic{display:inline-grid;place-items:center;width:12px;height:12px;}
+
+.badge{flex:none;display:inline-flex;align-items:center;gap:5px;padding:2px 9px;font-size:12px;
+  color:var(--text-dim);background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-pill);}
+.badge--ok{color:var(--ok);border-color:#2c4a34;background:#16241a;}
+.badge--warn{color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent);
+  border-color:color-mix(in srgb,var(--warn) 35%,var(--border));}
+.badge--bad{color:var(--danger);border-color:#4a2a28;background:#2a1a19;}
+.badge__dot{width:5px;height:5px;flex:none;background:currentColor;border-radius:50%;}
+:root[data-theme='light'] .badge--ok{background:#eaf5ec;border-color:#bfdcc6;}
+:root[data-theme='light'] .badge--bad{background:#fdeceb;border-color:#e7c3c0;}
+:root[data-theme='light'] .btn--danger{border-color:#e7c3c0;}
+:root[data-theme='light'] .btn--danger:hover{background:#fdeceb;}
+
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);cursor:pointer;}
+.switch input{appearance:none;position:relative;width:34px;height:20px;background:#3a3a3a;
+  border-radius:var(--radius-pill);cursor:pointer;transition:background .12s;flex:none;}
+.switch input::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;
+  background:#8a8a8a;border-radius:50%;transition:transform .12s,background .12s;}
+.switch input:checked{background:var(--accent);}
+.switch input:checked::after{transform:translateX(14px);background:var(--bg-app);}
+:root[data-theme='light'] .switch input{background:#cfcfd4;}
+:root[data-theme='light'] .switch input::after{background:#fff;}
+
+.statuscard{display:flex;align-items:flex-start;gap:11px;padding:11px 12px;margin-bottom:8px;
+  background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-chip);}
+.statuscard--muted{opacity:.88;}
+.statuscard--bad{border-color:#4a2a28;}
+:root[data-theme='light'] .statuscard--bad{border-color:#e7c3c0;}
+.statuscard__icon{display:grid;place-items:center;flex:none;width:30px;height:30px;font-size:14px;
+  font-weight:600;color:var(--text-dim);background:var(--bg-app);border:1px solid var(--border);border-radius:8px;}
+.statuscard__icon--ok{color:var(--ok);background:#16241a;border-color:#2c4a34;}
+.statuscard__icon--bad{color:var(--danger);background:#2a1a19;border-color:#4a2a28;}
+.statuscard__icon--warn{color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,var(--bg-app));
+  border-color:color-mix(in srgb,var(--warn) 32%,var(--border));}
+:root[data-theme='light'] .statuscard__icon--ok{background:#eaf5ec;border-color:#bfdcc6;}
+:root[data-theme='light'] .statuscard__icon--bad{background:#fdeceb;border-color:#e7c3c0;}
+.statuscard__main{flex:1;min-width:0;}
+.statuscard__title{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:500;flex-wrap:wrap;}
+.statuscard__title b{font-weight:600;}
+.statuscard__meta{margin-top:3px;font-size:12px;line-height:1.6;color:var(--text-faint);overflow-wrap:anywhere;}
+.statuscard__meta code{color:var(--text-muted);}
+.statuscard__path{font-family:var(--font-mono);color:var(--text-muted);}
+.statuscard__error{margin:7px 0 0;max-height:74px;overflow:auto;font-family:var(--font-mono);font-size:11.5px;
+  line-height:1.5;color:var(--danger);white-space:pre-wrap;}
+.statuscard__actions{display:flex;flex:none;gap:6px;align-items:center;padding-top:1px;}
+
+.secthead{display:flex;align-items:center;gap:8px;margin:18px 0 9px;font-size:12.5px;font-weight:600;
+  color:var(--text-muted);letter-spacing:.4px;}
+.secthead__sp{margin-left:auto;font-size:11.5px;font-weight:400;color:var(--text-faint);letter-spacing:0;}
+
+/* ── 新增：更新卡片与相关部件 ───────────────────────────── */
+.upd__cmd{
+  display:flex;align-items:center;gap:8px;margin:-2px 0 6px;padding:7px 10px;
+  font-size:11.5px;color:var(--text-faint);
+  background:color-mix(in srgb,var(--bg-raised) 60%,transparent);
+  border:1px dashed var(--border);border-radius:var(--radius-chip);
+}
+.upd__cmd code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);}
+.upd__cmd button{color:var(--text-faint);display:inline-flex;align-items:center;gap:4px;font-size:11.5px;}
+.upd__cmd button:hover{color:var(--text);}
+
+.prog{margin-top:7px;height:4px;border-radius:var(--radius-pill);
+  background:color-mix(in srgb,var(--text) 14%,transparent);overflow:hidden;}
+.prog i{display:block;height:100%;border-radius:inherit;background:var(--accent);transition:width .3s;}
+.prog__meta{display:flex;gap:8px;margin-top:5px;font-size:11.5px;color:var(--text-faint);}
+
+.spinner{width:13px;height:13px;border:1.5px solid var(--text-faint);border-top-color:transparent;
+  border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+.updset{margin:22px 0 26px;}
+.updset__row{display:flex;gap:16px;align-items:flex-start;padding:11px 12px;border:1px solid var(--border);
+  border-bottom:none;background:var(--bg-raised);}
+.updset__row:first-of-type{border-radius:var(--radius-chip) var(--radius-chip) 0 0;}
+.updset__row:last-of-type{border-bottom:1px solid var(--border);border-radius:0 0 var(--radius-chip) var(--radius-chip);}
+.updset__rowmain{flex:1;min-width:0;}
+.updset__t{font-size:13px;font-weight:500;}
+.updset__h{margin-top:2px;font-size:12px;line-height:1.6;color:var(--text-faint);}
+.updset__foot{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11.5px;color:var(--text-faint);}
+.updset__foot .sep{color:var(--border);}
+.updset__foot button{margin-left:auto;}
+
+.oldzone{margin-top:30px;padding-top:16px;border-top:1px dashed var(--border);}
+.oldzone__t{font-size:11.5px;letter-spacing:.4px;color:var(--text-faint);opacity:.9;}
+.oldzone__body{opacity:.46;filter:saturate(.7);pointer-events:none;}
+.chlist__head{display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px;
+  font-size:12.5px;font-weight:600;color:var(--text-muted);letter-spacing:.4px;}
+.chlist__item{display:flex;align-items:center;gap:10px;padding:4px 8px 4px 4px;margin-bottom:6px;
+  background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-chip);}
+.chlist__main{display:flex;align-items:baseline;gap:10px;flex:1;min-width:0;padding:6px 8px;text-align:left;}
+.chlist__name{font-size:13.5px;font-weight:500;}
+.chlist__meta{flex:1;min-width:0;font-size:12px;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ── 弹窗 ──────────────────────────────────────────────── */
+.modal{position:relative;width:100%;height:100%;display:grid;place-items:center;}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.5);border-radius:var(--radius-chip);}
+.dlg{position:relative;width:min(430px,100%);background:var(--bg-raised);border:1px solid var(--border);
+  border-radius:var(--radius-card);box-shadow:0 20px 50px rgba(0,0,0,.45);overflow:hidden;}
+.dlg__h{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--border-soft);font-size:13.5px;font-weight:600;}
+.dlg__b{padding:14px 16px;font-size:12.5px;line-height:1.7;color:var(--text-dim);}
+.dlg__b code{display:block;margin:8px 0;padding:8px 10px;font-size:11.5px;color:var(--text-muted);
+  background:var(--bg-app);border:1px solid var(--border-soft);border-radius:var(--radius-sm);overflow-wrap:anywhere;}
+.dlg__f{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--border-soft);}
+.kbd{font-family:var(--font-mono);font-size:10.5px;padding:1px 5px;border:1px solid var(--border);border-radius:4px;color:var(--text-faint);}
+
+/* ══════════════════════════════════════════════════════════
+   3. 状态画廊
+   ══════════════════════════════════════════════════════════ */
+.gallery{max-width:1240px;margin:44px auto 0;}
+.gallery__head{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;}
+.gallery__t{margin:0;font-size:13px;font-weight:600;letter-spacing:.3px;}
+.gallery__sub{font-size:12px;color:var(--text-faint);}
+/* 两列瀑布流：状态卡高低不一，按列排就不会在行尾留大片空白 */
+.masonry{columns:2;column-gap:14px;}
+.masonry .cell{break-inside:avoid;-webkit-column-break-inside:avoid;margin-bottom:14px;}
+.cell{background:var(--bg-app);border:1px solid var(--border);border-radius:var(--radius-card);padding:14px 15px 15px;}
+.cell--wide{grid-column:1 / -1;}
+.cell__label{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11.5px;letter-spacing:.3px;color:var(--text-faint);}
+.cell__no{display:grid;place-items:center;width:17px;height:17px;font-family:var(--font-mono);font-size:10px;
+  color:var(--text-muted);background:var(--bg-raised);border:1px solid var(--border);border-radius:50%;flex:none;}
+.cell .statuscard{margin-bottom:0;}
+.cell__cmd{margin-top:8px;}
+.minimodal{height:300px;background:var(--bg-app);border:1px dashed var(--border);border-radius:var(--radius-chip);}
+.cell .statuscard__error{max-height:none;}
+/* 画廊里的卡片比整页窄，两个动作按钮可能放不下一行 —— 允许折到第二行 */
+.cell .statuscard__actions{flex-wrap:wrap;justify-content:flex-end;max-width:52%;}
+
+/* ══════════════════════════════════════════════════════════
+   4. 说明
+   ══════════════════════════════════════════════════════════ */
+.spec{max-width:1240px;margin:44px auto 0;padding:22px 24px;background:var(--bg-app);
+  border:1px solid var(--border);border-radius:var(--radius-card);}
+.spec h2{margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.3px;}
+.spec h3{margin:20px 0 8px;font-size:12px;font-weight:600;color:var(--text-muted);letter-spacing:.4px;}
+.spec p,.spec li{font-size:12.5px;line-height:1.75;color:var(--text-dim);}
+.spec ul{margin:0;padding-left:18px;}
+.spec table{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px;}
+.spec th,.spec td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border-soft);vertical-align:top;}
+.spec th{font-size:11px;color:var(--text-faint);font-weight:600;letter-spacing:.4px;}
+.spec td code{color:var(--text-muted);font-size:11.5px;}
+.spec .tag{display:inline-block;margin-right:6px;padding:0 6px;font-size:10.5px;color:var(--text-faint);
+  border:1px solid var(--border);border-radius:var(--radius-pill);}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <span class="mockbar__dot"></span>
+  <h1 class="mockbar__t">设置 → CLI：自动检查更新</h1>
+  <span class="mockbar__sub">静态效果图 · 交互未接</span>
+  <div class="mockbar__right">
+    <div class="seg">
+      <button class="is-on" data-theme-set="dark">深色</button>
+      <button data-theme-set="light">浅色</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ 主窗口：Claude Code 页 · 有新版本 ══════════════ -->
+<div class="win">
+  <div class="titlebar">
+    <div class="titlebar__brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+           stroke-linecap="round" style="color:var(--text-dim)">
+        <path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/>
+      </svg>
+      <span class="titlebar__brand-name">CCoder</span>
+    </div>
+    <div class="titlebar__right">
+      <button class="titlebar__panel" title="侧栏">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/>
+        </svg>
+      </button>
+      <button class="wctl" title="最小化"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+      <button class="wctl" title="最大化">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9"/></svg>
+      </button>
+      <button class="wctl wctl--close" title="关闭">
+        <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <main class="settings">
+    <header class="settings__head">
+      <button class="btn btn--ghost">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg>
+        返回
+      </button>
+      <h1 class="settings__title">设置</h1>
+      <div class="settings__head-right"><span class="saved-flash">自动保存</span></div>
+    </header>
+
+    <div class="settings__body">
+      <nav class="settings__nav">
+        <div class="settings__navgroup">系统</div>
+        <button class="settings__navitem">通用</button>
+        <button class="settings__navitem">编辑器</button>
+        <button class="settings__navitem">权限</button>
+        <button class="settings__navitem">MCP</button>
+        <button class="settings__navitem">技能</button>
+
+        <div class="settings__navgroup">CLI</div>
+        <button class="settings__navitem is-active">Claude Code
+          <span class="settings__navtag settings__navtag--warn">可更新</span>
+        </button>
+        <button class="settings__navitem">Codex CLI
+          <span class="settings__navtag settings__navtag--warn">可更新</span>
+        </button>
+        <button class="settings__navitem">DeepSeek Harness</button>
+
+        <button class="settings__navitem">关于</button>
+      </nav>
+
+      <div class="settings__content">
+        <!-- 现有：安装 / 登录状态卡（版本号在这里） -->
+        <div class="statuscard">
+          <div class="statuscard__icon statuscard__icon--ok">✓</div>
+          <div class="statuscard__main">
+            <div class="statuscard__title">Claude Code <span class="badge badge--ok">已安装</span></div>
+            <div class="statuscard__meta">
+              <code>2.0.31</code> ·
+              <span class="statuscard__path">C:\Users\CY\AppData\Roaming\npm\claude.cmd</span>
+            </div>
+          </div>
+          <div class="statuscard__actions">
+            <button class="btn btn--ghost btn--xs">重新检测</button>
+          </div>
+        </div>
+
+        <!-- ★ 新增：CLI 更新 -->
+        <div class="secthead">更新<span class="secthead__sp">每 6 小时自动检查</span></div>
+
+        <div class="statuscard">
+          <div class="statuscard__icon statuscard__icon--warn">↑</div>
+          <div class="statuscard__main">
+            <div class="statuscard__title">
+              发现新版本 <b>2.1.0</b>
+              <span class="badge badge--warn"><span class="badge__dot"></span>可更新</span>
+            </div>
+            <div class="statuscard__meta">
+              当前 <code>2.0.31</code> → 最新 <code>2.1.0</code> · 发布于 3 天前 · 安装方式 <code>npm 全局</code>
+            </div>
+            <div class="statuscard__meta">上次检查：今天 12:04</div>
+          </div>
+          <div class="statuscard__actions">
+            <button class="btn btn--ghost btn--xs">更新说明</button>
+            <button class="btn btn--primary btn--xs">
+              <svg class="btn__ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+                   stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5V3.5M4 7l4-3.5L12 7"/></svg>
+              更新到 2.1.0
+            </button>
+          </div>
+        </div>
+
+        <div class="upd__cmd">
+          <span>将执行</span>
+          <code>npm install -g @anthropic-ai/claude-code@2.1.0</code>
+          <button>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <rect x="5.5" y="5.5" width="8" height="8" rx="1.4"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/>
+            </svg>
+            复制
+          </button>
+        </div>
+
+        <!-- ★ 新增：检查策略 -->
+        <section class="updset">
+          <div class="updset__row">
+            <div class="updset__rowmain">
+              <div class="updset__t">自动检查更新</div>
+              <div class="updset__h">打开设置页时检查一次，之后每 6 小时检查一次。只读取 npm registry 的版本号，不上传任何信息。</div>
+            </div>
+            <label class="switch"><input type="checkbox" checked /><span>开启</span></label>
+          </div>
+          <div class="updset__row">
+            <div class="updset__rowmain">
+              <div class="updset__t">在侧栏标记可更新</div>
+              <div class="updset__h">有新版本时，在设置导航的 CLI 名称旁显示「可更新」。</div>
+            </div>
+            <label class="switch"><input type="checkbox" checked /><span>开启</span></label>
+          </div>
+          <div class="updset__foot">
+            上次检查 今天 12:04<span class="sep">·</span>下次 18:04
+            <button class="btn btn--ghost btn--xs">立即检查</button>
+          </div>
+        </section>
+
+        <!-- 以下为现有内容，仅示意位置，本次不改 -->
+        <div class="oldzone">
+          <div class="oldzone__t">以下为现有内容（本次不改动）</div>
+          <div class="oldzone__body">
+            <div class="chlist__head"><span>渠道</span><span style="font-size:12px;color:var(--text-dim)">+ 新建渠道</span></div>
+            <div class="chlist__item">
+              <button class="chlist__main">
+                <span class="chlist__name">官方</span>
+                <span class="chlist__meta">https://api.anthropic.com</span>
+              </button>
+              <span class="badge badge--ok">使用中</span>
+            </div>
+            <div class="chlist__item">
+              <button class="chlist__main">
+                <span class="chlist__name">备用中转</span>
+                <span class="chlist__meta">https://relay.example.com</span>
+              </button>
+              <button class="btn btn--ghost btn--xs">启用</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ══════════════ 状态画廊 ══════════════ -->
+<div class="gallery">
+  <div class="gallery__head">
+    <h2 class="gallery__t">其它状态</h2>
+    <span class="gallery__sub">同一张卡片的 7 种形态，尺寸与真实界面一致</span>
+  </div>
+
+  <div class="masonry">
+    <!-- 1 已是最新 -->
+    <div class="cell">
+      <div class="cell__label"><span class="cell__no">1</span>已是最新（默认态）</div>
+      <div class="statuscard">
+        <div class="statuscard__icon statuscard__icon--ok">✓</div>
+        <div class="statuscard__main">
+          <div class="statuscard__title">已是最新 <span class="badge badge--ok">2.0.31</span></div>
+          <div class="statuscard__meta">上次检查 今天 12:04 · 每 6 小时自动检查</div>
+        </div>
+        <div class="statuscard__actions">
+          <button class="btn btn--ghost btn--xs">检查更新</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 更新中 -->
+    <div class="cell">
+      <div class="cell__label"><span class="cell__no">2</span>更新中（进度 + 可取消）</div>
+      <div class="statuscard">
+        <div class="statuscard__icon"><span class="spinner"></span></div>
+        <div class="statuscard__main">
+          <div class="statuscard__title">正在更新到 2.1.0…</div>
+          <div class="statuscard__meta">正在下载并安装（约 46 MB）</div>
+          <div class="prog"><i style="width:62%"></i></div>
+          <div class="prog__meta"><span>62%</span><span>已用 18s</span><span>npm install</span></div>
+        </div>
+        <div class="statuscard__actions">
+          <button class="btn btn--ghost btn--xs">取消</button>
+        </div>
+      </div>
+      <div class="upd__cmd cell__cmd">
+        <span>执行中</span>
+        <code>npm install -g @anthropic-ai/claude-code@2.1.0</code>
+      </div>
+    </div>
+
+    <!-- 3 更新完成 -->
+    <div class="cell">
+      <div class="cell__label"><span class="cell__no">3</span>更新完成（提示生效范围）</div>
+      <div class="statuscard">
+        <div class="statuscard__icon statuscard__icon--ok">✓</div>
+        <div class="statuscard__main">
+          <div class="statuscard__title">已更新到 <b>2.1.0</b> <span class="badge badge--ok">已更新</span></div>
+          <div class="statuscard__meta">新开的会话会使用 2.1.0；当前 2 个运行中的会话仍使用 2.0.31。</div>
+        </div>
+        <div class="statuscard__actions">
+          <button class="btn btn--ghost btn--xs">查看更新说明</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 失败：权限 -->
+    <div class="cell">
+      <div class="cell__label"><span class="cell__no">4</span>更新失败（权限不足）</div>
+      <div class="statuscard statuscard--bad">
+        <div class="statuscard__icon statuscard__icon--bad">!</div>
+        <div class="statuscard__main">
+          <div class="statuscard__title">更新失败 <span class="badge badge--bad">EPERM</span></div>
+          <div class="statuscard__meta">npm 退出码 243：没有写入全局目录的权限。</div>
+          <pre class="statuscard__error">npm ERR! code EPERM
+npm ERR! syscall mkdir
+npm ERR! path C:\Program Files\nodejs\node_modules\@anthropic-ai\claude-code</pre>
+        </div>
+        <div class="statuscard__actions">
+          <button class="btn btn--ghost btn--xs">复制命令</button>
+          <button class="btn btn--ghost btn--xs">以管理员身份重试</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 无法自动更新 -->
+    <div class="cell">
+      <div class="cell__label"><span class="cell__no">5</span>无法自动更新（非 npm 安装）</div>
+      <div class="statuscard statuscard--muted">
+        <div class="statuscard__icon">!</div>
+        <div class="statuscard__main">
+          <div class="statuscard__title">无法自动更新</div>
+          <div class="statuscard__meta">
+            当前 Claude Code 不在 npm 全局目录里（<span class="statuscard__path">C:\Tools\claude\claude.exe</span>），
+            可能是官方安装包或自定义路径。请按原来的方式更新，我们不动你的安装。
+          </div>
+        </div>
+        <div class="statuscard__actions">
+          <button class="btn btn--ghost btn--xs">复制 claude update</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 检查失败 -->
+    <div class="cell">
+      <div class="cell__label"><span class="cell__no">6</span>检查失败（离线，用缓存）</div>
+      <div class="statuscard statuscard--muted">
+        <div class="statuscard__icon">–</div>
+        <div class="statuscard__main">
+          <div class="statuscard__title">检查更新失败 <span class="badge">离线</span></div>
+          <div class="statuscard__meta">
+            连不上 registry.npmjs.org。下面的结果来自 2 天前的缓存，可能不是最新。
+          </div>
+        </div>
+        <div class="statuscard__actions">
+          <button class="btn btn--ghost btn--xs">重试</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 确认弹窗 -->
+  <div class="cell cell--wide">
+      <div class="cell__label"><span class="cell__no">7</span>点击「更新到 2.1.0」后的确认弹窗（有运行中会话时才出现）</div>
+      <div class="minimodal">
+        <div class="modal">
+          <div class="scrim"></div>
+          <div class="dlg">
+            <div class="dlg__h">更新 Claude Code</div>
+            <div class="dlg__b">
+              将执行以下命令：
+              <code>npm install -g @anthropic-ai/claude-code@2.1.0</code>
+              更新不会打断正在运行的 2 个会话，它们会继续使用 2.0.31；新开的会话才用 2.1.0。
+            </div>
+            <div class="dlg__f">
+              <button class="btn btn--ghost">取消 <span class="kbd">Esc</span></button>
+              <button class="btn btn--primary">开始更新</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- ══════════════ 说明 ══════════════ -->
+<div class="spec">
+  <h2>行为说明（供审批）</h2>
+  <p>版本卡下面新增一块「更新」，只在检测到有新版本时变成强调态；其余时候保持安静，不弹窗、不打扰会话。</p>
+
+  <h3>检测方式</h3>
+  <ul>
+    <li>当前版本：跑 <code>claude --version</code> / <code>codex --version</code> / <code>dsh --version</code>，从输出里抓版本号（沿用现有 <code>version</code> 字段，不新增探测进程）。</li>
+    <li>最新版本：读 npm registry 的 <code>https://registry.npmjs.org/&lt;pkg&gt;/latest</code>，只取 <code>version</code> 字段；结果缓存 6 小时，离线时用缓存并标「离线」。</li>
+    <li>安装方式：比对 CLI 可执行文件路径是否落在 <code>npm root -g</code> 下 —— 是才给「更新」按钮，不是就降级成复制命令（状态 5）。</li>
+  </ul>
+
+  <h3>时机</h3>
+  <ul>
+    <li>打开对应 CLI 的设置页时检查一次（先渲染上次结果，不闪空白）。</li>
+    <li>之后每 6 小时后台检查一次，只在主进程做，不占用会话进程。</li>
+    <li>检查失败不报红错，只在卡片里降级提示（状态 6）。</li>
+  </ul>
+
+  <h3>更新这个动作</h3>
+  <ul>
+    <li>主按钮 → 有运行中会话时先确认（状态 7）→ 后台跑 <code>npm install -g &lt;pkg&gt;@&lt;latest&gt;</code> → 进度条 + 可取消。</li>
+    <li>成功后自动重跑 <code>--version</code> 刷新卡片，并说明「新会话才生效」。</li>
+    <li>失败就停在状态 4，给出原始 npm 错误、复制命令、以及「以管理员身份重试」（Windows 全局目录常见）。</li>
+    <li>绝不做静默自动升级：CLI 是用户自己的工作环境，升级只由用户点击触发。</li>
+  </ul>
+
+  <h3>三个 CLI 的包名</h3>
+  <table>
+    <thead><tr><th>CLI</th><th>npm 包</th><th>非 npm 安装时的提示</th></tr></thead>
+    <tbody>
+      <tr><td>Claude Code</td><td><code>@anthropic-ai/claude-code</code></td><td>提示 <code>claude update</code></td></tr>
+      <tr><td>Codex CLI</td><td><code>@openai/codex</code></td><td>提示按原方式（brew / 安装包）更新</td></tr>
+      <tr><td>DeepSeek Harness</td><td><code>@deepseek-ai/dsh</code></td><td>提示 <code>npm i -g</code> 或官方安装方式</td></tr>
+    </tbody>
+  </table>
+
+  <h3>落到代码里</h3>
+  <ul>
+    <li>新增 <code>src/main/cli-update.ts</code>（检测 + 执行 + 缓存）、IPC <code>cli-update:check</code> / <code>cli-update:run</code>（带进度事件）、渲染层 <code>useCliUpdate.ts</code> + <code>CliUpdateCard.tsx</code>。</li>
+    <li>卡片复用现有 <code>.statuscard</code> / <code>.badge</code> / <code>.btn</code>，样式增量只有进度条和命令行条；三张 CLI 页共用同一个组件。</li>
+    <li>文案走 i18n（<code>settings.update.*</code>），中英各一份。</li>
+  </ul>
+</div>
+
+<script>
+  const html = document.documentElement
+  document.querySelectorAll('[data-theme-set]').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('[data-theme-set]').forEach((x) => x.classList.remove('is-on'))
+      b.classList.add('is-on')
+      html.dataset.theme = b.dataset.themeSet
+    })
+  })
+</script>
+</body>
+</html>

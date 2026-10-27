@@ -96,4 +96,6 @@ export interface LspStateEvent {
   state: LspSessionState
   server?: string
   message?: string
+  /** initialize 返回的服务器能力；ready 时带回，语义着色需要读 legend */
+  capabilities?: unknown
 }

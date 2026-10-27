@@ -49,6 +49,14 @@ export function useSessions(activeId: string | null): {
    */
   completed: ReadonlySet<string>
   /**
+   * 上一轮以错误收尾的会话（CLI session id）。
+   *
+   * 侧栏把这一行的「已完成」换成「错误」。和 completed 不同，它不因
+   * 打开会话而清掉 —— 跑挂了是这条会话当前的真实状态，直到下一轮跑
+   * 成功（或重新开跑）才恢复。
+   */
+  failed: ReadonlySet<string>
+  /**
    * 后台卡在审批上的会话 —— 键同样是 CLI 的 session id。
    *
    * 只含「还等着回答」的：答复、轮末、进程退出都会由各自的 ChatController
@@ -71,6 +79,8 @@ export function useSessions(activeId: string | null): {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState<Set<string>>(() => new Set())
   const [completed, setCompleted] = useState<ReadonlySet<string>>(() => new Set())
+  /** 上一轮跑挂了的会话 —— 侧栏写「错误」而不是「已完成」 */
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set())
   const [pending, setPending] = useState<ReadonlyMap<string, PendingApproval>>(() => new Map())
   /** 后台任务还在跑的会话 —— 由各 ChatController 同步过来 */
   const [background, setBackground] = useState<ReadonlySet<string>>(() => new Set())
@@ -266,8 +276,25 @@ export function useSessions(activeId: string | null): {
       })
 
       if (isRunning) {
-        // 又开始跑了：上一轮留下的「已完成」作废
+        // 又开始跑了：上一轮留下的「已完成」和「错误」都作废
         setCompleted((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        setFailed((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        return
+      }
+
+      if (p.status === 'exited') {
+        // 会话被停掉/删掉：上一轮的错误标记没有意义了
+        setFailed((prev) => {
           if (!prev.has(id)) return prev
           const next = new Set(prev)
           next.delete(id)
@@ -283,8 +310,29 @@ export function useSessions(activeId: string | null): {
        * - 后台 shell 还在跑的话也不算完成，等它结束（通知到达后会自动开始
        *   下一轮，或者由 background 订阅把标记补上）。
        */
+      if (p.status === 'idle' && wasRunning) {
+        /*
+         * 这一轮有没有跑挂。`errored` 由主进程在轮末给出 —— 只看 idle
+         * 分不清成功还是失败，之前失败的行会被错标成「已完成」。
+         * 和 completed 不同，当前会话也记：错误是状态，不是未读提醒。
+         */
+        setFailed((prev) => {
+          if (p.errored === true) {
+            if (prev.has(id)) return prev
+            const next = new Set(prev)
+            next.add(id)
+            return next
+          }
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }
+
       if (
         p.status === 'idle' &&
+        p.errored !== true &&
         wasRunning &&
         id !== activeRef.current &&
         !backgroundRef.current.has(id)
@@ -371,6 +419,7 @@ export function useSessions(activeId: string | null): {
     loading,
     running,
     completed,
+    failed,
     pending,
     background,
     sort,

@@ -169,6 +169,18 @@ export class DshWebSession implements ProviderSession, DshHostSession {
   }
 
   private async doEnsure(): Promise<void> {
+    /*
+     * host 启动失败（404 / 进程退出）会把自己标成 closing，并从 host 池里
+     * 摘掉；会话如果继续拿着这个对象，下一次发送只会得到「服务已关闭」，
+     * 永远恢复不了。这里主动丢弃它，让下一次 getDshWebHost 重新拉起。
+     */
+    if (this.host?.isClosed) {
+      this.host.unref()
+      this.host = null
+      this.hostOnline = false
+      this.follow = null
+    }
+
     if (!this.host) {
       const home = this.home()
       this.host = getDshWebHost({

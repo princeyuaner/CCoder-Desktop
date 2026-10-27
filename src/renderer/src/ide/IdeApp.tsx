@@ -379,6 +379,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [treeVersion, setTreeVersion] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
+  /** 快速打开面板的初始查询；'#' 进入工作区符号模式（Ctrl+T） */
+  const [quickOpenSeed, setQuickOpenSeed] = useState('')
   /** 命令面板 / 符号选择共用一个浮层；mode 决定列的是命令还是当前文件符号 */
   const [palette, setPalette] = useState<'commands' | 'symbols' | null>(null)
   /** 底部面板：tab 记住上次选择，open 控制显示；终端组件始终挂载以保住会话 */
@@ -444,7 +446,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const activeTab = tabs.find((t) => t.key === activeKey) ?? null
 
   /* ── 语言服务器 ───────────────────────────────────────── */
-  const { syncDocs: syncLspDocs, states: lspStates } = useLsp(cwd, lspEnabled)
+  const {
+    syncDocs: syncLspDocs,
+    states: lspStates,
+    documentSymbols: lspDocumentSymbols,
+    workspaceSymbols: lspWorkspaceSymbols
+  } = useLsp(cwd, lspEnabled)
   const lspDocs = useMemo<LspOpenDoc[]>(() => {
     const out: LspOpenDoc[] = []
     for (const tab of tabs) {
@@ -1584,6 +1591,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       } else if (mod && !e.shiftKey && key === 'p') {
         handled(() => {
           setPalette(null)
+          setQuickOpenSeed('')
           setQuickOpen(true)
         })
       } else if (mod && e.shiftKey && key === 'f') {
@@ -1603,6 +1611,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         })
       } else if (mod && e.shiftKey && key === 't') {
         handled(() => reopenClosedTab())
+      } else if (mod && !e.shiftKey && key === 't') {
+        handled(() => {
+          setPalette(null)
+          setQuickOpenSeed('#')
+          setQuickOpen(true)
+        })
       } else if (mod && !e.shiftKey && key === 'g') {
         handled(() => {
           if (!runEditorAction('editor.action.gotoLine')) {
@@ -1693,23 +1707,59 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.key, api, cwd])
 
-  /** 当前文件的大纲：正则扫描，所有语言都能给出可跳转的符号 */
+  /** 当前文件的大纲：优先用 LSP，服务器不可用时回落到正则扫描 */
   const [outlineSymbols, setOutlineSymbols] = useState<OutlineSymbol[]>([])
   const outlineRel = activeTab?.kind === 'file' ? activeTab.rel : null
   const outlineText = activeFile?.text
+  const outlineLspReady = !!activeLanguage && lspStates[activeLanguage]?.state === 'ready'
+  const outlineRelRef = useRef<string | null>(null)
   outlineCountRef.current = outlineSymbols.length
   useEffect(() => {
     if (!outlineRel || outlineText === undefined) {
+      outlineRelRef.current = null
       setOutlineSymbols([])
       return
     }
-    // 打字时不必每个字符都扫一遍整个文件
-    const timer = window.setTimeout(
-      () => setOutlineSymbols(parseOutline(outlineText, outlineRel)),
-      180
-    )
-    return () => window.clearTimeout(timer)
-  }, [outlineRel, outlineText])
+
+    // 切文件时立刻给出正则结果，避免上一份大纲短暂停留；同一个文件里
+    // 打字则走防抖，不要每个按键都扫一遍全文。
+    const relChanged = outlineRelRef.current !== outlineRel
+    outlineRelRef.current = outlineRel
+    if (relChanged) setOutlineSymbols(parseOutline(outlineText, outlineRel))
+
+    if (!lspEnabled || !outlineLspReady) {
+      if (relChanged) return
+      const timer = window.setTimeout(
+        () => setOutlineSymbols(parseOutline(outlineText, outlineRel)),
+        180
+      )
+      return () => window.clearTimeout(timer)
+    }
+
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      const model = activeEditor()?.getModel()
+      const symbols =
+        model && relFromUri(model.uri, cwd) === outlineRel
+          ? await lspDocumentSymbols(model)
+          : []
+      if (!cancelled) {
+        // 服务器没给符号（还在索引 / 不支持）时退回正则
+        setOutlineSymbols(symbols.length ? symbols : parseOutline(outlineText, outlineRel))
+      }
+    }, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    outlineRel,
+    outlineText,
+    lspEnabled,
+    outlineLspReady,
+    cwd,
+    lspDocumentSymbols
+  ])
 
   const symbolCommands = useMemo<CommandItem[]>(() => {
     if (!activeTab || activeTab.kind !== 'file') return []
@@ -1721,6 +1771,21 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       run: () => jumpTo(activeTab.rel, s.line)
     }))
   }, [activeTab, jumpTo, outlineSymbols, t])
+
+  /** Ctrl+T：把工作区符号结果转成快速打开面板能直接执行的条目 */
+  const searchWorkspaceSymbols = useCallback(
+    async (query: string): Promise<CommandItem[]> => {
+      const symbols = await lspWorkspaceSymbols(query, activeLanguage ?? undefined)
+      return symbols.map((s, i) => ({
+        id: `wsym:${i}:${s.rel}:${s.line}:${s.column}:${s.name}`,
+        label: s.name,
+        group: s.containerName ? `${s.containerName} · ${s.rel}` : s.rel,
+        keybinding: String(s.line),
+        run: () => jumpTo(s.rel, s.line)
+      }))
+    },
+    [activeLanguage, jumpTo, lspWorkspaceSymbols]
+  )
 
   /* ── IDE → 聊天 ───────────────────────────────────────── */
 
@@ -1884,7 +1949,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         label: t('ide.command.quickOpen'),
         group: file,
         keybinding: 'Ctrl+P',
-        run: () => setQuickOpen(true)
+        run: () => {
+          setQuickOpenSeed('')
+          setQuickOpen(true)
+        }
       },
       {
         id: 'file.closeTab',
@@ -1945,6 +2013,69 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             return
           }
           setPalette('symbols')
+        }
+      },
+      {
+        id: 'nav.goToWorkspaceSymbol',
+        label: t('ide.command.goToWorkspaceSymbol'),
+        group: nav,
+        keybinding: 'Ctrl+T',
+        run: () => {
+          setPalette(null)
+          setQuickOpenSeed('#')
+          setQuickOpen(true)
+        }
+      },
+      {
+        id: 'nav.quickFix',
+        label: t('ide.command.quickFix'),
+        group: nav,
+        keybinding: 'Ctrl+.',
+        run: () => {
+          if (!runEditorAction('editor.action.quickFix')) {
+            setNotice(t('ide.command.noEditor'))
+          }
+        }
+      },
+      {
+        id: 'nav.goToDeclaration',
+        label: t('ide.command.goToDeclaration'),
+        group: nav,
+        run: () => {
+          if (!runEditorAction('editor.action.revealDeclaration')) {
+            setNotice(t('ide.command.noEditor'))
+          }
+        }
+      },
+      {
+        id: 'nav.goToImplementation',
+        label: t('ide.command.goToImplementation'),
+        group: nav,
+        keybinding: 'Ctrl+F12',
+        run: () => {
+          if (!runEditorAction('editor.action.goToImplementation')) {
+            setNotice(t('ide.command.noEditor'))
+          }
+        }
+      },
+      {
+        id: 'nav.goToTypeDefinition',
+        label: t('ide.command.goToTypeDefinition'),
+        group: nav,
+        run: () => {
+          if (!runEditorAction('editor.action.goToTypeDefinition')) {
+            setNotice(t('ide.command.noEditor'))
+          }
+        }
+      },
+      {
+        id: 'nav.signatureHelp',
+        label: t('ide.command.signatureHelp'),
+        group: nav,
+        run: () => {
+          if (!runEditorAction('editor.action.triggerParameterHints')) {
+            setNotice(t('ide.command.noEditor'))
+          }
         }
       },
       {
@@ -2021,7 +2152,13 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       <IdeTitleBar cwd={cwd} onClose={requestWindowClose} />
 
       <div className="ide-toolbar">
-        <button className="ide-quickbtn" onClick={() => setQuickOpen(true)}>
+        <button
+          className="ide-quickbtn"
+          onClick={() => {
+            setQuickOpenSeed('')
+            setQuickOpen(true)
+          }}
+        >
           <IconSearch width={14} height={14} />
           <span>{t('ide.searchPlaceholder')}</span>
           <kbd>Ctrl P</kbd>
@@ -2533,9 +2670,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
       {quickOpen && (
         <QuickOpen
+          key={quickOpenSeed || 'file'}
           cwd={cwd}
           commands={commands}
           symbols={symbolCommands}
+          initialQuery={quickOpenSeed}
+          searchWorkspaceSymbols={searchWorkspaceSymbols}
           onClose={() => setQuickOpen(false)}
           onOpen={(rel) => {
             setQuickOpen(false)
@@ -3192,40 +3332,50 @@ function QuickOpen({
   cwd,
   commands,
   symbols,
+  initialQuery = '',
+  searchWorkspaceSymbols,
   onClose,
   onOpen
 }: {
   cwd: string
   commands: CommandItem[]
   symbols: CommandItem[]
+  initialQuery?: string
+  searchWorkspaceSymbols?: (query: string) => Promise<CommandItem[]>
   onClose: () => void
   onOpen: (rel: string) => void
 }): JSX.Element {
   const { t } = useI18n()
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(initialQuery)
   const [items, setItems] = useState<FileMatch[]>([])
+  const [wsym, setWsym] = useState<CommandItem[]>([])
   const [active, setActive] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [wsymBusy, setWsymBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const raw = q.trim()
-  const mode: 'file' | 'command' | 'symbol' = raw.startsWith('>')
+  const mode: 'file' | 'command' | 'symbol' | 'wsymbol' = raw.startsWith('>')
     ? 'command'
     : raw.startsWith('@')
       ? 'symbol'
-      : 'file'
+      : raw.startsWith('#')
+        ? 'wsymbol'
+        : 'file'
   const term = mode === 'file' ? raw.toLowerCase() : raw.slice(1).trim().toLowerCase()
 
   const paletteItems = useMemo(() => {
     if (mode === 'file') return []
-    const source = mode === 'command' ? commands : symbols
-    if (!term) return source.slice(0, 80)
+    const source =
+      mode === 'command' ? commands : mode === 'symbol' ? symbols : wsym
+    if (!term) return mode === 'wsymbol' ? [] : source.slice(0, 80)
+    if (mode === 'wsymbol') return source.slice(0, 80)
     return source
       .filter((c) =>
         `${c.label} ${c.group ?? ''} ${c.keybinding ?? ''}`.toLowerCase().includes(term)
       )
       .slice(0, 80)
-  }, [commands, mode, symbols, term])
+  }, [commands, mode, symbols, term, wsym])
 
   const count = mode === 'file' ? items.length : paletteItems.length
 
@@ -3264,6 +3414,34 @@ function QuickOpen({
     }
   }, [q, cwd, mode])
 
+  /* 工作区符号由语言服务器搜索，输入后防抖再发请求 */
+  useEffect(() => {
+    if (mode !== 'wsymbol' || !searchWorkspaceSymbols || !term) {
+      setWsym([])
+      setWsymBusy(false)
+      return
+    }
+    let cancelled = false
+    setWsymBusy(true)
+    const timer = setTimeout(async () => {
+      try {
+        const result = await searchWorkspaceSymbols(term)
+        if (!cancelled) {
+          setWsym(result)
+          setActive(0)
+        }
+      } catch {
+        if (!cancelled) setWsym([])
+      } finally {
+        if (!cancelled) setWsymBusy(false)
+      }
+    }, 150)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [mode, term, searchWorkspaceSymbols])
+
   const choose = (m?: FileMatch): void => {
     if (mode !== 'file') {
       const item = paletteItems[active]
@@ -3289,7 +3467,9 @@ function QuickOpen({
                 ? t('ide.command.placeholder')
                 : mode === 'symbol'
                   ? t('ide.outline.show')
-                  : t('ide.quickOpenPlaceholder')
+                  : mode === 'wsymbol'
+                    ? t('ide.qo.workspaceSymbolPlaceholder')
+                    : t('ide.quickOpenPlaceholder')
             }
             spellCheck={false}
             onChange={(e) => setQ(e.target.value)}
@@ -3309,7 +3489,7 @@ function QuickOpen({
               }
             }}
           />
-          {busy && <span className="ide-spin" />}
+          {(busy || wsymBusy) && <span className="ide-spin" />}
         </div>
         {!q && (
           <div className="ide-qo-hint">{t('ide.quickOpenHint')}</div>
@@ -3341,9 +3521,15 @@ function QuickOpen({
                 {c.keybinding && <kbd>{c.keybinding}</kbd>}
               </button>
             ))}
-          {!busy && count === 0 && (
+          {!busy && !wsymBusy && count === 0 && (
             <div className="ide-emptyhint">
-              {mode === 'file' ? t('ide.noMatchingFiles') : t('ide.command.empty')}
+              {mode === 'file'
+                ? t('ide.noMatchingFiles')
+                : mode === 'wsymbol'
+                  ? term
+                    ? t('ide.qo.noSymbols')
+                    : t('ide.qo.workspaceSymbolEmpty')
+                  : t('ide.command.empty')}
             </div>
           )}
         </div>

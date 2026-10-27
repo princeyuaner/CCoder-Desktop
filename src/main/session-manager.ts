@@ -7,6 +7,7 @@ import {
   cliConfig,
   cliDef,
   DEFAULT_EFFORT,
+  DSH_DEFAULT_MODEL,
   type Channel,
   type CliAuthMode,
   type CliId,
@@ -68,6 +69,14 @@ interface Live {
   busy: boolean
   /** 用户主动打断时置位，避免把打断当成错误 */
   interrupted: boolean
+  /**
+   * 上一条事件是不是 error。
+   *
+   * 各 provider 都在轮末「先报错、再发 turn_end」，所以轮末看这个标记就能
+   * 判断这一轮是不是失败收尾，不必给每个 provider 的 turn_end 加字段。
+   * 中途的告警（MCP 配置写不进、重连提示）会被后面的事件清掉。
+   */
+  lastEventWasError: boolean
   /** 忙碌时发来的消息排队，轮结束再发（图片也要原样留着） */
   queue: SessionSendInput[]
   /** 本会话"总是允许"的工具名 —— 收到请求时我们直接代答，不打扰用户 */
@@ -132,6 +141,7 @@ export class SessionManager {
       toolCount: 0,
       busy: false,
       interrupted: false,
+      lastEventWasError: false,
       queue: [],
       autoAllow: new Set(),
       lastAskedTool: null,
@@ -185,6 +195,7 @@ export class SessionManager {
 
     s.busy = true
     s.interrupted = false
+    s.lastEventWasError = false
     s.toolCount = 0
     // 拍快照必须在把消息交给 CLI 之前 —— 然后才轮到模型动文件
     s.diskBefore = this.snapshotForTurn(s)
@@ -488,7 +499,13 @@ export class SessionManager {
       // 官方登录没有渠道，模型回落到设置里的 officialModel（空 = CLI 默认）
       const fallbackModel =
         ch?.model ?? (s.authMode === 'official' ? s.officialModel.trim() : '')
-      const model = s.model.trim() || fallbackModel
+      /*
+       * dsh 的 agent-default-model 目录项写死了已下线的 `deepseek-flash`；
+       * 模型留空时它会直接拿这个 id 发请求，网关必然报 deprecated。这里兜一层，
+       * 保证 dsh 总会收到一个还活着的模型。
+       */
+      const model =
+        s.model.trim() || fallbackModel || (s.cli === 'dsh' ? DSH_DEFAULT_MODEL : '')
       const resume = s.providerSessionId ?? s.initialResumeId ?? null
       s.session = provider.start({
         channel: ch,
@@ -584,18 +601,24 @@ export class SessionManager {
        * 立刻发下一条，上一轮的磁盘改动会晚到，被渲染层算进新一轮。
        */
       const diskChanges = this.collectDiskChanges(s)
+      // 用户主动打断不算错误：打断后 CLI 也可能回一条 is_error 的结果
+      const errored = s.lastEventWasError && !s.interrupted
+      s.lastEventWasError = false
       s.busy = false
       s.lastAskedTool = null
       for (const c of diskChanges) this.emitEvent({ sessionId: s.id, event: c })
       this.emitStatus({
         sessionId: s.id,
         status: 'idle',
-        providerSessionId: s.providerSessionId
+        providerSessionId: s.providerSessionId,
+        errored
       })
       this.emitEvent({ sessionId: s.id, event: ev })
       this.flushQueue(s)
       return
     }
+    // 轮末「先报错、再 turn_end」：给下一次状态推送留个标记
+    s.lastEventWasError = ev.t === 'error'
     this.emitEvent({ sessionId: s.id, event: ev })
   }
 
@@ -642,6 +665,7 @@ export class SessionManager {
     }
     s.busy = true
     s.interrupted = false
+    s.lastEventWasError = false
     s.toolCount = 0
     s.diskBefore = this.snapshotForTurn(s)
     this.emitEvent({ sessionId: s.id, event: { t: 'turn_started' } })
@@ -700,7 +724,9 @@ export class SessionManager {
       sessionId: s.id,
       status: 'idle',
       providerSessionId: s.providerSessionId,
-      code
+      code,
+      // 进程非零退出，或者退出前最后一条是错误（如 dsh 的 fatal）
+      errored: !s.interrupted && ((code !== null && code !== 0) || s.lastEventWasError)
     })
     // 进程没了但会话还在，下一轮会重新拉起
     this.flushQueue(s)

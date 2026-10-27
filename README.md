@@ -60,11 +60,11 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - 一个工作区一个窗口，窗口位置 / 大小记忆在 `ide-windows.json`。
 - Monaco 编辑器、文件树、快速打开（`Ctrl+P`）、工作区搜索与全局替换。
 - **编辑器偏好**：字号、制表符宽度、缩进方式、自动换行、代码缩略图、自动保存、保存时删除行尾空白。设置同时作用于所有 IDE 窗口。
-- **命令与导航**：命令面板（`Ctrl+Shift+P`）、快速打开里的 `>` 命令 / `@` 符号、大纲、问题面板、跳转到行（`Ctrl+G`）、前进 / 后退、重开已关闭标签（`Ctrl+Shift+T`）、保存全部（`Ctrl+Shift+S`）。
+- **命令与导航**：命令面板（`Ctrl+Shift+P`）、快速打开里的 `>` 命令 / `@` 当前文件符号 / `#` 工作区符号（`Ctrl+T`）、大纲、问题面板、跳转到行（`Ctrl+G`）、前进 / 后退、重开已关闭标签（`Ctrl+Shift+T`）、保存全部（`Ctrl+Shift+S`）、快速修复（`Ctrl+.`）、跳转声明 / 实现 / 类型定义。
 - **崩溃恢复**：未保存的草稿按工作区写入本地存储，崩溃 / 断电后重新打开同一工作区会自动恢复。
 - **内置终端**（Ctrl + 反引号）：在当前工作区启动 cmd，支持常规命令、颜色和简单的本地行编辑。
 - **TS / JS 语言智能（回落）**：没有语言服务器时，相对路径 `import` 的目标会被自动加入 Monaco 的 TypeScript worker，支持跨文件跳转定义、查找引用、重命名和文档符号。
-- **语言服务器（LSP）**：自动探测（TypeScript 优先项目 `node_modules`，其余查 `PATH`）`typescript-language-server`、`pyright`、`pylsp`、`gopls`、`rust-analyzer`、`clangd`、`yaml-language-server`、`bash-language-server`、`lua-language-server`，提供跳转定义、查找引用、重命名、悬停、补全、格式化，并把 `publishDiagnostics` 汇总到问题面板。可在设置 → 编辑器 → 语言服务里关闭。
+- **语言服务器（LSP）**：自动探测（TypeScript 优先项目 `node_modules`，其余查 `PATH`）`typescript-language-server`、`pyright`、`pylsp`、`gopls`、`rust-analyzer`、`clangd`、`yaml-language-server`、`bash-language-server`、`lua-language-server`，提供跳转定义 / 声明 / 实现 / 类型定义、查找引用、重命名、悬停、补全、参数提示、文档符号与工作区符号搜索、代码操作（快速修复 / 重构）、当前符号高亮、语义着色（类 / 属性 / 参数 / 变量 / 函数）、格式化，并把 `publishDiagnostics` 汇总到问题面板；侧栏大纲优先使用 `documentSymbol`，失败时回落到正则扫描。Python 另外使用增强的 Monarch 语法，即使服务器不支持语义着色，类 / 函数 / 属性 / 内置函数也有颜色。可在设置 → 编辑器 → 语言服务里关闭。
 - 未保存修改保护；外部（Agent / 终端 / 其他编辑器）改动会实时推送到窗口。
 - 渲染超大文件导致无响应时提供「强制关闭」逃生口，不依赖渲染层。
 - 文件读写和 VCS 写操作按窗口绑定的工作区鉴权，越界路径会被拒绝。
@@ -170,6 +170,7 @@ Windows 上 `.cmd` 会经 `cmd.exe` 执行；prompt 内容走 stdin，不拼进�
 - **Harness Web 模式说明**：同一个 DSH_HOME 共享一个 `dsh --profile web` 进程，多个会话复用它；空闲 10 分钟后自动回收。MCP 配置仍写在 `profiles/acp/cordis.patch.yml`，启动 Web 时以 `--patch` 叠加到 web profile。侧栏历史/搜索仍直接读 dsh 的 zstd 会话日志（和终端、ACP 共用一份）。如果 dsh 版本没有 web profile，设置 `CCCODER_DSH_TRANSPORT=acp` 退回 ACP。
 - **权限模式**：标准、接受编辑、自动、计划、免询问、绕过。
 - **思考深度**：低 / 中 / 高 / 极高 / 最高，对应 CLI 的 `--effort`；会话里还可以单独覆盖。
+- **CLI 更新**：读 npm registry 比对版本号，有新版本时在卡片和设置导航上提示。只对「确认是 npm 全局安装」的 CLI 提供一键 `npm install -g <包>@<版本>`；官方安装包 / brew / 自定义路径装的只给可复制的命令。不做静默升级，更新永远由用户点按钮触发（Windows 上权限不足时可提权重试）。
 
 ### 数据位置
 
@@ -317,6 +318,8 @@ src/
 - 内置终端使用管道而不是 PTY：常规命令、颜色和输出可用，但全屏 TUI（vim / top）、Ctrl+C 终止当前命令、窗口尺寸变化后的重排不可用。
 - 语言服务器不随应用打包：需要自己安装 `typescript-language-server`、`pyright`、`gopls`、`rust-analyzer`、`clangd` 等。TS / JS 会优先用项目 `node_modules/typescript-language-server`（版本跟项目走）；其他语言只从 `PATH` 查找，**不会**执行工作区 `node_modules/.bin` 里的同名程序。找不到服务器时，TS / JS 回落到 Monaco 自带的 worker（只解析相对路径 `import`，语义诊断关闭），其他语言只有语法高亮。
 - LSP 只同步已经打开的标签；服务器后台索引整个工作区，但未打开文件的重命名编辑不会自动写盘 —— 应用只把 `WorkspaceEdit` 交给 Monaco，已经打开的标签会变成未保存状态，没打开的文件需要先打开再改。`workspace/applyEdit` 被拒绝，服务器不能绕过保存 / 冲突流程直接改文件。
+- 代码操作只执行服务器直接返回 `edit` 的动作；只返回 `command` 的动作会被忽略（这类动作把实际修改放在 `workspace/executeCommand` 里，当前没有开放这条通道）。代码操作对未打开文件的影响与重命名相同，需要先打开目标文件。
+- 语义着色需要服务器支持 `textDocument/semanticTokens/full`：gopls、rust-analyzer、clangd、typescript-language-server 等支持；Pyright（含 1.1.414）没有实现这条能力，因此 Python 使用内置的增强 Monarch 语法着色。超过约 2 万行 / 100 万字符的大文件会关闭语义着色以保输入性能。
 - 工作区外的诊断（`node_modules`、TypeScript `lib.d.ts`、Rust 标准库）不会进入问题面板；跳转定义仍可以落到这些文件，但点击时会提示「工作区外」而不是新开标签。
 - 每个 IDE 窗口各自启动语言服务器，不跨窗口共享；同一窗口里 TypeScript / JavaScript 共用一个 `typescript-language-server` 进程。窗口关闭或渲染进程崩溃时会结束这些进程。
 - 语言服务器可能为了分析而在项目里执行构建脚本 / 过程宏（`rust-analyzer`、`cargo check`、`clangd` 的编译数据库等）。当前没有 Workspace Trust 提示：只在你信任的工作区启用 LSP，拿不准时到设置 → 编辑器 → 语言服务里关掉。
@@ -398,9 +401,10 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - One window per workspace; window position and size are remembered in `ide-windows.json`.
 - Monaco editor, file tree, quick open (`Ctrl+P`), workspace search, and replace all.
 - **Editor preferences**: font size, tab size, indentation, word wrap, minimap, auto-save, and trim-trailing-whitespace-on-save. Shared by every IDE window.
-- **Commands and navigation**: command palette (`Ctrl+Shift+P`), `>` commands / `@` symbols in quick open, outline, problems panel, go to line (`Ctrl+G`), back/forward, reopen closed tab (`Ctrl+Shift+T`), save all (`Ctrl+Shift+S`).
+- **Commands and navigation**: command palette (`Ctrl+Shift+P`), `>` commands / `@` symbols in the current file / `#` workspace symbols (`Ctrl+T`) in quick open, outline, problems panel, go to line (`Ctrl+G`), back/forward, reopen closed tab (`Ctrl+Shift+T`), save all (`Ctrl+Shift+S`), quick fix (`Ctrl+.`), and go to declaration / implementation / type definition.
 - **Crash recovery**: unsaved drafts are stored per workspace and restored when the same workspace is opened again.
 - **Built-in terminal** (Ctrl + backtick): starts cmd in the current workspace, with regular commands, colors, and simple local line editing.
+- **Language servers (LSP)**: auto-detects `typescript-language-server`, `pyright`, `pylsp`, `gopls`, `rust-analyzer`, `clangd`, `yaml-language-server`, `bash-language-server`, and `lua-language-server` (TypeScript prefers the project's `node_modules`; others are looked up on `PATH`). Provides go-to definition / declaration / implementation / type definition, find references, rename, hover, completion, signature help, document and workspace symbols, code actions (quick fix / refactor), document highlights, semantic highlighting (classes / properties / parameters / variables / functions), and formatting, with diagnostics feeding the problems panel. The outline prefers `documentSymbol` and falls back to regex scanning. Python also uses an enhanced Monarch grammar, so classes / functions / attributes / builtins stay colored even when the server does not provide semantic tokens. Can be disabled in Settings → Editor → Language services.
 - **TS/JS language intelligence**: relative-import targets are added to Monaco's TypeScript worker, enabling cross-file go-to-definition, find references, rename, and document symbols.
 - Unsaved-change protection; external changes (agent / terminal / another editor) are pushed to the window live.
 - A forced-close escape hatch when an oversized file makes the renderer unresponsive — it does not depend on the renderer.
@@ -652,7 +656,9 @@ src/
 - The portable build does not support auto-update.
 - Monaco's built-in menus and find widget remain English-only; the app's own IDE shell, search panel, and prompts follow the interface language.
 - The built-in terminal uses pipes rather than a PTY: regular commands, colors, and output work, but full-screen TUI apps (vim / top), Ctrl+C to stop the current command, and resize reflow are not available.
-- Language intelligence currently covers relative `import`s in TypeScript / JavaScript; Python, Go, Rust, and others still only have syntax highlighting. TS semantic diagnostics stay off to avoid a wall of red squiggles without node_modules type information.
+- Without a language server, TypeScript / JavaScript only get relative-import resolution via Monaco's worker, and other languages have syntax highlighting only. TS semantic diagnostics stay off to avoid a wall of red squiggles without `node_modules` type information.
+- Code actions are applied only when the server returns an edit; command-only actions are ignored (they keep the real change behind `workspace/executeCommand`, which is not exposed). Like rename, edits to files that are not open are not written to disk.
+- Semantic highlighting requires the server to support `textDocument/semanticTokens/full`: gopls, rust-analyzer, clangd, and typescript-language-server do; Pyright (including 1.1.414) does not, so Python relies on the enhanced built-in Monarch grammar. Files over roughly 20k lines / 1M characters disable semantic highlighting to keep input responsive.
 - Cross-file rename (F2) currently only works reliably for open tabs; edits to hidden import models are not written to disk, and the disk version wins when such a file is opened. Go-to-definition and find-references are read-only and unaffected.
 - The editor does not implement split panes / multiple editor groups yet; editors and the terminal survive view switches, but the same file cannot be edited side by side.
 - The UI ships Simplified Chinese and English; Chinese system locales (including Traditional Chinese) resolve to Simplified Chinese, and all others resolve to English.

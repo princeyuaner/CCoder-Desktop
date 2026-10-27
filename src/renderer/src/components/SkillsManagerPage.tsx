@@ -80,7 +80,7 @@ const CLI_META: Record<
     short: 'DSH',
     name: 'DeepSeek Harness',
     icon: IconDeepSeek,
-    color: '#6aa8ff',
+    color: 'var(--brand-dsh)',
     fileLabel: 'SKILL.md',
     hasTools: true
   }

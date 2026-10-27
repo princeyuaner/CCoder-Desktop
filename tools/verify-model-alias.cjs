@@ -1,9 +1,9 @@
 /*
  * 验证模型胶囊不会被 CLI 报回来的内部 id 顶掉。
  *
- * 背景：dsh 运行时目录里 V4.1 Flash 的 id 是 `deepseek-flash`，显示名才是
- * 「DeepSeek-V4.1-Flash」；渠道里用户填的又常是 `deepseek-v4.1-flash`。
- * 三者是同一个模型，胶囊应该显示用户配置的写法，而不是会话启动后 CLI 报的 id。
+ * 背景：dsh 内置目录里 V4.1 Flash 的 id 曾是 `deepseek-flash`（网关已下线），
+ * 显示名才是「DeepSeek-V4.1-Flash」；渠道里用户填的是新 id `deepseek-v4.1-flash`。
+ * 历史记录里会留着旧 id，胶囊应该显示用户配置的写法，而不是 CLI 报的 id。
  *
  * 不接真实 CLI：stub 掉 IPC，直接给一条历史会话，让记录里的模型是 id 写法。
  * 用法（先 npx electron-vite build）：

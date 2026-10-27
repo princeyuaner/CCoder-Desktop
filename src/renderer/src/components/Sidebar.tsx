@@ -58,6 +58,11 @@ interface SidebarProps {
    */
   completed: ReadonlySet<string>
   /**
+   * 上一轮以错误收尾的会话（CLI session id）。
+   * 行尾写「错误」，优先于「已完成」—— 跑挂了不能看起来像正常结束。
+   */
+  failed: ReadonlySet<string>
+  /**
    * 卡在审批上的后台会话（CLI 的 session id）。
    * 当前会话不在里面显示跑马灯 —— 它的审批面板就在主区里。
    */
@@ -115,6 +120,7 @@ export function Sidebar({
   loading,
   running,
   completed,
+  failed,
   pending,
   background,
   sort,
@@ -225,6 +231,7 @@ export function Sidebar({
             ws={ws}
             running={running}
             completed={completed}
+            failed={failed}
             pending={pending}
             background={background}
             activeId={activeId}
@@ -286,6 +293,7 @@ function WorkspaceGroup({
   ws,
   running,
   completed,
+  failed,
   pending,
   background,
   activeId,
@@ -305,6 +313,8 @@ function WorkspaceGroup({
   ws: WorkspaceView
   running: Set<string>
   completed: ReadonlySet<string>
+  /** 上一轮跑挂了的会话 */
+  failed: ReadonlySet<string>
   pending: ReadonlyMap<string, PendingApproval>
   background: ReadonlySet<string>
   activeId: string | null
@@ -428,6 +438,7 @@ function WorkspaceGroup({
             active={s.id === activeId}
             running={running.has(s.id)}
             done={completed.has(s.id)}
+            failed={failed.has(s.id)}
             background={background.has(s.id)}
             approval={pending.get(s.id)}
             renaming={renamingKey === key}
@@ -460,6 +471,7 @@ function SessionRow({
   active,
   running,
   done,
+  failed,
   background,
   approval,
   renaming,
@@ -477,6 +489,8 @@ function SessionRow({
   running: boolean
   /** 刚跑完、用户还没点开看过 */
   done: boolean
+  /** 上一轮以错误收尾 */
+  failed: boolean
   /** 主对话已结束，但后台任务还在跑 */
   background: boolean
   /** 这条会话正在等的审批；没有就是 undefined */
@@ -582,18 +596,22 @@ function SessionRow({
                 className={`session__time ${
                   running || background
                     ? 'session__time--running'
-                    : done
-                      ? 'session__time--done'
-                      : ''
+                    : failed
+                      ? 'session__time--error'
+                      : done
+                        ? 'session__time--done'
+                        : ''
                 }`}
               >
                 {running
                   ? t('sidebar.running')
                   : background
                     ? t('sidebar.backgroundRunning')
-                    : done
-                      ? t('sidebar.done')
-                      : formatRelativeTime(s.updatedAt, locale, 'short')}
+                    : failed
+                      ? t('sidebar.failed')
+                      : done
+                        ? t('sidebar.done')
+                        : formatRelativeTime(s.updatedAt, locale, 'short')}
               </span>
             )}
           </span>

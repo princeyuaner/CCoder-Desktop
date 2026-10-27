@@ -25,6 +25,7 @@ import {
   checkDshStatus,
   dshChannelEnv,
   dshHomeForChannel,
+  dshModelCatalogPatch,
   ensureDshHome,
   findDshHomeForSession,
   killDshTree,
@@ -364,7 +365,14 @@ class DshSession implements ProviderSession {
     let child: ChildProcess
     try {
       child = spawnDsh(
-        ['--profile', 'acp', ...(patch ? ['--patch', patch.file] : [])],
+        [
+          '--profile',
+          'acp',
+          ...(patch ? ['--patch', patch.file] : []),
+          // 目录 overlay 最后应用：网关已下线 deepseek-flash
+          '--patch',
+          dshModelCatalogPatch()
+        ],
         {
           cwd: o.cwd,
           env: { ...dshChannelEnv(o.channel), DSH_HOME: home },

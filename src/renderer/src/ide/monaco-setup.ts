@@ -36,6 +36,189 @@ import CssWorker from 'monaco-editor/languages/features/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/languages/features/html/html.worker?worker'
 import TsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker'
 
+/*
+ * 增强版 Python 语法着色。
+ *
+ * Monaco 自带的 Python Monarch 只区分关键字 / 字符串 / 数字 / 注释，
+ * 类名、函数、属性全部落到 identifier（主题里就是正文白色）。这里在不
+ * 改变语言配置（缩进、括号、折叠）的前提下，补上：
+ *   - def / class 后面的名字
+ *   - 点号属性（self.timer / mod_service.X）
+ *   - 函数调用与大写类名
+ * 服务器支持 semantic tokens 时，语义着色会盖在它上面。
+ */
+const pythonLanguage: monaco.languages.IMonarchLanguage = {
+  defaultToken: '',
+  tokenPostfix: '.python',
+  keywords: [
+    'False',
+    'None',
+    'True',
+    'and',
+    'as',
+    'assert',
+    'async',
+    'await',
+    'break',
+    'case',
+    'class',
+    'continue',
+    'def',
+    'del',
+    'elif',
+    'else',
+    'except',
+    'finally',
+    'for',
+    'from',
+    'global',
+    'if',
+    'import',
+    'in',
+    'is',
+    'lambda',
+    'match',
+    'nonlocal',
+    'not',
+    'or',
+    'pass',
+    'raise',
+    'return',
+    'try',
+    'while',
+    'with',
+    'yield',
+    'self',
+    'cls'
+  ],
+  builtins: [
+    'abs',
+    'all',
+    'any',
+    'bin',
+    'bool',
+    'bytearray',
+    'bytes',
+    'callable',
+    'chr',
+    'classmethod',
+    'complex',
+    'dict',
+    'dir',
+    'divmod',
+    'enumerate',
+    'eval',
+    'exec',
+    'filter',
+    'float',
+    'format',
+    'frozenset',
+    'getattr',
+    'globals',
+    'hasattr',
+    'hash',
+    'help',
+    'hex',
+    'id',
+    'input',
+    'int',
+    'isinstance',
+    'issubclass',
+    'iter',
+    'len',
+    'list',
+    'locals',
+    'map',
+    'max',
+    'memoryview',
+    'min',
+    'next',
+    'object',
+    'oct',
+    'open',
+    'ord',
+    'pow',
+    'print',
+    'property',
+    'range',
+    'repr',
+    'reversed',
+    'round',
+    'set',
+    'setattr',
+    'slice',
+    'sorted',
+    'staticmethod',
+    'str',
+    'sum',
+    'super',
+    'tuple',
+    'type',
+    'vars',
+    'zip'
+  ],
+  brackets: [
+    { open: '{', close: '}', token: 'delimiter.curly' },
+    { open: '[', close: ']', token: 'delimiter.square' },
+    { open: '(', close: ')', token: 'delimiter.parenthesis' }
+  ],
+  tokenizer: {
+    root: [
+      [/[rRbBuUfF]{0,2}'''/, 'string', '@docstring'],
+      [/[rRbBuUfF]{0,2}"""/, 'string', '@docstringD'],
+      [/[rRbBuUfF]{0,2}'(?:\\.|[^'\\\n])*'/, 'string'],
+      [/[rRbBuUfF]{0,2}"(?:\\.|[^"\\\n])*"/, 'string'],
+      [/#.*$/, 'comment'],
+      [/@[a-zA-Z_]\w*/, 'decorator'],
+      [/\b(def)(\s+)([a-zA-Z_]\w*)/, ['keyword', 'white', 'function']],
+      [/\b(class)(\s+)([a-zA-Z_]\w*)/, ['keyword', 'white', 'type']],
+      [/(\.)([a-zA-Z_]\w*)/, ['delimiter', 'property']],
+      [/\b[A-Z]\w*(?=\s*\()/, 'type'],
+      [
+        /\b[a-zA-Z_]\w*(?=\s*\()/,
+        {
+          cases: {
+            '@keywords': 'keyword',
+            '@builtins': 'builtin',
+            '@default': 'function'
+          }
+        }
+      ],
+      [/\b[A-Z]\w*\b/, 'type'],
+      [
+        /[a-zA-Z_]\w*/,
+        {
+          cases: {
+            '@keywords': 'keyword',
+            '@builtins': 'builtin',
+            '@default': 'identifier'
+          }
+        }
+      ],
+      [/\b0[xX][0-9a-fA-F_]+[lL]?/, 'number.hex'],
+      [/\b0[bB][01_]+/, 'number.binary'],
+      [/\b0[oO][0-7_]+/, 'number.octal'],
+      [/\b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+\-]?\d+)?[jJ]?/, 'number'],
+      [/[{}()\[\]]/, '@brackets'],
+      [/[,:;]/, 'delimiter'],
+      [/[=><!~?:&|+\-*\/\^%@]+/, 'operator'],
+      [/\s+/, 'white']
+    ],
+    docstring: [
+      [/[^']+/, 'string'],
+      [/'''/, 'string', '@pop'],
+      [/'/, 'string']
+    ],
+    docstringD: [
+      [/[^"]+/, 'string'],
+      [/"""/, 'string', '@pop'],
+      [/"/, 'string']
+    ]
+  }
+}
+
+monaco.languages.setMonarchTokensProvider('python', pythonLanguage)
+
 /**
  * Monaco 的 worker 入口。
  *
@@ -234,6 +417,10 @@ export function applyMonacoTheme(): void {
   const comment = light ? '8a8a92' : '6b6b73'
   const type = light ? '2c62a8' : '82aaff'
   const fn = light ? '8a5a00' : 'ffcb6b'
+  // 语义着色：变量 / 参数 / 属性各给一个颜色，否则 LSP 打开后仍然一大片白色
+  const variable = light ? '1d4f91' : 'c8d3f5'
+  const property = light ? '0f7b6c' : '7fdbca'
+  const param = light ? '7a3e00' : 'e5c07b'
 
   monaco.editor.defineTheme('ccoder', {
     base: light ? 'vs' : 'vs-dark',
@@ -246,7 +433,30 @@ export function applyMonacoTheme(): void {
       { token: 'type', foreground: type },
       { token: 'type.identifier', foreground: type },
       { token: 'function', foreground: fn },
-      { token: 'identifier', foreground: fg.replace('#', '') }
+      { token: 'builtin', foreground: type },
+      { token: 'identifier', foreground: fg.replace('#', '') },
+      // LSP semantic tokens
+      { token: 'namespace', foreground: type },
+      { token: 'class', foreground: type },
+      { token: 'enum', foreground: type },
+      { token: 'interface', foreground: type },
+      { token: 'struct', foreground: type },
+      { token: 'typeParameter', foreground: type, fontStyle: 'italic' },
+      { token: 'builtinType', foreground: type },
+      { token: 'parameter', foreground: param },
+      { token: 'variable', foreground: variable },
+      { token: 'property', foreground: property },
+      { token: 'enumMember', foreground: number },
+      { token: 'event', foreground: type },
+      { token: 'method', foreground: fn },
+      { token: 'macro', foreground: number },
+      { token: 'modifier', foreground: keyword },
+      { token: 'regexp', foreground: string },
+      { token: 'operator', foreground: dim.replace('#', '') },
+      { token: 'decorator', foreground: keyword },
+      { token: 'label', foreground: number },
+      { token: 'selfKeyword', foreground: keyword },
+      { token: 'selfTypeKeyword', foreground: keyword }
     ],
     colors: {
       'editor.background': bg,

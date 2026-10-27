@@ -249,7 +249,7 @@ export function MainPane({
    *
    * 打开已有会话时 CLI **还没启动**（首次发送才 spawn），所以 chat.model
    * 是空的；而历史记录里的模型名是 API 规范化后的 id，`[1m]` 已经被抹掉了
-   * （dsh 那边 `deepseek-v4.1-flash` 会落成 `deepseek-flash`）。两种情况下
+   * （旧会话可能还留着已下线的 `deepseek-flash`）。两种情况下
    * 都算不出窗口，胶囊只能退回显示「340.9k」这种绝对值。
    *
    * 渠道配置里的模型名是用户填的原始串，按同一口径（去标记 + 别名归一）

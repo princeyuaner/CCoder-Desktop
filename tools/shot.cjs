@@ -8,10 +8,21 @@ const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 
-const out = process.argv[2] || path.join(__dirname, '..', 'shot.png')
-const clickSelectors = process.argv.slice(3)
+/*
+ * Chromium 的开关（--no-sandbox 之类）会被原样留在 process.argv 里，
+ * 直接拿 argv[2] 当输出路径会错位。先滤掉 `--` 开头的再取位置参数。
+ * SHOT_PROFILE=1 时把 userData 放到工作区里 —— 有些机器上默认的
+ * %APPDATA%\Electron 目录没有写权限，启动时会让 Chromium 报警。
+ */
+const argv = process.argv.filter((a) => !a.startsWith('--'))
+const out = argv[2] || path.join(__dirname, '..', 'shot.png')
+const clickSelectors = argv.slice(3)
 const lang = process.env.SHOT_LANG === 'en' ? 'en' : 'zh'
 const L = (zh, en) => (lang === 'en' ? en : zh)
+
+if (process.env.SHOT_PROFILE === '1') {
+  app.setPath('userData', path.join(__dirname, '..', '.tmp-build', 'shot-profile'))
+}
 
 const ch = (id, name, baseUrl, model, authMode) => ({
   id,
@@ -139,6 +150,61 @@ ipcMain.handle('dsh:status', () => ({
   home: 'C:\\Users\\CY\\.dsh',
   checkedAt: Date.now()
 }))
+
+/* CLI 自身的版本更新：截图桩。三个 CLI 各给一个典型状态，一屏能看全。 */
+const CLI_UPDATE = {
+  claude: {
+    cli: 'claude',
+    phase: 'available',
+    packageName: '@anthropic-ai/claude-code',
+    notesUrl: 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md',
+    installed: true,
+    path: 'C:\\Users\\CY\\AppData\\Roaming\\npm\\claude.cmd',
+    current: '2.0.31',
+    currentRaw: '2.0.31 (Claude Code)',
+    latest: '2.1.0',
+    publishedAt: Date.now() - 3 * 86400000,
+    installKind: 'npm-global',
+    canUpdate: true,
+    command: 'npm install -g @anthropic-ai/claude-code@2.1.0',
+    checkedAt: Date.now() - 47 * 60000
+  },
+  codex: {
+    cli: 'codex',
+    phase: 'available',
+    packageName: '@openai/codex',
+    notesUrl: 'https://github.com/openai/codex/releases',
+    installed: true,
+    path: 'C:\\Users\\CY\\AppData\\Roaming\\npm\\codex.cmd',
+    current: '0.163.0',
+    currentRaw: 'codex-cli 0.163.0',
+    latest: '0.164.0',
+    publishedAt: Date.now() - 86400000,
+    installKind: 'npm-global',
+    canUpdate: true,
+    command: 'npm install -g @openai/codex@0.164.0',
+    checkedAt: Date.now() - 47 * 60000
+  },
+  dsh: {
+    cli: 'dsh',
+    phase: 'up-to-date',
+    packageName: '@deepseek-ai/dsh',
+    notesUrl: 'https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions',
+    installed: true,
+    path: 'C:\\Users\\CY\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js',
+    current: '0.2.1-rc.2',
+    currentRaw: '0.2.1-rc.2',
+    latest: '0.2.1-rc.2',
+    installKind: 'npm-global',
+    canUpdate: false,
+    checkedAt: Date.now() - 47 * 60000
+  }
+}
+ipcMain.handle('cli-update:states', () => CLI_UPDATE)
+ipcMain.handle('cli-update:check', (_e, cli) => CLI_UPDATE[cli] ?? CLI_UPDATE.claude)
+ipcMain.handle('cli-update:run', () => ({ ok: true }))
+ipcMain.handle('cli-update:elevated', () => ({ ok: true }))
+ipcMain.handle('cli-update:cancel', () => ({ ok: true }))
 
 /* MCP：截图桩。结构与真实 mcp:list 返回值一致，只用于视觉验收。 */
 const MCP_SOURCE = {
@@ -396,8 +462,32 @@ app.whenReady().then(async () => {
   }
 
   console.log('capturing', out)
-  const img = await win.webContents.capturePage()
-  fs.writeFileSync(out, img.toPNG())
+  /*
+   * 有些环境里 capturePage() 会一直不返回（窗口隐藏 / GPU 合成被禁用）。
+   * SHOT_CDP=1 改走 DevTools 协议截当前视口；=2 时整页截（页面很长时慢）。
+   */
+  let png
+  if (process.env.SHOT_CDP === '1' || process.env.SHOT_CDP === '2') {
+    const dbg = win.webContents.debugger
+    dbg.attach('1.3')
+    await dbg.sendCommand('Page.enable')
+    const clip =
+      process.env.SHOT_CDP === '2'
+        ? await (async () => {
+            const metrics = await dbg.sendCommand('Page.getLayoutMetrics')
+            const cs = metrics.cssContentSize || metrics.contentSize
+            return { x: 0, y: 0, width: Math.ceil(cs.width), height: Math.ceil(cs.height), scale: 1 }
+          })()
+        : null
+    const res = await dbg.sendCommand('Page.captureScreenshot', {
+      format: 'png',
+      ...(clip ? { captureBeyondViewport: true, clip } : {})
+    })
+    png = Buffer.from(res.data, 'base64')
+  } else {
+    png = (await win.webContents.capturePage()).toPNG()
+  }
+  fs.writeFileSync(out, png)
   console.log('wrote', out)
   app.exit(0)
 })

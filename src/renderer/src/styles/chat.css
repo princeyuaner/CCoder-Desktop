@@ -90,12 +90,15 @@
 .chip__cli svg {
   display: block;
 }
-/* 品牌色跟侧栏会话图标同源：Claude 珊瑚橙，OpenAI 本来就是黑白 */
+/* 品牌色跟侧栏会话图标同源：Claude 珊瑚橙，OpenAI 本来就是黑白，DSH 官方蓝 */
 .chip__cli--claude {
   color: #d97757;
 }
 .chip__cli--codex {
   color: var(--text);
+}
+.chip__cli--dsh {
+  color: var(--brand-dsh);
 }
 .chip__channel {
   flex: 0 1 auto;
@@ -3218,6 +3221,9 @@
 }
 .mpick__ico--codex {
   color: var(--text);
+}
+.mpick__ico--dsh {
+  color: var(--brand-dsh);
 }
 .mpick__avatar {
   flex: none;

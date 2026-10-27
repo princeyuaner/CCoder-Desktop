@@ -1,10 +1,11 @@
 /**
  * 模型名的比较口径。
  *
- * 同一个模型在不同地方有三个写法：
- *  - dsh 运行时的目录里，id 是 `deepseek-flash`，显示名是「DeepSeek-V4.1-Flash」；
- *  - 渠道配置里用户填的是端点认识的别名（`deepseek-v4.1-flash[1m]`）；
- *  - 历史记录里存的是 CLI 规范化后的 id。
+ * 同一个模型在不同地方有不同的写法：
+ *  - DeepSeek 网关现在只认 `deepseek-v4.1-flash`，旧的 `deepseek-flash` 已下线；
+ *  - dsh 0.2.1 的内置目录仍然写着 `deepseek-flash`（显示名「DeepSeek-V4.1-Flash」），
+ *    启动时用 patch 覆盖目录，见 providers/dsh/runner.ts；
+ *  - 渠道配置和历史记录里可能还留着旧 id。
  *
  * 界面和适配器都按这里的口径比较，否则「用户选的」和「CLI 报的」会被当成两个
  * 模型 —— 会话一启动，胶囊就会跳成另一个名字，看着像被偷偷换了模型。
@@ -19,15 +20,15 @@ export function bareModel(s: string): string {
  * 已知别名 → 规范 id（键和值都小写）。
  *
  * 只收确认过是同一个模型的写法：
- *  - dsh 0.2 的目录把 V4.1 Flash 的 id 从 `deepseek-v4.1-flash` / `deepseek-v4-flash`
- *    收敛成了 `deepseek-flash`（显示名仍是 DeepSeek-V4.1-Flash）；
- *  - Pro 同理，`deepseek-v4.1-pro` 是它显示名的写法。
+ *  - 网关废弃了 `deepseek-flash`，旧配置里的 id 必须归一到 `deepseek-v4.1-flash`；
+ *  - `deepseek-v4-flash` 是更早的写法，同样归一到新 id；
+ *  - Pro 仍是 `deepseek-v4-pro`，`deepseek-v4.1-pro` 是它显示名的写法。
  *
  * 拿不准的别往这里加 —— 归一错了会让两个不同的模型互相顶替。
  */
 const MODEL_ALIASES: Record<string, string> = {
-  'deepseek-v4-flash': 'deepseek-flash',
-  'deepseek-v4.1-flash': 'deepseek-flash',
+  'deepseek-flash': 'deepseek-v4.1-flash',
+  'deepseek-v4-flash': 'deepseek-v4.1-flash',
   'deepseek-v4.1-pro': 'deepseek-v4-pro'
 }
 

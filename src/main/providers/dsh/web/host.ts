@@ -5,7 +5,7 @@ import { WebSocket } from 'ws'
 import type { Channel } from '../../../../shared/settings'
 import { pathKey } from '../../../path-key'
 import { logMain } from '../../../crash-log'
-import { dshChannelEnv, killDshTree, spawnDsh } from '../runner'
+import { dshChannelEnv, dshModelCatalogPatch, killDshTree, spawnDsh } from '../runner'
 import { arr, obj, str, stripAnsi, type Obj } from '../shared'
 
 /**
@@ -77,6 +77,14 @@ const CONNECT_TIMEOUT_MS = 20_000
 const CALL_TIMEOUT_MS = 30_000
 const IDLE_SHUTDOWN_MS = 10 * 60_000
 const MAX_RECONNECT = 10
+
+/*
+ * dsh 的 web 服务器先 listen、后挂路由；路由没挂好之前，/connect 会拿到
+ * 404（dsh-host-webserver 的启动占位行为）。启动 URL 又是在插件加载完成时
+ * 才打印的，两者之间仍有一个很窄的窗口，不能一次 404 就判死。
+ */
+const AUTH_ROUTE_WAIT_MS = 10_000
+const AUTH_ROUTE_RETRY_MS = 100
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -190,6 +198,9 @@ export class DshWebHost {
       '--profile',
       'web',
       ...(this.o.patchFile ? ['--patch', this.o.patchFile] : []),
+      // 模型目录必须排在 --no-open 前面（见上）；后应用的 overlay 优先级更高
+      '--patch',
+      dshModelCatalogPatch(),
       '--no-open',
       '--port',
       '0',
@@ -275,16 +286,47 @@ export class DshWebHost {
     const url = new URL('/connect', this.origin)
     url.searchParams.set('token', this.token)
     url.searchParams.set('interactions', 'answer')
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'manual',
-      signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS)
-    })
+
+    const deadline = Date.now() + AUTH_ROUTE_WAIT_MS
+    let res: Response
+    for (;;) {
+      try {
+        res = await fetch(url, {
+          method: 'GET',
+          redirect: 'manual',
+          signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS)
+        })
+      } catch (e) {
+        // 端口已经打印、监听还没完全 accept：和 404 一样当成启动中的瞬态
+        if (Date.now() < deadline) {
+          await delay(AUTH_ROUTE_RETRY_MS)
+          continue
+        }
+        throw new DshWebError(
+          'dsh/web-auth',
+          `DeepSeek Harness Web 认证请求失败：${e instanceof Error ? e.message : String(e)}`
+        )
+      }
+
+      // 404 = /connect 路由还没注册；5xx = 服务正在启动。给路由一点时间。
+      if ((res.status === 404 || res.status >= 500) && Date.now() < deadline) {
+        await res.body?.cancel().catch(() => {})
+        await delay(AUTH_ROUTE_RETRY_MS)
+        continue
+      }
+      break
+    }
+
     if (res.status !== 302) {
       const body = await res.text().catch(() => '')
+      const detail = body ? `：${body.slice(0, 200)}` : ''
+      const hint =
+        res.status === 404
+          ? '（服务已启动但 /connect 路由未注册，可能是 dsh 版本不匹配）'
+          : ''
       throw new DshWebError(
         'dsh/web-auth',
-        `DeepSeek Harness Web 认证失败（HTTP ${res.status}）${body ? `：${body.slice(0, 200)}` : ''}`
+        `DeepSeek Harness Web 认证失败（HTTP ${res.status}）${detail}${hint}`
       )
     }
     const setCookie = res.headers.get('set-cookie') ?? ''

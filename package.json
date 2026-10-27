@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -21,6 +21,7 @@
     "verify:files": "npx esbuild src/main/workspace-search.ts --bundle --platform=node --format=cjs --outfile=tools/_workspace-search.cjs && node tools/verify-files.cjs",
     "verify:ide-search": "npx esbuild src/main/ide-fs.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-fs.cjs && node tools/verify-ide-search.cjs",
     "verify:lsp": "npx esbuild src/main/lsp/host.ts --bundle --platform=node --format=cjs --outfile=tools/_lsp-host.cjs && npx esbuild src/renderer/src/ide/lsp-diff.ts --bundle --platform=node --format=cjs --outfile=tools/_lsp-diff.cjs && node tools/verify-lsp.cjs",
+    "verify:cli-update": "npx esbuild src/main/cli-update.ts --bundle --platform=node --format=cjs --outfile=tools/_cli-update.cjs && node tools/verify-cli-update.cjs && npx esbuild src/renderer/src/components/CliUpdatePanel.tsx --bundle --platform=node --format=cjs --jsx=automatic --alias:@shared=./src/shared --external:react --external:react-dom --outfile=tools/_cli-update-panel.cjs && node tools/verify-cli-update-panel.cjs",
     "verify:packaged-rg": "node tools/verify-packaged-rg.cjs",
     "package": "node tools/stage-rg.cjs && electron-vite build && electron-builder --win --publish never"
   },

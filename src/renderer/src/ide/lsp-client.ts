@@ -2,6 +2,7 @@ import type { LspDiagnosticsEvent, LspPosition, LspRange, LspStateEvent } from '
 import { monaco, setTsWorkerMode } from './monaco-setup'
 import { diffChange } from './lsp-diff'
 import { relFromUri } from './problems'
+import type { OutlineKind } from './outline'
 
 /**
  * 渲染层这一侧的 LSP 客户端。
@@ -94,6 +95,8 @@ interface SessionState {
   message?: string
   failedAt?: number
   promise?: Promise<boolean>
+  /** initialize 返回的能力；语义着色要读 semanticTokensProvider.legend */
+  capabilities?: unknown
 }
 
 const CHANGE_DEBOUNCE_MS = 250
@@ -278,6 +281,559 @@ function toTextEdits(raw: unknown): monaco.languages.TextEdit[] | null {
   return out.length ? out : null
 }
 
+/* ── 符号 ─────────────────────────────────────────────── */
+
+const SYMBOL_KIND: Record<number, monaco.languages.SymbolKind> = {
+  1: monaco.languages.SymbolKind.File,
+  2: monaco.languages.SymbolKind.Module,
+  3: monaco.languages.SymbolKind.Namespace,
+  4: monaco.languages.SymbolKind.Package,
+  5: monaco.languages.SymbolKind.Class,
+  6: monaco.languages.SymbolKind.Method,
+  7: monaco.languages.SymbolKind.Property,
+  8: monaco.languages.SymbolKind.Field,
+  9: monaco.languages.SymbolKind.Constructor,
+  10: monaco.languages.SymbolKind.Enum,
+  11: monaco.languages.SymbolKind.Interface,
+  12: monaco.languages.SymbolKind.Function,
+  13: monaco.languages.SymbolKind.Variable,
+  14: monaco.languages.SymbolKind.Constant,
+  15: monaco.languages.SymbolKind.String,
+  16: monaco.languages.SymbolKind.Number,
+  17: monaco.languages.SymbolKind.Boolean,
+  18: monaco.languages.SymbolKind.Array,
+  19: monaco.languages.SymbolKind.Object,
+  20: monaco.languages.SymbolKind.Key,
+  21: monaco.languages.SymbolKind.Null,
+  22: monaco.languages.SymbolKind.EnumMember,
+  23: monaco.languages.SymbolKind.Struct,
+  24: monaco.languages.SymbolKind.Event,
+  25: monaco.languages.SymbolKind.Operator,
+  26: monaco.languages.SymbolKind.TypeParameter
+}
+
+interface RawSymbol {
+  name?: unknown
+  detail?: unknown
+  kind?: unknown
+  tags?: unknown
+  range?: unknown
+  selectionRange?: unknown
+  children?: unknown
+  location?: unknown
+  containerName?: unknown
+}
+
+function symbolKindOf(raw: unknown): monaco.languages.SymbolKind {
+  return typeof raw === 'number'
+    ? (SYMBOL_KIND[raw] ?? monaco.languages.SymbolKind.Variable)
+    : monaco.languages.SymbolKind.Variable
+}
+
+function symbolTagsOf(raw: unknown): monaco.languages.SymbolTag[] {
+  return Array.isArray(raw) && raw.includes(1) ? [monaco.languages.SymbolTag.Deprecated] : []
+}
+
+function isHierarchicalSymbols(list: unknown[]): boolean {
+  return list.some((item) => !!item && typeof item === 'object' && 'selectionRange' in item)
+}
+
+function documentSymbolOf(raw: unknown, depth = 0): monaco.languages.DocumentSymbol | null {
+  if (!raw || typeof raw !== 'object' || depth > 16) return null
+  const s = raw as RawSymbol
+  if (typeof s.name !== 'string' || !s.name) return null
+  const range = rangeOf(s.range)
+  const selection = rangeOf(s.selectionRange) ?? range
+  if (!range || !selection) return null
+  const children = Array.isArray(s.children)
+    ? s.children
+        .map((child) => documentSymbolOf(child, depth + 1))
+        .filter((x): x is monaco.languages.DocumentSymbol => !!x)
+    : []
+  return {
+    name: s.name,
+    detail: typeof s.detail === 'string' ? s.detail : '',
+    kind: symbolKindOf(s.kind),
+    tags: symbolTagsOf(s.tags),
+    range,
+    selectionRange: selection,
+    ...(children.length ? { children } : {})
+  }
+}
+
+/** textDocument/documentSymbol 的两种返回形状：层级 DocumentSymbol 或扁平 SymbolInformation */
+function documentSymbolsOf(raw: unknown, docUri: string): monaco.languages.DocumentSymbol[] {
+  const list = Array.isArray(raw) ? raw : []
+  if (isHierarchicalSymbols(list)) {
+    return list
+      .map((item) => documentSymbolOf(item))
+      .filter((x): x is monaco.languages.DocumentSymbol => !!x)
+  }
+
+  const out: monaco.languages.DocumentSymbol[] = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const s = item as RawSymbol
+    const loc = s.location as { uri?: unknown; range?: unknown } | undefined
+    if (!loc || typeof loc.uri !== 'string' || loc.uri !== docUri) continue
+    const range = rangeOf(loc.range)
+    if (!range || typeof s.name !== 'string' || !s.name) continue
+    out.push({
+      name: s.name,
+      detail: typeof s.containerName === 'string' ? s.containerName : '',
+      kind: symbolKindOf(s.kind),
+      tags: symbolTagsOf(s.tags),
+      range,
+      selectionRange: range
+    })
+  }
+  return out
+}
+
+/** 侧栏大纲用的轻量形状，和 outline.ts 的 OutlineSymbol 兼容 */
+export interface LspOutlineSymbol {
+  name: string
+  kind: OutlineKind
+  line: number
+  column: number
+  depth: number
+}
+
+function outlineKindOf(raw: unknown): OutlineKind {
+  switch (raw) {
+    case 2:
+    case 3:
+    case 4:
+      return 'module'
+    case 5:
+    case 23:
+      return 'class'
+    case 6:
+    case 9:
+      return 'method'
+    case 10:
+      return 'enum'
+    case 11:
+      return 'interface'
+    case 12:
+      return 'function'
+    case 13:
+    case 14:
+      return 'constant'
+    case 26:
+      return 'type'
+    default:
+      return 'symbol'
+  }
+}
+
+export function outlineSymbolsOf(raw: unknown, docUri: string): LspOutlineSymbol[] {
+  const out: LspOutlineSymbol[] = []
+  const list = Array.isArray(raw) ? raw : []
+
+  const walk = (item: unknown, depth: number): void => {
+    if (!item || typeof item !== 'object' || out.length >= 2_000) return
+    const s = item as RawSymbol
+    const pos = rangeOf(s.selectionRange) ?? rangeOf(s.range)
+    if (typeof s.name === 'string' && s.name && pos) {
+      out.push({
+        name: s.name,
+        kind: outlineKindOf(s.kind),
+        line: pos.startLineNumber,
+        column: pos.startColumn,
+        depth
+      })
+    }
+    if (Array.isArray(s.children)) {
+      for (const child of s.children) walk(child, depth + 1)
+    }
+  }
+
+  if (isHierarchicalSymbols(list)) {
+    for (const item of list) walk(item, 0)
+    return out
+  }
+
+  for (const item of list) {
+    if (!item || typeof item !== 'object' || out.length >= 2_000) continue
+    const s = item as RawSymbol
+    const loc = s.location as { uri?: unknown; range?: unknown } | undefined
+    if (!loc || typeof loc.uri !== 'string' || loc.uri !== docUri) continue
+    const range = rangeOf(loc.range)
+    if (!range || typeof s.name !== 'string' || !s.name) continue
+    out.push({
+      name: s.name,
+      kind: outlineKindOf(s.kind),
+      line: range.startLineNumber,
+      column: range.startColumn,
+      depth: 0
+    })
+  }
+  return out
+}
+
+export interface LspWorkspaceSymbol {
+  name: string
+  containerName?: string
+  kind: number
+  rel: string
+  /** 1-based */
+  line: number
+  /** 1-based */
+  column: number
+}
+
+function workspaceSymbolsOf(raw: unknown, cwd: string): LspWorkspaceSymbol[] {
+  const list = Array.isArray(raw) ? raw : []
+  const out: LspWorkspaceSymbol[] = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object' || out.length >= 500) continue
+    const s = item as RawSymbol
+    if (typeof s.name !== 'string' || !s.name) continue
+    const loc = s.location as { uri?: unknown; range?: unknown } | undefined
+    if (!loc || typeof loc.uri !== 'string') continue
+    const uri = safeUri(loc.uri)
+    if (!uri) continue
+    const rel = relFromUri(uri, cwd)
+    if (!rel) continue
+    const range = rangeOf(loc.range)
+    out.push({
+      name: s.name,
+      ...(typeof s.containerName === 'string' && s.containerName
+        ? { containerName: s.containerName }
+        : {}),
+      kind: typeof s.kind === 'number' ? s.kind : 0,
+      rel,
+      line: range ? range.startLineNumber : 1,
+      column: range ? range.startColumn : 1
+    })
+  }
+  return out
+}
+
+/* ── 签名 / 高亮 / 代码操作 ─────────────────────────────── */
+
+function documentationOf(raw: unknown): monaco.IMarkdownString | undefined {
+  const docs = markdownContents(raw)
+  return docs.length ? { value: docs.map((d) => d.value).join('\n\n') } : undefined
+}
+
+function signatureHelpOf(raw: unknown): monaco.languages.SignatureHelpResult | null {
+  if (!raw || typeof raw !== 'object') return null
+  const help = raw as {
+    signatures?: unknown
+    activeSignature?: unknown
+    activeParameter?: unknown
+  }
+  if (!Array.isArray(help.signatures)) return null
+
+  const signatures: monaco.languages.SignatureInformation[] = []
+  for (const entry of help.signatures) {
+    if (!entry || typeof entry !== 'object') continue
+    const sig = entry as {
+      label?: unknown
+      documentation?: unknown
+      parameters?: unknown
+      activeParameter?: unknown
+    }
+    // Monaco 只接受字符串 label；LSP 的签名 label 也是字符串，
+    // 参数 label 可能是 [start, end] 偏移，用签名文本切出来。
+    if (typeof sig.label !== 'string') continue
+    const label = sig.label
+    const parameters: monaco.languages.ParameterInformation[] = []
+    if (Array.isArray(sig.parameters)) {
+      for (const rawParam of sig.parameters) {
+        if (!rawParam || typeof rawParam !== 'object') continue
+        const p = rawParam as { label?: unknown; documentation?: unknown }
+        let paramLabel: string | null = null
+        if (typeof p.label === 'string') {
+          paramLabel = p.label
+        } else if (
+          Array.isArray(p.label) &&
+          typeof p.label[0] === 'number' &&
+          typeof p.label[1] === 'number'
+        ) {
+          paramLabel = label.slice(p.label[0], p.label[1])
+        }
+        if (paramLabel === null) continue
+        const doc = documentationOf(p.documentation)
+        parameters.push({ label: paramLabel, ...(doc ? { documentation: doc } : {}) })
+      }
+    }
+    const doc = documentationOf(sig.documentation)
+    signatures.push({
+      label,
+      parameters,
+      ...(doc ? { documentation: doc } : {}),
+      ...(typeof sig.activeParameter === 'number'
+        ? { activeParameter: sig.activeParameter }
+        : {})
+    })
+  }
+  if (signatures.length === 0) return null
+
+  return {
+    value: {
+      signatures,
+      activeSignature:
+        typeof help.activeSignature === 'number'
+          ? Math.max(0, help.activeSignature)
+          : 0,
+      activeParameter:
+        typeof help.activeParameter === 'number' ? Math.max(0, help.activeParameter) : 0
+    },
+    dispose: () => {}
+  }
+}
+
+function highlightsOf(raw: unknown): monaco.languages.DocumentHighlight[] | null {
+  if (!Array.isArray(raw)) return null
+  const out: monaco.languages.DocumentHighlight[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const h = entry as { range?: unknown; kind?: unknown }
+    const range = rangeOf(h.range)
+    if (!range) continue
+    const kind =
+      h.kind === 2
+        ? monaco.languages.DocumentHighlightKind.Read
+        : h.kind === 3
+          ? monaco.languages.DocumentHighlightKind.Write
+          : monaco.languages.DocumentHighlightKind.Text
+    out.push({ range, kind })
+  }
+  return out.length ? out : null
+}
+
+function lspSeverityOf(severity: monaco.MarkerSeverity): number {
+  if (severity === monaco.MarkerSeverity.Error) return 1
+  if (severity === monaco.MarkerSeverity.Warning) return 2
+  if (severity === monaco.MarkerSeverity.Info) return 3
+  return 4
+}
+
+/** Monaco marker → LSP Diagnostic，代码操作请求要把当前诊断一起带上 */
+function diagnosticOf(marker: monaco.editor.IMarkerData): Record<string, unknown> {
+  const code =
+    typeof marker.code === 'string'
+      ? marker.code
+      : marker.code && typeof marker.code === 'object'
+        ? marker.code.value
+        : undefined
+  return {
+    range: {
+      start: { line: marker.startLineNumber - 1, character: marker.startColumn - 1 },
+      end: { line: marker.endLineNumber - 1, character: marker.endColumn - 1 }
+    },
+    severity: lspSeverityOf(marker.severity),
+    message: marker.message,
+    ...(code !== undefined ? { code } : {}),
+    ...(marker.source ? { source: marker.source } : {}),
+    ...(marker.tags && marker.tags.length ? { tags: marker.tags } : {})
+  }
+}
+
+/**
+ * LSP CodeAction → Monaco CodeAction。
+ *
+ * 服务器只给 data 不给 edit 时（惰性解析），把原始 action 记在 pending 里，
+ * 等用户真正选中时再走 codeAction/resolve。只返回 command 的动作无法在
+ * 渲染层执行，直接跳过，避免菜单里出现点了没反应的项。
+ */
+function codeActionOf(
+  raw: unknown,
+  pending: WeakMap<monaco.languages.CodeAction, unknown>
+): monaco.languages.CodeAction | null {
+  if (!raw || typeof raw !== 'object') return null
+  const action = raw as {
+    title?: unknown
+    kind?: unknown
+    edit?: unknown
+    data?: unknown
+    isPreferred?: unknown
+    disabled?: unknown
+  }
+  if (typeof action.title !== 'string' || !action.title) return null
+
+  const edit = asWorkspaceEdit(action.edit)
+  const disabled =
+    action.disabled && typeof action.disabled === 'object'
+      ? (action.disabled as { reason?: unknown }).reason
+      : undefined
+  const mapped: monaco.languages.CodeAction = {
+    title: action.title,
+    ...(typeof action.kind === 'string' ? { kind: action.kind } : {}),
+    ...(action.isPreferred === true ? { isPreferred: true } : {}),
+    ...(typeof disabled === 'string' && disabled ? { disabled } : {}),
+    ...(edit ? { edit } : {})
+  }
+  if (!edit) {
+    if (action.data === undefined || action.data === null) return null
+    pending.set(mapped, raw)
+  }
+  return mapped
+}
+
+/* ── 语义着色（semantic tokens） ────────────────────────── */
+
+/**
+ * 客户端固定 legend。
+ *
+ * 每个服务器的 legend 顺序都不一样（Pyright 只给 24 种，其他服务器可能更多），
+ * 所以这里用一份超集注册给 Monaco，再把服务器返回的 tokenType / modifier
+ * 按名字映射到这份 legend 的下标。
+ */
+const SEMANTIC_TOKEN_TYPES = [
+  'namespace',
+  'type',
+  'class',
+  'enum',
+  'interface',
+  'struct',
+  'typeParameter',
+  'parameter',
+  'variable',
+  'property',
+  'enumMember',
+  'event',
+  'function',
+  'method',
+  'macro',
+  'keyword',
+  'modifier',
+  'comment',
+  'string',
+  'number',
+  'regexp',
+  'operator',
+  'decorator',
+  'label',
+  'angleBracket',
+  'arithmetic',
+  'attribute',
+  'bitwise',
+  'boolean',
+  'brace',
+  'bracket',
+  'builtinType',
+  'character',
+  'colon',
+  'comma',
+  'comparison',
+  'deprecated',
+  'escapeSequence',
+  'formatSpecifier',
+  'lifetime',
+  'logical',
+  'parenthesis',
+  'punctuation',
+  'selfKeyword',
+  'selfTypeKeyword',
+  'semicolon',
+  'stringEscape',
+  'toolCommand',
+  'typeArgument'
+]
+
+const SEMANTIC_TOKEN_MODIFIERS = [
+  'declaration',
+  'definition',
+  'readonly',
+  'static',
+  'deprecated',
+  'abstract',
+  'async',
+  'modification',
+  'documentation',
+  'defaultLibrary'
+]
+
+export const SEMANTIC_LEGEND: monaco.languages.SemanticTokensLegend = {
+  tokenTypes: [...SEMANTIC_TOKEN_TYPES],
+  tokenModifiers: [...SEMANTIC_TOKEN_MODIFIERS]
+}
+
+const SEMANTIC_TYPE_INDEX = new Map(
+  SEMANTIC_TOKEN_TYPES.map((name, index) => [name, index] as const)
+)
+const SEMANTIC_MODIFIER_INDEX = new Map(
+  SEMANTIC_TOKEN_MODIFIERS.map((name, index) => [name, index] as const)
+)
+
+interface SemanticServerLegend {
+  tokenTypes: string[]
+  tokenModifiers: string[]
+}
+
+function semanticLegendOf(capabilities: unknown): SemanticServerLegend | null {
+  if (!capabilities || typeof capabilities !== 'object') return null
+  const provider = (capabilities as { semanticTokensProvider?: unknown })
+    .semanticTokensProvider
+  if (!provider || typeof provider !== 'object') return null
+  const p = provider as { full?: unknown; legend?: unknown }
+  if (!p.full) return null
+  if (!p.legend || typeof p.legend !== 'object') return null
+  const legend = p.legend as { tokenTypes?: unknown; tokenModifiers?: unknown }
+  const tokenTypes = Array.isArray(legend.tokenTypes)
+    ? legend.tokenTypes.filter((x): x is string => typeof x === 'string')
+    : []
+  const tokenModifiers = Array.isArray(legend.tokenModifiers)
+    ? legend.tokenModifiers.filter((x): x is string => typeof x === 'string')
+    : []
+  return tokenTypes.length ? { tokenTypes, tokenModifiers } : null
+}
+
+function semanticTokensOf(
+  raw: unknown,
+  legend: SemanticServerLegend
+): monaco.languages.SemanticTokens | null {
+  if (!raw || typeof raw !== 'object') return null
+  const data = (raw as { data?: unknown }).data
+  if (!data || typeof data !== 'object' || !('length' in data)) return null
+  const values = data as ArrayLike<number>
+  if (values.length < 5) return null
+
+  const typeMap = legend.tokenTypes.map((name) => SEMANTIC_TYPE_INDEX.get(name) ?? -1)
+  const modMap = legend.tokenModifiers.map(
+    (name) => SEMANTIC_MODIFIER_INDEX.get(name) ?? -1
+  )
+  const out: number[] = []
+  let line = 0
+  let character = 0
+  let lastLine = 0
+  let lastCharacter = 0
+
+  for (let i = 0; i + 4 < values.length; i += 5) {
+    const deltaLine = values[i] | 0
+    const deltaStart = values[i + 1] | 0
+    const length = values[i + 2] | 0
+    const typeIndex = values[i + 3] | 0
+    const modifiers = values[i + 4] | 0
+
+    line += deltaLine
+    character = deltaLine === 0 ? character + deltaStart : deltaStart
+
+    const mappedType = typeMap[typeIndex] ?? -1
+    if (mappedType < 0 || length <= 0) continue
+
+    let mappedModifiers = 0
+    for (let bit = 0; bit < modMap.length; bit++) {
+      if ((modifiers & (1 << bit)) === 0) continue
+      const target = modMap[bit] ?? -1
+      if (target >= 0 && target < 32) mappedModifiers |= 1 << target
+    }
+
+    // 被丢弃的 token 不能破坏后续 token 的相对偏移，按绝对位置重新计算
+    const outLine = line - lastLine
+    const outStart = outLine === 0 ? character - lastCharacter : character
+    out.push(outLine, outStart, length, mappedType, mappedModifiers)
+    lastLine = line
+    lastCharacter = character
+  }
+
+  return out.length ? { data: Uint32Array.from(out) } : null
+}
+
 function wordRangeAt(
   model: monaco.editor.ITextModel,
   position: monaco.IPosition
@@ -317,6 +873,9 @@ export class LspController {
   private readonly disposables: (() => void)[] = []
   private disposed = false
   private workerOff = false
+  /** 会话就绪 / 停止时由 installLspProviders 挂载 / 卸载语义着色 */
+  onSessionReady?: (language: string, capabilities: unknown) => void
+  onSessionStopped?: (language: string) => void
 
   constructor(cwd: string, onState: (language: string, info: LspStateInfo) => void) {
     this.cwd = cwd
@@ -413,6 +972,17 @@ export class LspController {
     // 位置类请求必须基于服务器已经看到的文本
     this.flushChange(doc)
 
+    return this.requestForLanguage(language, method, params, timeoutMs)
+  }
+
+  /** 不依赖某个 model 的请求：workspace/symbol、codeAction/resolve 用 */
+  async requestForLanguage(
+    language: string,
+    method: string,
+    params: unknown,
+    timeoutMs = 20_000
+  ): Promise<unknown | null> {
+    if (this.disposed || !isLspLanguage(language)) return null
     const api = window.api?.lsp
     if (!api) return null
     try {
@@ -429,6 +999,83 @@ export class LspController {
     }
   }
 
+  /** 侧栏大纲：优先用语言服务器的 documentSymbol，调用方失败时回落到正则扫描 */
+  async documentSymbols(model: monaco.editor.ITextModel): Promise<LspOutlineSymbol[]> {
+    const result = await this.request(
+      model,
+      'textDocument/documentSymbol',
+      { textDocument: textDocumentOf(model) },
+      10_000
+    )
+    return outlineSymbolsOf(result, model.uri.toString())
+  }
+
+  /**
+   * 语义着色：拿服务器的 semantic tokens，并按客户端固定 legend 重新编码。
+   * 服务器不支持 / 会话未就绪时返回 null，Monaco 会回落到语法着色。
+   */
+  async semanticTokens(
+    model: monaco.editor.ITextModel
+  ): Promise<monaco.languages.SemanticTokens | null> {
+    const language = model.getLanguageId()
+    if (!isLspLanguage(language)) return null
+    const session = this.sessions.get(language)
+    if (!session || session.status !== 'ready') return null
+    const legend = semanticLegendOf(session.capabilities)
+    if (!legend) return null
+
+    const result = await this.request(
+      model,
+      'textDocument/semanticTokens/full',
+      { textDocument: textDocumentOf(model) },
+      10_000
+    )
+    return semanticTokensOf(result, legend)
+  }
+
+  /**
+   * 工作区符号（Ctrl+T）。
+   *
+   * 查询所有已就绪的语言服务器；seedLanguage 用于在还没有任何会话时
+   * 先按当前文件的语言拉起一个，避免刚打开窗口搜索时永远为空。
+   */
+  async workspaceSymbols(query: string, seedLanguage?: string): Promise<LspWorkspaceSymbol[]> {
+    if (this.disposed) return []
+    if (seedLanguage) await this.ensureSession(seedLanguage)
+    if (this.disposed) return []
+
+    const languages: string[] = []
+    const seenServers = new Set<string>()
+    for (const [language, session] of this.sessions) {
+      if (session.status !== 'ready') continue
+      // TS / JS 共用同一个服务器：只问一次，避免重复查询
+      const serverKey = session.server ?? language
+      if (seenServers.has(serverKey)) continue
+      seenServers.add(serverKey)
+      languages.push(language)
+    }
+    if (languages.length === 0) return []
+
+    const batches = await Promise.all(
+      languages.map((language) =>
+        this.requestForLanguage(language, 'workspace/symbol', { query }, 10_000)
+      )
+    )
+
+    const out: LspWorkspaceSymbol[] = []
+    const seen = new Set<string>()
+    for (const batch of batches) {
+      for (const symbol of workspaceSymbolsOf(batch, this.cwd)) {
+        const key = `${symbol.rel}\u0000${symbol.line}\u0000${symbol.column}\u0000${symbol.name}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(symbol)
+        if (out.length >= 200) return out
+      }
+    }
+    return out
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -440,6 +1087,10 @@ export class LspController {
       }
     }
     this.disposables.length = 0
+    for (const language of this.sessions.keys()) this.onSessionStopped?.(language)
+    this.sessions.clear()
+    this.onSessionReady = undefined
+    this.onSessionStopped = undefined
     for (const doc of [...this.docs.values()]) this.closeDoc(doc)
     this.docs.clear()
     this.diagnostics.clear()
@@ -513,8 +1164,13 @@ export class LspController {
       .then((result) => {
         if (this.disposed) return false
         if (result.ok) {
-          this.sessions.set(language, { status: 'ready', server: result.server })
+          this.sessions.set(language, {
+            status: 'ready',
+            server: result.server,
+            capabilities: result.capabilities
+          })
           this.emit(language, { state: 'ready', server: result.server })
+          this.onSessionReady?.(language, result.capabilities)
           this.updateWorkerMode()
           for (const doc of this.docs.values()) {
             if (doc.language === language) this.openDoc(doc)
@@ -527,6 +1183,7 @@ export class LspController {
           failedAt: Date.now()
         })
         this.emit(language, { state: 'error', message: result.error })
+        this.onSessionStopped?.(language)
         return false
       })
       .catch((err: unknown) => {
@@ -534,6 +1191,7 @@ export class LspController {
         const message = err instanceof Error ? err.message : String(err)
         this.sessions.set(language, { status: 'error', message, failedAt: Date.now() })
         this.emit(language, { state: 'error', message })
+        this.onSessionStopped?.(language)
         return false
       })
     return state.promise
@@ -542,14 +1200,19 @@ export class LspController {
   private onSessionState(event: LspStateEvent): void {
     if (this.disposed || event.cwd !== this.cwd) return
     if (event.state === 'ready') {
+      const existing = this.sessions.get(event.language)
+      const capabilities = event.capabilities ?? existing?.capabilities
       this.sessions.set(event.language, {
         status: 'ready',
-        server: event.server
+        server: event.server,
+        ...(capabilities ? { capabilities } : {})
       })
       this.emit(event.language, {
         state: 'ready',
-        ...(event.server ? { server: event.server } : {})
+        ...(event.server ? { server: event.server } : {}),
+        ...(capabilities ? { capabilities } : {})
       })
+      this.onSessionReady?.(event.language, capabilities)
       this.updateWorkerMode()
       // 崩溃 / 重启后把该语言的文档重新 didOpen；文本用当前缓冲区
       for (const doc of this.docs.values()) {
@@ -569,6 +1232,7 @@ export class LspController {
         ...(event.server ? { server: event.server } : {}),
         ...(event.message ? { message: event.message } : {})
       })
+      this.onSessionStopped?.(event.language)
       for (const doc of this.docs.values()) {
         if (doc.language === event.language) doc.opened = false
       }
@@ -747,10 +1411,54 @@ function textDocumentOf(model: monaco.editor.ITextModel): { uri: string } {
   return { uri: model.uri.toString() }
 }
 
+/** declaration / implementation / typeDefinition 共用一套 Location 解析 */
+async function locationRequest(
+  model: monaco.editor.ITextModel,
+  position: monaco.IPosition,
+  method: string
+): Promise<monaco.languages.Location[] | null> {
+  if (!active) return null
+  const result = await active.request(model, method, {
+    textDocument: textDocumentOf(model),
+    position: lspPosition(position)
+  })
+  const locations = toLocations(result)
+  return locations.length ? locations : null
+}
+
 export function installLspProviders(controller: LspController): () => void {
   active = controller
   const disposables: monaco.IDisposable[] = []
   const languages = Object.keys(LSP_LANGUAGE_ID)
+
+  /*
+   * 语义着色按会话动态挂载：服务器就绪后才注册 provider，避免 Monaco
+   * 在还没有 legend 时反复请求；会话停止 / 崩溃时卸载，回落到语法着色。
+   */
+  const semantic = new Map<string, monaco.IDisposable>()
+  const enableSemantic = (language: string): void => {
+    if (semantic.has(language)) return
+    semantic.set(
+      language,
+      monaco.languages.registerDocumentSemanticTokensProvider(language, {
+        getLegend: () => SEMANTIC_LEGEND,
+        provideDocumentSemanticTokens: async (model) => {
+          if (!active) return null
+          return active.semanticTokens(model)
+        },
+        releaseDocumentSemanticTokens: () => {}
+      })
+    )
+  }
+  const disableSemantic = (language: string): void => {
+    semantic.get(language)?.dispose()
+    semantic.delete(language)
+  }
+  controller.onSessionReady = (language, capabilities) => {
+    if (semanticLegendOf(capabilities)) enableSemantic(language)
+    else disableSemantic(language)
+  }
+  controller.onSessionStopped = (language) => disableSemantic(language)
 
   for (const language of languages) {
     disposables.push(
@@ -879,10 +1587,127 @@ export function installLspProviders(controller: LspController): () => void {
         }
       })
     )
+
+    const pendingActions = new WeakMap<monaco.languages.CodeAction, unknown>()
+
+    disposables.push(
+      monaco.languages.registerDeclarationProvider(language, {
+        provideDeclaration: (model, position) =>
+          locationRequest(model, position, 'textDocument/declaration')
+      }),
+
+      monaco.languages.registerImplementationProvider(language, {
+        provideImplementation: (model, position) =>
+          locationRequest(model, position, 'textDocument/implementation')
+      }),
+
+      monaco.languages.registerTypeDefinitionProvider(language, {
+        provideTypeDefinition: (model, position) =>
+          locationRequest(model, position, 'textDocument/typeDefinition')
+      }),
+
+      monaco.languages.registerDocumentHighlightProvider(language, {
+        provideDocumentHighlights: async (model, position) => {
+          if (!active) return null
+          const result = await active.request(model, 'textDocument/documentHighlight', {
+            textDocument: textDocumentOf(model),
+            position: lspPosition(position)
+          })
+          return highlightsOf(result)
+        }
+      }),
+
+      monaco.languages.registerDocumentSymbolProvider(language, {
+        provideDocumentSymbols: async (model) => {
+          if (!active) return null
+          const result = await active.request(
+            model,
+            'textDocument/documentSymbol',
+            { textDocument: textDocumentOf(model) },
+            10_000
+          )
+          const symbols = documentSymbolsOf(result, model.uri.toString())
+          return symbols.length ? symbols : null
+        }
+      }),
+
+      monaco.languages.registerSignatureHelpProvider(language, {
+        signatureHelpTriggerCharacters: ['(', ',', '<'],
+        signatureHelpRetriggerCharacters: [','],
+        provideSignatureHelp: async (model, position, _token, context) => {
+          if (!active) return null
+          const result = await active.request(model, 'textDocument/signatureHelp', {
+            textDocument: textDocumentOf(model),
+            position: lspPosition(position),
+            context: {
+              triggerKind: context.triggerKind,
+              isRetrigger: context.isRetrigger,
+              ...(context.triggerCharacter
+                ? { triggerCharacter: context.triggerCharacter }
+                : {})
+            }
+          })
+          return signatureHelpOf(result)
+        }
+      }),
+
+      monaco.languages.registerCodeActionProvider(
+        language,
+        {
+          provideCodeActions: async (model, range, context) => {
+            if (!active) return { actions: [], dispose: () => {} }
+            const result = await active.request(model, 'textDocument/codeAction', {
+              textDocument: textDocumentOf(model),
+              range: {
+                start: {
+                  line: range.startLineNumber - 1,
+                  character: range.startColumn - 1
+                },
+                end: { line: range.endLineNumber - 1, character: range.endColumn - 1 }
+              },
+              context: {
+                diagnostics: context.markers.map(diagnosticOf),
+                ...(context.only ? { only: [context.only] } : {}),
+                triggerKind: context.trigger
+              }
+            })
+            const actions: monaco.languages.CodeAction[] = []
+            if (Array.isArray(result)) {
+              for (const raw of result) {
+                const action = codeActionOf(raw, pendingActions)
+                if (action) actions.push(action)
+              }
+            }
+            return { actions, dispose: () => {} }
+          },
+          resolveCodeAction: async (action) => {
+            const raw = pendingActions.get(action)
+            if (!active || raw === undefined) return action
+            const resolved = await active.requestForLanguage(
+              language,
+              'codeAction/resolve',
+              raw,
+              10_000
+            )
+            const edit = asWorkspaceEdit(
+              resolved && typeof resolved === 'object'
+                ? (resolved as { edit?: unknown }).edit
+                : undefined
+            )
+            return edit ? { ...action, edit } : action
+          }
+        },
+        { providedCodeActionKinds: ['quickfix', 'refactor', 'source'] }
+      )
+    )
   }
 
   return () => {
     if (active === controller) active = null
+    controller.onSessionReady = undefined
+    controller.onSessionStopped = undefined
+    for (const disposable of semantic.values()) disposable.dispose()
+    semantic.clear()
     for (const disposable of disposables) disposable.dispose()
   }
 }

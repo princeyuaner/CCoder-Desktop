@@ -1623,7 +1623,7 @@ function ModelPicker({
     new Set([
       officialModel,
       ...(viewCli === 'dsh'
-        ? ['deepseek-flash', 'deepseek-v4-pro']
+        ? ['deepseek-v4.1-flash', 'deepseek-v4-pro']
         : ['sonnet', 'opus', 'haiku']
       ),
       ...(sessionModel ? [sessionModel] : [])

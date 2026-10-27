@@ -72,6 +72,16 @@ import {
   submitClaudeLoginCode
 } from './claude-auth'
 import {
+  cancelCliUpdate,
+  checkCliUpdate,
+  cliUpdateStates,
+  disposeCliUpdate,
+  initCliUpdate,
+  retryCliUpdateElevated,
+  startCliUpdate,
+  startCliUpdateAutoCheck
+} from './cli-update'
+import {
   deleteStoredSession,
   listStoredSessions,
   readTranscript,
@@ -862,6 +872,32 @@ function registerClaudeAuthIpc(): void {
 }
 
 /**
+ * CLI 自身的更新。
+ *
+ * 渲染层只能传 cli 名，包名与目标版本都由主进程按上一次检查的结果决定 ——
+ * 这个入口不能变成「让界面随便执行一条 npm 命令」。
+ */
+function registerCliUpdateIpc(): void {
+  ipcMain.handle(IPC.cliUpdateStates, () => cliUpdateStates())
+  ipcMain.handle(IPC.cliUpdateCheck, (_e, cliRaw: unknown, force?: unknown) => {
+    const cli = asCliId(cliRaw)
+    if (!cli) return null
+    return checkCliUpdate(cli, { force: force === true })
+  })
+  ipcMain.handle(IPC.cliUpdateRun, (_e, cliRaw: unknown) => {
+    const cli = asCliId(cliRaw)
+    if (!cli) return { ok: false, message: t('cliUpdate.notAvailable') }
+    return startCliUpdate(cli)
+  })
+  ipcMain.handle(IPC.cliUpdateElevated, (_e, cliRaw: unknown) => {
+    const cli = asCliId(cliRaw)
+    if (!cli) return { ok: false, message: t('cliUpdate.notAvailable') }
+    return retryCliUpdateElevated(cli)
+  })
+  ipcMain.handle(IPC.cliUpdateCancel, () => cancelCliUpdate())
+}
+
+/**
  * 对话里的链接只允许打开这些类型。
  *
  * 必须是白名单而不是黑名单：`shell.openPath` 走系统关联，`.bat` / `.js` /
@@ -1489,6 +1525,10 @@ app.whenReady().then(() => {
   registerMcpIpc(sessions)
   registerSkillsIpc()
   registerClaudeAuthIpc()
+  // CLI 版本检查 / 更新：状态归主进程，设置页与导航标记都订它
+  initCliUpdate({ emit: (e) => broadcast(IPC.cliUpdateEvent, e) })
+  startCliUpdateAutoCheck(() => loadSettings().cliUpdate.autoCheck)
+  registerCliUpdateIpc()
   registerSessionIpc(sessions)
   registerWorkspaceIpc()
   registerIdeIpc()
@@ -1531,6 +1571,7 @@ app.whenReady().then(() => {
     sessions.stopAll()
     disposeAllDshWebHosts()
     disposeClaudeAuth()
+    disposeCliUpdate()
     cancelAllIdeSearches()
     killAllTerminals()
     killAllLsp()

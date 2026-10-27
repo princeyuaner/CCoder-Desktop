@@ -167,6 +167,13 @@ export interface SessionStatusPayload {
   code?: number | null
   /** 出错时的说明 */
   message?: string
+  /**
+   * 刚结束的那一轮是否以错误收尾。
+   *
+   * 侧栏据此把「已完成」换成「错误」—— 只看 idle 分不清跑成功还是跑失败。
+   * 只在 idle 状态上有意义；下一次开跑要重新清掉。
+   */
+  errored?: boolean
 }
 
 /**

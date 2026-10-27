@@ -69,7 +69,8 @@ app.whenReady().then(() => {
     showTimestamps: true,
     thinkingOpen: true,
     toolDetail: 'compact',
-    sendKey: 'ctrlEnter'
+    sendKey: 'ctrlEnter',
+    cliUpdate: { autoCheck: false, tagInNav: false }
   }
 
   saveSettings(demo)
@@ -115,12 +116,15 @@ app.whenReady().then(() => {
     ['showTimestamps', back.showTimestamps, true],
     ['thinkingOpen', back.thinkingOpen, true],
     ['toolDetail', back.toolDetail, 'compact'],
-    ['sendKey', back.sendKey, 'ctrlEnter']
+    ['sendKey', back.sendKey, 'ctrlEnter'],
+    // CLI 更新检查的开关：关掉之后重启不能自己又打开
+    ['cliUpdate.autoCheck', back.cliUpdate.autoCheck, false],
+    ['cliUpdate.tagInNav', back.cliUpdate.tagInNav, false]
   ]
   for (const [label, got, want] of checks) {
     if (got !== want) fail(`${label}: 期望 ${JSON.stringify(want)}，实得 ${JSON.stringify(got)}`)
   }
-  console.log('PASS 往返一致（22 个字段）')
+  console.log(`PASS 往返一致（${checks.length} 个字段）`)
 
   // 4) 两个 CLI 的渠道必须互不串门
   if (back.clis.claude.channels.length !== 1 || back.clis.codex.channels.length !== 1) {
@@ -166,6 +170,10 @@ app.whenReady().then(() => {
   }
   // 老文件没有语言字段 —— 默认跟随系统
   if (migrated.language !== 'system') fail('v1 迁移后的语言默认值不是 system')
+  // 老文件没有 CLI 更新开关 —— 默认都开着（这是更有用的默认值）
+  if (migrated.cliUpdate.autoCheck !== true || migrated.cliUpdate.tagInNav !== true) {
+    fail('v1 迁移后的 CLI 更新开关默认值不对')
+  }
   console.log('PASS v1 → v2 迁移')
 
   // 6.5) 非法语言值必须回落到 system，不能把界面搞坏

@@ -77,6 +77,9 @@ const MAX_DIAGNOSTIC_MESSAGE = 4_000
 /** 渲染层能直接调用的方法白名单；别让一个参数拼错就把任意 RPC 发给服务器 */
 const REQUEST_METHODS = new Set([
   'textDocument/definition',
+  'textDocument/declaration',
+  'textDocument/implementation',
+  'textDocument/typeDefinition',
   'textDocument/references',
   'textDocument/rename',
   'textDocument/prepareRename',
@@ -89,6 +92,8 @@ const REQUEST_METHODS = new Set([
   'textDocument/rangeFormatting',
   'textDocument/signatureHelp',
   'textDocument/codeAction',
+  'codeAction/resolve',
+  'textDocument/semanticTokens/full',
   'workspace/symbol'
 ])
 
@@ -124,7 +129,8 @@ function emitStateFor(
   cwd: string,
   server: DetectedServer,
   state: LspStateEvent['state'],
-  message?: string
+  message?: string,
+  capabilities?: unknown
 ): void {
   for (const language of server.languages) {
     sendToSender(senderId, IPC.lspState, {
@@ -132,13 +138,21 @@ function emitStateFor(
       language,
       state,
       server: server.name,
-      ...(message ? { message } : {})
+      ...(message ? { message } : {}),
+      ...(capabilities ? { capabilities } : {})
     } satisfies LspStateEvent)
   }
 }
 
 function emitStateForLanguages(session: Session, state: LspStateEvent['state'], message?: string): void {
-  emitStateFor(session.senderId, session.cwd, session.server, state, message)
+  emitStateFor(
+    session.senderId,
+    session.cwd,
+    session.server,
+    state,
+    message,
+    state === 'ready' ? session.capabilities : undefined
+  )
 }
 
 function spawnServer(server: DetectedServer, cwd: string): ChildProcessWithoutNullStreams {
@@ -446,13 +460,25 @@ async function createSession(
         workspaceEdit: { documentChanges: true },
         configuration: true,
         workspaceFolders: true,
-        didChangeConfiguration: { dynamicRegistration: true }
+        didChangeConfiguration: { dynamicRegistration: true },
+        symbol: {
+          symbolKind: {
+            valueSet: [
+              1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+              24, 25, 26
+            ]
+          }
+        }
       },
       textDocument: {
         synchronization: { dynamicRegistration: false, willSave: false, didSave: false },
         publishDiagnostics: { relatedInformation: true, versionSupport: true },
         definition: { linkSupport: false },
+        declaration: { linkSupport: false },
+        implementation: { linkSupport: false },
+        typeDefinition: { linkSupport: false },
         references: {},
+        documentHighlight: {},
         rename: { prepareSupport: false },
         hover: { contentFormat: ['markdown', 'plaintext'] },
         completion: {
@@ -469,6 +495,97 @@ async function createSession(
         documentSymbol: { hierarchicalDocumentSymbolSupport: true },
         signatureHelp: {
           signatureInformation: { documentationFormat: ['markdown', 'plaintext'] }
+        },
+        semanticTokens: {
+          requests: { range: false, full: true },
+          tokenTypes: [
+            'namespace',
+            'type',
+            'class',
+            'enum',
+            'interface',
+            'struct',
+            'typeParameter',
+            'parameter',
+            'variable',
+            'property',
+            'enumMember',
+            'event',
+            'function',
+            'method',
+            'macro',
+            'keyword',
+            'modifier',
+            'comment',
+            'string',
+            'number',
+            'regexp',
+            'operator',
+            'decorator',
+            'label',
+            'angleBracket',
+            'arithmetic',
+            'attribute',
+            'bitwise',
+            'boolean',
+            'brace',
+            'bracket',
+            'builtinType',
+            'character',
+            'colon',
+            'comma',
+            'comparison',
+            'deprecated',
+            'escapeSequence',
+            'formatSpecifier',
+            'lifetime',
+            'logical',
+            'parenthesis',
+            'punctuation',
+            'selfKeyword',
+            'selfTypeKeyword',
+            'semicolon',
+            'stringEscape',
+            'toolCommand',
+            'typeArgument'
+          ],
+          tokenModifiers: [
+            'declaration',
+            'definition',
+            'readonly',
+            'static',
+            'deprecated',
+            'abstract',
+            'async',
+            'modification',
+            'documentation',
+            'defaultLibrary'
+          ],
+          formats: ['relative'],
+          overlappingTokenSupport: false,
+          multilineTokenSupport: false,
+          serverCancelSupport: false,
+          augmentsSyntaxTokens: true
+        },
+        codeAction: {
+          codeActionLiteralSupport: {
+            codeActionKind: {
+              valueSet: [
+                'quickfix',
+                'refactor',
+                'refactor.extract',
+                'refactor.inline',
+                'refactor.rewrite',
+                'source',
+                'source.organizeImports',
+                'source.fixAll'
+              ]
+            }
+          },
+          isPreferredSupport: true,
+          disabledSupport: true,
+          dataSupport: true,
+          resolveSupport: { properties: ['edit'] }
         }
       },
       window: { workDoneProgress: false }

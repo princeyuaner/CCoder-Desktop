@@ -154,7 +154,7 @@ async function main(): Promise<void> {
   const options: ProviderSessionOptions = {
     channel: null,
     cwd,
-    model: 'deepseek-flash',
+    model: 'deepseek-v4.1-flash',
     permissionMode: 'standard',
     effort: 'high',
     addDirs: [],

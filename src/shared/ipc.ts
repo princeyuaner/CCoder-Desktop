@@ -10,6 +10,7 @@ import type {
   ClaudeLoginSnapshot
 } from './claude'
 import type { Channel, ChannelTestResult, CliId, EffortLevel, Settings } from './settings'
+import type { CliUpdateRunResult, CliUpdateState, CliUpdateStates } from './cli-update'
 import type {
   DshHomeOption,
   McpListResult,
@@ -115,6 +116,19 @@ export const IPC = {
   claudeAuthLoginState: 'claude:auth-login-state',
   /** 主进程 → 渲染进程：登录流程的输出 / URL / 阶段变化 */
   claudeAuthEvent: 'claude:auth-event',
+
+  /* ── CLI 自身的版本检查与更新 ───────────────────────────── */
+  /** 三个 CLI 当前的状态快照 */
+  cliUpdateStates: 'cli-update:states',
+  /** 检查某个 CLI 有没有新版（force 跳过 6 小时缓存） */
+  cliUpdateCheck: 'cli-update:check',
+  /** 执行 npm i -g（包名 / 版本由主进程决定） */
+  cliUpdateRun: 'cli-update:run',
+  /** Windows：以管理员身份重试 */
+  cliUpdateElevated: 'cli-update:elevated',
+  cliUpdateCancel: 'cli-update:cancel',
+  /** 主进程 → 渲染进程：单个 CLI 的状态变化 */
+  cliUpdateEvent: 'cli-update:event',
   /** 主进程 → 渲染进程：设置被他处改动 */
   settingsChanged: 'settings:changed',
 
@@ -467,6 +481,24 @@ export interface WindowApi {
     authLoginState(): Promise<ClaudeLoginSnapshot>
     /** 订阅登录流程事件，返回取消订阅函数 */
     onAuthEvent(cb: (e: ClaudeAuthEvent) => void): () => void
+  }
+
+  /**
+   * CLI 自身的更新（npm 上的新版本）。
+   *
+   * 只管「检查 + 用户确认后执行 npm i -g」。渲染层不能指定包名或版本 ——
+   * 两者都由主进程按上一次检查的结果决定，避免这个入口变成任意命令执行。
+   */
+  cliUpdate: {
+    states(): Promise<CliUpdateStates>
+    /** force = 跳过 6 小时缓存（「立即检查」） */
+    check(cli: CliId, force?: boolean): Promise<CliUpdateState>
+    run(cli: CliId): Promise<CliUpdateRunResult>
+    /** Windows：弹 UAC，在独立窗口里用管理员权限重试 */
+    runElevated(cli: CliId): Promise<CliUpdateRunResult>
+    cancel(): Promise<CliUpdateRunResult>
+    /** 订阅状态变化，返回取消订阅函数 */
+    onState(cb: (state: CliUpdateState) => void): () => void
   }
 
   session: {

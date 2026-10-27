@@ -71,6 +71,7 @@ export function App(): JSX.Element {
     loading,
     running,
     completed,
+    failed,
     pending: pendingApprovals,
     background,
     sort,
@@ -465,6 +466,7 @@ export function App(): JSX.Element {
           loading={loading}
           running={running}
           completed={completed}
+          failed={failed}
           pending={pendingApprovals}
           background={background}
           sort={sort}

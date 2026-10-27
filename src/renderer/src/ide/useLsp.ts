@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type * as monaco from 'monaco-editor'
 import {
   installLspProviders,
   LspController,
   type LspOpenDoc,
-  type LspStateInfo
+  type LspOutlineSymbol,
+  type LspStateInfo,
+  type LspWorkspaceSymbol
 } from './lsp-client'
 
 /**
@@ -18,6 +21,8 @@ export function useLsp(
 ): {
   syncDocs: (docs: LspOpenDoc[]) => void
   states: Record<string, LspStateInfo>
+  documentSymbols: (model: monaco.editor.ITextModel) => Promise<LspOutlineSymbol[]>
+  workspaceSymbols: (query: string, seedLanguage?: string) => Promise<LspWorkspaceSymbol[]>
 } {
   const [states, setStates] = useState<Record<string, LspStateInfo>>({})
   const controllerRef = useRef<LspController | null>(null)
@@ -54,5 +59,17 @@ export function useLsp(
     controllerRef.current?.sync(docs)
   }, [])
 
-  return { syncDocs, states }
+  const documentSymbols = useCallback(
+    async (model: monaco.editor.ITextModel): Promise<LspOutlineSymbol[]> =>
+      (await controllerRef.current?.documentSymbols(model)) ?? [],
+    []
+  )
+
+  const workspaceSymbols = useCallback(
+    async (query: string, seedLanguage?: string): Promise<LspWorkspaceSymbol[]> =>
+      (await controllerRef.current?.workspaceSymbols(query, seedLanguage)) ?? [],
+    []
+  )
+
+  return { syncDocs, states, documentSymbols, workspaceSymbols }
 }
