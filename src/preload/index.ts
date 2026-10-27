@@ -20,6 +20,12 @@ import type {
   McpTestResult
 } from '../shared/mcp'
 import type {
+  SkillInput,
+  SkillListResult,
+  SkillMutationResult,
+  SkillScope
+} from '../shared/skills'
+import type {
   PermissionDecision,
   QuestionAnswer,
   SessionEventPayload,
@@ -176,6 +182,59 @@ const api: WindowApi = {
       ipcRenderer.invoke(IPC.mcpMigration, dshHome),
     migrate: (ids: string[], dshHome?: string): Promise<McpMigrationResult> =>
       ipcRenderer.invoke(IPC.mcpMigrate, ids, dshHome)
+  },
+
+  skills: {
+    list: (cli: CliId, cwd: string, dshHome?: string): Promise<SkillListResult> =>
+      ipcRenderer.invoke(IPC.skillsList, cli, cwd, dshHome),
+    save: (
+      cli: CliId,
+      input: SkillInput,
+      cwd: string,
+      dshHome?: string
+    ): Promise<SkillMutationResult> => ipcRenderer.invoke(IPC.skillsSave, cli, input, cwd, dshHome),
+    remove: (cli: CliId, id: string, cwd: string, dshHome?: string): Promise<SkillMutationResult> =>
+      ipcRenderer.invoke(IPC.skillsRemove, cli, id, cwd, dshHome),
+    setEnabled: (
+      cli: CliId,
+      id: string,
+      enabled: boolean,
+      cwd: string,
+      dshHome?: string
+    ): Promise<SkillMutationResult> =>
+      ipcRenderer.invoke(IPC.skillsSetEnabled, cli, id, enabled, cwd, dshHome),
+    import: (
+      cli: CliId,
+      scope: SkillScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<SkillMutationResult> =>
+      ipcRenderer.invoke(IPC.skillsImport, cli, scope, cwd, dshHome),
+    dshHomes: (): Promise<DshHomeOption[]> => ipcRenderer.invoke(IPC.skillsDshHomes),
+    openDir: (
+      cli: CliId,
+      scope: SkillScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.skillsOpenDir, cli, scope, cwd, dshHome),
+    openFile: (
+      cli: CliId,
+      id: string,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.skillsOpenFile, cli, id, cwd, dshHome),
+    openResource: (
+      cli: CliId,
+      id: string,
+      rel: string,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.skillsOpenResource, cli, id, rel, cwd, dshHome),
+    openBackups: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.skillsOpenBackups)
   },
 
   codex: {

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs'
-import { dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, crashReporter, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { IPC } from '../shared/ipc'
@@ -36,6 +36,23 @@ import {
 } from './mcp-service'
 import { createMcpNativeContext, defaultDshHome, sourcePathFor } from './mcp-native'
 import { applyMigration, previewMigration } from './mcp-migration'
+import {
+  coerceSkillInput,
+  isSkillScope,
+  SKILL_SCOPES,
+  type SkillInput,
+  type SkillScope
+} from '../shared/skills'
+import {
+  asSkillCliId,
+  importSkill,
+  listSkills,
+  removeSkill,
+  saveSkill,
+  setSkillEnabled,
+  sourcePathOf
+} from './skills-service'
+import { createSkillNativeContext } from './skills-native'
 import {
   defaultDshHomeForSettings,
   listDshHomeOptions
@@ -575,6 +592,242 @@ function registerMcpIpc(sessions: SessionManager): void {
       return result
     }
   )
+}
+
+/**
+ * Skills 的 IPC。
+ *
+ * 和 MCP 一样，cli / cwd / home / input 全部按不可信处理：cli 不认识就
+ * 拒绝，cwd 必须是当前已知工作区，DSH home 只能从主进程列出的目录里选。
+ * 真正写哪个路径由 skills-service 根据 scope 计算，渲染层永远不传路径。
+ */
+function registerSkillsIpc(): void {
+  const cliOrThrow = (raw: unknown): CliId => {
+    const cli = asSkillCliId(raw)
+    if (!cli) throw new Error(t('skill.error.invalidCli'))
+    return cli
+  }
+  const cwdOf = (raw: unknown): string => (typeof raw === 'string' ? raw.slice(0, 4096) : '')
+
+  const context = (): ReturnType<typeof createSkillNativeContext> => {
+    const settings = loadSettings()
+    const options = listDshHomeOptions(settings)
+    const active = defaultDshHomeForSettings(settings)
+    const homes: string[] = []
+    const push = (p: string): void => {
+      if (!p) return
+      if (homes.some((h) => pathKey(h) === pathKey(p))) return
+      homes.push(p)
+    }
+    push(active)
+    for (const o of options) push(o.path)
+    return createSkillNativeContext({
+      backupRoot: join(app.getPath('userData'), 'skills-backups'),
+      dshHomes: homes
+    })
+  }
+
+  const homeOf = (
+    cli: CliId,
+    raw: unknown,
+    ctx: ReturnType<typeof context>
+  ): string | undefined => {
+    if (cli !== 'dsh') return undefined
+    const fallback = ctx.dshHomes[0]
+    if (typeof raw !== 'string' || !raw.trim()) return fallback
+    const key = pathKey(raw)
+    return ctx.dshHomes.find((h) => pathKey(h) === key) ?? fallback
+  }
+
+  const assertKnownCwd = (cwd: string): void => {
+    if (!cwd.trim()) throw new Error(t('skill.error.cwdRequired'))
+    const settings = loadSettings()
+    const known = [settings.defaultCwd, ...settings.openedCwds].filter(Boolean)
+    if (!known.some((k) => pathKey(k) === pathKey(cwd))) {
+      throw new Error(t('skill.error.cwdNotAllowed'))
+    }
+    try {
+      if (!statSync(cwd).isDirectory()) throw new Error('not a directory')
+    } catch {
+      throw new Error(t('skill.error.cwdNotAllowed'))
+    }
+  }
+
+  const scopeOf = (cli: CliId, raw: unknown): SkillScope => {
+    if (!isSkillScope(raw) || !SKILL_SCOPES[cli].includes(raw)) {
+      throw new Error(t('skill.error.invalidScope'))
+    }
+    return raw
+  }
+
+  ipcMain.handle(IPC.skillsList, (_e, cliRaw: unknown, cwdRaw: unknown, homeRaw: unknown) => {
+    const cli = cliOrThrow(cliRaw)
+    const ctx = context()
+    return listSkills(cli, cwdOf(cwdRaw), ctx, { dshHome: homeOf(cli, homeRaw, ctx) })
+  })
+
+  ipcMain.handle(
+    IPC.skillsSave,
+    (_e, cliRaw: unknown, inputRaw: unknown, cwdRaw: unknown, homeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const home = homeOf(cli, homeRaw, ctx)
+      const cwd = cwdOf(cwdRaw)
+      const input: SkillInput = coerceSkillInput(inputRaw)
+      if (input.scope === 'project') assertKnownCwd(input.cwd || cwd)
+      return saveSkill(cli, input, cwd, ctx, { dshHome: home })
+    }
+  )
+
+  ipcMain.handle(
+    IPC.skillsRemove,
+    (_e, cliRaw: unknown, idRaw: unknown, cwdRaw: unknown, homeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const home = homeOf(cli, homeRaw, ctx)
+      const cwd = cwdOf(cwdRaw)
+      if (cwd) assertKnownCwd(cwd)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      return removeSkill(cli, id, cwd, ctx, { dshHome: home })
+    }
+  )
+
+  ipcMain.handle(
+    IPC.skillsSetEnabled,
+    (
+      _e,
+      cliRaw: unknown,
+      idRaw: unknown,
+      enabledRaw: unknown,
+      cwdRaw: unknown,
+      homeRaw: unknown
+    ) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const home = homeOf(cli, homeRaw, ctx)
+      const cwd = cwdOf(cwdRaw)
+      if (cwd) assertKnownCwd(cwd)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      return setSkillEnabled(cli, id, enabledRaw === true, cwd, ctx, { dshHome: home })
+    }
+  )
+
+  ipcMain.handle(
+    IPC.skillsImport,
+    async (_e, cliRaw: unknown, scopeRaw: unknown, cwdRaw: unknown, homeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const scope = scopeOf(cli, scopeRaw)
+      const ctx = context()
+      const home = homeOf(cli, homeRaw, ctx)
+      const cwd = cwdOf(cwdRaw)
+      if (scope === 'project') assertKnownCwd(cwd)
+
+      const picked = await dialog.showOpenDialog({
+        title: cli === 'codex' ? t('skill.import.pickFile') : t('skill.import.pickFolder'),
+        properties: cli === 'codex' ? ['openFile'] : ['openDirectory'],
+        filters: cli === 'codex' ? [{ name: 'Markdown', extensions: ['md'] }] : undefined
+      })
+      if (picked.canceled || !picked.filePaths[0]) {
+        return {
+          ok: false,
+          cancelled: true,
+          list: listSkills(cli, cwd, ctx, { dshHome: home })
+        }
+      }
+      return importSkill(cli, scope, cwd, picked.filePaths[0], ctx, { dshHome: home })
+    }
+  )
+
+  ipcMain.handle(IPC.skillsDshHomes, (): DshHomeOption[] =>
+    listDshHomeOptions(loadSettings()).map((o) => ({
+      path: o.path,
+      label: o.channelName ?? '',
+      kind: o.kind,
+      active: o.active,
+      exists: o.exists
+    }))
+  )
+
+  ipcMain.handle(
+    IPC.skillsOpenDir,
+    async (_e, cliRaw: unknown, scopeRaw: unknown, cwdRaw: unknown, homeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const scope = scopeOf(cli, scopeRaw)
+      const ctx = context()
+      const cwd = cwdOf(cwdRaw)
+      if (scope === 'project') assertKnownCwd(cwd)
+      const dir = sourcePathOf(cli, scope, cwd, ctx, { dshHome: homeOf(cli, homeRaw, ctx) })
+      if (!dir) return { ok: false, error: t('skill.error.invalidScope') }
+      try {
+        if (scope !== 'plugin') mkdirSync(dir, { recursive: true })
+      } catch {
+        // openPath 会给出具体错误
+      }
+      const err = await shell.openPath(dir)
+      return err ? { ok: false, error: err } : { ok: true }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.skillsOpenFile,
+    async (_e, cliRaw: unknown, idRaw: unknown, cwdRaw: unknown, homeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const cwd = cwdOf(cwdRaw)
+      const home = homeOf(cli, homeRaw, ctx)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      const view = listSkills(cli, cwd, ctx, { dshHome: home }).skills.find((s) => s.id === id)
+      if (!view) return { ok: false, error: t('skill.error.notFound') }
+      if (existsSync(view.path)) {
+        const err = await shell.openPath(view.path)
+        return err ? { ok: false, error: err } : { ok: true }
+      }
+      if (existsSync(view.dirPath)) {
+        const err = await shell.openPath(view.dirPath)
+        return err ? { ok: false, error: err } : { ok: true }
+      }
+      return { ok: false, error: t('skill.error.notFound') }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.skillsOpenResource,
+    async (_e, cliRaw: unknown, idRaw: unknown, relRaw: unknown, cwdRaw: unknown, homeRaw: unknown) => {
+      const cli = cliOrThrow(cliRaw)
+      const ctx = context()
+      const cwd = cwdOf(cwdRaw)
+      const home = homeOf(cli, homeRaw, ctx)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      const rel = typeof relRaw === 'string' ? relRaw.slice(0, 2048) : ''
+      const view = listSkills(cli, cwd, ctx, { dshHome: home }).skills.find((s) => s.id === id)
+      if (!view) return { ok: false, error: t('skill.error.notFound') }
+      if (!rel || isAbsolute(rel)) return { ok: false, error: t('skill.error.notFound') }
+      // 只允许打开列表里出现过的资源，避免构造 ../ 读技能目录外的东西
+      if (!view.resources.some((r) => r.path === rel)) {
+        return { ok: false, error: t('skill.error.notFound') }
+      }
+      let target = resolve(view.dirPath, rel)
+      if (rel === view.fileLabel || rel === `${view.name}.md`) target = view.path
+      const inside = relative(view.dirPath, target)
+      if (inside.startsWith('..') || isAbsolute(inside)) {
+        return { ok: false, error: t('skill.error.notFound') }
+      }
+      if (!existsSync(target)) return { ok: false, error: t('skill.error.notFound') }
+      const err = await shell.openPath(target)
+      return err ? { ok: false, error: err } : { ok: true }
+    }
+  )
+
+  ipcMain.handle(IPC.skillsOpenBackups, async () => {
+    const dir = join(app.getPath('userData'), 'skills-backups')
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      // openPath 会给出错误
+    }
+    const err = await shell.openPath(dir)
+    return err ? { ok: false, error: err } : { ok: true }
+  })
 }
 
 function registerClaudeAuthIpc(): void {
@@ -1148,6 +1401,7 @@ app.whenReady().then(() => {
   registerWindowIpc()
   registerSettingsIpc(sessions)
   registerMcpIpc(sessions)
+  registerSkillsIpc()
   registerClaudeAuthIpc()
   registerSessionIpc(sessions)
   registerWorkspaceIpc()

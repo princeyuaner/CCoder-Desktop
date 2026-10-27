@@ -44,6 +44,7 @@ import { ClaudeAuthPanel } from './ClaudeAuthPanel'
 import { CodexStatusPanel } from './CodexStatusPanel'
 import { DshStatusPanel } from './DshStatusPanel'
 import { McpManagerPage } from './McpManagerPage'
+import { SkillsManagerPage } from './SkillsManagerPage'
 import { IconChevronLeft, IconPlus } from './Icons'
 
 /** 设置页的几类页面：某个 CLI 的渠道配置、与 CLI 无关的系统设置，或关于/更新 */
@@ -52,6 +53,7 @@ type Page =
   | { kind: 'general' }
   | { kind: 'permissions' }
   | { kind: 'mcp' }
+  | { kind: 'skills' }
   | { kind: 'about' }
 
 export function SettingsPage({
@@ -60,12 +62,16 @@ export function SettingsPage({
 }: {
   onBack: () => void
   /** 从旧 MCP 迁移提示跳进来时直接打开 MCP 页 */
-  initialPage?: 'mcp'
+  initialPage?: 'mcp' | 'skills'
 }): JSX.Element {
   const { t } = useI18n()
   const { settings, loading, save, test } = useSettings()
   const [page, setPage] = useState<Page>(() =>
-    initialPage === 'mcp' ? { kind: 'mcp' } : { kind: 'cli', id: CLIS[0].id }
+    initialPage === 'mcp'
+      ? { kind: 'mcp' }
+      : initialPage === 'skills'
+        ? { kind: 'skills' }
+        : { kind: 'cli', id: CLIS[0].id }
   )
   /**
    * Codex 的安装 / 登录状态。hook 必须无条件调用；真正探测由 enabled 控制 ——
@@ -307,8 +313,10 @@ export function SettingsPage({
         </button>
         <h1 className="settings__title">{t('settings.title')}</h1>
         <div className="settings__head-right">
-          {page.kind === 'mcp' ? (
-            <span className="saved-flash is-busy">{t('mcp.saveHint')}</span>
+          {page.kind === 'mcp' || page.kind === 'skills' ? (
+            <span className="saved-flash is-busy">
+              {t(page.kind === 'mcp' ? 'mcp.saveHint' : 'skill.saveHint')}
+            </span>
           ) : saveState === 'error' ? (
             <>
               <span className="saved-flash saved-flash--error">{t('settings.save.failed')}</span>
@@ -340,6 +348,9 @@ export function SettingsPage({
           <NavItem active={page.kind === 'mcp'} onClick={() => setPage({ kind: 'mcp' })}>
             {t('settings.nav.mcp')}
           </NavItem>
+          <NavItem active={page.kind === 'skills'} onClick={() => setPage({ kind: 'skills' })}>
+            {t('settings.nav.skills')}
+          </NavItem>
 
           <div className="settings__navgroup">{t('settings.nav.cli')}</div>
           {CLIS.map((d) => (
@@ -360,7 +371,7 @@ export function SettingsPage({
           </NavItem>
         </nav>
 
-        <div className={`settings__content${page.kind === 'mcp' ? ' settings__content--wide' : ''}`}>
+        <div className={`settings__content${page.kind === 'mcp' || page.kind === 'skills' ? ' settings__content--wide' : ''}`}>
           {page.kind === 'cli' && cfg && (
             <>
               {page.id === 'codex' && (
@@ -534,6 +545,13 @@ export function SettingsPage({
               openedCwds={draft.openedCwds}
               dshAuthMode={storedDshCfg?.authMode}
               dshChannelId={dshChannelId}
+            />
+          )}
+
+          {page.kind === 'skills' && (
+            <SkillsManagerPage
+              cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+              openedCwds={draft.openedCwds}
             />
           )}
 

@@ -20,6 +20,12 @@ import type {
   McpServerInput,
   McpTestResult
 } from './mcp'
+import type {
+  SkillInput,
+  SkillListResult,
+  SkillMutationResult,
+  SkillScope
+} from './skills'
 import type { AgentEvent, PermissionMode } from './events'
 import type {
   PermissionDecision,
@@ -112,6 +118,18 @@ export const IPC = {
   mcpOpenBackups: 'mcp:open-backups',
   mcpMigration: 'mcp:migration',
   mcpMigrate: 'mcp:migrate',
+
+  /* ── Skills（各 CLI 的技能 / 提示词目录） ─────────────── */
+  skillsList: 'skills:list',
+  skillsSave: 'skills:save',
+  skillsRemove: 'skills:remove',
+  skillsSetEnabled: 'skills:set-enabled',
+  skillsImport: 'skills:import',
+  skillsDshHomes: 'skills:dsh-homes',
+  skillsOpenDir: 'skills:open-dir',
+  skillsOpenFile: 'skills:open-file',
+  skillsOpenResource: 'skills:open-resource',
+  skillsOpenBackups: 'skills:open-backups',
 
   /** 渲染进程 → 主进程：未捕获错误 / Promise 拒绝，只用于写本地日志 */
   rendererLog: 'log:renderer',
@@ -318,6 +336,59 @@ export interface WindowApi {
     /** 旧 `mcp-servers.json` 的迁移预览；count = 0 时不显示提示 */
     migration(dshHome?: string): Promise<McpMigrationPreview>
     migrate(ids: string[], dshHome?: string): Promise<McpMigrationResult>
+  }
+
+  /**
+   * 各 CLI 的技能 / 自定义提示词。
+   *
+   * `dshHome` 只对 DSH 有意义，且必须是主进程列出的 home 之一；
+   * 写入前由主进程备份。插件技能只读。
+   */
+  skills: {
+    list(cli: CliId, cwd: string, dshHome?: string): Promise<SkillListResult>
+    save(
+      cli: CliId,
+      input: SkillInput,
+      cwd: string,
+      dshHome?: string
+    ): Promise<SkillMutationResult>
+    remove(cli: CliId, id: string, cwd: string, dshHome?: string): Promise<SkillMutationResult>
+    setEnabled(
+      cli: CliId,
+      id: string,
+      enabled: boolean,
+      cwd: string,
+      dshHome?: string
+    ): Promise<SkillMutationResult>
+    /** 弹系统选择器导入文件夹 / .md 文件；取消返回 cancelled */
+    import(
+      cli: CliId,
+      scope: SkillScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<SkillMutationResult>
+    dshHomes(): Promise<DshHomeOption[]>
+    openDir(
+      cli: CliId,
+      scope: SkillScope,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }>
+    openFile(
+      cli: CliId,
+      id: string,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }>
+    /** 打开技能目录内的一个资源；rel 必须是列表里的相对路径 */
+    openResource(
+      cli: CliId,
+      id: string,
+      rel: string,
+      cwd: string,
+      dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }>
+    openBackups(): Promise<{ ok: boolean; error?: string }>
   }
 
   codex: {
