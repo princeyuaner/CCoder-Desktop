@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sessionMetaKey, type StoredSession } from '@shared/session'
-import { sameCwd, type CliId } from '@shared/settings'
+import { sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
 import { disposeIdleNewChats, disposeStoredChat } from './useChat'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
@@ -9,12 +9,12 @@ import { MainPane } from './components/MainPane'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { SettingsPage } from './components/SettingsPage'
 import { ConfirmModal } from './components/ConfirmModal'
-import { UpdateToast } from './components/UpdateToast'
 import { baseName, cwdKey } from '@shared/path'
 import { useSessions, type WorkspaceView } from './useSessions'
 import { metaOf, useSessionMeta } from './useSessionMeta'
 import { useWorktreeMap } from './useWorktreeMap'
 import { useSettings } from './useSettings'
+import { configureDoneNotify } from './done-notify'
 import { useUpdater } from './useUpdater'
 import { applyAppearance } from './appearance'
 import { applyLanguageSetting, useI18n } from './i18n'
@@ -90,6 +90,21 @@ export function App(): JSX.Element {
   const persistSessionModel = useCallback(
     (cli: CliId, cwd: string, id: string, model: string): void => {
       void updateSessionMeta({ cli, cwd, id }, { model })
+    },
+    [updateSessionMeta]
+  )
+  /**
+   * 会话级渠道 / 来源选择。和模型一样只写 session-meta ——
+   * 写进设置会让同一 CLI 的其他对话跟着切（A 换渠道 B 也变）。
+   */
+  const persistSessionAuth = useCallback(
+    (
+      cli: CliId,
+      cwd: string,
+      id: string,
+      patch: { authMode?: CliAuthMode; channelId?: string }
+    ): void => {
+      void updateSessionMeta({ cli, cwd, id }, patch)
     },
     [updateSessionMeta]
   )
@@ -278,6 +293,23 @@ export function App(): JSX.Element {
   )
 
   /**
+   * 跑完通知：开关 + 会话标题解析。
+   *
+   * 通知由模块级的 ChatController 触发（它不在 React 树上），所以这里把
+   * 「设置开不开」和「这条会话显示什么标题」注册进去。标题优先用重命名后的
+   * 名字 —— 通知里写着 CLI 原标题、侧栏却是用户改过的名字，会对不上。
+   */
+  useEffect(() => {
+    configureDoneNotify({
+      enabled: settings.notifyOnDone,
+      titleOf: (cli, cwd, id) => {
+        const hit = workspaces.find((w) => sameCwd(w.cwd, cwd))?.sessions.find((s) => s.id === id)
+        return hit ? metaOf(hit, meta).title || hit.title : ''
+      }
+    })
+  }, [settings.notifyOnDone, workspaces, meta])
+
+  /**
    * 「上次打开的目录」。设置里「默认工作目录」留空时，新会话就用它。
    *
    * 不这么做的话会掉到用户主目录去 —— 那几乎永远不是你想干活的地方，
@@ -307,6 +339,30 @@ export function App(): JSX.Element {
     if (cwd) setPickedCwd(cwd)
     setView('chat')
   }
+
+  /**
+   * 点了通知 → 切到那条会话。
+   *
+   * 会话可能已经不在磁盘上了（被删 / 工作区被收起来）：这时什么都不做 ——
+   * 主进程已经把窗口拎到前台了，用户自己能看到侧栏。
+   *
+   * 订阅用 ref 包一层，避免每次会话表刷新都重新订阅；回调里读到的永远是
+   * 最新那份列表和最新的 openStored。
+   */
+  const focusRef = useRef<(s: StoredSession) => void>(() => undefined)
+  focusRef.current = openStored
+  const sessionListRef = useRef<StoredSession[]>([])
+  sessionListRef.current = allSessions
+
+  useEffect(() => {
+    return window.api?.chat?.onFocusSession((target) => {
+      if (!target?.id || !target.cwd) return
+      const hit = sessionListRef.current.find(
+        (s) => s.id === target.id && sameCwd(s.cwd, target.cwd)
+      )
+      if (hit) focusRef.current(hit)
+    })
+  }, [])
 
   /**
    * 侧栏「+」：先选分支 / 工作树，再开会话。
@@ -455,7 +511,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
-      <TitleBar />
+      <TitleBar update={updater} />
       <div className="app__body">
         {/*
           设置页会把审批面板整个盖住 —— 这时候连「当前会话」也该提醒。
@@ -511,7 +567,19 @@ export function App(): JSX.Element {
                 ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.model ?? '')
                 : ''
             }
+            // 渠道 / 来源同样按会话取：别的对话切了渠道不该带过来
+            initialAuthMode={
+              active.kind === 'stored'
+                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.authMode
+                : undefined
+            }
+            initialChannelId={
+              active.kind === 'stored'
+                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.channelId
+                : undefined
+            }
             onPersistModel={persistSessionModel}
+            onPersistAuth={persistSessionAuth}
             // 默认工作目录留空时的兜底。会话列表没读完就建会话会用到空 cwd，
             // 所以 MainPane 要等 loading 落了才动手
             fallbackCwd={lastCwd}
@@ -537,12 +605,6 @@ export function App(): JSX.Element {
           </button>
         </div>
       )}
-
-      <UpdateToast
-        state={updater.state}
-        onDownload={updater.download}
-        onInstall={updater.install}
-      />
 
       {searchOpen && (
         <SessionSearch

@@ -44,6 +44,13 @@ function cleanModel(v: unknown): string | undefined {
   return s || undefined
 }
 
+/** 渠道 id 是 UUID / 短串；不做格式校验，只挡超长垃圾 */
+function cleanChannelId(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const s = v.trim().slice(0, MODEL_MAX)
+  return s || undefined
+}
+
 /**
  * 只接受 `sessionMetaKey()` 生成的三元组，顺手挡住手写文件里的
  * `__proto__` 之类的键 —— 后面的赋值是普通对象赋值。
@@ -82,7 +89,19 @@ function normalize(raw: unknown): SessionMetaMap {
     if (o.archived === true) entry.archived = true
     const model = cleanModel(o.model)
     if (model) entry.model = model
-    if (entry.title || entry.pinned || entry.archived || entry.model) out[key] = entry
+    if (o.authMode === 'official' || o.authMode === 'channel') entry.authMode = o.authMode
+    const channelId = cleanChannelId(o.channelId)
+    if (channelId) entry.channelId = channelId
+    if (
+      entry.title ||
+      entry.pinned ||
+      entry.archived ||
+      entry.model ||
+      entry.channelId ||
+      entry.authMode === 'official'
+    ) {
+      out[key] = entry
+    }
   }
   return out
 }
@@ -150,10 +169,35 @@ export function updateSessionMeta(update: SessionMetaUpdate): SessionMetaMap {
     if (model) next.model = model
     else delete next.model
   }
+  /*
+   * 渠道 / 来源也是会话级选择。`channelId: ''` + `authMode: 'official'`
+   * 表示"这条会话走官方登录"；空串 = 没有显式选择，跟随设置默认值。
+   */
+  if ('authMode' in patch) {
+    if (patch.authMode === 'official' || patch.authMode === 'channel') {
+      next.authMode = patch.authMode
+    } else {
+      delete next.authMode
+    }
+  }
+  if ('channelId' in patch) {
+    const channelId = cleanChannelId(patch.channelId)
+    if (channelId) next.channelId = channelId
+    else delete next.channelId
+  }
 
   // 空条目不留在文件里，否则删掉的会话会在配置里越攒越多
-  if (next.title || next.pinned || next.archived || next.model) meta[key] = next
-  else delete meta[key]
+  if (
+    next.title ||
+    next.pinned ||
+    next.archived ||
+    next.model ||
+    next.channelId ||
+    // 显式的 official 也要留：没有它，下次打开会回落到设置里的默认来源
+    next.authMode === 'official'
+  ) {
+    meta[key] = next
+  } else delete meta[key]
 
   persist()
   return meta

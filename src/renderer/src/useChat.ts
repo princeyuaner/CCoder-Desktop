@@ -8,7 +8,7 @@ import type {
   ToolStatus,
   Usage
 } from '@shared/events'
-import type { CliId, EffortLevel } from '@shared/settings'
+import type { CliAuthMode, CliId, EffortLevel } from '@shared/settings'
 import { DEFAULT_EFFORT, sameCwd } from '@shared/settings'
 import type { NativeCommand } from '@shared/commands'
 import { toolDisplay, type ToolFallback, type ToolStat } from '@shared/tool'
@@ -37,6 +37,7 @@ import {
   setPendingApproval
 } from './pending-approvals'
 import { clearBackgroundRunning, setBackgroundRunning } from './background-tasks'
+import { notifyTurnDone } from './done-notify'
 
 /**
  * 转写区的一项 = 一张卡。
@@ -52,6 +53,18 @@ export type SystemKey = 'effort' | 'permissionMode' | 'model' | 'channel' | 'aut
 
 /** 渠道 / 凭据来源的展示数据。渲染时再按语言翻译，不能提前烤成中文。 */
 export type ChannelLabel = { kind: 'official' } | { kind: 'channel'; name: string }
+
+/**
+ * 会话级渠道切换的目标。
+ *
+ * `label` 只用于转写区留痕；`authMode` / `channelId` 才是真正下发给这条
+ * 会话的东西 —— 渠道是会话级选择，不进设置，所以不能只传一个渠道 id。
+ */
+export interface ChannelTarget {
+  label: ChannelLabel
+  authMode: CliAuthMode
+  channelId: string | null
+}
 
 /**
  * 设置切换的留痕数据。存枚举 / 原始值，不存已经翻译好的文案 ——
@@ -182,6 +195,13 @@ export interface ChatApi {
   permissionMode: PermissionMode
   /** 本会话的思考深度（CLI 的 --effort） */
   effort: EffortLevel
+  /**
+   * 本会话自己的凭据来源 / 渠道。`undefined` = 还没选过，跟随设置里的默认值。
+   *
+   * 渠道是会话级的：A 工作区的对话切了渠道，B 工作区不该跟着变。
+   */
+  authMode?: CliAuthMode
+  channelId?: string | null
   turns: number
   steps: number
   usage?: Usage
@@ -235,11 +255,11 @@ export interface ChatApi {
   applyEffort(level: EffortLevel): void
   /**
    * 换渠道之后踢一脚 —— 渠道是启动参数，不换进程不生效。
-   * 两个参数只用于留痕（显示"旧渠道 → 新渠道"），主进程不需要。
+   * 只改**这条会话**：别的对话各有各的渠道，设置里的默认值也不动。
    */
-  applyChannel(from: ChannelLabel, to: ChannelLabel): void
+  applyChannel(from: ChannelLabel, to: ChannelTarget): void
   /** 切换凭据来源（官方登录 ↔ 渠道）。和换渠道一样，下一轮换进程生效。 */
-  applyAuth(from: ChannelLabel, to: ChannelLabel): void
+  applyAuth(from: ChannelLabel, to: ChannelTarget): void
   notice: LocalizedText | null
   clearNotice(): void
 }
@@ -604,6 +624,13 @@ export interface ChatSnapshot {
   model: string
   permissionMode: PermissionMode
   effort: EffortLevel
+  /**
+   * 本会话自己的凭据来源 / 渠道。`undefined` = 还没选过，跟随设置里的默认值。
+   *
+   * 渠道是会话级的：A 工作区的对话切了渠道，B 工作区不该跟着变。
+   */
+  authMode?: CliAuthMode
+  channelId?: string | null
   turns: number
   steps: number
   usage?: Usage
@@ -632,6 +659,12 @@ interface ChatInit {
   resumeId: string | null
   /** 这条会话自己选过的模型（来自 session-meta）；空 = 用默认值 */
   model: string
+  /**
+   * 这条会话自己的凭据来源与渠道（来自 session-meta）。undefined = 还没选过，
+   * 跟随设置里的默认值。
+   */
+  authMode?: CliAuthMode
+  channelId?: string | null
 }
 
 const SEP = '\u0000'
@@ -719,9 +752,17 @@ class ChatController {
    * 校准会把上一轮已经计过的步数再加一遍。
    */
   private pendingSteps = 0
+  /** 本轮还在等结果 —— 跑完时用它决定要不要弹系统通知 */
+  private turnNotified = false
   /** liveId 还没就绪时改的启动参数，attach 之后补发 */
   private pendingReconfigure:
-    | { model?: string; permissionMode?: PermissionMode; effort?: EffortLevel }
+    | {
+        model?: string
+        permissionMode?: PermissionMode
+        effort?: EffortLevel
+        authMode?: CliAuthMode
+        channelId?: string | null
+      }
     | null = null
 
   constructor(key: string, init: ChatInit) {
@@ -735,6 +776,8 @@ class ChatController {
       model: init.model,
       permissionMode: init.permissionMode,
       effort: init.effort,
+      authMode: init.authMode,
+      channelId: init.channelId,
       turns: 0,
       steps: 0,
       usage: undefined,
@@ -811,7 +854,10 @@ class ChatController {
         effort: this.init.effort,
         // 会话级模型选择：重开这条会话时接着用它自己的模型，而不是当时的全局默认
         model: this.init.model || undefined,
-        resumeId: this.init.resumeId
+        resumeId: this.init.resumeId,
+        // 会话自己的渠道 / 来源；undefined 时主进程回落到设置里的默认值
+        authMode: this.init.authMode,
+        channelId: this.init.channelId
       })
       // start 比 dispose 慢时，别把已经没人要的 Live 留在主进程里
       if (this.disposed) {
@@ -1051,9 +1097,42 @@ class ChatController {
     if (p.status === 'exited') clearBackgroundRunning(this.providerSessionId)
     if (p.message) next.notice = p.message
     this.patch(next)
+
+    /*
+     * 一轮跑完 → 系统通知。
+     *
+     * 放在 idle 上而不是 turn_end 事件里：打断 / 异常退出也可能没有
+     * turn_end，但用户同样在等一个「结束了」的信号。进程退出（exited）
+     * 不通知 —— 那是坏消息，界面上有更明确的错误，不需要再弹一个窗。
+     *
+     * 必须用 `turnNotified` 把「刚打开会话的那次 idle」挡掉：主进程建会话
+     * 时就会推一条 idle，那不是任何一轮的结束，弹通知就是纯噪音。
+     */
+    if (p.status === 'idle' && this.turnNotified && this.providerSessionId) {
+      this.turnNotified = false
+      notifyTurnDone({
+        cli: this.init.cli,
+        cwd: this.providerCwd,
+        id: this.providerSessionId,
+        errored: p.errored === true,
+        backgroundRunning: this.backgroundTaskCount()
+      })
+    }
+
     // 本轮真的结束了才发下一条 —— 用 status 而不是 turn_end，
     // 因为进程退出 / 打断也可能没有 turn_end
     if (p.status === 'idle') this.flushQueue()
+  }
+
+  /** 还在跑的后台任务数 —— 通知里要说准「活干完了没有」 */
+  private backgroundTaskCount(): number {
+    const run = this.snap.run
+    if (!run) return 0
+    return (
+      run.background.filter((b) => b.status === 'running').length +
+      run.agents.filter((a) => a.status === 'running' && a.startedAt > 0 && isBackgroundAgent(a))
+        .length
+    )
   }
 
   /** 运行中的消息不进转写区，先排进等待队列 */
@@ -1092,6 +1171,8 @@ class ChatController {
     }
 
     this.turnOpen = true
+    // 从这一刻起，下一次 idle 就是"这一轮跑完了"，值得提醒
+    this.turnNotified = true
     this.patch({
       items: [
         ...this.snap.items,
@@ -1239,6 +1320,8 @@ class ChatController {
     model?: string
     permissionMode?: PermissionMode
     effort?: EffortLevel
+    authMode?: CliAuthMode
+    channelId?: string | null
   }): void {
     if (this.liveId) {
       window.api?.session.reconfigure(this.liveId, patch)
@@ -1285,16 +1368,25 @@ class ChatController {
     this.reconfigure({ effort: level })
   }
 
-  applyChannel = (from: ChannelLabel, to: ChannelLabel): void => {
-    this.patch({ items: pushSystem(this.snap.items, { key: 'channel', from, to }) })
-    // 空 patch 就够：主进程 reconfigure 会把 needsRespawn 置位，下次 spawn 读最新渠道
-    this.reconfigure({})
+  applyChannel = (from: ChannelLabel, to: ChannelTarget): void => {
+    this.patch({
+      authMode: to.authMode,
+      channelId: to.channelId,
+      items: pushSystem(this.snap.items, { key: 'channel', from, to: to.label })
+    })
+    // 渠道只是启动参数：主进程记住的是**这条会话**的选择，下次 spawn 用它
+    this.reconfigure({ authMode: to.authMode, channelId: to.channelId })
   }
 
-  applyAuth = (from: ChannelLabel, to: ChannelLabel): void => {
-    this.patch({ items: pushSystem(this.snap.items, { key: 'auth', from, to }) })
-    // 来源变了，旧模型可能不属于新来源；主进程的 settingsChanged 会清掉它
-    this.reconfigure({})
+  applyAuth = (from: ChannelLabel, to: ChannelTarget): void => {
+    this.patch({
+      authMode: to.authMode,
+      channelId: to.channelId,
+      // 来源变了，旧模型可能不属于新来源 —— 主进程会清掉会话里的显式模型
+      model: '',
+      items: pushSystem(this.snap.items, { key: 'auth', from, to: to.label })
+    })
+    this.reconfigure({ authMode: to.authMode, channelId: to.channelId })
   }
 
   clearNotice = (): void => {
@@ -1452,8 +1544,8 @@ const noopAnswer = (_id: string, _answer: QuestionAnswer): void => undefined
 const noopModel = (_model: string): void => undefined
 const noopMode = (_mode: PermissionMode): void => undefined
 const noopEffort = (_level: EffortLevel): void => undefined
-const noopChannel = (_from: ChannelLabel, _to: ChannelLabel): void => undefined
-const noopAuth = (_from: ChannelLabel, _to: ChannelLabel): void => undefined
+const noopChannel = (_from: ChannelLabel, _to: ChannelTarget): void => undefined
+const noopAuth = (_from: ChannelLabel, _to: ChannelTarget): void => undefined
 
 export function useChat(opts: {
   /** 用哪个 CLI 跑；缺省 claude */
@@ -1467,6 +1559,12 @@ export function useChat(opts: {
    * 只作为**创建参数**使用：会话一旦建好，就由 reconfigure 自己维护。
    */
   model?: string
+  /**
+   * 这条会话自己的凭据来源 / 渠道（同样是 session-meta 里记的）。
+   * 不传 = 跟随设置里的默认值；会话一旦建好就由 reconfigure 自己维护。
+   */
+  authMode?: CliAuthMode
+  channelId?: string | null
   /** 接着哪条已有会话跑；变化时会复用/重建对应 controller */
   resumeId?: string | null
   /**
@@ -1507,6 +1605,8 @@ export function useChat(opts: {
       permissionMode: opts.permissionMode,
       effort: opts.effort ?? DEFAULT_EFFORT,
       model: opts.model ?? '',
+      authMode: opts.authMode,
+      channelId: opts.channelId,
       resumeId
     })
     // 创建参数故意不进依赖：key 已经代表会话身份，默认设置变化不该重建会话
@@ -1534,6 +1634,8 @@ export function useChat(opts: {
       sessionCwd: controller ? controller.providerCwd : opts.cwd,
       permissionMode: s.permissionMode,
       effort: s.effort,
+      authMode: s.authMode,
+      channelId: s.channelId,
       turns: s.turns,
       steps: s.steps,
       usage: s.usage,

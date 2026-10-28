@@ -13,6 +13,12 @@ import type { CliId } from './settings'
 export interface IdeCodeRef {
   /** 渲染层 key / 去重用 */
   id: string
+  /**
+   * 引用来哪儿的。缺省 `ide`（IDE 窗口的「发送到聊天」）。
+   * `file` = 用户把磁盘上的文本文件拖进 / 选进输入框 ——
+   * 走的是同一套 `<ide_reference>` 编码，但不该被标成「来自 IDE」。
+   */
+  origin?: 'ide' | 'file'
   kind: 'selection' | 'file'
   /** 相对工作区，正斜杠 */
   rel: string

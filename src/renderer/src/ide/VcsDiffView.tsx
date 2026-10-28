@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { VcsDiffData } from '@shared/vcs'
-import { diffStat, parseDiff, type DiffSide } from './diff'
+import { diffStat, parseDiff, wordDiff, type DiffSeg, type DiffSide, type DiffRow } from './diff'
 import { useI18n } from '../i18n'
 
 /**
@@ -13,16 +13,53 @@ const PAGE_ROWS = 2000
 
 function DiffCell({
   side,
-  tone
+  tone,
+  segs
 }: {
   side: DiffSide | null
   tone: 'ctx' | 'add' | 'del' | 'empty'
+  segs?: DiffSeg[] | null
 }): JSX.Element {
+  const mark = tone === 'add' ? '+' : tone === 'del' ? '−' : ''
   return (
     <div className={`ide-dcell is-${tone}`}>
       <span className="ide-dln">{side?.no ?? ''}</span>
-      <span className="ide-dtext">{side?.text ?? ''}</span>
+      <span className="ide-dmk">{mark}</span>
+      <span className="ide-dtext">
+        {segs ? (
+          segs.map((s, i) =>
+            s.changed ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>
+          )
+        ) : (
+          (side?.text ?? '')
+        )}
+      </span>
     </div>
+  )
+}
+
+/** 一对改动词逐词比过再渲染；纯增 / 纯删没有对照，整行都是新内容 */
+function RowPair({ row }: { row: DiffRow }): JSX.Element {
+  const words = useMemo(
+    () =>
+      row.kind === 'change' && row.left?.text != null && row.right?.text != null
+        ? wordDiff(row.left.text, row.right.text)
+        : null,
+    [row]
+  )
+  return (
+    <>
+      <DiffCell
+        side={row.left}
+        segs={words?.left}
+        tone={row.kind === 'ctx' ? 'ctx' : row.kind === 'change' || row.kind === 'del' ? 'del' : 'empty'}
+      />
+      <DiffCell
+        side={row.right}
+        segs={words?.right}
+        tone={row.kind === 'ctx' ? 'ctx' : row.kind === 'change' || row.kind === 'add' ? 'add' : 'empty'}
+      />
+    </>
   )
 }
 
@@ -31,6 +68,24 @@ export function VcsDiffView({ data }: { data: VcsDiffData }): JSX.Element {
   const hunks = useMemo(() => parseDiff(data.diff), [data.diff])
   const stat = useMemo(() => diffStat(data.diff), [data.diff])
   const totalRows = useMemo(() => hunks.reduce((n, h) => n + h.rows.length, 0), [hunks])
+
+  /**
+   * 最长的一行有多少个字符。
+   *
+   * diffbody 靠 `--diff-col-ch × 2 + 固定宽度` 撑开横向滚动：两栏各占一半，
+   * 只要整块够宽，最长的那行就一定完整露得出来。不出这个值的话 50% 宽度
+   * 会把长行右半截直接切掉，用户也没法横向拖过去看。
+   */
+  const colCh = useMemo(() => {
+    let max = 0
+    for (const h of hunks) {
+      for (const r of h.rows) {
+        const len = Math.max(r.left?.text?.length ?? 0, r.right?.text?.length ?? 0)
+        if (len > max) max = len
+      }
+    }
+    return max
+  }, [hunks])
 
   const [limit, setLimit] = useState(PAGE_ROWS)
   // 换一份 diff 时重新从头分批，别把上一份的展开进度带过来
@@ -105,7 +160,10 @@ export function VcsDiffView({ data }: { data: VcsDiffData }): JSX.Element {
         {stat.added > 0 && <b className="ide-add">+{stat.added}</b>}
         {stat.removed > 0 && <b className="ide-del">−{stat.removed}</b>}
       </div>
-      <div className="ide-diffbody">
+      <div
+        className={`ide-diffbody ${data.untracked ? 'is-untracked' : ''}`}
+        style={{ ['--diff-col-ch' as string]: `${colCh}ch` }}
+      >
         {visible.map(({ hunk, rows }, hi) => (
           <div key={hi} className="ide-hunkblock">
             <div className="ide-hunk">{hunk.header}</div>
@@ -114,28 +172,7 @@ export function VcsDiffView({ data }: { data: VcsDiffData }): JSX.Element {
                 {data.untracked ? (
                   <DiffCell side={r.right} tone="add" />
                 ) : (
-                  <>
-                    <DiffCell
-                      side={r.left}
-                      tone={
-                        r.kind === 'ctx'
-                          ? 'ctx'
-                          : r.kind === 'change' || r.kind === 'del'
-                            ? 'del'
-                            : 'empty'
-                      }
-                    />
-                    <DiffCell
-                      side={r.right}
-                      tone={
-                        r.kind === 'ctx'
-                          ? 'ctx'
-                          : r.kind === 'change' || r.kind === 'add'
-                            ? 'add'
-                            : 'empty'
-                      }
-                    />
-                  </>
+                  <RowPair row={r} />
                 )}
               </div>
             ))}

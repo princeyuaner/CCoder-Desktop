@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { activeChannelOf, cliConfig, type CliId } from '@shared/settings'
+import { cliConfig, type CliAuthMode, type CliId } from '@shared/settings'
 import { sameModel } from '@shared/model'
 import type { ChatActiveInfo, IdeCodeRef } from '@shared/ide-chat'
-import { parseIdeRefs } from '../ideRef'
+import { parseIdeRefs, draftFromUserText } from '../ideRef'
 import { MODE_LABEL_KEY } from '../constants'
 import { useSettings } from '../useSettings'
+import { configureDoneNotify } from '../done-notify'
 import { useI18n } from '../i18n'
 import {
   disposeNewChat,
   disposeStoredChat,
   useChat,
   type ChannelLabel,
+  type ChannelTarget,
   type ChatItem
 } from '../useChat'
 import type { Active } from '../App'
@@ -32,12 +34,23 @@ interface Props {
   /** 本地重命名后的标题；null = 用会话记录里的原标题 */
   titleOverride?: string | null
   /**
-   * 这条已有会话自己选过的模型（来自 session-meta）。
-   * 打开会话时作为启动参数传下去，不能套用别的对话或全局默认。
+   * 这条已有会话自己选过的模型 / 渠道 / 来源（来自 session-meta）。
+   * 打开会话时作为创建参数传下去，不能套用别的对话或全局默认。
    */
   initialModel?: string
+  /** 这条会话自己记下的凭据来源；undefined = 沿用设置里的默认值 */
+  initialAuthMode?: CliAuthMode
+  /** 这条会话自己记下的渠道 id；undefined = 沿用设置里的默认值 */
+  initialChannelId?: string
   /** 把会话级模型选择写进 session-meta；新会话要等拿到 CLI id 才有 key */
   onPersistModel?: (cli: CliId, cwd: string, id: string, model: string) => void
+  /** 把会话级渠道选择写进 session-meta（键和模型一样要等 CLI id） */
+  onPersistAuth?: (
+    cli: CliId,
+    cwd: string,
+    id: string,
+    patch: { authMode?: CliAuthMode; channelId?: string }
+  ) => void
   /** 设置里「默认工作目录」留空时，新会话落到哪 —— 通常是上次打开的那个目录 */
   fallbackCwd: string
   /** 会话列表读完了没。没读完 fallbackCwd 还是空的，这时候建会话会跑错地方 */
@@ -68,7 +81,10 @@ export function MainPane({
   active,
   titleOverride,
   initialModel,
+  initialAuthMode,
+  initialChannelId,
   onPersistModel,
+  onPersistAuth,
   fallbackCwd,
   cwdReady,
   metaReady = true,
@@ -88,7 +104,7 @@ export function MainPane({
    * 拿错的 CLI 去 --resume 是找不到的。新会话才用用户挑的那个。
    */
   const cli: CliId = active.kind === 'stored' ? active.cli : pickedCli
-  const { settings, loading, save } = useSettings()
+  const { settings, loading } = useSettings()
 
   /**
    * 打开已有会话时用它的 cwd —— CLI 靠 cwd 找那份记录，不能拿默认目录顶替。
@@ -108,6 +124,17 @@ export function MainPane({
    */
   const [branch, setBranch] = useState('')
   const [worktree, setWorktree] = useState<WorktreeInfo | null>(null)
+  /**
+   * 「编辑并重发」的原稿。nonce 让 Composer 知道这是新的一批 ——
+   * 同一条消息连点两次「编辑」也要能再次灌回去。
+   */
+  const [editDraft, setEditDraft] = useState<{
+    nonce: number
+    text: string
+    refs: IdeCodeRef[]
+  } | null>(null)
+  const editSeq = useRef(0)
+
   useEffect(() => {
     let alive = true
     setBranch('')
@@ -182,6 +209,13 @@ export function MainPane({
     effort: cliConfig(settings, cli).effort,
     // 打开已有会话时用它自己记下的模型；新会话交给选择器 / 默认值
     model: active.kind === 'stored' ? (initialModel ?? '') : '',
+    // 渠道 / 来源同样是会话级的：已有会话带自己那份，新会话跟随设置默认值
+    ...(active.kind === 'stored' && initialAuthMode !== undefined
+      ? { authMode: initialAuthMode }
+      : {}),
+    ...(active.kind === 'stored' && initialChannelId !== undefined
+      ? { channelId: initialChannelId }
+      : {}),
     resumeId,
     // 新会话每次点都换一个序号，不然连点两次时依赖没变，会话不会重建
     freshKey: active.kind === 'new' ? active.n : undefined,
@@ -237,11 +271,22 @@ export function MainPane({
   }, [cli, sessionKey])
   const cfg = cliConfig(settings, cli)
   /**
+   * 这条会话实际用的凭据来源 / 渠道。
+   *
+   * **会话自己选过的优先**（chat.authMode / chat.channelId），没选过才回落到
+   * 设置里的默认值。渠道是会话级的 —— 设置里那一份只是「新会话默认」，
+   * 不能用它去改写一条已经有自己选择的对话。
+   */
+  const effectiveAuthMode: CliAuthMode = chat.authMode ?? cfg.authMode
+  /**
    * 不挂渠道的模式：Claude 用官方 OAuth，dsh 用 DSH_HOME 里已有的 Harness 凭据。
    * 两者都靠 officialModel 兜底。
    */
-  const official = (cli === 'claude' || cli === 'dsh') && cfg.authMode === 'official'
-  const activeCh = official ? null : activeChannelOf(settings, cli)
+  const official = (cli === 'claude' || cli === 'dsh') && effectiveAuthMode === 'official'
+  const effectiveChannelId = official ? null : chat.channelId ?? cfg.activeChannelId
+  const activeCh = official
+    ? null
+    : (cfg.channels.find((c) => c.id === effectiveChannelId) ?? null)
 
   /*
    * 上下文胶囊要算百分比，就得知道上下文窗口上限；上限只写在模型名的
@@ -307,109 +352,160 @@ export function MainPane({
   }, [active.kind, chat.sessionId, chat.sessionCwd, cli, cwd, onPersistModel])
 
   /**
-   * 跨 CLI 选模型时，新会话对象要下一次渲染才建好 —— 先把模型记下来，
+   * 会话级渠道 / 来源选择的落盘。
+   *
+   * 和模型同一条规矩：写进 session-meta，**不写设置**。设置里的
+   * activeChannelId / authMode 只是「新会话默认」，把会话里的切换写进去，
+   * 同一 CLI 的其他对话就会跟着换 —— 这正是「A 切渠道 B 也变」的来源。
+   */
+  const pendingAuthSave = useRef<{ authMode: CliAuthMode; channelId: string | null } | null>(
+    null
+  )
+  const persistAuth = (authMode: CliAuthMode, channelId: string | null): void => {
+    if (!onPersistAuth) return
+    const patch = { authMode, ...(channelId ? { channelId } : { channelId: '' }) }
+    if (active.kind === 'stored') {
+      onPersistAuth(active.cli, active.cwd, active.id, patch)
+      return
+    }
+    const id = chat.sessionId
+    if (id) onPersistAuth(cli, chat.sessionCwd || cwd, id, patch)
+    else pendingAuthSave.current = { authMode, channelId }
+  }
+
+  useEffect(() => {
+    if (active.kind !== 'new' || !onPersistAuth) return
+    const id = chat.sessionId
+    const p = pendingAuthSave.current
+    if (!id || !p) return
+    pendingAuthSave.current = null
+    onPersistAuth(cli, chat.sessionCwd || cwd, id, {
+      authMode: p.authMode,
+      channelId: p.channelId ?? ''
+    })
+  }, [active.kind, chat.sessionId, chat.sessionCwd, cli, cwd, onPersistAuth])
+
+  /**
+   * 跨 CLI 选模型时，新会话对象要下一次渲染才建好 —— 先把选择记下来，
    * 等它出现再补上。否则 `applyModel` 会落到刚被换掉的那条会话上。
    */
   const pendingModel = useRef<{ cli: CliId; model: string } | null>(null)
+  const pendingAuth = useRef<{
+    cli: CliId
+    authMode: CliAuthMode
+    channelId: string | null
+  } | null>(null)
 
   useEffect(() => {
     const p = pendingModel.current
-    if (!p) return
-    // 只在这一帧确实切到了目标 CLI 时才用；否则（比如看的是已有会话，
-    // 换 CLI 并不会真的生效）丢掉，别让它留到下一次新会话上
-    pendingModel.current = null
-    if (p.cli === cli) {
-      chat.applyModel(p.model)
-      persistModel(p.model)
+    if (p) {
+      // 只在这一帧确实切到了目标 CLI 时才用；否则（比如看的是已有会话，
+      // 换 CLI 并不会真的生效）丢掉，别让它留到下一次新会话上
+      pendingModel.current = null
+      if (p.cli === cli) {
+        chat.applyModel(p.model)
+        persistModel(p.model)
+      }
     }
-  }, [cli, chat])
+    const a = pendingAuth.current
+    if (a) {
+      pendingAuth.current = null
+      if (a.cli === cli) {
+        /*
+         * 换 CLI 本身就是换了一条会话：新 controller 的初始快照里还没有
+         * 这套渠道，所以要把选择补上去。用 from = to 调 applyChannel ——
+         * 留痕会把两端相同的记录直接吞掉，不会画出「官方账号 → 官方账号」；
+         * 也**不能用 applyAuth**，那会顺手清掉刚应用的模型。
+         */
+        const label: ChannelLabel = a.channelId
+          ? {
+              kind: 'channel',
+              name:
+                cliConfig(settings, a.cli).channels.find((c) => c.id === a.channelId)?.name ?? ''
+            }
+          : { kind: 'official' }
+        chat.applyChannel(label, {
+          label,
+          authMode: a.authMode,
+          channelId: a.channelId
+        })
+        persistAuth(a.authMode, a.channelId)
+      }
+    }
+  }, [cli, chat, settings])
 
   /**
    * 模型选择器落下一套选择。三列是**同一个决定**的三个部分（哪个 CLI、
    * 哪个端点、哪个模型），点哪一列都从这里走。
    *
-   * 渠道和模型都是**启动参数**（就是注入给 CLI 的那几个环境变量），
-   * 不换进程不生效 —— 改完设置还得让会话重开一个进程；主进程 spawn 时
-   * 会自己重新读一遍当前渠道，这里不用把渠道传下去。
-   *
-   * **模型只作用于当前会话**：它不落盘成 `officialModel`（那是新会话的
-   * 默认值，设置页里单独管）。把会话级选择写进全局配置，会让同一 CLI 的
-   * 其他对话跟着切换 —— 这正是「A 换模型 B 也变」的来源。
+   * **渠道、来源、模型都只作用于当前会话**：它们都不落盘成全局限定值
+   * （设置页里那份 officialModel / activeChannelId 是新会话默认值，单独管）。
+   * 把会话级选择写进全局配置，会让同一 CLI 的其他对话跟着切换 ——
+   * 这正是「A 换渠道 B 也变」的来源。
    *
    * 换 CLI 则是另一条会话（另一套 provider + 另一份记录），旧 controller
    * 必须收掉 —— 否则它会挂在后台，而且没有侧栏行能再点回来。
    */
   const pickSelection = (sel: ModelSelection): void => {
     const targetCfg = cliConfig(settings, sel.cli)
+    const labelOf = (cid: string | null): ChannelLabel => ({
+      kind: 'channel',
+      name: targetCfg.channels.find((c) => c.id === cid)?.name || ''
+    })
+    const officialLabel: ChannelLabel = { kind: 'official' }
 
-    // 凭据来源跟着选择一起落盘：选官方账号 → official；选真实渠道 → channel。
-    // 渠道配置原样保留。
-    //
-    // 只写**真正变了**的字段：换模型（没换渠道 / 来源）不应该产生一次设置保存，
-    // 否则会顺带触发一轮全局设置广播，完全是噪音。
-    const patch: Partial<typeof targetCfg> = {}
-    if (sel.channelId && sel.channelId !== targetCfg.activeChannelId) {
-      patch.activeChannelId = sel.channelId
-    }
-    if (sel.official) {
-      if (targetCfg.authMode !== 'official') patch.authMode = 'official'
-    } else if (sel.channelId && (sel.cli === 'claude' || sel.cli === 'dsh')) {
-      if (targetCfg.authMode !== 'channel') patch.authMode = 'channel'
-    }
+    // 这套选择要在这个会话上生效的渠道 / 来源。没点渠道和来源时不动它们
+    const nextAuthMode: CliAuthMode | null = sel.official
+      ? 'official'
+      : sel.channelId
+        ? 'channel'
+        : null
+    const nextChannelId = sel.official
+      ? null
+      : (sel.channelId ?? (nextAuthMode ? targetCfg.activeChannelId : null))
 
-    const persist =
-      Object.keys(patch).length > 0
-        ? save({
-            ...settings,
-            clis: {
-              ...settings.clis,
-              [sel.cli]: { ...targetCfg, ...patch }
-            }
-          })
-        : Promise.resolve(settings)
-
-    /*
-     * **先落盘再改会话**。
-     *
-     * 主进程的 settingsSave 会调 SettingsManager.settingsChanged()：切换凭据
-     * 来源时它会清掉会话里显式设过的模型。如果 applyModel 抢在保存前面到达，
-     * 用户刚选的模型会被随后到达的 settingsChanged 清掉。
-     */
-    void persist
-      .then(() => {
-        if (sel.cli !== cli) {
-          if (active.kind === 'new') disposeNewChat(cli, active.n)
-          setPickedCli(sel.cli)
-          // 新会话的 controller 还没建好，模型等它出现再应用
-          if (sel.model) pendingModel.current = { cli: sel.cli, model: sel.model }
-          return
+    if (sel.cli !== cli) {
+      if (active.kind === 'new') disposeNewChat(cli, active.n)
+      setPickedCli(sel.cli)
+      // 新会话的 controller 还没建好，选择等它出现再应用
+      if (sel.model) pendingModel.current = { cli: sel.cli, model: sel.model }
+      if (nextAuthMode) {
+        pendingAuth.current = {
+          cli: sel.cli,
+          authMode: nextAuthMode,
+          channelId: nextChannelId
         }
+      }
+      return
+    }
 
-        // 同一条 CLI：渠道 / 模型都是启动参数，重开进程并 --resume 接回会话
-        // 留痕存的是结构化名字，翻译交给渲染时做
-        const chanLabel = (cid: string | null): ChannelLabel => ({
-          kind: 'channel',
-          name: targetCfg.channels.find((c) => c.id === cid)?.name || ''
+    // 同一条 CLI：渠道 / 模型都是启动参数，重开进程并 --resume 接回会话
+    if (nextAuthMode === 'official') {
+      // 已经在官方模式时只需要应用模型，别再留一条「官方账号 → 官方账号」
+      if (!official) {
+        chat.applyAuth(labelOf(effectiveChannelId), {
+          label: officialLabel,
+          authMode: 'official',
+          channelId: null
         })
-        const officialLabel: ChannelLabel = { kind: 'official' }
-
-        if (sel.official) {
-          // 已经在官方模式时只需要应用模型，别再留一条「官方账号 → 官方账号」
-          if (!official) chat.applyAuth(chanLabel(targetCfg.activeChannelId), officialLabel)
-        } else if (sel.channelId) {
-          chat.applyChannel(
-            official ? officialLabel : chanLabel(targetCfg.activeChannelId),
-            chanLabel(sel.channelId)
-          )
-        }
-        // '' 是选择器里的「默认（CLI 决定）」—— 也要落到会话上，把之前的
-        // 显式模型清掉；用 undefined 判断，不能用真假值（空串会被漏掉）
-        if (sel.model !== undefined) {
-          chat.applyModel(sel.model)
-          persistModel(sel.model)
-        }
+        persistAuth('official', null)
+        // 旧渠道的模型名放到官方来源上未必存在 —— 和主进程一起清掉
+        if (sel.model === undefined) persistModel('')
+      }
+    } else if (sel.channelId && nextAuthMode === 'channel') {
+      chat.applyChannel(official ? officialLabel : labelOf(effectiveChannelId), {
+        label: labelOf(sel.channelId),
+        authMode: 'channel',
+        channelId: nextChannelId
       })
-      .catch(() => undefined)
+      persistAuth('channel', nextChannelId)
+    }
+    // '' 是选择器里的「默认（CLI 决定）」—— 也要落到会话上，把之前的
+    // 显式模型清掉；用 undefined 判断，不能用真假值（空串会被漏掉）
+    if (sel.model !== undefined) {
+      chat.applyModel(sel.model)
+      persistModel(sel.model)
+    }
   }
 
   /**
@@ -420,6 +516,35 @@ export function MainPane({
     if (active.kind === 'stored') disposeStoredChat(active.cli, active.cwd, active.id)
     else disposeNewChat(cli, active.n)
     onNewSession(cwd)
+  }
+
+  /**
+   * 「编辑并重发」：把这条用户消息放回输入框。
+   *
+   * 走 Composer 而不是直接 send —— 用户点它是想改几个字再发，不是想原样再发
+   * 一遍。原样再发由「重试」那条路径负责（见 retryTurn）。
+   */
+  const editMessage = (item: Extract<ChatItem, { kind: 'user' }>): void => {
+    const draft = draftFromUserText(item.text, cwd)
+    editSeq.current += 1
+    setEditDraft({ nonce: editSeq.current, text: draft.text, refs: draft.refs })
+  }
+
+  /**
+   * 重试这一轮。
+   *
+   * 只重发**最后一条**用户消息（Transcript 那边也只在最后一条上显示这个按钮）：
+   * 更早那几轮后面还压着别的对话，重发它们会让模型看到两段矛盾的上下文。
+   *
+   * 消息正文原样再发一遍 —— CLI 侧就是开始新的一轮，前面的上下文都还在。
+   */
+  const retryTurn = (): void => {
+    for (let i = chat.items.length - 1; i >= 0; i--) {
+      const it = chat.items[i]
+      if (it.kind !== 'user') continue
+      void chat.send({ text: it.text, images: it.images })
+      return
+    }
   }
 
   /**
@@ -554,6 +679,8 @@ export function MainPane({
           thinkingOpen={settings.thinkingOpen}
           toolDetail={settings.toolDetail}
           cwd={cwd}
+          onEditMessage={editMessage}
+          onRetryTurn={retryTurn}
         />
         {/*
           提问抽屉：贴在输入框上方，不遮转写区。
@@ -582,7 +709,8 @@ export function MainPane({
           locked={pendingQuestions.length > 0}
           cli={cli}
           cliConfigs={settings.clis}
-          activeChannelId={official ? null : cfg.activeChannelId}
+          activeChannelId={effectiveChannelId}
+          authMode={effectiveAuthMode}
           model={displayModel}
           permissionMode={chat.permissionMode}
           effort={chat.effort}
@@ -601,6 +729,8 @@ export function MainPane({
           onClearConversation={clearConversation}
           incomingRefs={incomingRefs}
           onIncomingConsumed={onIncomingConsumed}
+          editDraft={editDraft}
+          onEditConsumed={() => setEditDraft(null)}
         />
         <StatusBar
           turns={chat.turns}

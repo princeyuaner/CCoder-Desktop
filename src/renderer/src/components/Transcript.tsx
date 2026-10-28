@@ -27,16 +27,22 @@ import type { TabKey } from './TabBar'
 import {
   IconCheck,
   IconChevronDown,
+  IconChevronLeft,
   IconChevronRight,
+  IconCopy,
   IconOpenInIde,
+  IconPencil,
+  IconRefresh,
+  IconSearch,
   IconSlash,
   IconX
 } from './Icons'
 import { notify } from '../notice'
 import { baseName } from '@shared/path'
-import { parseIdeRefs, refRangeLabel, type ParsedIdeRef } from '../ideRef'
+import { parseIdeRefs, userMessagePlainText, refRangeLabel, type ParsedIdeRef } from '../ideRef'
 import { MODE_LABEL_KEY } from '../constants'
 import { useI18n } from '../i18n'
+import { useFindInConversation, type FindApi } from '../useFind'
 
 /** 离底部多近算"贴着底部"（像素） */
 const NEAR_BOTTOM = 48
@@ -117,6 +123,26 @@ const DEFAULT_DISPLAY: DisplayPrefs = {
 }
 
 const DisplayContext = createContext<DisplayPrefs>(DEFAULT_DISPLAY)
+
+/**
+ * 消息级动作。单独一个 context：Row 是 memo 过的，把回调当 prop 逐层传会让
+ * 整条链每次父组件重渲染都失效 memo。这里的值由父组件 useMemo 稳定住。
+ */
+interface MessageActions {
+  /** 把这条用户消息（含引用卡）放回输入框 */
+  onEditMessage?: (item: Extract<ChatItem, { kind: 'user' }>) => void
+  /** 重发这一轮的用户消息 —— CLI 侧会当成新的一轮 */
+  onRetryTurn?: () => void
+  /** 最后一条用户消息的 id；只有它后面那段的「重试」才有意义 */
+  lastUserId: string | null
+  /** 会话是否在跑：跑着的时候不提供「重试」 */
+  busy: boolean
+}
+
+const ActionsContext = createContext<MessageActions>({
+  lastUserId: null,
+  busy: false
+})
 
 /** 毫秒 → 「12ms」/「1.4s」 */
 function fmtMs(ms: number): string {
@@ -217,6 +243,11 @@ interface Props {
   toolDetail: ToolDetail
   /** 当前会话的工作区目录（工具卡里的文件要在 IDE 中打开） */
   cwd: string
+  /**
+   * 消息级动作。不传就不显示那条 hover 工具条（轨迹页、只读回放用不到）。
+   */
+  onEditMessage?: (item: Extract<ChatItem, { kind: 'user' }>) => void
+  onRetryTurn?: () => void
 }
 
 export function Transcript({
@@ -230,10 +261,12 @@ export function Transcript({
   showTimestamps,
   thinkingOpen,
   toolDetail,
-  cwd
+  cwd,
+  onEditMessage,
+  onRetryTurn
 }: Props): JSX.Element {
   const { t } = useI18n()
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   /**
    * 是否跟随最新内容。
@@ -259,6 +292,89 @@ export function Transcript({
    */
   const settleUntilRef = useRef(0)
   const [showJump, setShowJump] = useState(false)
+  /**
+   * 滚动容器的 state 副本。
+   *
+   * 查找需要拿它跑 TreeWalker，而 `scrollRef.current` 在首帧是 null ——
+   * 只传 ref.current 的话 hook 永远拿不到那个节点，要等下一次无关的重渲染
+   * 才偶然补上。回调 ref 把"挂上"这件事变成一次 state 更新。
+   */
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+  const bindScroll = useCallback((el: HTMLDivElement | null): void => {
+    scrollRef.current = el
+    setScrollEl(el)
+  }, [])
+  // 换会话也要重算：Range 指向的节点已经被卸载了
+  const find = useFindInConversation(
+    items,
+    scrollEl,
+    `${sessionKey}\u0000${tab}`,
+    status === 'running' || status === 'starting'
+  )
+  const { openFind } = find
+  // effect 只依赖这几个稳定值，不因为输入一个字就重订阅 window 监听
+  const findOpen = find.open
+  const findFocus = find.focus
+  const findClose = find.close
+
+  /**
+   * Ctrl+F 打开会话内查找。
+   *
+   * 挂在 window 上而不是转写区的 keydown：用户可能刚点过输入框外的空白，
+   * 焦点不在转写区里。只要没在输入框里打字，Ctrl+F 都应该开查找 ——
+   * 输入框里有自己的原生查找行为，不抢。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'f' || e.shiftKey) return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return
+      e.preventDefault()
+      // 已经开着就只是把焦点送回查找框 —— 这是 Ctrl+F 的第二下
+      if (findOpen) findFocus()
+      else openFind()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openFind, findOpen, findFocus])
+
+  /**
+   * 查找条开着时 Esc 关闭。
+   *
+   * 不只在输入框里监听：用户可能点了一下转写区（焦点离开了输入框），
+   * 这时再按 Esc 也应该退出查找模式。
+   */
+  useEffect(() => {
+    if (!findOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      const el = e.target as HTMLElement | null
+      if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA') return
+      findClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [findOpen, findClose])
+
+  /** 最后一条用户消息 —— 只有它后面那一段有「重试」的意义 */
+  const lastUserId = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]
+      if (it.kind === 'user') return it.id
+    }
+    return null
+  }, [items])
+
+  const actions = useMemo<MessageActions>(
+    () => ({
+      onEditMessage,
+      onRetryTurn,
+      lastUserId,
+      busy: status === 'running' || status === 'starting'
+    }),
+    [onEditMessage, onRetryTurn, lastUserId, status]
+  )
 
   /** 最后一条 turn 分隔条：只有它还需要跟着实时任务状态变 */
   const lastTurnId = useMemo(() => {
@@ -410,8 +526,19 @@ export function Transcript({
 
   return (
     <DisplayContext.Provider value={display}>
+      <ActionsContext.Provider value={actions}>
       <div className="transcript-wrap">
-        <div className="transcript" ref={scrollRef}>
+        {find.open && (
+          <FindBar
+            find={find}
+            onClose={find.close}
+            // 跳转时别让"贴着底部"把滚动位置又拽回去
+            onJumped={() => {
+              pinnedRef.current = false
+            }}
+          />
+        )}
+        <div className="transcript" ref={bindScroll}>
         <div className="transcript__inner" ref={innerRef}>
           {tab === 'trace' ? (
             <TraceView items={items} />
@@ -452,12 +579,110 @@ export function Transcript({
         </button>
       )}
       </div>
+      </ActionsContext.Provider>
     </DisplayContext.Provider>
   )
 }
 
-/* ── 等模型开口时的占位 ─────────────────────────────────── */
+/* ── 会话内查找 ─────────────────────────────────────────── */
 
+/**
+ * 查找条。浮在转写区右上角，不挤压内容。
+ *
+ * 按钮的 disabled 用 `total === 0` 判断而不是 `current < 0`：查到了但索引还没
+ * 落定时（防抖那 90ms）按一下「下一个」不该毫无反应。
+ */
+function FindBar({
+  find,
+  onClose,
+  onJumped
+}: {
+  find: FindApi
+  onClose: () => void
+  onJumped: () => void
+}): JSX.Element {
+  const { t } = useI18n()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // 打开就把焦点放进输入框，进来直接敲字
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  const jump = (dir: 1 | -1): void => {
+    if (find.total === 0) return
+    if (dir > 0) find.next()
+    else find.prev()
+    onJumped()
+  }
+
+  return (
+    <div className="findbar" role="search">
+      <IconSearch width={13} height={13} className="findbar__ico" />
+      <input
+        ref={inputRef}
+        className="findbar__input"
+        value={find.query}
+        placeholder={t('transcript.findPlaceholder')}
+        spellCheck={false}
+        onChange={(e) => find.setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          // 输入法组合中不抢键，否则中文输入会被 Enter 打断
+          if (e.nativeEvent.isComposing) return
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            jump(e.shiftKey ? -1 : 1)
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            onClose()
+          }
+        }}
+      />
+      <span
+        className={`findbar__count${
+          !find.pending && find.query.trim() && find.total === 0 ? ' is-empty' : ''
+        }`}
+      >
+        {find.query.trim()
+          ? find.pending
+            ? '…'
+            : find.total > 0
+              ? t('transcript.findCount', { current: find.current + 1, total: find.total })
+              : t('transcript.findNone')
+          : ''}
+      </span>
+      <button
+        className="findbar__btn"
+        disabled={find.total === 0 || find.pending}
+        onClick={() => jump(-1)}
+        title={t('transcript.findPrev')}
+        aria-label={t('transcript.findPrev')}
+      >
+        <IconChevronLeft width={13} height={13} />
+      </button>
+      <button
+        className="findbar__btn"
+        disabled={find.total === 0 || find.pending}
+        onClick={() => jump(1)}
+        title={t('transcript.findNext')}
+        aria-label={t('transcript.findNext')}
+      >
+        <IconChevronDown width={13} height={13} />
+      </button>
+      <button
+        className="findbar__btn"
+        onClick={onClose}
+        title={t('common.close')}
+        aria-label={t('common.close')}
+      >
+        <IconX width={13} height={13} />
+      </button>
+    </div>
+  )
+}
+
+/* ── 等模型开口时的占位 ─────────────────────────────────── */
 function PendingRow({
   connecting,
   agentsRunning,
@@ -568,6 +793,19 @@ function UserImages({ images }: { images: ImageAttachment[] }): JSX.Element {
  * reduce 只替换变化的那一条，其余 item 的对象身份不变，浅比较就够了。
  */
 const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null {
+  /*
+   * 外层只为了给「会话内查找」一个可定位的锚点（data-item-id）。
+   * 不能用 display: contents —— 那样元素没有几何信息，scrollIntoView
+   * 找不到该滚到哪儿。普通块级包裹不影响里面 .tl__row 自己的布局。
+   */
+  return (
+    <div className="tl__item" data-item-id={item.id}>
+      <RowBody item={item} />
+    </div>
+  )
+})
+
+function RowBody({ item }: { item: ChatItem }): JSX.Element | null {
   const { showTimestamps, toolDetail, cwd } = useContext(DisplayContext)
   const { t, locale, text } = useI18n()
 
@@ -576,6 +814,7 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
       return (
         // 气泡靠右 —— 一眼分得开谁在说
         <div className="tl__row tl__row--me">
+          <UserActions item={item} />
           <div className="tl__meblock">
             {item.images && item.images.length > 0 && <UserImages images={item.images} />}
             <UserBubble text={item.text} />
@@ -636,7 +875,90 @@ const Row = memo(function Row({ item }: { item: ChatItem }): JSX.Element | null 
     default:
       return null
   }
-})
+}
+
+/* ── 消息级动作 ─────────────────────────────────────────── */
+
+/**
+ * 复制一条用户消息（含引用卡）。
+ *
+ * 图片只写占位符 —— 剪贴板里塞不下图片数据，而用户要的是"能贴到别处"的文本。
+ */
+async function copyUserMessage(item: Extract<ChatItem, { kind: 'user' }>): Promise<boolean> {
+  const body = userMessagePlainText(item.text)
+  const imgs = item.images?.length ?? 0
+  const suffix = imgs > 0 ? `\n\n[${imgs} image${imgs > 1 ? 's' : ''}]` : ''
+  try {
+    await navigator.clipboard.writeText(body + suffix)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 用户消息左侧的 hover 工具条：复制 / 编辑 / 重试。
+ *
+ * 只在鼠标悬停或键盘聚焦时出现，不占版面。重试只给**最后一条**用户消息 ——
+ * 更早那几轮后面还压着别的对话，重发它们只会让模型看到两段矛盾的上下文。
+ */
+function UserActions({ item }: { item: Extract<ChatItem, { kind: 'user' }> }): JSX.Element | null {
+  const { t } = useI18n()
+  const { onEditMessage, onRetryTurn, lastUserId, busy } = useContext(ActionsContext)
+  const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+
+  if (!onEditMessage && !onRetryTurn) return null
+  const canRetry = !!onRetryTurn && item.id === lastUserId && !busy
+
+  const copy = (): void => {
+    void copyUserMessage(item).then((ok) => {
+      if (!ok) {
+        notify(t('transcript.copyFailed'))
+        return
+      }
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1200)
+    })
+  }
+
+  return (
+    <div className="tl__meactions">
+      <button
+        className="tl__meact"
+        title={copied ? t('common.copied') : t('transcript.copyMessage')}
+        aria-label={t('transcript.copyMessage')}
+        onClick={copy}
+      >
+        {copied ? <IconCheck width={12} height={12} /> : <IconCopy width={12} height={12} />}
+      </button>
+      {onEditMessage && (
+        <button
+          className="tl__meact"
+          title={editing ? t('transcript.editHint') : t('transcript.editMessage')}
+          aria-label={t('transcript.editMessage')}
+          onClick={() => {
+            setEditing(true)
+            onEditMessage(item)
+            window.setTimeout(() => setEditing(false), 1200)
+          }}
+        >
+          <IconPencil width={12} height={12} />
+        </button>
+      )}
+      {canRetry && (
+        <button
+          className="tl__meact"
+          title={t('transcript.retryTurn')}
+          aria-label={t('transcript.retryTurn')}
+          onClick={() => onRetryTurn?.()}
+        >
+          <IconRefresh width={12} height={12} />
+        </button>
+      )}
+    </div>
+  )
+}
 
 /* ── 用户消息里的 IDE 代码引用 ─────────────────────────── */
 
@@ -1152,7 +1474,7 @@ function TraceView({ items }: { items: ChatItem[] }): JSX.Element {
   return (
     <ol className="trace">
       {tools.map((t) => (
-        <li key={t.id} className="trace__item">
+        <li key={t.id} className="trace__item" data-item-id={t.id}>
           <span className={`trace__dot is-${t.status}`} />
           <span className="trace__name">{t.name}</span>
           <code className="inline-code">{t.summary || '—'}</code>

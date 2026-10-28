@@ -1,25 +1,105 @@
-/* ── 右下角更新提醒 ─────────────────────────────────────── */
+/*
+ * 更新入口：标题栏胶囊 + 点开后的详情面板。
+ *
+ * 更新是低频事件，不放浮层、不占主区 —— 胶囊常驻在标题栏右侧，
+ * 只有用户主动点开时才出现面板。
+ */
 
-.updtoast {
-  position: fixed;
-  right: 20px;
-  /* 抬到输入框上方：贴着窗口底边会盖住发送按钮 */
-  bottom: 132px;
-  z-index: 55;
-  width: 340px;
-  padding: 13px 14px 12px;
+.updpill-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.updpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+.updpill:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+.updpill svg {
+  flex: none;
+}
+
+/* 可更新：版本号后面跟一个小圆点，是唯一的"有东西等你"的提示 */
+.updpill__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+/* 下载中：百分比 + 40px 的细进度条 */
+.updpill__pct {
+  font-variant-numeric: tabular-nums;
+}
+.updpill__bar {
+  display: block;
+  width: 40px;
+  height: 3px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+}
+.updpill__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.2s ease-out;
+}
+
+/* 已就绪：整枚变亮，动作就写在胶囊上 */
+.updpill.is-ready {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+.updpill.is-ready:hover {
+  background: var(--text);
+  color: var(--accent-fg);
+}
+
+/* 下载失败：红色描边，别和"有新版"混在一起 */
+.updpill.is-error {
+  color: var(--danger);
+  border-color: rgba(229, 83, 75, 0.38);
+}
+
+.updpanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  width: 300px;
+  padding: 12px 13px 11px;
   color: var(--text);
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-  animation: updtoast-in 0.16s ease-out;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  animation: updpanel-in 0.14s ease-out;
 }
-
-@keyframes updtoast-in {
+@keyframes updpanel-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(-4px);
   }
   to {
     opacity: 1;
@@ -27,13 +107,12 @@
   }
 }
 
-.updtoast__head {
+.updpanel__head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-
-.updtoast__mark {
+.updpanel__mark {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
@@ -43,18 +122,16 @@
   background: var(--accent);
   border-radius: 50%;
 }
-
-.updtoast__title {
+.updpanel__title {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   font-size: 13px;
   font-weight: 600;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.updtoast__x {
+.updpanel__x {
   flex: 0 0 auto;
   width: 20px;
   height: 20px;
@@ -63,58 +140,45 @@
   font-size: 15px;
   line-height: 1;
 }
-.updtoast__x:hover {
+.updpanel__x:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
 
-.updtoast__sub {
+.updpanel__sub {
   margin: 6px 0 0;
+  overflow: hidden;
   font-size: 11.5px;
   color: var(--text-muted);
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.updtoast__hint {
+.updpanel__hint {
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.55;
   color: var(--text-dim);
 }
-
-.updtoast__err {
+.updpanel__err {
   margin: 8px 0 0;
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--danger);
   word-break: break-word;
 }
-
-.updtoast__bar {
+.updpanel__bar {
+  width: 100%;
   height: 5px;
   margin-top: 10px;
-  overflow: hidden;
-  background: var(--bg-hover);
-  border-radius: var(--radius-pill);
 }
-.updtoast__bar > span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: inherit;
-  transition: width 0.2s ease-out;
-}
-
-.updtoast__acts {
+.updpanel__acts {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
 }
 
-/* 浅色下阴影收一点，否则比浮层本身还显眼 */
-html[data-scheme='light'] .updtoast {
+/* 浅色下阴影收一点，否则比面板本身还显眼 */
+html[data-scheme='light'] .updpanel {
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
 }

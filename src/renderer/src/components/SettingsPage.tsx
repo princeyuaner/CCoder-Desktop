@@ -803,6 +803,23 @@ export function SettingsPage({
                 </div>
 
                 <div className="field">
+                  <label className="field__label">{t('settings.notify')}</label>
+                  <div className="field__body">
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={draft.notifyOnDone}
+                        onChange={(e) => patch({ notifyOnDone: e.target.checked })}
+                      />
+                      <span>
+                        {draft.notifyOnDone ? t('settings.notify.on') : t('settings.notify.off')}
+                      </span>
+                    </label>
+                    <p className="field__hint">{t('settings.notifyHint')}</p>
+                  </div>
+                </div>
+
+                <div className="field">
                   <label className="field__label">{t('settings.thinking')}</label>
                   <div className="field__body">
                     <label className="switch">

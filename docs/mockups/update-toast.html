@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>右下角更新提示 · 位置方案</title>
+<style>
+  :root {
+    --bg-app: #191919;
+    --bg-sidebar: #141414;
+    --bg-raised: #232323;
+    --bg-hover: #1f1f1f;
+    --bg-active: #2a2a2a;
+    --border: #2c2c2c;
+    --border-soft: #242424;
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+    --accent: #e8e8e8;
+    --accent-fg: #191919;
+    --ok: #4b9e5f;
+    --warn: #c9a227;
+    --danger: #e5534b;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'Cascadia Mono', Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #0d0d0f; }
+  body { color: var(--text); font-family: var(--font-ui); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+  b { font-weight: 600; }
+
+  /* ══ 评审外壳：tab + 说明（截图时移除） ═══════════════════ */
+  #bar {
+    position: sticky; top: 0; z-index: 90;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 14px 24px;
+    background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+    border-bottom: 1px solid #1e1e24;
+  }
+  #bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+  .tabbtn {
+    padding: 6px 14px; font-size: 13px; border-radius: 8px;
+    color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+  }
+  .tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+  .tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+  #states {
+    display: flex; align-items: center; gap: 6px; margin-left: auto;
+    font-size: 11.5px; color: #55555f;
+  }
+  .stbtn {
+    padding: 4px 10px; font-size: 11.5px; border-radius: 999px;
+    color: #8a8a98; border: 1px solid #26262e;
+  }
+  .stbtn.is-on { color: #a5f3fc; border-color: rgba(34,211,238,.35); background: rgba(34,211,238,.08); }
+  #desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1120px; line-height: 1.85; }
+  #desc b { color: #b9b9c8; font-weight: 500; }
+  #desc code { font-family: var(--font-mono); color: #b8a8e8; }
+  #desc .rec {
+    display: inline-block; margin-left: 8px; padding: 1px 7px; vertical-align: 1px;
+    font-size: 10.5px; color: #a5f3fc; background: rgba(34,211,238,.12);
+    border: 1px solid rgba(34,211,238,.28); border-radius: 999px;
+  }
+  #desc .fact {
+    display: block; margin-top: 8px; padding: 9px 12px;
+    background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+    color: #8a8a9c;
+  }
+  #stage { padding: 18px 24px 24px; }
+
+  /* ══ 应用外壳（1080 × 720，和真实窗口同比例） ═══════════ */
+  .app {
+    position: relative; display: flex; flex-direction: column;
+    width: 1080px; height: 720px;
+    background: var(--bg-app);
+    border: 1px solid #26262e; border-radius: 12px;
+    overflow: hidden;
+  }
+  .titlebar {
+    flex: none; display: flex; align-items: center; justify-content: space-between;
+    height: 36px; background: var(--bg-app); border-bottom: 1px solid var(--border-soft);
+  }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 15px; font-weight: 650; }
+  .logo {
+    display: grid; place-items: center; width: 22px; height: 22px;
+    font-size: 11px; font-weight: 700; color: #191919; background: #e8e8e8; border-radius: 6px;
+  }
+  .tright { display: flex; align-items: center; height: 100%; }
+  .wctl { display: grid; place-items: center; width: 46px; height: 100%; color: var(--text-dim); font-size: 11px; }
+  .wctl:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl--close:hover { color: #fff; background: #c42b1c; }
+
+  .appbody { flex: 1; display: flex; min-height: 0; }
+
+  .side {
+    flex: none; display: flex; flex-direction: column; width: 280px;
+    padding: 10px 10px 6px;
+    background: var(--bg-sidebar); border-right: 1px solid var(--border-soft);
+  }
+  .newbtn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    height: 32px; font-size: 12.5px; color: var(--text);
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .nav { display: flex; flex-direction: column; gap: 1px; margin-top: 8px; }
+  .nav__it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12.5px; color: var(--text-dim); border-radius: 6px; }
+  .nav__it .ic { width: 11px; text-align: center; color: var(--text-muted); }
+  .grp { margin: 14px 0 2px; padding: 0 8px; font-size: 10.5px; letter-spacing: .3px; color: var(--text-faint); }
+  .ws { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 12.5px; color: var(--text-dim); }
+  .ws .cnt { margin-left: auto; font-size: 10.5px; color: var(--text-faint); }
+  .sess { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 22px; font-size: 12.5px; color: var(--text-muted); border-radius: 6px; white-space: nowrap; }
+  .sess.is-on { color: var(--text); background: var(--bg-active); }
+  .sess .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .sess .st { flex: none; margin-left: auto; font-size: 10.5px; color: var(--text-faint); }
+  .sess .st.run { color: var(--running); }
+  .spacer { flex: 1; }
+  .settings { display: flex; align-items: center; gap: 8px; padding: 7px 8px; font-size: 12.5px; color: var(--text-dim); }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-app); }
+  .head { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 26px 10px; border-bottom: 1px solid #202024; }
+  .head b { font-size: 13.5px; font-weight: 500; }
+  .badge { padding: 2px 8px; font-size: 11.5px; color: var(--text-muted); background: var(--bg-raised); border: 1px solid var(--border); border-radius: 999px; }
+  .body { flex: 1; min-height: 0; padding: 14px 26px 0; overflow: hidden; }
+  .inner { max-width: 660px; margin: 0 auto; }
+  .msg { display: flex; margin-bottom: 12px; }
+  .msg--me { justify-content: flex-end; }
+  .bubble { max-width: 80%; padding: 6px 11px; font-size: 12.8px; line-height: 1.6; color: var(--text-dim); background: var(--bg-raised); border: 1px solid var(--border); border-radius: 9px; }
+  .say { padding: 2px 0; font-size: 12.8px; line-height: 1.75; color: var(--text-dim); }
+  .say code { padding: 1px 4px; font-family: var(--font-mono); font-size: .9em; color: #b8a8e8; background: #26262f; border-radius: 4px; }
+  .tool { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; font-size: 12px; color: var(--text-muted); background: #1e1e24; border: 1px solid #26262f; border-radius: 7px; }
+  .tool .g { color: var(--ok); }
+
+  .composer { flex: none; padding: 6px 26px 4px; }
+  .cbox { max-width: 660px; margin: 0 auto; padding: 10px 10px 8px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 14px; }
+  .ph { padding: 0 2px 9px; font-size: 12.8px; color: var(--text-faint); }
+  .cbar { display: flex; align-items: center; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; font-size: 12px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; }
+  .chip .d { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .send { display: grid; place-items: center; width: 28px; height: 28px; margin-left: auto; font-size: 13px; color: var(--text-muted); background: var(--bg-active); border-radius: 50%; }
+  .statusbar { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 5px 26px 8px; font-size: 11.5px; color: var(--text-faint); }
+  .statusbar .r { display: flex; align-items: center; gap: 7px; }
+  .statusbar .sep { color: #4a4a4a; }
+
+  /* ══ 更新卡片的公共外观 ═══════════════════════════════ */
+  .ut__head { display: flex; align-items: center; gap: 8px; }
+  .ut__mark {
+    display: grid; place-items: center; flex: none; width: 22px; height: 22px;
+    color: var(--accent-fg); background: var(--accent); border-radius: 50%;
+  }
+  .ut__mark svg { width: 12px; height: 12px; }
+  .ut__title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ut__x { flex: none; display: grid; place-items: center; width: 20px; height: 20px; font-size: 15px; line-height: 1; color: var(--text-faint); border-radius: 4px; }
+  .ut__x:hover { color: var(--text); background: var(--bg-hover); }
+  .ut__sub { margin-top: 6px; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ut__hint { margin-top: 6px; font-size: 12px; line-height: 1.55; color: var(--text-dim); }
+  .ut__acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 11px; font-size: 12px; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  .btn:hover { color: var(--text); background: var(--bg-hover); }
+  .btn--primary { color: var(--accent-fg); background: var(--accent); border-color: transparent; font-weight: 600; }
+  .btn--primary:hover { color: #191919; background: #fff; }
+  .bar { height: 5px; margin-top: 10px; overflow: hidden; background: var(--bg-hover); border-radius: 999px; }
+  .bar > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+
+  /* ══ 现状：右下角浮动卡片 ═══════════════════════════════ */
+  .ut--cur {
+    position: absolute; right: 20px; bottom: 132px; z-index: 55;
+    width: 340px; padding: 13px 14px 12px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0,0,0,.45);
+  }
+  /* 用虚线标出它压住的区域，评审时一眼看到"挡了什么" */
+  .ut--cur::after {
+    content: ''; position: absolute; left: -10px; right: -10px; bottom: -14px; height: 10px;
+    border: 1px dashed rgba(229,83,75,.5); border-radius: 4px;
+  }
+
+  /* ══ A · 标题栏胶囊 ═══════════════════════════════════ */
+  .upd-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 22px; margin-right: 6px; padding: 0 9px;
+    font-size: 11.5px; color: var(--text-dim);
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 999px;
+  }
+  .upd-pill:hover { color: var(--text); border-color: #3a3a3a; }
+  .upd-pill svg { width: 11px; height: 11px; }
+  .upd-pill__dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .upd-pill__bar { width: 40px; height: 3px; overflow: hidden; background: rgba(255,255,255,.16); border-radius: 999px; }
+  .upd-pill__bar > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+  .upd-pill.is-ready { color: var(--accent-fg); background: var(--accent); border-color: transparent; font-weight: 600; }
+  .upd-pill.is-ready .upd-pill__dot { background: var(--accent-fg); }
+  .upd-panel {
+    position: absolute; top: 40px; right: 12px; z-index: 60;
+    width: 300px; padding: 12px 13px 11px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0,0,0,.5);
+  }
+  .upd-panel .ut__head { padding-right: 2px; }
+
+  /* ══ B · 侧栏底部 ════════════════════════════════════ */
+  .upd-side {
+    margin-top: 6px; padding: 9px 10px 10px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 9px;
+  }
+  .upd-side__row { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12.5px; color: var(--text); }
+  .upd-side__row svg { flex: none; width: 12px; height: 12px; color: var(--text-dim); }
+  .upd-side__row .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upd-side__row .pct { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+  .upd-side__hint { margin-top: 4px; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
+  .upd-side__acts { display: flex; gap: 6px; margin-top: 8px; }
+  .upd-side__acts .btn { flex: 1; justify-content: center; padding: 4px 0; }
+  .upd-side .bar { height: 4px; margin-top: 8px; }
+  .upd-side.is-ready { border-color: rgba(232,232,232,.28); }
+  .upd-side.is-ready .upd-side__row { color: var(--accent); }
+
+  /* ══ C · 状态栏就地 ══════════════════════════════════ */
+  .upd-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
+  .upd-inline svg { width: 11px; height: 11px; }
+  .upd-inline .link { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+  .upd-inline .pct { color: var(--text-faint); }
+  .upd-inline .bar { width: 52px; height: 3px; margin: 0; }
+
+  /* ══ D · 窗口底栏 ════════════════════════════════════ */
+  .upd-bar {
+    position: relative; z-index: 2; flex: none;
+    display: flex; align-items: center; gap: 9px;
+    height: 32px; padding: 0 16px;
+    font-size: 12px; color: var(--text-dim);
+    background: #1d1d1d; border-top: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .upd-bar__fill { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); }
+  .upd-bar > :not(.upd-bar__fill) { position: relative; }
+  .upd-bar svg { width: 12px; height: 12px; color: var(--text-muted); }
+  .upd-bar .t { font-weight: 600; color: var(--text); }
+  .upd-bar .sub { color: var(--text-faint); }
+  .upd-bar .pct { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .upd-bar .sp { flex: 1; }
+  .upd-bar .bar { width: 130px; height: 4px; margin: 0; }
+  .upd-bar.is-ready { background: rgba(232,232,232,.06); }
+  .upd-bar.is-ready .t { color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>更新提示 · 位置方案</h1>
+  <button class="tabbtn" data-k="cur">现状</button>
+  <button class="tabbtn" data-k="a">A 标题栏胶囊</button>
+  <button class="tabbtn" data-k="b">B 侧栏底部</button>
+  <button class="tabbtn" data-k="c">C 状态栏就地</button>
+  <button class="tabbtn" data-k="d">D 窗口底栏</button>
+  <div id="states">
+    <span>状态</span>
+    <button class="stbtn" data-s="available">可更新</button>
+    <button class="stbtn" data-s="downloading">下载中</button>
+    <button class="stbtn" data-s="downloaded">待安装</button>
+  </div>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+<script>
+/* ════════════════════════════════════════════════════════════
+ * 样例数据：版本、发布名、下载进度都取自真实 UpdateToast 的字段
+ * ════════════════════════════════════════════════════════════ */
+const DATA = {
+  version: 'v1.2.3',
+  releaseName: '修复差分下载与 IDE 搜索',
+  percent: 42,
+  mode: '差分'
+}
+
+const ICON = {
+  down: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7.6"/><path d="M4.7 7.1 8 10.4l3.3-3.3"/><path d="M3 13h10"/></svg>'
+}
+
+/* ── 文案（与 zh.ts 的 update.* 一致） ─────────────────── */
+const T = (state) => {
+  const v = DATA.version
+  if (state === 'available') {
+    return {
+      title: '发现新版本 ' + v,
+      hint: '下载完成后会提示你重启安装，不会现在打断正在进行的会话。',
+      hintShort: '下载后可重启安装',
+      download: '下载',
+      later: '稍后'
+    }
+  }
+  if (state === 'downloading') {
+    return {
+      title: '正在' + DATA.mode + '下载 ' + v,
+      hint: DATA.mode + '下载中… ' + DATA.percent + '%',
+      hintShort: DATA.mode + '下载中… ' + DATA.percent + '%',
+      download: '下载中…',
+      later: ''
+    }
+  }
+  return {
+    title: '新版本 ' + v + ' 已就绪',
+    hint: '重启后会完成安装。打开的会话会被关闭，之后还能从记录里继续。',
+    hintShort: '重启应用完成安装',
+    download: '重启并安装',
+    later: '稍后'
+  }
+}
+
+/* ── 对话背景：让"挡不挡内容"这件事看得见 ─────────────── */
+const TRANSCRIPT = `
+  <div class="msg msg--me"><span class="bubble">更新提示别挡着主窗口，右下角那块老是压住输入框。</span></div>
+  <div class="msg"><div class="say">
+    现在它是一个固定 <code>right:20px; bottom:132px</code> 的 340px 浮层，正好压在内容列右缘和发送按钮上方。
+    我先做几个位置方案，重点看<b>不遮内容</b>和<b>动作还找得到</b>这两件事。
+  </div></div>
+  <div class="msg"><span class="tool"><span class="g">✓</span> Read <span style="font-family:var(--font-mono)">src/renderer/src/components/UpdateToast.tsx</span></span></div>
+  <div class="msg"><div class="say">
+    四种承载方式都保留原有四态（可更新 / 下载中 / 已就绪 / 失败）和两个动作（下载、重启安装），只换位置与形态。
+  </div></div>`
+
+/* ── 主区（固定骨架） ─────────────────────────────────── */
+const MAIN = (extraStatus, statusRight) => `
+  <div class="head"><b>更新提示的位置</b><span class="badge">标准模式</span></div>
+  <div class="body"><div class="inner">${TRANSCRIPT}</div></div>
+  <div class="composer"><div class="cbox">
+    <div class="ph">发消息或创建任务，/ 调用指令，@ 文件或对话</div>
+    <div class="cbar">
+      <span class="chip">未选模型 ⌄</span>
+      <span class="spacer"></span>
+      <span class="chip">◈ 标准模式 ⌄</span>
+      <span class="send">↑</span>
+    </div>
+  </div></div>
+  <div class="statusbar">
+    <div>0 轮 · 0 步</div>
+    <div class="r">${extraStatus || ''}${extraStatus ? '<span class="sep">|</span>' : ''}${statusRight || ''}</div>
+  </div>`
+
+const SIDEBAR = (extra) => `
+  <div class="newbtn">＋ 新会话</div>
+  <div class="nav">
+    <div class="nav__it"><span class="ic">⧉</span>插件</div>
+    <div class="nav__it"><span class="ic">◷</span>自动化任务</div>
+  </div>
+  <div class="grp">工作区</div>
+  <div class="ws"><span>▾</span>CCoder-Desktop<span class="cnt">3</span></div>
+  <div class="sess is-on"><span class="t">更新提示的位置</span><span class="st run">运行中</span></div>
+  <div class="sess"><span class="t">修 permission-prev…</span><span class="st run">运行中</span></div>
+  <div class="sess"><span class="t">把渠道测试改成走真…</span><span class="st">5 小时</span></div>
+  <div class="ws" style="margin-top:8px"><span>▾</span>agent kit<span class="cnt">1</span></div>
+  <div class="sess"><span class="t">重构 run-state 的任…</span><span class="st">1 天</span></div>
+  <div class="spacer"></div>
+  ${extra || ''}
+  <div class="settings"><span>⚙</span>设置</div>`
+
+const SHELL = (titleExtra, sideExtra, extraStatus, bottomBar, overlay) => `
+  <div class="app">
+    <div class="titlebar">
+      <div class="brand"><span class="logo">◍</span>CCoder</div>
+      <div class="tright">
+        ${titleExtra || ''}
+        <span class="wctl">▭</span><span class="wctl">—</span><span class="wctl">▢</span><span class="wctl wctl--close">✕</span>
+      </div>
+    </div>
+    <div class="appbody">
+      <div class="side">${SIDEBAR(sideExtra)}</div>
+      <div class="main">${MAIN(extraStatus, '1.2k tok · 缓存 68%')}</div>
+    </div>
+    ${bottomBar || ''}
+    ${overlay || ''}
+  </div>`
+
+/* ══ 现状 ═══════════════════════════════════════════════ */
+function curToast(state) {
+  const t = T(state)
+  const head = `
+    <div class="ut__head">
+      <span class="ut__mark">${ICON.down}</span>
+      <span class="ut__title">${t.title}</span>
+      ${state === 'downloading' ? '' : '<span class="ut__x">×</span>'}
+    </div>`
+  let body
+  if (state === 'downloading') {
+    body = `<div class="bar" style="margin-top:10px"><span style="width:${DATA.percent}%"></span></div>
+            <p class="ut__hint">${t.hintShort}</p>`
+  } else {
+    body = `${state === 'available' ? `<p class="ut__sub">${DATA.releaseName}</p>` : ''}
+            <p class="ut__hint">${t.hint}</p>
+            <div class="ut__acts">
+              <button class="btn btn--primary">${state === 'available' ? '下载' : '重启并安装'}</button>
+              <button class="btn">稍后</button>
+            </div>`
+  }
+  return `<aside class="ut--cur">${head}${body}</aside>`
+}
+
+/* ══ A · 标题栏胶囊 ═════════════════════════════════════ */
+function pill(state) {
+  if (state === 'downloading') {
+    return `<button class="upd-pill" id="upd-pill">${ICON.down}<span>${DATA.percent}%</span>
+      <span class="upd-pill__bar"><span style="width:${DATA.percent}%"></span></span></button>`
+  }
+  if (state === 'downloaded') {
+    return `<button class="upd-pill is-ready" id="upd-pill">${ICON.down}<span>重启并安装</span></button>`
+  }
+  return `<button class="upd-pill" id="upd-pill">${ICON.down}<span>新版本 ${DATA.version}</span><span class="upd-pill__dot"></span></button>`
+}
+
+function panel(state) {
+  const t = T(state)
+  const body = state === 'available'
+    ? `<p class="ut__sub">${DATA.releaseName}</p><p class="ut__hint">${t.hint}</p>
+       <div class="ut__acts"><button class="btn btn--primary">${t.download}</button><button class="btn">${t.later}</button></div>`
+    : state === 'downloading'
+      ? `<div class="bar"><span style="width:${DATA.percent}%"></span></div>
+         <p class="ut__hint" style="margin-top:8px">${t.hint}</p>`
+      : `<p class="ut__hint">${t.hint}</p>
+         <div class="ut__acts"><button class="btn btn--primary">${t.download}</button><button class="btn">${t.later}</button></div>`
+  return `
+    <div class="upd-panel" id="upd-panel" hidden>
+      <div class="ut__head">
+        <span class="ut__mark">${ICON.down}</span>
+        <span class="ut__title">${t.title}</span>
+        <span class="ut__x">×</span>
+      </div>
+      ${body}
+    </div>`
+}
+
+const A = (state) => SHELL(pill(state), '', '', '', panel(state))
+
+/* ══ B · 侧栏底部 ═══════════════════════════════════════ */
+const B = (state) => {
+  const t = T(state)
+  let inner
+  if (state === 'downloading') {
+    inner = `
+      <div class="upd-side__row">${ICON.down}<span class="t">${t.title}</span><span class="pct">${DATA.percent}%</span></div>
+      <div class="bar"><span style="width:${DATA.percent}%"></span></div>
+      <div class="upd-side__hint">${t.hintShort}</div>`
+  } else if (state === 'downloaded') {
+    inner = `
+      <div class="upd-side__row">${ICON.down}<span class="t">新版本已就绪</span></div>
+      <div class="upd-side__hint">${t.hintShort}</div>
+      <div class="upd-side__acts">
+        <button class="btn btn--primary">重启并安装</button><button class="btn">稍后</button>
+      </div>`
+  } else {
+    inner = `
+      <div class="upd-side__row">${ICON.down}<span class="t">${t.title}</span></div>
+      <div class="upd-side__hint">${t.hintShort}</div>
+      <div class="upd-side__acts">
+        <button class="btn btn--primary">${t.download}</button><button class="btn">${t.later}</button>
+      </div>`
+  }
+  const cls = state === 'downloaded' ? 'upd-side is-ready' : 'upd-side'
+  return SHELL('', `<div class="${cls}">${inner}</div>`, '', '', '')
+}
+
+/* ══ C · 状态栏就地 ═════════════════════════════════════ */
+const C = (state) => {
+  const t = T(state)
+  let inline
+  if (state === 'downloading') {
+    inline = `<span class="upd-inline">${ICON.down}<span>${DATA.mode}下载中…</span><span class="bar"><span style="width:${DATA.percent}%"></span></span><span class="pct">${DATA.percent}%</span></span>`
+  } else if (state === 'downloaded') {
+    inline = `<span class="upd-inline">${ICON.down}<span>新版本已就绪</span><span class="sep">·</span><span class="link">重启并安装</span></span>`
+  } else {
+    inline = `<span class="upd-inline">${ICON.down}<span>${DATA.version}</span><span class="sep">·</span><span class="link">${t.download}</span></span>`
+  }
+  return SHELL('', '', inline, '', '')
+}
+
+/* ══ D · 窗口底栏 ═══════════════════════════════════════ */
+const D = (state) => {
+  const t = T(state)
+  let bar
+  if (state === 'downloading') {
+    bar = `
+      <div class="upd-bar">
+        <div class="upd-bar__fill" style="width:${DATA.percent}%"></div>
+        ${ICON.down}
+        <span class="t">正在${DATA.mode}下载 ${DATA.version}</span>
+        <span class="bar"><span style="width:${DATA.percent}%"></span></span>
+        <span class="pct">${DATA.percent}%</span>
+        <span class="sp"></span>
+        <span class="sub">下载中不会打断正在进行的会话</span>
+      </div>`
+  } else if (state === 'downloaded') {
+    bar = `
+      <div class="upd-bar is-ready">
+        ${ICON.down}
+        <span class="t">新版本 ${DATA.version} 已就绪</span>
+        <span class="sub">重启应用完成安装，打开的会话会被关闭</span>
+        <span class="sp"></span>
+        <button class="btn btn--primary">重启并安装</button>
+        <button class="btn">稍后</button>
+      </div>`
+  } else {
+    bar = `
+      <div class="upd-bar">
+        ${ICON.down}
+        <span class="t">发现新版本 ${DATA.version}</span>
+        <span class="sub">${DATA.releaseName}</span>
+        <span class="sp"></span>
+        <button class="btn btn--primary">下载</button>
+        <button class="btn">稍后</button>
+      </div>`
+  }
+  return SHELL('', '', '', bar, '')
+}
+
+/* ══ 文案与渲染 ═════════════════════════════════════════ */
+const VARIANTS = {
+  cur: {
+    html: (s) => SHELL('', '', '', '', curToast(s)),
+    desc: '<b>现状</b> —— 340px 固定浮层，<code>right:20px; bottom:132px</code>。'
+      + '它悬在主区内容列右缘，正好横跨输入框右半和发送按钮上方，下载中还不能关。'
+      + '<span class="fact">要修的核心问题：浮层与内容争同一块像素。下面四个方案分别把它挪出主区、降成一条、或挤进既有栏位。</span>'
+  },
+  a: {
+    html: A,
+    desc: '<b>A 标题栏胶囊</b><span class="rec">推荐</span> —— 折进标题栏右侧，和窗口控件同一行。'
+      + '平时只有一枚 22px 高的胶囊（版本号 + 圆点）；下载中变成百分比 + 细进度条；下载完变成高亮的「重启并安装」。'
+      + '点击胶囊才下拉出 300px 的面板看详情。主区一个像素都不占，设置页也照样在。'
+      + '<span class="fact">代价：可发现性靠那枚圆点，比卡片低；面板只在用户主动点开时才出现，所以它仍会短暂盖住右上角。'
+      + '好处是"打扰"变成用户发起的，而不是应用主动盖上来。</span>'
+  },
+  b: {
+    html: B,
+    desc: '<b>B 侧栏底部</b> —— 放在「设置」上方，跟导航同层，随侧栏固定。'
+      + '侧栏宽度 210px，卡片自己撑满一行；下载中显示细进度条，待安装时整块描边提亮。'
+      + '<span class="fact">代价：侧栏窄，标题和两个按钮要挤在同一行里；侧栏若加折叠功能，提示会一起消失（当前版本侧栏常驻，暂无此问题）；'
+      + '它是"常驻一块"，比 A 重。</span>'
+  },
+  c: {
+    html: C,
+    desc: '<b>C 状态栏就地</b> —— 塞进底部状态栏右端，纯文本 + 行内进度，状态栏高度不变。'
+      + '占地最小、最不像"弹窗"，适合把更新当成后台任务处理。'
+      + '<span class="fact">代价：状态栏只存在于对话视图，设置页看不到；12px 字号 + 52px 进度条，粗扫很容易错过；'
+      + '「更新」是要用户动手的事，放在状态栏层级偏低。若要全视图可见，得把状态栏提到 App 层。</span>'
+  },
+  d: {
+    html: D,
+    desc: '<b>D 窗口底栏</b> —— 窗口最底部新增一条 32px 通栏（状态栏之下），内容整体上移，绝不覆盖。'
+      + '下载时整条底栏当进度条用，待安装时整条微微提亮、右侧常驻主按钮。'
+      + '<span class="fact">代价：为一条低频提示常驻 32px 高度；只在有更新时出现，关闭/稍后后收起；'
+      + '视觉重量最大，但"永远不遮内容"这一点最彻底，也最符合桌面端习惯。</span>'
+  }
+}
+
+const params = new URLSearchParams(location.search)
+/*
+ * v 既可以是方案名，也可以带状态后缀：`a-downloading`、`b-downloaded`。
+ * shot-mock 只透传一个 query 值，截图时用这个后缀切状态。
+ */
+const rawV = params.get('v') || ''
+const [keyPart, statePart] = rawV.split('-')
+const KNOWN_STATES = ['available', 'downloading', 'downloaded']
+const only = keyPart && keyPart !== 'bar' ? keyPart : null
+const forcedOpen = params.get('open') === '1'
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+let state = KNOWN_STATES.includes(statePart)
+  ? statePart
+  : KNOWN_STATES.includes(params.get('state'))
+    ? params.get('state')
+    : 'available'
+let current = only || 'cur'
+
+function render() {
+  const v = VARIANTS[current]
+  stage.innerHTML = v.html(state)
+  if (current !== 'cur') desc.innerHTML = v.desc
+  else desc.innerHTML = v.desc
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === current)
+  for (const b of bar.querySelectorAll('.stbtn')) b.classList.toggle('is-on', b.dataset.s === state)
+  wire()
+}
+
+function wire() {
+  const pillEl = document.getElementById('upd-pill')
+  const panelEl = document.getElementById('upd-panel')
+  if (pillEl && panelEl) {
+    if (forcedOpen) panelEl.hidden = false
+    pillEl.addEventListener('click', () => { panelEl.hidden = !panelEl.hidden })
+  }
+}
+
+if (only && only !== 'bar') {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  document.body.style.padding = '0'
+  render()
+} else {
+  bar.addEventListener('click', (e) => {
+    const t = e.target.closest('.tabbtn')
+    if (t) { current = t.dataset.k; render(); return }
+    const s = e.target.closest('.stbtn')
+    if (s) { state = s.dataset.s; render() }
+  })
+  render()
+}
+</script>
+</body>
+</html>

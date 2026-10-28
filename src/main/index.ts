@@ -4,12 +4,13 @@ import { fileURLToPath } from 'node:url'
 import { app, crashReporter, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { PermissionMode } from '../shared/events'
-import type { Channel, CliId, Settings } from '../shared/settings'
+import type { Channel, CliAuthMode, CliId, EffortLevel, Settings } from '../shared/settings'
 import type { SyncConfig } from '../shared/sync'
 import type {
   PermissionDecision,
   QuestionAnswer,
   SessionMetaUpdate,
+  SessionNotifyPayload,
   SessionSendInput,
   SessionStartOptions
 } from '../shared/session'
@@ -179,6 +180,7 @@ import type {
   VcsWorktreeRemoveRequest
 } from '../shared/vcs'
 import {
+  activeChatSessionId,
   isChatMainSender,
   listChatTargets,
   openSessionInChat,
@@ -187,6 +189,11 @@ import {
   setChatMainWindow
 } from './chat-bridge'
 import type { ChatActiveInfo, IdeSendPayload } from '../shared/ide-chat'
+import {
+  disposeChatNotify,
+  maybeNotifyDone,
+  setNotifyMainWindow
+} from './chat-notify'
 import { isSameOrInside, pathKey } from './path-key'
 import { applyNativeTheme, windowBg } from './window-theme'
 import { createUpdater, registerUpdaterIpc } from './updater'
@@ -251,6 +258,9 @@ function createWindow(): BrowserWindow {
   // IDE 的「发送到聊天」需要把引用投递到主窗口；主窗口只有一个
   setChatMainWindow(win)
   win.on('closed', () => setChatMainWindow(null))
+  // 跑完通知要知道窗口在不在前台
+  setNotifyMainWindow(win)
+  win.on('closed', () => setNotifyMainWindow(null))
 
   win.on('ready-to-show', () => win.show())
 
@@ -1372,6 +1382,17 @@ function registerChatBridgeIpc(): void {
     }
     return sendRefsToChat(payload)
   })
+
+  /*
+   * 一轮跑完 → 系统通知。文案由渲染层拼好（只有它知道当前语言和标题），
+   * 弹不弹由主进程判断（只有它知道窗口在不在前台）。
+   */
+  ipcMain.on(IPC.chatNotifyDone, (e, payload: SessionNotifyPayload) => {
+    if (!isChatMainSender(e.sender.id)) return
+    if (!payload || typeof payload !== 'object') return
+    if (typeof payload.title !== 'string' || payload.title.length > 200) return
+    maybeNotifyDone(payload, activeChatSessionId())
+  })
 }
 
 /** 会话事件广播给所有窗口 —— 多窗口时天然同步 */
@@ -1447,8 +1468,17 @@ function registerSessionIpc(sessions: SessionManager): void {
   )
   ipcMain.on(
     IPC.sessionReconfigure,
-    (_e, id: string, patch: { model?: string; permissionMode?: PermissionMode }) =>
-      sessions.reconfigure(id, patch)
+    (
+      _e,
+      id: string,
+      patch: {
+        model?: string
+        permissionMode?: PermissionMode
+        effort?: EffortLevel
+        authMode?: CliAuthMode
+        channelId?: string | null
+      }
+    ) => sessions.reconfigure(id, patch)
   )
 }
 
@@ -1599,6 +1629,7 @@ app.whenReady().then(() => {
     cancelAllIdeSearches()
     killAllTerminals()
     killAllLsp()
+    disposeChatNotify()
     void disposeAllSync()
   })
 

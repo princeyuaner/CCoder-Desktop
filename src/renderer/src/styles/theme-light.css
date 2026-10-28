@@ -130,6 +130,22 @@ html[data-scheme='light'] .jump-bottom:hover {
   background: #ffffff;
 }
 
+/* 会话内查找条：深色下的白色 hover 在浅色底上看不见 */
+html[data-scheme='light'] .findbar {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+}
+html[data-scheme='light'] .findbar__btn:hover:not(:disabled),
+html[data-scheme='light'] .tl__meact:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+html[data-scheme='light'] ::highlight(ccoder-find) {
+  background: rgba(250, 204, 21, 0.42);
+}
+html[data-scheme='light'] ::highlight(ccoder-find-current) {
+  background: rgba(245, 158, 11, 0.85);
+  color: #1a1a1a;
+}
+
 /* 上下文环的底轨：浅色下不能用深色那条 */
 html[data-scheme='light'] .ctxchip__track {
   stroke: #d7d7dc;

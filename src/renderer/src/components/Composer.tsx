@@ -20,6 +20,7 @@ import {
   effortLevelsFor,
   emptyCliConfig,
   type Channel,
+  type CliAuthMode,
   type CliConfig,
   type CliId,
   type EffortLevel,
@@ -51,13 +52,23 @@ import {
 } from './Icons'
 import { contextPercent, contextWindowOf, fmtTokens } from './format'
 import { MAX_IMAGES, readImageFiles } from '../imagePaste'
+import {
+  FILE_ATTACH_MAX_BYTES,
+  MAX_FILES,
+  readFileAttachments
+} from '../fileAttach'
 
 /** 输入框自动长高的上限 —— 到这儿之后改为框内滚动，别把对话区挤没了 */
 const MAX_INPUT_HEIGHT = 180
 
-/** 同一段代码从 IDE 发两次只留一张卡 */
+/**
+ * 同一段代码从 IDE 发两次只留一张卡。
+ *
+ * 拖进来的文件是 `file` 来源、rel 只有文件名 —— 不同目录下的同名文件会撞车，
+ * 所以带上 origin 和完整路径。
+ */
 const refKey = (r: IdeCodeRef): string =>
-  `${r.kind}:${r.rel}:${r.startLine ?? 0}:${r.endLine ?? 0}`
+  `${r.origin ?? 'ide'}:${r.kind}:${r.path || r.rel}:${r.startLine ?? 0}:${r.endLine ?? 0}`
 
 /** 输入框里的代码卡只露前几行，完整内容在发送时才拼进正文 */
 function previewCode(code: string): string {
@@ -140,6 +151,13 @@ interface Props {
   cliConfigs: Record<CliId, CliConfig>
   /** 该 CLI 当前在用的渠道 */
   activeChannelId: string | null
+  /**
+   * 这条会话自己的凭据来源；undefined = 跟随设置里的默认值。
+   *
+   * 渠道是会话级的：同一 CLI 的另一条对话可能走另一个渠道，所以不能
+   * 只看 `cliConfigs[cli].authMode`。
+   */
+  authMode?: CliAuthMode
   model: string
   permissionMode: PermissionMode
   /** 本会话的思考深度（CLI 的 --effort） */
@@ -170,6 +188,14 @@ interface Props {
   /** IDE 发来的引用；nonce 变化才收，避免重渲染时重复加 */
   incomingRefs?: { nonce: number; refs: IdeCodeRef[] } | null
   onIncomingConsumed?: () => void
+  /**
+   * 「编辑并重发」送回来的原稿：原话 + 引用卡。
+   *
+   * 和 incomingRefs 分开：那是**追加**引用，这是**替换**整份输入框内容。
+   * 不覆盖的话用户手里可能还留着上一稿，重发出去就是两份拼在一起。
+   */
+  editDraft?: { nonce: number; text: string; refs: IdeCodeRef[] } | null
+  onEditConsumed?: () => void
 }
 
 export function Composer({
@@ -187,6 +213,7 @@ export function Composer({
   cli,
   cliConfigs,
   activeChannelId,
+  authMode,
   model,
   permissionMode,
   effort,
@@ -204,7 +231,9 @@ export function Composer({
   onEffortChange,
   onClearConversation,
   incomingRefs,
-  onIncomingConsumed
+  onIncomingConsumed,
+  editDraft,
+  onEditConsumed
 }: Props): JSX.Element {
   const { t, tn } = useI18n()
   const [text, setText] = useState('')
@@ -218,13 +247,20 @@ export function Composer({
   const [toast, setToast] = useState<string | null>(null)
   /** 上下文详情浮层是否展开 */
   const [ctxOpen, setCtxOpen] = useState(false)
+  /** 拖文件到输入框上方时高亮整块，告诉用户「松手就能附上」 */
+  const [dragging, setDragging] = useState(false)
   const canSend =
     !locked && (text.trim().length > 0 || attachments.length > 0 || refs.length > 0)
 
   const curCfg = cliConfigs[cli] ?? emptyCliConfig(cli)
+  /**
+   * 这条会话的凭据来源：会话自己的优先，没选过才看设置里的默认值。
+   * 渠道是会话级的，不能用全局 authMode 顶替。
+   */
+  const effectiveAuthMode = authMode ?? curCfg.authMode
   /** Claude 的官方登录模式：不显示渠道名，显示「官方账号」 */
   const official =
-    (cli === 'claude' || cli === 'dsh') && curCfg.authMode === 'official'
+    (cli === 'claude' || cli === 'dsh') && effectiveAuthMode === 'official'
   /** 胶囊里要显示渠道名。没选渠道时也要占位，免得只看到一个模型名又不知道走的哪儿 */
   const channel = official
     ? null
@@ -242,6 +278,28 @@ export function Composer({
     })
     onIncomingConsumed?.()
   }, [incomingRefs, onIncomingConsumed])
+
+  /**
+   * 「编辑并重发」：整份替换输入框。
+   *
+   * 等 Composer 挂上再收（nonce 判断），和 IDE 引用同一套约定。图片不进这里 ——
+   * 历史里的图片附件已经在消息里，重发时保持原样即可，用户不会再编辑它们。
+   */
+  const lastEditNonce = useRef(0)
+  useEffect(() => {
+    if (!editDraft || editDraft.nonce === lastEditNonce.current) return
+    lastEditNonce.current = editDraft.nonce
+    setText(editDraft.text)
+    setRefs(editDraft.refs)
+    setMention(null)
+    setCommand(null)
+    onEditConsumed?.()
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      el?.focus()
+      el?.setSelectionRange(editDraft.text.length, editDraft.text.length)
+    })
+  }, [editDraft, onEditConsumed])
 
   const removeRef = (id: string): void => {
     setRefs((cur) => cur.filter((r) => r.id !== id))
@@ -721,23 +779,77 @@ export function Composer({
   const removeImage = (id: string): void =>
     setAttachments((cur) => cur.filter((a) => a.id !== id))
 
-  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
-    const files = Array.from(e.clipboardData.items)
-      .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
-      .map((it) => it.getAsFile())
-      .filter((f): f is File => !!f)
-    if (files.length > 0) {
-      // 有图片就不要再把图片的二进制当文本插进输入框
-      e.preventDefault()
-      void addImages(files)
+  /**
+   * 把拖进来 / 选进来的文件分拣成两路：
+   *  - 图片 → 附件缩略图（走视觉输入）；
+   *  - 文本文件 → 代码引用卡（走 `<ide_reference>` 编码，和 IDE 发来的一样）。
+   *
+   * 文本文件之所以不当"附件"发：CLI 的 stdin 协议只认文本 + 图片，没有
+   * 任意文件的通道；而模型真正需要的是文件**内容**，把它当代码块塞进正文
+   * 反而是最通用的做法，三家 CLI 都吃。
+   */
+  const addFiles = async (files: File[]): Promise<void> => {
+    const imgs = files.filter((f) => /^image\//i.test(f.type))
+    const others = files.filter((f) => !/^image\//i.test(f.type))
+
+    if (imgs.length > 0) void addImages(imgs)
+    if (others.length === 0) return
+
+    const room = MAX_FILES - refs.filter((r) => r.origin === 'file').length
+    if (room <= 0) {
+      showToast(t('composer.attach.tooMany', { n: MAX_FILES }))
+      return
+    }
+
+    const picked = others.slice(0, room)
+    const { refs: added, skipped } = await readFileAttachments(picked, cwd)
+
+    if (added.length > 0) {
+      setRefs((cur) => {
+        const seen = new Set(cur.map(refKey))
+        const add = added.filter((r) => !seen.has(refKey(r)))
+        return add.length > 0 ? [...cur, ...add] : cur
+      })
+    }
+
+    // 只在真有问题时提示 —— 正常拖几个文件进去不该弹 toast
+    const binary = skipped.filter((s) => s.kind === 'binary').length
+    const big = skipped.find((s) => s.kind === 'tooBig')
+    const bad = skipped.find((s) => s.kind === 'unreadable')
+    if (bad) showToast(t('composer.attach.unreadable', { name: bad.name }))
+    else if (big) {
+      showToast(
+        t('composer.attach.tooBig', {
+          name: big.name,
+          limit: `${Math.round(FILE_ATTACH_MAX_BYTES / 1024)} KB`
+        })
+      )
+    } else if (binary > 0) {
+      showToast(t('composer.attach.skippedBinary', { n: binary }))
     }
   }
 
+  /**
+   * 粘贴。图片走附件；纯文本粘贴**不拦** —— 那是用户在输入框里粘代码，
+   * 输入框自己的行为就对。
+   */
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = Array.from(e.clipboardData.items)
+      .filter((it) => it.kind === 'file')
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f)
+    if (files.length === 0) return
+    // 有文件就不要再把它的二进制当文本插进输入框
+    e.preventDefault()
+    void addFiles(files)
+  }
+
   const onDrop = (e: DragEvent<HTMLDivElement>): void => {
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+    const files = Array.from(e.dataTransfer.files)
     if (files.length === 0) return
     e.preventDefault()
-    void addImages(files)
+    setDragging(false)
+    void addFiles(files)
   }
 
   const submit = (): void => {
@@ -824,12 +936,22 @@ export function Composer({
         {toast && !mention && !command && <div className="composer__toast">{toast}</div>}
 
         <div
-          className={`composer__box ${locked ? 'is-locked' : ''}`}
+          className={`composer__box ${locked ? 'is-locked' : ''}${dragging ? ' is-dragging' : ''}`}
           onDrop={onDrop}
           onDragOver={(e) => {
-            if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+            if (!e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            // dropEffect 不设的话光标显示成「禁止」，用户会以为拖不进来
+            e.dataTransfer.dropEffect = 'copy'
+            setDragging(true)
+          }}
+          onDragLeave={(e) => {
+            // 移到子元素上也会触发 dragleave；只有真正离开整块才收高亮
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+            setDragging(false)
           }}
         >
+          {dragging && <div className="composer__drop">{t('composer.attach.drop')}</div>}
           {queue.length > 0 && (
             <div className={`composer__queue ${queuePaused ? 'is-paused' : ''}`}>
               <div className="composer__queue-head">
@@ -904,9 +1026,12 @@ export function Composer({
                   <div className="composer__ref-head">
                     <span className="composer__ref-ico">&lt;/&gt;</span>
                     <span className="composer__ref-name">{r.name}</span>
-                    <span className="composer__ref-path" title={r.rel}>
-                      {r.rel}
-                    </span>
+                    {/* 拖进来的文件 rel 就是文件名本身，再写一遍是重复 */}
+                    {r.rel !== r.name && (
+                      <span className="composer__ref-path" title={r.rel}>
+                        {r.rel}
+                      </span>
+                    )}
                     <span className="composer__ref-range">
                       {r.kind === 'file'
                         ? `${tn('composer.ref.whole', r.totalLines)}${r.truncated ? ` · ${t('composer.ref.truncated')}` : ''}`
@@ -914,7 +1039,11 @@ export function Composer({
                           ? `L${r.startLine}`
                           : `L${r.startLine}–${r.endLine}`}
                     </span>
-                    <span className="composer__ref-tag">{t('composer.ref.fromIde')}</span>
+                    <span className="composer__ref-tag">
+                      {r.origin === 'file'
+                        ? t('composer.attach.fromFile')
+                        : t('composer.ref.fromIde')}
+                    </span>
                     <button
                       className="composer__ref-x"
                       onClick={() => removeRef(r.id)}
@@ -975,18 +1104,18 @@ export function Composer({
           <input
             ref={fileRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept="image/png,image/jpeg,image/webp,image/gif,text/*,.md,.json,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.c,.h,.cpp,.cs,.sh,.ps1,.yml,.yaml,.toml,.ini,.sql,.xml,.vue,.svelte,.log,.env"
             multiple
             hidden
             onChange={(e) => {
               const files = Array.from(e.target.files ?? [])
               e.target.value = ''
-              if (files.length > 0) void addImages(files)
+              if (files.length > 0) void addFiles(files)
             }}
           />
           <button
             className="iconbtn"
-            title={t('composer.addImage')}
+            title={t('composer.addFile')}
             onClick={() => fileRef.current?.click()}
           >
             <IconPlus width={16} height={16} />
@@ -1036,6 +1165,7 @@ export function Composer({
                 cli={cli}
                 cliConfigs={cliConfigs}
                 activeChannelId={activeChannelId}
+                authMode={authMode}
                 model={model}
                 hasConversation={hasConversation}
                 onSelect={onSelect}
@@ -1503,6 +1633,7 @@ function ModelPicker({
   cli,
   cliConfigs,
   activeChannelId,
+  authMode,
   model,
   hasConversation,
   onSelect,
@@ -1511,6 +1642,8 @@ function ModelPicker({
   cli: CliId
   cliConfigs: Record<CliId, CliConfig>
   activeChannelId: string | null
+  /** 本会话的凭据来源；undefined = 跟随设置默认值 */
+  authMode?: CliAuthMode
   model: string
   hasConversation: boolean
   onSelect: (sel: ModelSelection) => void
@@ -1530,8 +1663,13 @@ function ModelPicker({
   /** 右两列现在展开的是哪套配置：悬停的优先，没悬停就回到当前 CLI */
   const viewCli = hoverCli ?? cli
   const viewCfg = cliConfigs[viewCli] ?? emptyCliConfig(viewCli)
+  /**
+   * 来源要看**会话自己的**选择：当前 CLI 那一列用 authMode（会话级），
+   * 预览别的 CLI 时那份配置还没有会话级选择，只能用它的默认值。
+   */
+  const viewAuthMode = viewCli === cli ? (authMode ?? viewCfg.authMode) : viewCfg.authMode
   const officialActive =
-    (viewCli === 'claude' || viewCli === 'dsh') && viewCfg.authMode === 'official'
+    (viewCli === 'claude' || viewCli === 'dsh') && viewAuthMode === 'official'
   /** 这个 CLI 自己当前在用的渠道；官方模式下没有渠道 */
   const inUseChannelId = officialActive
     ? null

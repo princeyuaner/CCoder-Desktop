@@ -118,3 +118,63 @@ export function refRangeLabel(ref: { whole: boolean; lines: string }): string {
   if (!a) return tr('ide.ref.selection')
   return a === b ? `L${a}` : `L${a}–${b}`
 }
+
+function refId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `ref-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * 一条已发出的用户消息 → 可以重新编辑的草稿。
+ *
+ * 「编辑重发」要把引用卡也恢复出来：直接回填正文会把 `<ide_reference>` 标签
+ * 摊在输入框里。这里把解析出来的引用重新组装成 IdeCodeRef —— 卡片上的
+ * 路径 / 行号 / 代码都在正文里，不需要回磁盘读。
+ */
+export function draftFromUserText(
+  text: string,
+  cwd: string
+): { text: string; refs: IdeCodeRef[] } {
+  const parsed = parseIdeRefs(text)
+  const root = cwd.replace(/\\/g, '/').replace(/\/+$/, '')
+  const refs: IdeCodeRef[] = parsed.refs.map((r) => {
+    const [start, end] = r.lines.split('-')
+    const startLine = Number.parseInt(start ?? '', 10)
+    const endLine = Number.parseInt(end ?? '', 10)
+    return {
+      id: refId(),
+      kind: r.whole ? 'file' : 'selection',
+      rel: r.rel,
+      path: root ? `${root}/${r.rel}` : r.rel,
+      name: r.rel.split('/').pop() || r.rel,
+      ...(r.whole
+        ? {}
+        : {
+            startLine: Number.isFinite(startLine) ? startLine : 1,
+            endLine: Number.isFinite(endLine) ? endLine : startLine
+          }),
+      lang: r.lang,
+      code: r.code,
+      totalLines: r.code.split('\n').length,
+      cwd
+    }
+  })
+  return { text: parsed.text, refs }
+}
+
+/**
+ * 复制一条用户消息时的纯文本。
+ *
+ * 引用卡转成 Markdown 围栏代码块 —— 贴到别处（聊天 / Issue / 文档）时
+ * `<ide_reference>` 标签只是噪音，代码本身才是有用的。
+ */
+export function userMessagePlainText(text: string): string {
+  const parsed = parseIdeRefs(text)
+  if (parsed.refs.length === 0) return parsed.text
+  const blocks = parsed.refs.map((r) => {
+    const fence = fenceFor(r.code)
+    return `${r.rel}${r.whole ? '' : ` (${r.lines})`}\n${fence}${r.lang}\n${r.code}\n${fence}`
+  })
+  return [parsed.text, ...blocks].filter(Boolean).join('\n\n')
+}

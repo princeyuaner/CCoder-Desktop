@@ -49,6 +49,7 @@ interface StoredSettings {
   thinkingOpen?: boolean
   toolDetail?: Settings['toolDetail']
   sendKey?: Settings['sendKey']
+  notifyOnDone?: boolean
   editor?: Settings['editor']
   keybindings?: Settings['keybindings']
   lsp?: Settings['lsp']
@@ -148,6 +149,7 @@ export function loadSettings(): Settings {
     thinkingOpen: raw.thinkingOpen,
     toolDetail: raw.toolDetail,
     sendKey: raw.sendKey,
+    notifyOnDone: raw.notifyOnDone,
     editor: raw.editor,
     keybindings: raw.keybindings,
     lsp: raw.lsp
@@ -188,6 +190,7 @@ export function saveSettings(s: Settings): void {
     thinkingOpen: s.thinkingOpen,
     toolDetail: s.toolDetail,
     sendKey: s.sendKey,
+    notifyOnDone: s.notifyOnDone,
     editor: s.editor,
     keybindings: s.keybindings ?? {},
     lsp: s.lsp

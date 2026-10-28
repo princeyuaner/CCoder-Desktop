@@ -13,7 +13,7 @@ const ISSUES_URL = `${REPO_URL}/issues`
 /**
  * 「关于」页：版本信息、自动更新状态和项目链接。
  *
- * 更新状态完全由主进程持有（和右下角的 UpdateToast 是同一份），这里只负责
+ * 更新状态完全由主进程持有（和标题栏的 UpdatePill 是同一份），这里只负责
  * 把 phase 翻译成一张状态卡，并在用户手动检查时把「检查中」显示出来。
  */
 export function AboutPanel({ updater }: { updater: UpdaterUi }): JSX.Element {

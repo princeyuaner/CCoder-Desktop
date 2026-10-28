@@ -499,6 +499,83 @@
 .jump-bottom:hover {
   background: rgba(255, 255, 255, 0.14);
 }
+
+/* ── 会话内查找（Ctrl+F） ───────────────────────────────── */
+
+/*
+ * 颜色走 CSS Custom Highlight API 的两个伪元素。和 selection 同一条渲染管线，
+ * 不产生任何 DOM —— 所以流式输出时不会被"重新包一层再拆掉"打断。
+ */
+::highlight(ccoder-find) {
+  background: rgba(250, 204, 21, 0.3);
+  color: inherit;
+}
+::highlight(ccoder-find-current) {
+  background: rgba(250, 204, 21, 0.78);
+  color: #1a1a1a;
+}
+
+.findbar {
+  position: absolute;
+  z-index: 6;
+  top: 8px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 5px 4px 9px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.findbar__ico {
+  flex: none;
+  color: var(--text-faint);
+}
+.findbar__input {
+  width: 190px;
+  height: 24px;
+  padding: 0 2px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: none;
+  border: none;
+  outline: none;
+}
+.findbar__input::placeholder {
+  color: var(--text-faint);
+}
+.findbar__count {
+  flex: none;
+  min-width: 62px;
+  padding-right: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  text-align: right;
+}
+.findbar__count.is-empty {
+  color: var(--danger);
+}
+.findbar__btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--text-dim);
+  border-radius: 6px;
+}
+.findbar__btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+.findbar__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .transcript__inner {
   max-width: var(--content-w);
   margin: 0 auto;
@@ -568,6 +645,38 @@
 .tl__me-time {
   font-size: 10.5px;
   color: var(--text-faint);
+}
+
+/*
+ * 用户消息左侧的 hover 工具条（复制 / 编辑 / 重试）。
+ *
+ * 靠 order 排在气泡左边、默认 opacity: 0 ── 但**不能**用 visibility: hidden /
+ * display: none，那样键盘 Tab 不到。用 opacity + focus-within 兼顾鼠标和键盘。
+ */
+.tl__meactions {
+  display: flex;
+  align-items: flex-start;
+  gap: 1px;
+  padding-top: 3px;
+  margin-right: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.tl__row--me:hover .tl__meactions,
+.tl__meactions:focus-within {
+  opacity: 1;
+}
+.tl__meact {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-faint);
+  border-radius: 6px;
+}
+.tl__meact:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* 用户气泡下面的 IDE 代码引用 */
@@ -2406,6 +2515,7 @@
   padding: 8px var(--pane-pad-x) 6px;
 }
 .composer__box {
+  position: relative;
   max-width: var(--content-w);
   margin: 0 auto;
   padding: 12px 12px 10px;
@@ -2554,6 +2664,24 @@
 .composer__attach-hint {
   font-size: 11.5px;
   color: var(--text-faint);
+}
+
+/* 拖文件到输入框上方：整块描边 + 「松手附上」提示 */
+.composer__box.is-dragging {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.composer__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+  color: var(--accent-text, var(--accent));
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+  border-radius: inherit;
 }
 
 /* ── 输入框弹层：@ 文件引用 / 系统指令 ───────────────────── */

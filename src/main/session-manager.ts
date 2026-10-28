@@ -3,9 +3,9 @@ import { homedir } from 'node:os'
 import type { AgentEvent, PermissionMode } from '../shared/events'
 import type { McpScope } from '../shared/mcp'
 import {
-  activeChannelOf,
   cliConfig,
   cliDef,
+  CLI_IDS,
   DEFAULT_EFFORT,
   DSH_DEFAULT_MODEL,
   type Channel,
@@ -46,10 +46,24 @@ interface Live {
   /**
    * 凭据来源。channel = 渠道；official = Claude 官方登录。
    *
-   * 当前进程是用哪一种拉起来的 —— 设置里改了这一项就要换进程，
+   * 当前进程是用哪一种拉起来的 —— 会话里改了这一项就要换进程，
    * 所以得记住"启动时"的值，不能每次现读 settings。
    */
   authMode: CliAuthMode
+  /**
+   * 本会话使用的渠道 id；null = 官方登录 / 未选。
+   *
+   * 渠道是**会话级**选择：设置里那一份只是「新会话默认」。A 工作区的对话
+   * 换了渠道，B 工作区的对话不能跟着换 —— 所以每条 Live 自己记一份。
+   */
+  channelId: string | null
+  /**
+   * 渠道 / 来源是否仍跟着设置里的默认值走。
+   *
+   * 用户在这个会话里显式选过渠道后置 false：之后设置页改默认渠道不再
+   * 影响它。没选过的（老会话、新会话）继续跟随 —— 保持设置页原有的语义。
+   */
+  followsDefaultAuth: boolean
   /**
    * 本会话启动时设置里的官方默认模型。
    *
@@ -123,6 +137,30 @@ export class SessionManager {
     const id = randomUUID()
     const cli = o.cli ?? 'claude'
     const cfg = cliConfig(this.getSettings(), cli)
+    /*
+     * 渠道 / 来源优先用调用方显式给的（打开已有会话时来自 session-meta），
+     * 没给才回落到设置里的默认值 —— 并记住"还跟着默认走"。
+     */
+    const explicitAuth = o.authMode !== undefined || o.channelId !== undefined
+    const authMode: CliAuthMode =
+      o.authMode ?? (cli === 'claude' || cli === 'dsh' ? cfg.authMode : 'channel')
+    /*
+     * 记下的渠道可能早就被删了（session-meta 比设置活得久）。指向不存在的
+     * 渠道时回落到当前默认值 —— 否则这条会话会卡在"没有渠道"上。
+     * 官方来源本来就没有渠道，保持 null。
+     */
+    const requested =
+      authMode === 'official'
+        ? null
+        : o.channelId !== undefined
+          ? o.channelId
+          : cfg.activeChannelId
+    const channelId =
+      authMode === 'official'
+        ? null
+        : requested && cfg.channels.some((c) => c.id === requested)
+          ? requested
+          : cfg.activeChannelId
     this.live.set(id, {
       id,
       cli,
@@ -132,7 +170,9 @@ export class SessionManager {
       effort: o.effort ?? DEFAULT_EFFORT,
       // Claude 的 official = 官方 OAuth；dsh 的 official = 用 DSH_HOME 里
       // 已经配好的 Harness 凭据。Codex 仍然按渠道走。
-      authMode: cli === 'claude' || cli === 'dsh' ? cfg.authMode : 'channel',
+      authMode,
+      channelId,
+      followsDefaultAuth: !explicitAuth,
       officialModel:
         cli === 'claude' || cli === 'dsh' ? cfg.officialModel : '',
       providerSessionId: o.resumeId ?? null,
@@ -280,19 +320,27 @@ export class SessionManager {
   }
 
   /**
-   * 改本会话的模型 / 权限模式 / 思考深度。
+   * 改本会话的模型 / 权限模式 / 思考深度 / 渠道 / 凭据来源。
    *
-   * 模型和思考深度是 CLI 的**启动参数**，长驻进程起来后就改不了了，只能换进程
-   * （用 `--resume` 接回原会话，上下文不会丢）。忙的时候不立刻换，等这一轮
-   * 收尾再换。
+   * 模型、思考深度、渠道都是 CLI 的**启动参数**，长驻进程起来后就改不了了，
+   * 只能换进程（用 `--resume` 接回原会话，上下文不会丢）。忙的时候不立刻换，
+   * 等这一轮收尾再换。
    *
    * 权限模式是例外：Claude 的控制协议支持运行中热改，而且子代理每次判断权限
    * 都读同一份活状态。所以这里直接下发，不再重启进程 —— 否则正在跑的子代理
    * 会继续用旧模式反复弹审批，用户改了右下角的设置也不生效。
+   *
+   * 渠道 / 来源是**会话级**的：只改这一条 Live，不碰设置，也不碰别的会话。
    */
   reconfigure(
     sessionId: string,
-    patch: { model?: string; permissionMode?: PermissionMode; effort?: EffortLevel }
+    patch: {
+      model?: string
+      permissionMode?: PermissionMode
+      effort?: EffortLevel
+      authMode?: CliAuthMode
+      channelId?: string | null
+    }
   ): void {
     const s = this.live.get(sessionId)
     if (!s) return
@@ -305,6 +353,20 @@ export class SessionManager {
     if (patch.effort !== undefined && patch.effort !== s.effort) {
       s.effort = patch.effort
       needsRespawn = true
+    }
+    if (patch.authMode !== undefined && patch.authMode !== s.authMode) {
+      s.authMode = patch.authMode
+      // 旧来源的模型名放到新来源上未必存在，清掉让新来源自己决定
+      s.model = ''
+      needsRespawn = true
+    }
+    if (patch.channelId !== undefined && patch.channelId !== s.channelId) {
+      s.channelId = patch.channelId
+      needsRespawn = true
+    }
+    if (patch.authMode !== undefined || patch.channelId !== undefined) {
+      // 用户在这个会话里显式选过了 —— 之后设置页改默认渠道不再影响它
+      s.followsDefaultAuth = false
     }
     if (patch.permissionMode !== undefined) {
       s.permissionMode = patch.permissionMode
@@ -329,9 +391,13 @@ export class SessionManager {
   }
 
   /**
-   * 设置落盘后通知会话：凭据来源是启动参数。
+   * 设置落盘后通知会话：默认渠道 / 来源变了。
    *
-   * 空闲会话立刻换进程，忙碌的等本轮结束（`needsRespawn` 由 flushQueue 消费）。
+   * 只有**还跟着默认值走**的会话才跟 —— 用户在某条对话里显式选过渠道后，
+   * 那条会话就归它自己了，设置页的默认值不该再把它改掉（"A 换渠道 B 也换"
+   * 就是这么来的）。空闲立刻换进程，忙碌的等本轮结束（`needsRespawn` 由
+   * flushQueue 消费）。
+   *
    * 切换来源时清掉本会话显式设过的模型 —— 旧来源的模型名放到新来源上未必存在。
    *
    * **官方默认模型（officialModel）故意不跟**：它只是新会话的默认值，
@@ -340,23 +406,44 @@ export class SessionManager {
    * 也会跟着换 —— 模型是会话级选择，不是全局开关。
    */
   settingsChanged(before: Settings, after: Settings): void {
-    // Claude 和 dsh 的凭据来源是启动参数；Codex 仍然靠渠道，
-    // 它的“登录”由 app-server 自己管。
-    for (const cli of ['claude', 'dsh'] as const) {
+    /*
+     * Claude 和 dsh 的凭据来源是启动参数；Codex 仍然靠渠道，
+     * 它的“登录”由 app-server 自己管 —— 所以它只跟渠道变化，不跟 authMode。
+     */
+    for (const cli of CLI_IDS) {
       const b = cliConfig(before, cli)
       const a = cliConfig(after, cli)
-      const modeChanged = b.authMode !== a.authMode
+      const supportsAuthMode = cli === 'claude' || cli === 'dsh'
+      const modeChanged = supportsAuthMode && b.authMode !== a.authMode
       const channelChanged = b.activeChannelId !== a.activeChannelId
       if (!modeChanged && !channelChanged) continue
 
       for (const s of this.live.values()) {
-        if (s.cli !== cli) continue
-        s.authMode = a.authMode
-        // 旧来源的模型名放到新来源上未必存在，清掉让新来源自己决定
-        if (modeChanged) s.model = ''
+        if (s.cli !== cli || !s.followsDefaultAuth) continue
+        if (modeChanged) {
+          s.authMode = a.authMode
+          // 旧来源的模型名放到新来源上未必存在，清掉让新来源自己决定
+          s.model = ''
+          s.channelId = a.authMode === 'official' ? null : a.activeChannelId
+        } else if (channelChanged) {
+          s.channelId = a.activeChannelId
+        }
         s.needsRespawn = true
         if (!s.busy) this.respawn(s)
       }
+    }
+    /*
+     * 用户在设置页**删掉**了某条会话正在用的渠道：那条会话的 channelId
+     * 已经指向不存在的渠道，authFor 会返回 null。让它回落到该 CLI 当前的
+     * 默认渠道，否则会卡在"没有渠道"上，用户找不到原因。
+     */
+    for (const s of this.live.values()) {
+      if (!s.channelId) continue
+      const cfg = cliConfig(after, s.cli)
+      if (cfg.channels.some((c) => c.id === s.channelId)) continue
+      s.channelId = s.authMode === 'official' ? null : cfg.activeChannelId
+      s.needsRespawn = true
+      if (!s.busy) this.respawn(s)
     }
   }
 
@@ -471,10 +558,17 @@ export class SessionManager {
    *
    * official 模式返回 `channel: null` —— provider 据此不注入任何渠道环境；
    * channel 模式没有渠道时返回 null，由调用方给出"去设置里配一个"的提示。
+   *
+   * **按会话自己的 channelId 取**，不是现读设置的默认渠道：两条对话可以
+   * 各走各的渠道。还没显式选过（followsDefaultAuth）时 channelId 就和
+   * 默认值一致，行为不变。
    */
   private authFor(s: Live): { channel: Channel | null } | null {
     if (s.authMode === 'official') return { channel: null }
-    const ch = activeChannelOf(this.getSettings(), s.cli)
+    const cfg = cliConfig(this.getSettings(), s.cli)
+    // 没显式选过（或旧记录缺 channelId）时回落到该 CLI 的默认渠道
+    const id = s.channelId ?? cfg.activeChannelId
+    const ch = id ? (cfg.channels.find((c) => c.id === id) ?? null) : null
     return ch ? { channel: ch } : null
   }
 

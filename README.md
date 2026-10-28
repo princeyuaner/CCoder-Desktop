@@ -51,7 +51,10 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 ### 对话与执行台
 
 - 流式输出、思考块、工具卡片、代码高亮与 diff。
-- 图片粘贴、`@` 文件引用、`/` 斜杠指令、发送队列。
+- **消息级操作**：悬停自己发的消息出现「复制 / 编辑并重发 / 重发这一轮」。复制会把 `@` 引用展开成 Markdown 代码块；编辑会把原话和引用卡一并放回输入框；重发只对最后一条用户消息开放，不会把更早那几轮的上下文搅乱。
+- **会话内查找**（`Ctrl+F`）：在正文、思考、工具输出和引用代码里找，`Enter` / `Shift+Enter` 前后跳转，`Esc` 退出。走 CSS Custom Highlight API，流式输出时不会打断渲染，也不改 DOM 结构。
+- 图片粘贴、拖入文本文件、`@` 文件引用、`/` 斜杠指令、发送队列。**拖进 / 选进来的文本文件**会被读成代码引用卡（和 IDE 发来的引用同一条编码），自动跳过二进制、超过 512 KB 或 500 行的会截断并标注。
+- **跑完提醒**：一轮结束时弹系统通知，点一下切回那条会话；窗口在前台且正开着这条会话时不弹。可在设置 → 通用关闭。
 - **执行台**：任务清单（`TaskCreate` / `TaskUpdate` / `TodoWrite`）、子代理（`Agent` / `Task`）的运行状态、活动摘要、工具次数、token、耗时；子代理完成后可打开完整报告。
 - 本轮统计：步数、增删行数、上下文占用、缓存命中率、输出 token。
 
@@ -310,6 +313,9 @@ src/
 ## 已知限制
 
 - 当前只产出 **Windows x64** 安装包；`electronDist` 指向 `node_modules/electron/dist`，其他平台需要自行调整打包配置。
+- 会话内查找依赖 **CSS Custom Highlight API**（Chrome 105+）。Electron 33 自带的 Chromium 支持它；如果将来降级到更老的运行时，高亮会静默失效（查找本身、计数和跳转仍然可用）。
+- 拖入的文本文件按 UTF-8 读取。GBK / Shift-JIS 等编码的文本会出现乱码 —— 内置 IDE 的编码选择器不适用于这条路径。
+- 跑完提醒是**应用级**开关，不区分 CLI 或工作区；也不提供「只在窗口最小化时提醒」这类细分条件。
 - 应用是 CLI 的 GUI 前端，**不内置模型、不代理请求**；没有安装或登录对应 CLI 时无法开始会话。
 - 安装包未做代码签名，Windows SmartScreen 可能提示「未知发布者」。
 - 历史会话回放受 CLI 记录内容限制：旧记录里没有每轮耗时 / 输出 token，界面会显示 `0 tok` 或只显示「已完成」。
@@ -392,7 +398,10 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 ### Chat and run panel
 
 - Streaming output, thinking blocks, tool cards, syntax highlighting, and diffs.
-- Image paste, `@` file references, `/` slash commands, and a send queue.
+- **Message actions**: hovering one of your messages reveals copy / edit-and-resend / resend-this-turn. Copy expands `@` references into Markdown code blocks; edit restores both the text and its reference cards to the composer; resend is only offered on the last user message so earlier turns are not duplicated.
+- **Find in conversation** (`Ctrl+F`): searches message text, thinking, tool output, and referenced code. `Enter` / `Shift+Enter` step through matches, `Esc` closes. Uses the CSS Custom Highlight API, so streaming output is never interrupted and the DOM structure is left untouched.
+- Image paste, drag-and-drop of text files, `@` file references, `/` slash commands, and a send queue. **Dropped or picked text files** become reference cards using the same `<ide_reference>` encoding as IDE sends; binaries are skipped, and files over 512 KB or 500 lines are truncated and labelled.
+- **Finish alert**: a system notification when a turn ends; click it to jump back to that session. Nothing is shown while the window is focused on that session. Can be turned off in Settings → General.
 - **Run panel**: task list (`TaskCreate` / `TaskUpdate` / `TodoWrite`), subagent (`Agent` / `Task`) status, activity summary, tool counts, tokens, and elapsed time; open the full report when a subagent finishes.
 - Per-turn stats: steps, added / removed lines, context usage, cache hit rate, and output tokens.
 
@@ -650,6 +659,9 @@ src/
 ## Known limitations
 
 - Only **Windows x64** installers are produced for now; `electronDist` points at `node_modules/electron/dist`, so other platforms need their own packaging config.
+- Find in conversation relies on the **CSS Custom Highlight API** (Chrome 105+). Electron 33's Chromium supports it; on an older runtime highlights silently disappear while search, counts, and jumping still work.
+- Dropped text files are read as UTF-8. Files in GBK / Shift-JIS and similar encodings come out garbled — the IDE's encoding picker does not apply to this path.
+- The finish alert is an **application-wide** switch: it is not per CLI or per workspace, and there is no narrower condition such as "only when minimized".
 - The app is a GUI frontend for the CLIs. It **does not bundle models or proxy requests**; without an installed and signed-in CLI you cannot start a session.
 - Installers are not code-signed, so Windows SmartScreen may warn about an unknown publisher.
 - Historical replay is limited by what the CLIs record: older entries may lack per-turn duration / output tokens, in which case the UI shows `0 tok` or only "Completed".

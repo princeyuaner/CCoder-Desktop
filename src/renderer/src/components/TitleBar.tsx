@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { IconBrand, IconPanel } from './Icons'
+import { UpdatePill } from './UpdatePill'
 import { useI18n } from '../i18n'
+import type { UpdaterUi } from '../useUpdater'
 
 /**
  * 无边框窗口的自绘标题栏。
  *
  * 整条是拖拽区（-webkit-app-region: drag），但窗口控件必须显式声明
- * no-drag，否则点不动。
+ * no-drag，否则点不动。更新入口也挂在右侧这排 no-drag 区域里。
  */
-export function TitleBar(): JSX.Element {
+export function TitleBar({ update }: { update: UpdaterUi }): JSX.Element {
   const { t } = useI18n()
   const [maximized, setMaximized] = useState(false)
 
@@ -25,6 +27,11 @@ export function TitleBar(): JSX.Element {
       </div>
 
       <div className="titlebar__right">
+        <UpdatePill
+          state={update.state}
+          onDownload={update.download}
+          onInstall={update.install}
+        />
         <button
           className="titlebar__panel"
           title={t('titlebar.toggleSidebar')}

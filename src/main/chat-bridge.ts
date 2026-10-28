@@ -35,6 +35,16 @@ export function reportActiveChat(info: ChatActiveInfo): void {
   active = info
 }
 
+/**
+ * 主窗口此刻开着哪条会话（CLI 自己的 session id）。
+ *
+ * 通知用：跑完的正好是用户眼前这条时就不必再提醒了。新会话还没拿到 CLI id，
+ * 返回 null —— 那时侧栏也还没有它那一行。
+ */
+export function activeChatSessionId(): string | null {
+  return active?.id ?? null
+}
+
 /** 这条 IPC 是不是主窗口发来的（IDE 窗口不该能改「当前会话」） */
 export function isChatMainSender(webContentsId: number): boolean {
   return !!mainWin && !mainWin.isDestroyed() && mainWin.webContents.id === webContentsId

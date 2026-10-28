@@ -1086,6 +1086,19 @@
   user-select: text;
   cursor: auto;
 }
+/*
+ * 横向滚动：两栏各占一半视口宽，但整行不许窄于「最长那一行」，
+ * 超出的部分交给外层 .ide-diffbody 横向滚动，而不是被 overflow:hidden 切掉。
+ * 列宽用组件按最长行算出的 --diff-col-ch（等宽字体的 ch）统一设定，
+ * 两栏才对得齐、分隔线不会每行错位。149px 是每行两侧的行号 + 加减号 + 内边距。
+ */
+.ide-diffbody > .ide-hunkblock {
+  width: max(100%, calc(var(--diff-col-ch, 0ch) * 2 + 149px));
+}
+/* 未跟踪文件只有一列，别按两栏算宽度，否则右边空出一整屏 */
+.ide-diffbody.is-untracked > .ide-hunkblock {
+  width: max(100%, calc(var(--diff-col-ch, 0ch) + 74px));
+}
 .ide-diffmore {
   display: flex;
   align-items: center;
@@ -1120,6 +1133,7 @@
 }
 .ide-dcell {
   display: flex;
+  /* 五五分。整行被 .ide-hunkblock 撑到「最长行 × 2」那么宽，所以半栏一定装得下最长行 */
   width: 50%;
   min-width: 0;
   height: 18px;
@@ -1144,29 +1158,58 @@
   background: rgba(255, 255, 255, .012);
   user-select: none;
 }
+/* 加减号槽位：上下文行也留着，正文左边界才对得齐 */
+.ide-dmk {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  color: transparent;
+  user-select: none;
+}
 .ide-dtext {
   flex: 1;
   min-width: 0;
   padding: 0 10px;
   overflow: hidden;
 }
+/* 改动词整行铺琥珀色（和 SVN 的 M 状态、提交按钮同源），左边一根竖条用来扫读。
+   色条用 inset 阴影而不是 border，否则会顶掉 `.ide-dcell + .ide-dcell` 的中缝分隔线 */
 .ide-dcell.is-add {
-  background: rgba(127, 191, 127, .1);
+  background: rgba(224, 175, 104, .26);
+  box-shadow: inset 2px 0 0 #e0af68;
 }
 .ide-dcell.is-add .ide-dln {
-  color: #7fbf7f;
-  background: rgba(127, 191, 127, .07);
+  color: #f0c987;
+  background: rgba(224, 175, 104, .14);
 }
+.ide-dcell.is-add .ide-dmk { color: #8bd88b; }
+.ide-dcell.is-add .ide-dtext { color: #f6e2c4; }
 .ide-dcell.is-del {
-  background: rgba(217, 138, 138, .1);
+  background: rgba(224, 175, 104, .13);
+  box-shadow: inset 2px 0 0 #c99a55;
 }
 .ide-dcell.is-del .ide-dln {
-  color: #d98a8a;
-  background: rgba(217, 138, 138, .07);
+  color: #d9b57e;
+  background: rgba(224, 175, 104, .08);
 }
+.ide-dcell.is-del .ide-dmk { color: #ff9b94; }
+.ide-dcell.is-del .ide-dtext { color: #c9b49a; }
 .ide-dcell.is-empty {
-  background: rgba(255, 255, 255, .015);
+  background: #141416;
 }
+/* 行内真正变了的片段再提一档：删除侧红、新增侧绿，只点这一小段 */
+.ide-dcell mark { border-radius: 2px; }
+.ide-dcell.is-del mark {
+  color: #ff9b94;
+  background: rgba(248, 81, 73, .3);
+}
+.ide-dcell.is-add mark {
+  color: #a8eaa8;
+  background: rgba(63, 185, 80, .34);
+}
+/* 未跟踪的整份新增也是新增色，但一行铺满时底色调淡些，别整屏发光 */
+.ide-drow.is-untracked .ide-dcell.is-add { background: rgba(224, 175, 104, .1); }
+[data-scheme='light'] .ide-drow.is-untracked .ide-dcell.is-add { background: rgba(233, 168, 45, .12); }
 
 /* ── 空状态 ───────────────────────────────────────────── */
 .ide-empty {
@@ -1681,6 +1724,18 @@
 [data-scheme='light'] .ide-sline {
   color: #a8a8b0;
 }
+/* 浅色下琥珀底要压淡、正文翻深，否则浅字打在浅黄上看不清 */
+[data-scheme='light'] .ide-dcell.is-add { background: rgba(233, 168, 45, .26); box-shadow: inset 2px 0 0 #d99e2b; }
+[data-scheme='light'] .ide-dcell.is-add .ide-dln { color: #8a5d00; background: rgba(233, 168, 45, .16); }
+[data-scheme='light'] .ide-dcell.is-add .ide-dmk { color: #1f7a33; }
+[data-scheme='light'] .ide-dcell.is-add .ide-dtext { color: #3d2f0a; }
+[data-scheme='light'] .ide-dcell.is-del { background: rgba(233, 168, 45, .14); box-shadow: inset 2px 0 0 #c99a55; }
+[data-scheme='light'] .ide-dcell.is-del .ide-dln { color: #8a6a2a; background: rgba(233, 168, 45, .1); }
+[data-scheme='light'] .ide-dcell.is-del .ide-dmk { color: #b03a32; }
+[data-scheme='light'] .ide-dcell.is-del .ide-dtext { color: #4a4234; }
+[data-scheme='light'] .ide-dcell.is-empty { background: #efeff2; }
+[data-scheme='light'] .ide-dcell.is-del mark { color: #8c1d16; background: rgba(224, 90, 80, .26); }
+[data-scheme='light'] .ide-dcell.is-add mark { color: #0f5c22; background: rgba(60, 160, 80, .26); }
 [data-scheme='light'] .ide-sglob input {
   background: #ffffff;
   border-color: var(--border);

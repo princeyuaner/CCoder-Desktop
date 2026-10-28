@@ -154,6 +154,72 @@ export function parseDiff(diff: string): DiffHunk[] {
   return hunks
 }
 
+export interface DiffSeg {
+  text: string
+  /** 行内真正变了的那一小段 */
+  changed: boolean
+}
+
+/** 词级切分：把空白、标点各算一个 token，标识符（含 . _ : * / -）粘在一起 */
+const TOKEN = /[A-Za-z0-9_$.*:/@-]+|\s+|[\s\S]/g
+
+/** 两个 token 序列的 LCS 太大时不再逐词比，整行当作改了 —— 免得长行把渲染进程拖死 */
+const MAX_CELLS = 250_000
+
+/**
+ * 一对改动词的红绿高亮。
+ *
+ * 长 YAML / JSON 行里真正变的往往只有 `172.16.16.138 → .139` 这种一小段，
+ * 整行染色等于没告诉用户改了哪。这里对 token 跑一次 LCS，把不共有的片段标出来。
+ * 任一侧为空（纯增 / 纯删）时不比，整行本身就是改动。
+ */
+export function wordDiff(a: string, b: string): { left: DiffSeg[]; right: DiffSeg[] } {
+  const ta = a.match(TOKEN) ?? []
+  const tb = b.match(TOKEN) ?? []
+  if (ta.length * tb.length > MAX_CELLS) {
+    return { left: [{ text: a, changed: true }], right: [{ text: b, changed: true }] }
+  }
+
+  // dp[i][j] = ta[i..] 与 tb[j..] 的 LCS 长度，从后往前填，回放时就能正向走
+  const width = tb.length + 1
+  const dp = new Uint32Array((ta.length + 1) * width)
+  for (let i = ta.length - 1; i >= 0; i--) {
+    for (let j = tb.length - 1; j >= 0; j--) {
+      dp[i * width + j] =
+        ta[i] === tb[j]
+          ? dp[(i + 1) * width + j + 1] + 1
+          : Math.max(dp[(i + 1) * width + j], dp[i * width + j + 1])
+    }
+  }
+
+  const left: DiffSeg[] = []
+  const right: DiffSeg[] = []
+  const push = (arr: DiffSeg[], text: string, changed: boolean): void => {
+    const last = arr[arr.length - 1]
+    if (last && last.changed === changed) last.text += text
+    else arr.push({ text, changed })
+  }
+
+  let i = 0
+  let j = 0
+  while (i < ta.length || j < tb.length) {
+    if (i < ta.length && j < tb.length && ta[i] === tb[j]) {
+      push(left, ta[i], false)
+      push(right, tb[j], false)
+      i++
+      j++
+    } else if (j < tb.length && (i === ta.length || dp[i * width + j + 1] >= dp[(i + 1) * width + j])) {
+      push(right, tb[j], true)
+      j++
+    } else {
+      push(left, ta[i], true)
+      i++
+    }
+  }
+
+  return { left, right }
+}
+
 export function diffStat(diff: string): { added: number; removed: number } {
   let added = 0
   let removed = 0

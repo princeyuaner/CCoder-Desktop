@@ -37,6 +37,8 @@ import type {
   SessionEventPayload,
   SessionMetaMap,
   SessionMetaUpdate,
+  SessionFocusTarget,
+  SessionNotifyPayload,
   SessionSearchResult,
   SessionSendInput,
   SessionSendResult,
@@ -106,6 +108,16 @@ ipcRenderer.on(IPC.chatOpenSession, (_e: Electron.IpcRendererEvent, cwd: string)
   if (typeof cwd !== 'string') return
   if (openSessionListeners.size === 0) pendingOpenSession = cwd
   else for (const cb of openSessionListeners) cb(cwd)
+})
+
+/** 系统通知点击：主窗口切到那条会话。React 还没订阅时先记下来。 */
+let pendingFocus: SessionFocusTarget | null = null
+const focusListeners = new Set<(target: SessionFocusTarget) => void>()
+
+ipcRenderer.on(IPC.chatFocusSession, (_e: Electron.IpcRendererEvent, target: SessionFocusTarget) => {
+  if (!target || typeof target.cwd !== 'string' || typeof target.id !== 'string') return
+  if (focusListeners.size === 0) pendingFocus = target
+  else for (const cb of focusListeners) cb(target)
 })
 
 /** 系统通知点击：切到同步视图。React 还没订阅时先记下来。 */
@@ -535,6 +547,20 @@ const api: WindowApi = {
         cb(payload)
       ipcRenderer.on(IPC.chatAttachRefs, listener)
       return () => ipcRenderer.off(IPC.chatAttachRefs, listener)
+    },
+    notifyDone: (payload: SessionNotifyPayload): void =>
+      ipcRenderer.send(IPC.chatNotifyDone, payload),
+    onFocusSession: (cb) => {
+      focusListeners.add(cb)
+      // 订阅之前就点了通知：补发一次，别让用户点了没反应
+      const late = pendingFocus
+      if (late) {
+        pendingFocus = null
+        cb(late)
+      }
+      return () => {
+        focusListeners.delete(cb)
+      }
     }
   }
 }

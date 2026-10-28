@@ -9,7 +9,14 @@ import type {
   ClaudeAuthStatus,
   ClaudeLoginSnapshot
 } from './claude'
-import type { Channel, ChannelTestResult, CliId, EffortLevel, Settings } from './settings'
+import type {
+  Channel,
+  ChannelTestResult,
+  CliAuthMode,
+  CliId,
+  EffortLevel,
+  Settings
+} from './settings'
 import type { CliUpdateRunResult, CliUpdateState, CliUpdateStates } from './cli-update'
 import type {
   DshHomeOption,
@@ -32,8 +39,10 @@ import type {
   PermissionDecision,
   QuestionAnswer,
   SessionEventPayload,
+  SessionFocusTarget,
   SessionMetaMap,
   SessionMetaUpdate,
+  SessionNotifyPayload,
   SessionSearchResult,
   SessionSendInput,
   SessionSendResult,
@@ -257,6 +266,13 @@ export const IPC = {
   chatReportActive: 'chat:report-active',
   /** 主进程 → 主窗口：把代码引用附加到输入框 */
   chatAttachRefs: 'chat:attach-refs',
+  /**
+   * 主窗口 → 主进程：一轮跑完了，要不要弹系统通知由主进程判断
+   * （只有它知道窗口在不在前台）。
+   */
+  chatNotifyDone: 'chat:notify-done',
+  /** 主进程 → 主窗口：用户点了通知，切到那条会话 */
+  chatFocusSession: 'chat:focus-session',
 
   /* ── 版本控制（Git / SVN） ───────────────────────────── */
   vcsDetect: 'vcs:detect',
@@ -522,12 +538,19 @@ export interface WindowApi {
     /** 答复一次 AskUserQuestion。答案会随 updatedInput 回到 CLI。 */
     respondQuestion(sessionId: string, requestId: string, answer: QuestionAnswer): void
     /**
-     * 改本会话的模型 / 权限模式 / 思考深度。三者都是 CLI 的启动参数，
-     * 主进程会换掉子进程并用 --resume 接回原会话，上下文不丢。
+     * 改本会话的模型 / 权限模式 / 思考深度 / 渠道 / 凭据来源。模型、思考深度
+     * 和渠道都是 CLI 的启动参数，主进程会换掉子进程并用 --resume 接回原会话，
+     * 上下文不丢。渠道 / 来源只作用于这一条会话，不写回设置。
      */
     reconfigure(
       sessionId: string,
-      patch: { model?: string; permissionMode?: PermissionMode; effort?: EffortLevel }
+      patch: {
+        model?: string
+        permissionMode?: PermissionMode
+        effort?: EffortLevel
+        authMode?: CliAuthMode
+        channelId?: string | null
+      }
     ): void
     onEvent(cb: (payload: SessionEventPayload) => void): () => void
     onStatus(cb: (payload: SessionStatusPayload) => void): () => void
@@ -689,5 +712,9 @@ export interface WindowApi {
     reportActive(info: ChatActiveInfo): void
     /** 主窗口：接收 IDE 发来的引用 */
     onAttachRefs(cb: (payload: IdeSendPayload) => void): () => void
+    /** 主窗口：一轮跑完，请求系统通知（是否真弹由主进程按前台状态决定） */
+    notifyDone(payload: SessionNotifyPayload): void
+    /** 主窗口：用户点了通知，切到那条会话 */
+    onFocusSession(cb: (target: SessionFocusTarget) => void): () => void
   }
 }

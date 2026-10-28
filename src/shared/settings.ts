@@ -589,6 +589,16 @@ export interface Settings {
   /** 发送快捷键 */
   sendKey: SendKey
 
+  /* ── 提醒 ───────────────────────────────────────────────── */
+  /**
+   * 一轮跑完时弹系统通知。
+   *
+   * 只在这一轮不是用户当前正看着的会话、或者窗口没在前台时才真的会弹 ——
+   * 否则用户就在屏幕前看着它出字，通知是噪音。判断在主进程做（它才知道
+   * 哪个窗口在前台），这里只是总开关。
+   */
+  notifyOnDone: boolean
+
   /* ── 内置 IDE ───────────────────────────────────────────── */
   /** 编辑器偏好；独立 IDE 窗口与主窗口共享同一份 */
   editor: EditorSettings
@@ -636,6 +646,7 @@ export function defaultSettings(): Settings {
     thinkingOpen: false,
     toolDetail: 'full',
     sendKey: 'enter',
+    notifyOnDone: true,
     editor: { ...DEFAULT_EDITOR_SETTINGS },
     keybindings: {},
     lsp: { ...DEFAULT_LSP_SETTINGS },
@@ -710,6 +721,8 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
     toolDetail:
       src.toolDetail === 'compact' || src.toolDetail === 'hidden' ? src.toolDetail : 'full',
     sendKey: src.sendKey === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
+    // 老版本没有这个字段 —— 补成「开着」，这是更有用的默认值
+    notifyOnDone: src.notifyOnDone !== false,
     editor: normalizeEditorSettings(src.editor),
     keybindings: normalizeKeybindings(src.keybindings),
     lsp: normalizeLspSettings(src.lsp),

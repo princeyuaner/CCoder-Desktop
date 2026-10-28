@@ -1,5 +1,5 @@
 import type { AgentEvent, PermissionMode } from './events'
-import type { CliId, EffortLevel } from './settings'
+import type { CliAuthMode, CliId, EffortLevel } from './settings'
 import type { ImageAttachment } from './attachment'
 
 export interface SessionStartOptions {
@@ -15,6 +15,15 @@ export interface SessionStartOptions {
   addDirs?: string[]
   /** 要接着哪条已有会话跑（CLI 的 --resume）。不传就是全新会话。 */
   resumeId?: string | null
+  /**
+   * 这条会话自己的凭据来源。不传 = 跟随设置里的默认值。
+   *
+   * 渠道 / 官方登录是**会话级**选择：A 工作区的对话切了渠道，B 工作区的
+   * 对话不该跟着换。设置里的那一份只是「新会话默认」。
+   */
+  authMode?: CliAuthMode
+  /** 这条会话自己的渠道 id；null = 无渠道（官方登录）。不传 = 跟随默认 */
+  channelId?: string | null
 }
 
 /** 磁盘上一条已有会话（CLI 自己写的记录） */
@@ -63,6 +72,15 @@ export interface SessionMeta {
    * 缺省 = 用渠道配置或 CLI 的默认模型。
    */
   model?: string
+  /**
+   * 这条会话自己选的凭据来源（渠道 / 官方登录）。
+   *
+   * 和模型同理：设置里那一份只是「新会话默认」，两条对话可以各走各的渠道。
+   * 缺省 = 沿用设置里的默认值（老会话没有这个字段，行为不变）。
+   */
+  authMode?: CliAuthMode
+  /** 这条会话自己选的渠道 id；空 = 没有显式选择，回到官方登录 / 默认渠道 */
+  channelId?: string
 }
 
 /** 键是 `sessionMetaKey()` 生成的字符串 */
@@ -190,4 +208,24 @@ export interface SessionSendInput {
 export interface SessionSendResult {
   ok: boolean
   message?: string
+}
+
+/** 点开系统通知后要切到哪条会话 */
+export interface SessionFocusTarget {
+  cli: CliId
+  cwd: string
+  /** CLI 自己的 session id —— 侧栏行的身份 */
+  id: string
+  title: string
+}
+
+/**
+ * 一轮跑完后主进程弹的系统通知。
+ *
+ * 文案在渲染层拼好再传过来：只有渲染层知道当前语言、CLI 名字和会话标题。
+ */
+export interface SessionNotifyPayload {
+  title: string
+  body: string
+  target: SessionFocusTarget
 }
