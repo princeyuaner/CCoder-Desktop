@@ -716,6 +716,12 @@ export function MainPane({
           effort={chat.effort}
           cwd={cwd}
           changedFiles={changedFiles}
+          /*
+           * 「本轮改动」的本地标记（已看过 / 已还原）按这个 key 复位。
+           * turns 已经包含在 sessionKey 之外的轮次信息里，但换会话时 turns
+           * 可能恰好相同 —— 拼上会话身份才唯一。
+           */
+          changedTurnKey={`${sessionKey}\u0000${chat.turns}`}
           nativeCommands={chat.nativeCommands}
           onRunCommand={chat.runCommand}
           sendKey={settings.sendKey}

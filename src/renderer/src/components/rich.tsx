@@ -31,6 +31,8 @@ function openLinkedTarget(cwd: string, target: string): void {
     .catch((err) => notify(err instanceof Error ? err.message : String(err)))
 }
 
+export { openLinkedTarget }
+
 function inlineNodes(text: string, key: string, cwd = ''): ReactNode[] {
   // **每次新建**，不能用模块级共享的 g 正则 —— 这个函数会递归（粗体里还有行内代码），
   // 递归会把共享正则的 lastIndex 重置掉，外层的游标跟着回到 0，直接死循环。
@@ -304,7 +306,7 @@ function tokenRe(key: string): RegExp {
   return new RegExp(src, 'g')
 }
 
-function codeNodes(code: string, lang: string): ReactNode[] {
+export function codeNodes(code: string, lang: string): ReactNode[] {
   const key = LANG_ALIAS[lang.toLowerCase()] ?? 'text'
   if (key === 'text') return [code]
 
@@ -331,7 +333,7 @@ function codeNodes(code: string, lang: string): ReactNode[] {
 
 /* ── 渲染 ───────────────────────────────────────────────── */
 
-function CodeCard({ lang, code }: { lang: string; code: string }): JSX.Element {
+export function CodeCard({ lang, code }: { lang: string; code: string }): JSX.Element {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
 

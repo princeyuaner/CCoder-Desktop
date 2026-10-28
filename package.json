@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -27,6 +27,8 @@
     "verify:chat-notify": "npx esbuild src/main/chat-notify.ts --bundle --platform=node --format=cjs --external:electron --outfile=.tmp-build/chat-notify.cjs && node tools/verify-chat-notify.cjs",
     "verify:session-channel": "npx esbuild src/main/session-manager.ts --bundle --platform=node --format=cjs --external:electron --alias:electron=./tools/electron-stub.cjs --outfile=.tmp-build/session-manager.cjs && node tools/verify-session-channel-isolation.cjs",
     "verify:batch-delete": "node node_modules/electron/cli.js tools/verify-batch-delete.cjs",
+    "verify:changed-review": "npx esbuild src/shared/path.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/path.cjs && npx esbuild src/shared/ide.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/ide.cjs && node tools/verify-changed-review.cjs",
+    "verify:changed-review:ui": "node node_modules/electron/cli.js tools/verify-changed-review-ui.cjs",
     "package": "node tools/stage-rg.cjs && electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {
@@ -36,10 +38,15 @@
     "fzstd": "^0.1.1",
     "iconv-lite": "^0.6.3",
     "jsonc-parser": "^3.3.1",
+    "katex": "^0.19.1",
     "micromatch": "^4.0.8",
     "monaco-editor": "^0.57.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "smol-toml": "^1.9.1",
     "ws": "^8.22.0",
     "yaml": "^2.9.1"

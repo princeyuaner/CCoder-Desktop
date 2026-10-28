@@ -6,6 +6,8 @@ import { defaultSettings, type Settings } from '@shared/settings'
 import { resolveLanguage, type LocaleInfo } from '@shared/i18n'
 import './styles/tokens.css'
 import './styles/global.css'
+// KaTeX 的排版和字体是公式渲染的基础，必须全局引入一次
+import 'katex/dist/katex.min.css'
 import { App } from './App'
 import { IdeApp } from './ide/IdeApp'
 import { applyAppearance } from './appearance'

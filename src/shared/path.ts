@@ -47,3 +47,33 @@ export function shortDir(dir: string): string {
   if (parts.length <= 2) return parts.join('/')
   return `…/${parts[parts.length - 1]}`
 }
+
+/**
+ * 绝对路径 → 工作区相对路径（正斜杠），只做字符串处理。
+ *
+ * 返回 null 表示目标不在工作区里（或给的本来就是相对路径、无法判断）。
+ * 用于把 `file_change` 事件里的绝对路径换成 VCS / IDE 认的 `rel`。
+ *
+ * Windows 下比较大小写不敏感：盘符和整条路径都可能两种写法混着出现。
+ */
+export function workspaceRel(cwd: string, abs: string): string | null {
+  if (!cwd || !abs) return null
+  const norm = abs.replace(/\\/g, '/')
+  // 相对路径不猜：调用方给绝对路径时才可能换算
+  const absolute = /^[a-zA-Z]:\//.test(norm) || norm.startsWith('//') || norm.startsWith('/')
+  if (!absolute) return null
+
+  const root = cwdKey(cwd)
+  const target = cwdKey(abs)
+  if (!root || !target) return null
+  if (target === root) return ''
+  if (!target.startsWith(`${root}/`)) return null
+
+  // 按段数差取尾部，保留原文大小写
+  const skip = root.split('/').filter(Boolean).length
+  return norm
+    .split('/')
+    .filter(Boolean)
+    .slice(skip)
+    .join('/')
+}

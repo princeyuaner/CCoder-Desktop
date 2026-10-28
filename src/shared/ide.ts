@@ -20,12 +20,58 @@ export interface IdeTarget {
   rel: string
   /** 1-based 行号；只对文本文件有意义 */
   line?: number
+  /**
+   * 打开 diff 页签，而不是文件本身。
+   *
+   * 审阅本轮改动时要看的是「相对 HEAD 改了什么」，文件本身（尤其被删掉的
+   * 文件）打不开也看不出差异。diff 页签由 IDE 自己按 `source: 'head'` 拉取。
+   */
+  diff?: boolean
+  /**
+   * 同一批里其余的 diff 文件。
+   *
+   * 「审阅本轮改动」一次要看多个文件；一条 IPC 带一批，避免连发 N 条时
+   * 窗口还在创建、早到的那几条被 `pendingReveal` 覆盖掉。
+   */
+  more?: string[]
 }
 
 /** 打开 IDE 的结果。失败时 UI 可以原样把 message 顶给用户 */
 export interface IdeOpenResult {
   ok: boolean
   message?: string
+}
+
+/**
+ * 把一批「本轮改动」的路径收敛成 IDE 认的工作区相对路径。
+ *
+ * 纯函数，主进程和渲染层共用（也是 `verify:changed-review` 的断言对象）：
+ *  - 反斜杠转正斜杠、去掉 `./` 前缀、折叠多余的分隔符；
+ *  - 拒绝绝对路径（盘符 / UNC / 以 `/` 开头）与 `..` 段 —— diff 页签按
+ *    rel 取，越界没有意义；开头带 `/` 的路径在 Windows 上还是「当前盘根
+ *    相对」，语义不唯一，一律不收；
+ *  - 精确去重（Windows 上同一目录里不可能同时存在只差大小写的两个文件，
+ *    而 POSIX 上它们可能是两个，所以这里不做大小写折叠）。
+ */
+export function normalizeReviewRels(list: unknown): string[] {
+  if (!Array.isArray(list)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of list) {
+    if (typeof raw !== 'string') continue
+    const rel = raw.replace(/\\/g, '/').replace(/^\.\//, '')
+    // 盘符 / UNC / 根路径：都不能当工作区相对路径
+    if (/^([a-zA-Z]:\/|\/\/|\/)/.test(rel)) continue
+    // 折叠 `a//b`、去掉尾斜杠；空段不参与判断
+    const parts = rel.split('/').filter(Boolean)
+    if (parts.length === 0) continue
+    if (parts.includes('..')) continue
+    const clean = parts.join('/')
+    if (seen.has(clean)) continue
+    seen.add(clean)
+    out.push(clean)
+  }
+  return out
 }
 
 /**

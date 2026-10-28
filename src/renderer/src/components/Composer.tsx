@@ -166,6 +166,13 @@ interface Props {
   cwd: string
   /** 本轮改过的文件。空数组 = 这一轮还没动过文件，那颗按钮就不出现 */
   changedFiles: ChangedFile[]
+  /**
+   * 本轮身份（会话 + 轮次），变化时清掉「已看过 / 已还原」标记。
+   *
+   * 用数组长度做不到：同一个文件在下一轮又被改时 key 不变，旧标记会
+   * 错误地挂到新改动上。
+   */
+  changedTurnKey: string
   /** 当前 CLI 上报的原生指令；Codex / dsh 的静态表在渲染层直接合入 */
   nativeCommands: NativeCommand[]
   /** 宿主动作做不了的 CLI 原生指令（如 Codex compact）交给主进程 */
@@ -219,6 +226,7 @@ export function Composer({
   effort,
   cwd,
   changedFiles,
+  changedTurnKey,
   nativeCommands,
   onRunCommand,
   sendKey,
@@ -904,7 +912,7 @@ export function Composer({
               <span className="composer__cwd-name">{baseName(cwd)}</span>
             </div>
           )}
-          <ChangedFiles files={changedFiles} />
+          <ChangedFiles files={changedFiles} cwd={cwd} turnKey={changedTurnKey} />
         </div>
       )}
       <div className="composer__anchor" ref={anchorRef}>

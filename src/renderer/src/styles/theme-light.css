@@ -279,6 +279,16 @@ html[data-scheme='light'] .md .md-table td {
 html[data-scheme='light'] .md .md-hr {
   background: #e0e0e5;
 }
+html[data-scheme='light'] .md .katex {
+  color: #24242e;
+}
+html[data-scheme='light'] .md .katex-slot--block {
+  background: rgba(0, 0, 0, 0.025);
+}
+html[data-scheme='light'] .md .md-quote {
+  border-left-color: rgba(0, 0, 0, 0.14);
+  color: #5c5c68;
+}
 
 html[data-scheme='light'] .inline-code {
   color: #4a2f9e;
@@ -1164,6 +1174,55 @@ html[data-scheme='light'] .cfrow__del {
   background: #fdf0ef;
   border-color: #f3cfcb;
 }
+html[data-scheme='light'] .cfrow__open:not(:disabled):hover,
+html[data-scheme='light'] .cfrow__open:focus-visible {
+  background: #f6f6f9;
+}
+html[data-scheme='light'] .cfrow.is-confirm {
+  background: #fdf0ef;
+}
+html[data-scheme='light'] .cfrow__confirm {
+  color: #9d2a24;
+}
+html[data-scheme='light'] .cfrow__outside,
+html[data-scheme='light'] .cfrow__reverted {
+  color: #8a8a95;
+  border-color: #dcdce2;
+}
+html[data-scheme='light'] .cfrow__seen {
+  color: #2f8a45;
+}
+html[data-scheme='light'] .cfrow__undo:hover {
+  color: #c83b32;
+  border-color: #f0c9c5;
+}
+html[data-scheme='light'] .cfrow__btn {
+  color: #5a5a66;
+  background: #f4f4f6;
+  border-color: #dcdce2;
+}
+html[data-scheme='light'] .cfrow__btn:hover {
+  background: #eaeaef;
+  color: #1c1c22;
+}
+html[data-scheme='light'] .cfrow__btn.is-danger {
+  color: #b02a23;
+  background: #fdf0ef;
+  border-color: #f3cfcb;
+}
+html[data-scheme='light'] .cfrow__btn.is-danger:hover {
+  background: #fbdedb;
+  color: #8c1f19;
+}
+html[data-scheme='light'] .cfpop__review {
+  color: #5a5a66;
+  background: #f4f4f6;
+  border-color: #dcdce2;
+}
+html[data-scheme='light'] .cfpop__review:hover {
+  background: #eaeaef;
+  color: #1c1c22;
+}
 
 /* ── @ / 系统指令弹层 ───────────────────────────────────── */
 html[data-scheme='light'] .cpop {
@@ -1306,6 +1365,34 @@ html[data-theme='sepia'] .qopt {
 }
 html[data-theme='sepia'] .cfrow + .cfrow {
   border-top-color: var(--border-soft);
+}
+/* 暖纸同理：悬停底色和按钮都跟着米色走，别用白色叠加 */
+html[data-theme='sepia'] .cfrow__open:not(:disabled):hover,
+html[data-theme='sepia'] .cfrow__open:focus-visible {
+  background: var(--bg-hover);
+}
+html[data-theme='sepia'] .cfrow.is-confirm {
+  background: rgba(176, 42, 35, 0.08);
+}
+html[data-theme='sepia'] .cfrow__btn,
+html[data-theme='sepia'] .cfpop__review {
+  background: var(--bg-app);
+  border-color: var(--border-soft);
+  color: var(--text-dim);
+}
+html[data-theme='sepia'] .cfrow__btn:hover,
+html[data-theme='sepia'] .cfpop__review:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+html[data-theme='sepia'] .cfrow__btn.is-danger {
+  color: #b02a23;
+  background: rgba(176, 42, 35, 0.08);
+  border-color: rgba(176, 42, 35, 0.28);
+}
+html[data-theme='sepia'] .cfrow__outside,
+html[data-theme='sepia'] .cfrow__reverted {
+  border-color: var(--border-soft);
 }
 html[data-theme='sepia'] .modal__pre {
   border-color: var(--border-soft);

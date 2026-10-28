@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { app, BrowserWindow, dialog, screen, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { IdeFsChanged, IdeOpenResult, IdeTarget } from '../shared/ide'
+import { normalizeReviewRels } from '../shared/ide'
 import { startWorkspaceWatch } from './ide-watch'
 import { pathKey } from './path-key'
 import { windowBg } from './window-theme'
@@ -166,14 +167,18 @@ function rendererUrl(
   target?: IdeTarget
 ): { url?: string; file?: string; query: Record<string, string> } {
   const query: Record<string, string> = { view: 'ide', cwd }
+  const more = target?.more?.filter(Boolean) ?? []
   if (target) {
     query.file = target.rel
     if (target.line) query.line = String(target.line)
+    if (target.diff) query.diff = '1'
+    // 一批 diff 用一个 JSON 参数带上：`loadFile` 的 query 不支持重复 key，
+    // 而路径里可能有逗号 / 空格，不能自己拼分隔符
+    if (more.length > 0) query.more = JSON.stringify(more)
   }
   const dev = process.env.ELECTRON_RENDERER_URL
   if (dev) {
-    const q = new URLSearchParams(query).toString()
-    return { url: `${dev}?${q}`, query }
+    return { url: `${dev}?${new URLSearchParams(query).toString()}`, query }
   }
   return { file: join(__dirname, '../renderer/index.html'), query }
 }
@@ -230,6 +235,33 @@ export function openFileInIde(cwd: string, file: string, line?: number): IdeOpen
   }
 
   openIdeWindow(cwd, target(rel))
+  return { ok: true }
+}
+
+/**
+ * 在 IDE 里按 diff 页签打开一批文件（相对 HEAD）。
+ *
+ * 和 `openFileInIde` 的区别：这里**只接受工作区相对路径**，不做「工作区外
+ * 另开窗口」的兜底 —— 调用方给的是「本轮改动」，本来就属于这个工作区。
+ * 路径仍然逐个过 `..` 检查，越界的直接丢掉而不是整批失败。
+ *
+ * 第一个文件进当前页签，其余作为 `more` 一起送过去：一条 IPC 带一批，
+ * 避免连发 N 条时窗口还在创建，早到的那几条被 preload 的
+ * `pendingReveal` 覆盖掉。
+ */
+export function openDiffsInIde(cwd: string, rels: unknown): IdeOpenResult {
+  if (!cwd) return { ok: false, message: t('ideWindow.noFile') }
+  if (!existsSync(cwd)) return { ok: false, message: t('ideWindow.missing', { path: cwd }) }
+
+  const clean = normalizeReviewRels(rels)
+  if (clean.length === 0) return { ok: false, message: t('ideWindow.noFile') }
+
+  const target: IdeTarget = {
+    rel: clean[0],
+    diff: true,
+    ...(clean.length > 1 ? { more: clean.slice(1) } : {})
+  }
+  openIdeWindow(cwd, target)
   return { ok: true }
 }
 

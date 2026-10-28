@@ -238,6 +238,33 @@ function tabOf(kind: TabKind, rel: string): Tab {
   }
 }
 
+/**
+ * 首屏 query 里那一批 diff 文件。
+ *
+ * 坏数据（不是数组、元素不是字符串）直接当空 —— 这个参数只由主进程
+ * 生成，用户改不出来；真有人手改 URL 也不该让 IDE 崩掉。
+ */
+function parseMoreRels(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const list = JSON.parse(raw) as unknown
+    return Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 这个 diff 表示文件被删掉了（没有可打开的文件）。
+ *
+ * Git 用 `+++ /dev/null`，SVN 用 `+++ x (nonexistent)`；两种都算删除。
+ * 被删的文件打不开，「打开文件」入口也就不该出现。
+ */
+function diffIsDeletion(data: VcsDiffData | undefined): boolean {
+  if (!data?.diff) return false
+  return /^\+\+\+ (?:\/dev\/null|.* \(nonexistent\))\s*$/m.test(data.diff)
+}
+
 /* ── 小图标 ───────────────────────────────────────────── */
 
 function Ico({ d, size = 15 }: { d: string; size?: number }): JSX.Element {
@@ -978,6 +1005,38 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     [openTab]
   )
 
+  /**
+   * 一次打开一批 diff 页签（「审阅本轮改动」）。
+   *
+   * 和逐个 `openDiff` 的区别只在**激活哪一个**：连开多个页签时每个
+   * `openTab` 都会改 activeKey，最后一个赢 —— 用户看到的是清单末尾那个
+   * 文件。这里统一插进去，再把焦点放回第一个。
+   *
+   * 已存在的页签不重复插入（`openTab` 本身也去重），但仍然参与排序：
+   * 用户可能已经开着其中几个。
+   */
+  const openDiffs = useCallback(
+    (rels: string[]) => {
+      const clean = rels.filter((r, i) => !!r && rels.indexOf(r) === i)
+      if (clean.length === 0) return
+      const wanted = clean.map((rel) => tabOf('diff', rel))
+      setTabs((list) => {
+        const known = new Set(list.map((t) => t.key))
+        const add = wanted.filter((t) => !known.has(t.key))
+        return add.length > 0 ? [...list, ...add] : list
+      })
+      /*
+       * 已经开着的 diff 页签不会走 ensureTab（activeTab 没变，effect 不重跑），
+       * 而磁盘在这一轮里可能又变了。直接重拉一遍；新页签由 ensureTab 负责，
+       * 这里多拉一次也无害。
+       */
+      for (const rel of clean) void revalidateDiff(rel)
+      setActiveKey(wanted[0].key)
+      setView('files')
+    },
+    [revalidateDiff]
+  )
+
   /*
    * Monaco 默认会在**同一个编辑器实例**里切换 model 来跳转到另一个文件，
    * 但我们的标签 / 状态栏由 React 管理，直接切 model 会让两边对不上。
@@ -1198,19 +1257,30 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   /*
    * 从聊天窗口的工具卡点过来：主进程把目标放在首屏 query 里
    * （`?file=src/app.ts&line=42`）。只在首次加载时读一次。
+   *
+   * `diff=1` 是「审阅本轮改动」：按 diff 页签打开，`more` 里是同一批的
+   * 其余文件（JSON 数组，见 ide-window 的 rendererUrl）。
    */
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const file = params.get('file')
     if (!file) return
     const n = Number(params.get('line'))
+    if (params.get('diff') === '1') {
+      const rest = parseMoreRels(params.get('more'))
+      openDiffs([file, ...rest])
+      return
+    }
     openFile(file, Number.isFinite(n) && n > 0 ? n : undefined)
-  }, [openFile])
+  }, [openDiffs, openFile])
 
   // 窗口已经开着时走 IPC：在现有标签里直接定位，不再开第二个窗口
   useEffect(() => {
-    return window.api?.ide?.onReveal((t) => openFile(t.rel, t.line))
-  }, [openFile])
+    return window.api?.ide?.onReveal((target) => {
+      if (target.diff) openDiffs([target.rel, ...(target.more ?? [])])
+      else openFile(target.rel, target.line)
+    })
+  }, [openDiffs, openFile])
 
   const closeTabs = useCallback(
     (keys: string[]) => {
@@ -2864,6 +2934,20 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                     </>
                   )
                 })()}
+                {/*
+                  从 diff 回到文件本身。审阅时经常是「看差异 → 顺手改」，
+                  没有这个入口就只能回文件树里再找一遍（被删掉的文件除外，
+                  它打不开）。
+                */}
+                {activeTab.kind === 'diff' && !diffIsDeletion(activeDiff) && (
+                  <button
+                    className="ide-linkbtn"
+                    onClick={() => openFile(activeTab.rel)}
+                    title={t('ide.openFileFromDiff')}
+                  >
+                    {t('ide.openFile')}
+                  </button>
+                )}
               </span>
             </div>
           )}

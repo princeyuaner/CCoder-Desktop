@@ -57,6 +57,7 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - **跑完提醒**：一轮结束时弹系统通知，点一下切回那条会话；窗口在前台且正开着这条会话时不弹。可在设置 → 通用关闭。
 - **执行台**：任务清单（`TaskCreate` / `TaskUpdate` / `TodoWrite`）、子代理（`Agent` / `Task`）的运行状态、活动摘要、工具次数、token、耗时；子代理完成后可打开完整报告。
 - 本轮统计：步数、增删行数、上下文占用、缓存命中率、输出 token。
+- **本轮改动审阅**：输入框左上角的「N 个文件」弹层里，点任意一行直接在 IDE 打开该文件相对 HEAD 的 diff 页签；底部「在 IDE 中审阅」一次开一批。每行还带一个还原入口（悬停出现、二次确认）：Git 走 `restore --source=HEAD`，未跟踪文件直接删掉，SVN 走 `svn revert`；不是仓库时那个入口不出现。已经打开过的文件打一个对勾，方便判断这一轮有没有逐条看过。工作区外的文件会标出来并禁用点击。
 
 ### 独立 IDE
 
@@ -133,6 +134,7 @@ npm run typecheck
 npm run build
 npm run verify:dsh      # 不花钱的 ACP 协议自检（隔离的 DSH_HOME，不需要 API Key）
 npm run verify:dsh:web  # 不花钱的 Web 协议自检（启动真实 dsh web，验证会话/历史/审批事件形状）
+npm run verify:changed-review  # 本轮改动 → IDE diff 的路径换算（纯函数断言，不碰磁盘）
 ```
 
 ### 打包
@@ -404,6 +406,7 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - **Finish alert**: a system notification when a turn ends; click it to jump back to that session. Nothing is shown while the window is focused on that session. Can be turned off in Settings → General.
 - **Run panel**: task list (`TaskCreate` / `TaskUpdate` / `TodoWrite`), subagent (`Agent` / `Task`) status, activity summary, tool counts, tokens, and elapsed time; open the full report when a subagent finishes.
 - Per-turn stats: steps, added / removed lines, context usage, cache hit rate, and output tokens.
+- **Review this turn's changes**: in the "N files" popover above the composer, clicking a row opens that file's diff against HEAD as an IDE tab; "Review in IDE" at the bottom opens the whole batch. Each row also carries a revert action (shown on hover, with a confirmation): Git uses `restore --source=HEAD`, untracked files are deleted, SVN uses `svn revert`. The action is hidden when the workspace is not a repository. Files already opened this turn get a check mark, and paths outside the workspace are labelled and not clickable.
 
 ### Standalone IDE
 
@@ -480,6 +483,7 @@ npm run typecheck
 npm run build
 npm run verify:dsh      # offline ACP self-check in an isolated DSH_HOME; no API key needed
 npm run verify:dsh:web  # offline Web self-check: real dsh web + sessions/history/approval shapes
+npm run verify:changed-review  # turn-changes → IDE diff path mapping (pure functions, no disk I/O)
 ```
 
 ### Packaging

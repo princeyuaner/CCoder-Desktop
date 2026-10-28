@@ -1069,6 +1069,65 @@
   background: var(--border-soft);
 }
 
+/* ── 数学公式（KaTeX） ──────────────────────────────────── */
+
+/*
+ * KaTeX 默认出的是纯黑字，深色主题下几乎看不见，必须显式给色。
+ * 块级公式垫一层和表格同级的浅底（.022），和代码块（.045）拉开档次，
+ * 免得一段回答里三个盒子看起来一样重。
+ *
+ * 注意选择器：公式由 KatexMath 组件注入单个 span.katex-slot，里面的
+ * .katex / .katex-display 是 KaTeX 自己的结构，不是 React 管理的。
+ */
+.md .katex {
+  color: #e4e4f0;
+  font-size: 1.04em;
+}
+.md .katex-slot--block {
+  display: block;
+  margin: 0;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.022);
+  border-radius: 10px;
+  /* 超宽公式在自己这一块里横向滚，别把转写区撑开 */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.md .katex-slot--block .katex-display {
+  margin: 0;
+}
+.md .katex-slot--block .katex {
+  font-size: 1.1em;
+}
+/* 块级公式居中；KaTeX 自己会给 text-align，这里兜一层 */
+.md .katex-slot--block .katex-display > .katex {
+  text-align: center;
+}
+/* KaTeX 的渲染错误（\foo 这种未定义命令）默认是扎眼的红底 */
+.md .katex-error {
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* ── 引用块（react-markdown 版新增） ───────────────────── */
+
+/*
+ * 和「明度分层」那套一致：不画框，只给一条左边线。
+ * 引用里可能嵌段落、列表、代码，所以 padding 放在左边而不是整体缩进。
+ */
+.md .md-quote {
+  margin: 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
+  color: #b4b4c4;
+}
+.md .md-quote > * + * {
+  margin-top: 10px;
+}
+
+
 .inline-code {
   padding: 1.5px 6px;
   font-family: var(--font-mono);
@@ -3734,12 +3793,144 @@
 .cfrow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
+  gap: 7px;
+  padding: 3px 12px 3px 4px;
   font-size: 11.5px;
 }
 .cfrow + .cfrow {
   border-top: 1px solid rgba(255, 255, 255, 0.035);
+}
+/*
+ * 行的可点区域：图标 + 文件名 + 目录。
+ *
+ * 单独一个按钮而不是给整行挂 onClick —— 右边还有「还原」，嵌套按钮是
+ * 非法结构。这里撑满剩余宽度，鼠标落在文件名一带都能点开 diff。
+ */
+.cfrow__open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 2px 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+/* 不在工作区里：点不开，图标和文字都压暗，别让它看起来能点 */
+.cfrow__open:disabled {
+  cursor: default;
+}
+.cfrow__open:disabled .cfrow__name {
+  opacity: 0.7;
+}
+.cfrow__open:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+.cfrow__open:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 2px 0 0 var(--running, #7aa2f7);
+}
+/* 已还原：行数不再有意义，整行压暗 */
+.cfrow.is-reverted .cfrow__name {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.cfrow__outside {
+  flex: none;
+  padding: 0 5px;
+  font-size: 8.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
+}
+.cfrow__reverted {
+  margin-left: auto;
+  flex: none;
+  padding: 0 6px;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
+}
+/* 本轮已经打开过 diff 的对勾 */
+.cfrow__seen {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  color: #7fbf7f;
+  opacity: 0.85;
+}
+/* 还原：破坏性操作，悬停 / 聚焦才露出来，别在扫行数时抢注意力 */
+.cfrow__undo {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+}
+.cfrow:hover .cfrow__undo,
+.cfrow__undo:focus-visible {
+  opacity: 1;
+}
+.cfrow__undo:hover {
+  color: #d98a8a;
+  border-color: rgba(217, 138, 138, 0.4);
+}
+.cfrow__undo:disabled {
+  opacity: 0.4;
+}
+/* 还原确认：整行换成「文案 + 两个按钮」，不另开弹窗 */
+.cfrow.is-confirm {
+  background: rgba(244, 63, 94, 0.07);
+}
+.cfrow__confirm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #e8b0b8;
+}
+.cfrow__btn {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
+}
+.cfrow__btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
+}
+.cfrow__btn.is-danger {
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.35);
+  background: rgba(244, 63, 94, 0.1);
+}
+.cfrow__btn.is-danger:hover {
+  background: rgba(244, 63, 94, 0.18);
+  color: #fecdd3;
+}
+.cfrow__btn:disabled {
+  opacity: 0.5;
 }
 .cfrow__ico {
   flex: none;
@@ -3817,10 +4008,26 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 6px 12px 7px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 10px;
   color: var(--text-faint);
+}
+.cfpop__review {
+  flex: none;
+  padding: 3px 9px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-pill);
+}
+.cfpop__review:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 /* ── 删除会话的确认框 ───────────────────────────────────── */

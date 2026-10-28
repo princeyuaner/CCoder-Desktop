@@ -21,7 +21,7 @@ import {
 } from '../useChat'
 import type { ImageAttachment } from '@shared/attachment'
 import { ImageLightbox } from './ImageLightbox'
-import { RichText } from './rich'
+import { MarkdownText } from './MarkdownText'
 import { fmtClock, fmtTokens, totalTokens } from './format'
 import type { TabKey } from './TabBar'
 import {
@@ -829,7 +829,7 @@ function RowBody({ item }: { item: ChatItem }): JSX.Element | null {
       return (
         <div className="tl__row">
           <div className="tl__say">
-            <RichText text={item.text} cwd={cwd} />
+            <MarkdownText text={item.text} cwd={cwd} />
             {item.streaming && <span className="cursor" />}
           </div>
         </div>

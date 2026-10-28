@@ -114,6 +114,7 @@ import {
   hasIdeWindowUnder,
   isIdeSender,
   markIdeDirty,
+  openDiffsInIde,
   openFileInIde,
   openIdeWindow,
   sendToIdeSender,
@@ -1038,6 +1039,18 @@ function registerIdeIpc(): void {
   ipcMain.handle(IPC.ideOpen, (_e, cwd: string) => openIdeWindow(cwd))
   ipcMain.handle(IPC.ideOpenFile, (_e, cwd: string, file: string, line?: number) =>
     openFileInIde(cwd, file, line)
+  )
+  /*
+   * 「审阅本轮改动」：一批 diff 一起开。
+   *
+   * 只收聊天主窗口的请求 —— 这是唯一有「本轮改动」概念的窗口。工作区
+   * 仍是调用方给的会话 cwd，主进程只做路径越界检查；真正落到磁盘的读写
+   * 由 IDE 窗口按自己的绑定工作区二次鉴权。
+   */
+  ipcMain.handle(IPC.ideOpenDiffs, (e, cwd: string, rels: unknown) =>
+    isChatMainSender(e.sender.id)
+      ? openDiffsInIde(cwd, rels)
+      : { ok: false, message: t('main.workspaceForbidden') }
   )
 
   const allow = (e: Electron.IpcMainInvokeEvent, cwd: unknown): boolean =>

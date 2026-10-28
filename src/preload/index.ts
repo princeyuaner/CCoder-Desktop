@@ -389,6 +389,7 @@ const api: WindowApi = {
   ide: {
     open: (cwd: string): Promise<void> => ipcRenderer.invoke(IPC.ideOpen, cwd),
     openFile: (cwd, file, line) => ipcRenderer.invoke(IPC.ideOpenFile, cwd, file, line),
+    openDiffs: (cwd, rels) => ipcRenderer.invoke(IPC.ideOpenDiffs, cwd, rels),
     onReveal: (cb) => {
       revealListeners.add(cb)
       // 订阅之前就到的目标，补发一次；随后清掉，别在重挂载时又打开一遍

@@ -4,7 +4,7 @@ import type { RunAgent, RunAgentStatus } from '../run-state'
 import { useI18n } from '../i18n'
 import { fmtDuration, fmtTokens } from './format'
 import { IconCopy } from './Icons'
-import { RichText } from './rich'
+import { MarkdownText } from './MarkdownText'
 
 /**
  * 子代理完整报告。
@@ -113,7 +113,7 @@ export function AgentReportModal({
 
           {agent.report ? (
             <div className="report__body">
-              <RichText text={agent.report} />
+              <MarkdownText text={agent.report} />
               {agent.reportTruncatedChars != null && (
                 <p className="report__note">
                   {t('report.truncated', { n: agent.reportTruncatedChars })}

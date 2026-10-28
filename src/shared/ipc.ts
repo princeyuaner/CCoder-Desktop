@@ -214,6 +214,8 @@ export const IPC = {
   ideOpen: 'ide:open',
   /** 打开（或聚焦）IDE 并定位到某个文件；路径可以是绝对或相对工作区 */
   ideOpenFile: 'ide:open-file',
+  /** 打开（或聚焦）IDE，并按 diff 页签审阅一批文件（相对 HEAD） */
+  ideOpenDiffs: 'ide:open-diffs',
   /** 主进程 → IDE 渲染进程：窗口已存在时，直接在已开窗口里打开文件 */
   ideReveal: 'ide:reveal',
   ideListDir: 'ide:list-dir',
@@ -669,6 +671,14 @@ export interface WindowApi {
      * 相对路径并拒绝工作区外的目标 —— 渲染层不做路径判断。
      */
     openFile(cwd: string, file: string, line?: number): Promise<IdeOpenResult>
+    /**
+     * 在 IDE 里按 diff 页签打开一批文件（相对 HEAD）。
+     *
+     * `rels` 是工作区相对路径，正斜杠。第一个进当前页签，其余进同一批的
+     * 其他页签 —— 这是「审阅本轮改动」的入口，调用方不需要自己判断窗口
+     * 是否已经打开。
+     */
+    openDiffs(cwd: string, rels: string[]): Promise<IdeOpenResult>
     /** IDE 渲染进程订阅「打开这个文件」；返回取消订阅函数 */
     onReveal(cb: (target: IdeTarget) => void): () => void
     listDir(cwd: string, rel: string): Promise<IdeEntry[]>
