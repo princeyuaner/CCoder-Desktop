@@ -3851,6 +3851,53 @@
   background: rgba(244, 63, 94, 0.08);
   border-radius: 8px;
 }
+/* 批量删除里「有会话在跑」的那一条：比普通说明再重一点，先被读到 */
+.delinfo__warn--run {
+  margin-top: 6px;
+}
+.delinfo__warn--run b {
+  color: #fda4af;
+}
+
+/* 批量删除确认：按工作区分组列出标题 */
+.delbatch__group {
+  margin-bottom: 10px;
+}
+.delbatch__cwd {
+  margin-bottom: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.delbatch__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 9px;
+  margin-bottom: 3px;
+  background: rgba(255, 255, 255, 0.028);
+  border-radius: 7px;
+}
+.delbatch__cli {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.delbatch__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delbatch__state {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--running);
+}
 
 /* 删除失败之类的浮动提示 —— 挂在窗口底部中间 */
 .notice--float {

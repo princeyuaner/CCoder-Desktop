@@ -461,6 +461,139 @@
   color: var(--text-dim);
 }
 
+/* ── 批量选择 ─────────────────────────────────────────────
+ *
+ * 选择模式是「显式」的：入口常驻在标题那一排，进入后整行点击变成勾选。
+ * 这样删除键和勾选框不会同时抢 hover 位置，也不会让每行平时多一个可误点的坑。
+ */
+
+/* 选择模式的入口按钮：激活时像按下去了 */
+.sidebar__section-tools .iconbtn.is-on {
+  color: var(--text);
+  background: var(--bg-active);
+}
+
+/* 勾选框：14px 方框，跟 20px 的可点区域一起对齐到 CLI 图标的视觉中心 */
+.cbx {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 1.5px solid #4a4a52;
+  border-radius: 4px;
+  color: transparent;
+  background: transparent;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
+}
+.cbx:hover {
+  border-color: #6d6d78;
+}
+.cbx.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+/* 半选：只画一道横杠。组里勾了一部分的时候用 */
+.cbx.is-mixed {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.cbx.is-mixed::after {
+  content: '';
+  width: 7px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--accent-fg);
+}
+/* 组头的勾选框挨着文件夹图标，不额外占行高 */
+.wsgroup__head .cbx {
+  margin: 0 -1px 0 0;
+}
+
+/* 选择模式下整行只做勾选，光标给一点暗示 */
+.session.is-selecting .session__main {
+  cursor: pointer;
+}
+.session.is-checked {
+  background: rgba(232, 232, 232, 0.055);
+}
+.session.is-checked:hover {
+  background: rgba(232, 232, 232, 0.085);
+}
+.session.is-checked .session__title {
+  color: var(--text);
+}
+
+/* 选择模式下没有「更多 / ×」，标题右侧留白由 .session__main 的下内边距补 */
+.sidebar__scroll.is-selecting .session__main {
+  padding-right: 10px;
+}
+
+/* 底部批量操作条：设置上方，离鼠标最近，也不挤列表 */
+.batchbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 7px 8px 7px 11px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: rise-in 0.16s ease-out;
+}
+.batchbar__count {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batchbar__btn {
+  flex: none;
+  height: 26px;
+  padding: 0 9px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+}
+.batchbar__btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+.batchbar__btn--danger {
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.35);
+}
+.batchbar__btn--danger:hover {
+  background: rgba(244, 63, 94, 0.13);
+  color: #fecdd3;
+}
+.batchbar__btn--danger:disabled {
+  opacity: 0.4;
+  border-color: rgba(244, 63, 94, 0.2);
+  background: none;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .batchbar {
+    animation: none;
+  }
+}
+
 .sidebar__settings {
   display: flex;
   align-items: center;

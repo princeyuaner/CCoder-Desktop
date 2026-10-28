@@ -34,6 +34,33 @@ html[data-scheme='light'] .session__cli--codex svg {
   fill: #1d1d1f;
 }
 
+/* 批量选择：深色下用白描边的勾选框，浅色下换成深灰，否则在白底上几乎看不见 */
+html[data-scheme='light'] .cbx {
+  border-color: #b4b4bd;
+}
+html[data-scheme='light'] .cbx:hover {
+  border-color: #8a8a94;
+}
+html[data-scheme='light'] .session.is-checked {
+  background: rgba(0, 0, 0, 0.045);
+}
+html[data-scheme='light'] .session.is-checked:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+html[data-scheme='light'] .batchbar__btn {
+  border-color: rgba(0, 0, 0, 0.14);
+}
+html[data-scheme='light'] .batchbar__btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+/* 确认页里列出待删会话的行：深色用白色叠加，浅色改黑色叠加 */
+html[data-scheme='light'] .delbatch__row {
+  background: rgba(0, 0, 0, 0.035);
+}
+html[data-scheme='light'] .delinfo__warn--run b {
+  color: #b42318;
+}
+
 /* ── settings.css ───────────────────────────────────────── */
 
 html[data-scheme='light'] .btn--danger {

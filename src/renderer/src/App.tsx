@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sessionMetaKey, type StoredSession } from '@shared/session'
-import { sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
+import { cliDef, sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
 import { disposeIdleNewChats, disposeStoredChat } from './useChat'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
@@ -49,8 +49,24 @@ export type Active =
   | { kind: 'new'; n: number; cwd?: string }
   | { kind: 'stored'; id: string; cwd: string; title: string; cli: CliId }
 
+/**
+ * 把一批会话按 cwd 分组，用于批量删除确认页。
+ *
+ * 用 `sameCwd` 归并而不是直接拿 cwd 当键：同一目录在记录里可能是正斜杠
+ * 也可能反斜杠，按原串分组会出现两个看起来一模一样的标题。
+ */
+function groupByCwd(list: StoredSession[]): [string, StoredSession[]][] {
+  const out: [string, StoredSession[]][] = []
+  for (const s of list) {
+    const hit = out.find(([cwd]) => sameCwd(cwd, s.cwd))
+    if (hit) hit[1].push(s)
+    else out.push([s.cwd, [s]])
+  }
+  return out
+}
+
 export function App(): JSX.Element {
-  const { t } = useI18n()
+  const { t, tn } = useI18n()
   const [view, setView] = useState<View>('chat')
   const [active, setActive] = useState<Active>({ kind: 'new', n: 0 })
   /**
@@ -131,6 +147,18 @@ export function App(): JSX.Element {
   }, [])
   /** 等着确认删除的那条会话。null = 没在删 */
   const [pendingDelete, setPendingDelete] = useState<StoredSession | null>(null)
+  /** 等着确认批量删除的会话；null / 空数组 = 没在删 */
+  const [pendingDeleteBatch, setPendingDeleteBatch] = useState<StoredSession[] | null>(null)
+  /**
+   * 每次批量删除结束时通知侧栏重置勾选。
+   *
+   * `keep` 是**没删掉**的那几条的键 —— 侧栏清空其余勾选、退出选择模式，
+   * 但把这几个留着，用户再点「删除」就能直接重试。
+   */
+  const [selectionReset, setSelectionReset] = useState<{
+    nonce: number
+    keep: string[]
+  }>({ nonce: 0, keep: [] })
   /** 删除失败的说明，浮在顶上 */
   const [notice, setNotice] = useState<string | null>(null)
   /** 启动时发现旧 MCP 条目 → 轻量确认弹窗；确认后直接打开 MCP 页 */
@@ -285,6 +313,14 @@ export function App(): JSX.Element {
     }
     return n
   }, [opened, workspaces, meta])
+
+  /** 待删批次里有几条在跑 —— 决定确认页要不要挂「会先停进程」那条警告 */
+  const runningCount = useMemo(() => {
+    if (!pendingDeleteBatch) return 0
+    let n = 0
+    for (const s of pendingDeleteBatch) if (running.has(s.id)) n++
+    return n
+  }, [pendingDeleteBatch, running])
 
   /** 搜索要跨所有工作区，包括没在侧栏里打开的 */
   const allSessions = useMemo(
@@ -444,6 +480,67 @@ export function App(): JSX.Element {
   }
 
   /**
+   * 批量删除。
+   *
+   * 逐条调同一个 IPC，而不是在主进程新开一个 batch 接口：每条删除要做的
+   * 事完全一样（先停进程、删记录、清元数据），失败原因也各不相同，
+   * 聚合在渲染层才能把「删了几条、哪条失败」讲清楚。
+   *
+   * 部分失败时不整批回滚 —— 已经删掉的文件回不来，界面据实报告即可。
+   * 但**失败的那几条要留在勾选里**：它们还在列表上，用户最可能的下一步
+   * 就是再删一次，把勾选一起清掉等于逼他重新挑。
+   */
+  const confirmDeleteBatch = async (): Promise<void> => {
+    const list = pendingDeleteBatch
+    setPendingDeleteBatch(null)
+    if (!list || list.length === 0) return
+
+    let done = 0
+    let firstError: string | null = null
+    let activeRemoved = false
+    const failed: StoredSession[] = []
+
+    for (const s of list) {
+      const r = await window.api?.sessions.delete(s.cwd, s.id)
+      if (r && !r.ok) {
+        firstError ??= r.message ?? t('errors.unknownReason')
+        failed.push(s)
+        continue
+      }
+      done += 1
+      // 和单条删除一样：主进程收的是 CLI 进程，渲染层这边的 controller 也要摘掉
+      disposeStoredChat(s.cli, s.cwd, s.id)
+      if (active.kind === 'stored' && active.id === s.id && sameCwd(active.cwd, s.cwd)) {
+        activeRemoved = true
+      }
+    }
+
+    // 当前正看着的会话被删掉 —— 退回新会话，别停在一条已经不存在的记录上
+    if (activeRemoved) newSession()
+
+    if (firstError !== null) {
+      setNotice(
+        done === list.length
+          ? t('errors.deleteFailed', { error: firstError })
+          : t('sidebar.deleteBatchPartial', {
+              done,
+              failed: failed.length,
+              error: firstError
+            })
+      )
+    }
+    /*
+     * 删干净的批次：清空勾选、退出选择模式。
+     * 有失败的：只留失败那几条勾着，让「再试一次」不用重新挑。
+     */
+    setSelectionReset({
+      nonce: selectionReset.nonce + 1,
+      keep: failed.map((s) => sessionMetaKey(s.cli, s.cwd, s.id))
+    })
+    void refresh()
+  }
+
+  /**
    * 收到 IDE 的引用：先保证当前会话就是目标会话，再把引用交给 Composer。
    *
    * handler 挂在 ref 上，只订阅一次 IPC；这样里面读到的 active / 切会话
@@ -535,6 +632,8 @@ export function App(): JSX.Element {
           onOpenIde={(cwd) => void window.api?.ide?.open(cwd)}
           onPickWorkspace={(title) => void pickWorkspace(title)}
           onDeleteSession={setPendingDelete}
+          onDeleteSessions={(list) => setPendingDeleteBatch(list)}
+          selectionReset={selectionReset}
           onRefresh={() => void refresh()}
           onOpenSettings={() => setView('settings')}
           onOpenSearch={() => setSearchOpen(true)}
@@ -657,6 +756,49 @@ export function App(): JSX.Element {
               {pendingDelete.cwd} · {pendingDelete.id.slice(0, 8)}
             </div>
             <p className="delinfo__warn">{t('chat.delete.body')}</p>
+          </div>
+        </ConfirmModal>
+      )}
+      {pendingDeleteBatch && pendingDeleteBatch.length > 0 && (
+        <ConfirmModal
+          title={tn('sidebar.deleteBatchTitle', pendingDeleteBatch.length)}
+          badge={t('chat.delete.badge')}
+          confirmLabel={tn('sidebar.deleteBatchConfirm', pendingDeleteBatch.length)}
+          onCancel={() => setPendingDeleteBatch(null)}
+          onConfirm={() => void confirmDeleteBatch()}
+        >
+          <div className="delinfo">
+            {/*
+              按工作区分组列出。同一批可能跨多个目录，
+              平铺一列长标题看不出「删的是哪几组」，也没法先扫一眼定位。
+            */}
+            {groupByCwd(pendingDeleteBatch).map(([cwd, list]) => (
+              <div className="delbatch__group" key={cwd}>
+                <div className="delbatch__cwd">{cwd}</div>
+                {list.map((s) => {
+                  const key = sessionMetaKey(s.cli, s.cwd, s.id)
+                  return (
+                    <div className="delbatch__row" key={key}>
+                      <span className="delbatch__cli">{cliDef(s.cli).name}</span>
+                      <span className="delbatch__title">{meta[key]?.title || s.title}</span>
+                      {running.has(s.id) && (
+                        <span className="delbatch__state">
+                          {t('sidebar.running')}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+            <p className="delinfo__warn">{t('sidebar.deleteBatchBody')}</p>
+            {runningCount > 0 && (
+              <p className="delinfo__warn delinfo__warn--run">
+                <b>{tn('sidebar.deleteBatchRunning', runningCount)}</b>
+                {' · '}
+                {t('sidebar.deleteBatchRunningWarn')}
+              </p>
+            )}
           </div>
         </ConfirmModal>
       )}

@@ -201,6 +201,14 @@ export const IconX = (p: IconProps) => (
   </svg>
 )
 
+/** 方框里一个对勾：批量选择的入口 */
+export const IconSelectSquare = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="3" />
+    <path d="m5.4 8.2 1.8 1.8 3.3-3.7" />
+  </svg>
+)
+
 /** 圆圈加一道斜杠：用于「已拒绝」。比文字 ⊘ 在小字号下更清晰 */
 export const IconSlash = (p: IconProps) => (
   <svg {...base(p)}>

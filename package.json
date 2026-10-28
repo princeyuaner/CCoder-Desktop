@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -26,6 +26,7 @@
     "verify:message-actions": "npx esbuild src/renderer/src/ideRef.ts --bundle --platform=node --format=cjs --alias:@shared=./src/shared --outfile=tools/_ide-ref.cjs && node tools/verify-message-actions.cjs",
     "verify:chat-notify": "npx esbuild src/main/chat-notify.ts --bundle --platform=node --format=cjs --external:electron --outfile=.tmp-build/chat-notify.cjs && node tools/verify-chat-notify.cjs",
     "verify:session-channel": "npx esbuild src/main/session-manager.ts --bundle --platform=node --format=cjs --external:electron --alias:electron=./tools/electron-stub.cjs --outfile=.tmp-build/session-manager.cjs && node tools/verify-session-channel-isolation.cjs",
+    "verify:batch-delete": "node node_modules/electron/cli.js tools/verify-batch-delete.cjs",
     "package": "node tools/stage-rg.cjs && electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {

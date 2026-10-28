@@ -117,6 +117,24 @@ export const zh = {
   'sidebar.onlyWorktrees': '只看工作树',
   'sidebar.showAllSessions': '显示全部',
   'sidebar.worktreeTag': '工作树',
+  /* 批量勾选删除 */
+  'sidebar.selectMode': '批量选择会话',
+  'sidebar.selectModeDone': '退出选择（Esc）',
+  'sidebar.selectAllGroup': '全选「{name}」里的会话',
+  'sidebar.selectRow': '选择这条会话',
+  'sidebar.unselectRow': '取消选择',
+  'sidebar.selectedCount': '已选 {n} 条会话',
+  'sidebar.selectDelete': '删除',
+  'sidebar.selectCancel': '取消',
+  'sidebar.selectExit': '完成',
+  'sidebar.deleteBatchTitle': '删除 {n} 条会话？',
+  'sidebar.deleteBatchConfirm': '删除 {n} 条',
+  'sidebar.deleteBatchRunning': '其中 {n} 条正在运行',
+  'sidebar.deleteBatchRunningWarn':
+    '删除会先终止这些会话的 CLI 进程；后台任务随之中断，未完成的改动不会回滚。',
+  'sidebar.deleteBatchBody':
+    '会删掉 CLI 写的那份记录文件（含全部对话与工具调用），这些会话的重命名、置顶与模型选择也会一起清除。这一步没法撤销。',
+  'sidebar.deleteBatchPartial': '已删除 {done} 条，{failed} 条失败：{error}',
 
   /* ── 新建会话 · 分支 / 工作树 ───────────────────────────── */
   'newSession.title': '新建会话',

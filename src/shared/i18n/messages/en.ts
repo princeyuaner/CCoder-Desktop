@@ -120,6 +120,24 @@ export const en = {
   'sidebar.onlyWorktrees': 'Worktree only',
   'sidebar.showAllSessions': 'Show all',
   'sidebar.worktreeTag': 'Worktree',
+  /* Select-to-delete */
+  'sidebar.selectMode': 'Select sessions',
+  'sidebar.selectModeDone': 'Exit selection (Esc)',
+  'sidebar.selectAllGroup': 'Select all sessions in “{name}”',
+  'sidebar.selectRow': 'Select this session',
+  'sidebar.unselectRow': 'Deselect',
+  'sidebar.selectedCount': { one: '{n} session selected', other: '{n} sessions selected' },
+  'sidebar.selectDelete': 'Delete',
+  'sidebar.selectCancel': 'Cancel',
+  'sidebar.selectExit': 'Done',
+  'sidebar.deleteBatchTitle': { one: 'Delete {n} session?', other: 'Delete {n} sessions?' },
+  'sidebar.deleteBatchConfirm': 'Delete {n}',
+  'sidebar.deleteBatchRunning': { one: '{n} of them is running', other: '{n} of them are running' },
+  'sidebar.deleteBatchRunningWarn':
+    'Deleting stops those CLI processes first; background tasks are interrupted and unfinished changes are not rolled back.',
+  'sidebar.deleteBatchBody':
+    'The record files written by the CLI (all messages and tool calls) are removed, along with local renames, pins and model choices for these sessions. This cannot be undone.',
+  'sidebar.deleteBatchPartial': 'Deleted {done}, {failed} failed: {error}',
 
   /* ── New session · branch / worktree ────────────────────── */
   'newSession.title': 'New session',

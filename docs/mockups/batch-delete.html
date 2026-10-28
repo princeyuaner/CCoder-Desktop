@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>会话列表 · 批量勾选删除</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  color: #e8e8e8;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 56px;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+code { font-family: 'Cascadia Mono', Consolas, monospace; }
+b { font-weight: 600; }
+
+/* ── 说明栏 ─────────────────────────────────────────────── */
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 14px 24px;
+  background: rgba(13,13,15,.92); backdrop-filter: blur(14px);
+  border-bottom: 1px solid #1e1e24;
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: #cfcfd8; }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: #9a9aa8; border: 1px solid #26262e; background: #16161a;
+}
+.tabbtn:hover { color: #d8d8e2; border-color: #35353f; }
+.tabbtn.is-on { color: #0d0d0f; background: #e8e8ee; border-color: #e8e8ee; font-weight: 600; }
+#desc { padding: 12px 24px 0; font-size: 12.5px; color: #7c7c8c; max-width: 1120px; line-height: 1.85; }
+#desc b { color: #b9b9c8; font-weight: 500; }
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,.03); border-left: 2px solid #3a3a46; border-radius: 0 6px 6px 0;
+  color: #8a8a9c;
+}
+#desc .rec {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; vertical-align: 1px;
+  font-size: 10.5px; color: #a5f3fc; background: rgba(34,211,238,.12);
+  border: 1px solid rgba(34,211,238,.28); border-radius: 999px;
+}
+#stage { padding: 18px 24px 0; }
+
+/* ── 应用外壳（照 shell.css / tokens.css 取值）─────────── */
+:root {
+  --bg-app: #191919;
+  --bg-sidebar: #141414;
+  --bg-raised: #232323;
+  --bg-hover: #1f1f1f;
+  --bg-active: #2a2a2a;
+  --border: #2c2c2c;
+  --border-soft: #242424;
+  --text: #e8e8e8;
+  --text-dim: #a8a8a8;
+  --text-muted: #8a8a8a;
+  --text-faint: #6b6b6b;
+  --accent: #e8e8e8;
+  --accent-fg: #191919;
+  --ok: #4b9e5f;
+  --warn: #c9a227;
+  --danger: #e5534b;
+  --running: #d97757;
+  --font-mono: 'Cascadia Mono', Consolas, monospace;
+}
+.frame {
+  width: 1120px; height: 700px;
+  display: flex; flex-direction: column;
+  background: var(--bg-app);
+  border: 1px solid #26262e; border-radius: 12px; overflow: hidden;
+  position: relative;
+}
+.titlebar {
+  flex: none; height: 36px; display: flex; align-items: center;
+  background: var(--bg-app); border-bottom: 1px solid var(--border-soft);
+}
+.brand { display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.brand__name { font-size: 15px; font-weight: 650; letter-spacing: .2px; }
+.wctl { display: grid; place-items: center; width: 46px; height: 100%; color: var(--text-dim); }
+.wctl:last-child { color: var(--text-dim); }
+.wcts { display: flex; align-items: center; height: 100%; margin-left: auto; }
+.body { flex: 1; display: flex; min-height: 0; }
+
+/* 侧栏 */
+.sidebar {
+  flex: none; width: 280px; display: flex; flex-direction: column;
+  background: var(--bg-sidebar); border-right: 1px solid var(--border-soft);
+  padding: 10px 10px 6px; min-height: 0;
+}
+.sidebar__nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 8px; }
+.navitem {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  font-size: 13.5px; color: var(--text-dim); border-radius: 6px; text-align: left;
+}
+.navitem:hover { background: var(--bg-hover); color: var(--text); }
+.navitem svg { flex: none; color: var(--text-muted); }
+.sidebar__section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px 6px;
+}
+.sidebar__section-title { font-size: 12px; font-weight: 600; color: var(--text-muted); letter-spacing: .4px; }
+.sidebar__newws { display: grid; place-items: center; width: 22px; height: 22px; margin-left: 4px; border-radius: 6px; color: var(--text-muted); }
+.sidebar__newws:hover { background: var(--bg-raised); color: var(--text); }
+.sidebar__section-tools { display: flex; gap: 2px; margin-left: auto; }
+.iconbtn {
+  display: grid; place-items: center; width: 26px; height: 26px;
+  color: var(--text-muted); border-radius: 6px;
+}
+.iconbtn:hover { background: var(--bg-raised); color: var(--text); }
+.iconbtn.is-new { position: relative; }
+.iconbtn.is-new::after {
+  content: ''; position: absolute; inset: 2px; border-radius: 6px;
+  border: 1px dashed rgba(34,211,238,.55);
+  animation: hint 2.4s ease-in-out infinite;
+}
+@keyframes hint { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+
+.sidebar__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.wsgroup { padding-bottom: 8px; }
+.wsgroup + .wsgroup { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+.wsgroup__head { display: flex; align-items: center; gap: 5px; padding: 6px 8px; color: var(--text-dim); }
+.wsgroup__iconbtn { display: grid; place-items: center; width: 22px; height: 22px; margin: 0 -2px 0 -4px; border-radius: 5px; }
+.wsgroup__icon { color: var(--text-muted); }
+.wsgroup__name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsgroup__count { flex: none; font-size: 11.5px; color: var(--text-faint); }
+.wsgroup__acts { display: flex; gap: 2px; flex: none; }
+.wsact { display: grid; place-items: center; width: 20px; height: 20px; font-size: 14px; line-height: 1; color: var(--text-faint); border-radius: 5px; }
+.wsact:hover { background: var(--bg-active); color: var(--text); }
+
+/* 会话行 */
+.session { display: flex; align-items: flex-start; border-radius: 6px; position: relative; }
+.session:hover { background: var(--bg-hover); }
+.session.is-active { background: var(--bg-active); }
+.session.is-checked { background: rgba(232,232,232,.055); }
+.session.is-checked:hover { background: rgba(232,232,232,.085); }
+.session__main {
+  display: flex; align-items: flex-start; gap: 9px; flex: 1; min-width: 0;
+  padding: 5px 4px 5px 12px; text-align: left;
+}
+.session__cli { flex: none; margin-top: 1px; }
+.session__text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.session__line1 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.session__title { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session.is-active .session__title { color: var(--text); }
+.session.is-checked .session__title { color: var(--text); }
+.session__time { flex: none; font-size: 12px; color: var(--text-faint); }
+.session__time--running { color: var(--running); }
+.session__more, .session__del {
+  flex: none; display: grid; place-items: center; width: 20px; height: 20px;
+  margin: 5px 5px 0 0; color: var(--text-faint); border-radius: 5px; opacity: 0;
+}
+.session:hover .session__more, .session:hover .session__del { opacity: 1; }
+.session__del:hover { background: rgba(244,63,94,.14); color: #fda4af; }
+.session__more:hover { background: var(--bg-active); color: var(--text); }
+/* 方案 B：勾选框占住「×」的位置，未选中时随 hover 出现 */
+.session__pick {
+  flex: none; display: grid; place-items: center;
+  width: 20px; height: 20px; margin: 5px 5px 0 0; border-radius: 5px;
+}
+.session:hover .session__pick { background: var(--bg-active); }
+.session__pick .cbx { margin: 0; opacity: 0; transition: opacity .1s; }
+.session:hover .session__pick .cbx,
+.session.is-hover .session__pick .cbx,
+.session.is-checked .session__pick .cbx { opacity: 1; }
+.session__pick:hover .cbx { border-color: #8a8a94; }
+.session.is-hover { background: var(--bg-hover); }
+.session.is-hover .session__del { opacity: 1; }
+.session.is-hover .session__pick { background: var(--bg-active); }
+
+/* 勾选框 */
+.cbx {
+  flex: none; display: grid; place-items: center;
+  width: 14px; height: 14px; margin-top: 4px;
+  border: 1.5px solid #4a4a52; border-radius: 4px;
+  background: transparent; color: transparent;
+  transition: background .1s, border-color .1s;
+}
+.cbx svg { opacity: 0; }
+.cbx:hover { border-color: #6d6d78; }
+.cbx.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.cbx.is-on svg { opacity: 1; }
+.cbx.is-part { background: var(--accent); border-color: var(--accent); }
+.cbx.is-part::after { content: ''; width: 7px; height: 1.5px; border-radius: 1px; background: var(--accent-fg); }
+.selection .session__main { padding-left: 8px; padding-right: 9px; }
+
+/* 组头的全选：复选框在目录图标左边，文件夹仍然点得开 IDE */
+.wsgroup__head .cbx { margin: 0 -1px 0 0; }
+
+/* 底部批量操作条 */
+.batchbar {
+  margin: 4px 0 4px; padding: 8px 8px 8px 11px;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  animation: rise .16s ease-out;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(6px) } }
+.batchbar__count { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-dim); }
+.batchbar__count b { color: var(--text); font-weight: 600; }
+.batchbar__count span { color: var(--text-faint); }
+.batchbar__btn {
+  flex: none; height: 26px; padding: 0 9px; font-size: 12.5px;
+  color: var(--text-dim); border: 1px solid rgba(255,255,255,.14); border-radius: 7px;
+}
+.batchbar__btn:hover { background: rgba(255,255,255,.07); color: var(--text); }
+.batchbar__btn--danger { color: #fda4af; border-color: rgba(244,63,94,.35); }
+.batchbar__btn--danger:hover { background: rgba(244,63,94,.13); color: #fecdd3; }
+.batchbar__btn--danger:disabled { opacity: .4; border-color: rgba(244,63,94,.2); background: none; }
+
+/* 顶部（方案 C）选择工具条 */
+.selectbar {
+  display: flex; align-items: center; gap: 6px;
+  margin: 8px 0 4px; padding: 5px 6px 5px 11px;
+  background: rgba(232,232,232,.06); border: 1px solid rgba(232,232,232,.12);
+  border-radius: 8px;
+}
+.selectbar__count { flex: 1; font-size: 12.5px; color: var(--text-dim); }
+.selectbar__count b { color: var(--text); }
+.selectbar__btn { flex: none; height: 24px; padding: 0 8px; font-size: 12px; color: var(--text-dim); border-radius: 6px; }
+.selectbar__btn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.selectbar__btn--danger { color: #fda4af; }
+.selectbar__btn--danger:hover { background: rgba(244,63,94,.14); }
+
+.sidebar__archived {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  font-size: 13px; color: var(--text-faint); border-radius: 6px; text-align: left;
+}
+.sidebar__settings {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-top: 4px;
+  font-size: 13.5px; color: var(--text-dim); border-radius: 6px; text-align: left;
+}
+.sidebar__settings:hover { background: var(--bg-hover); color: var(--text); }
+.sidebar__settings svg, .sidebar__archived svg { color: var(--text-muted); }
+
+/* 主区（只作背景，用来看遮挡 / 视觉重心） */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-app); }
+.chat-head { flex: none; padding: 12px 28px 0; border-bottom: 1px solid var(--border-soft); }
+.chat-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.chat-sub { margin-top: 5px; font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+.chat-tabs { display: flex; gap: 18px; margin-top: 12px; }
+.chat-tabs span { padding-bottom: 8px; font-size: 13px; color: var(--text-faint); border-bottom: 2px solid transparent; }
+.chat-tabs span.is-on { color: var(--text); border-bottom-color: var(--text); }
+.chat-body { flex: 1; min-height: 0; padding: 18px 28px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.msg-user {
+  align-self: flex-end; max-width: 620px; padding: 10px 14px;
+  font-size: 13.5px; line-height: 1.7; color: #dce8e2;
+  background: #1b2422; border: 1px solid #26332f; border-radius: 12px;
+}
+.para { font-size: 13.5px; line-height: 1.8; color: var(--text-dim); max-width: 680px; }
+.toolrow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; font-size: 12.5px; color: var(--text-muted);
+  border: 1px solid var(--border-soft); border-radius: 8px;
+}
+.toolrow__tag { margin-left: auto; font-size: 10px; color: var(--text-faint); letter-spacing: .5px; }
+.composer {
+  flex: none; margin: 0 28px 18px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: 12px;
+  font-size: 12.5px; color: var(--text-faint);
+}
+.composer__row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.chip { padding: 3px 8px; font-size: 11px; color: var(--text-faint); border: 1px solid var(--border); border-radius: 999px; }
+.chip--send { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; background: rgba(255,255,255,.1); color: var(--text-dim); border-radius: 999px; }
+
+/* 确认弹窗（照 chat.css .modal*） */
+.modal { position: absolute; inset: 36px 0 0; z-index: 60; }
+.modal__scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+.modal__dlg {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; width: 560px; max-height: calc(100% - 64px);
+  background: var(--bg-raised); border: 1px solid rgba(244,63,94,.42); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 3px rgba(244,63,94,.09);
+  overflow: hidden;
+}
+.modal__h { display: flex; align-items: center; gap: 10px; padding: 13px 16px 12px; border-bottom: 1px solid #2c2c34; }
+.modal__badge { flex: none; padding: 2px 9px; font-size: 11.5px; border-radius: 999px; color: #fda4af; background: rgba(244,63,94,.16); }
+.modal__t { flex: 1; font-size: 14px; font-weight: 500; }
+.modal__b { flex: 1; min-height: 0; overflow: auto; padding: 13px 16px 0; }
+.modal__f { display: flex; align-items: center; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid #2c2c34; }
+.modal__sp { flex: 1; }
+.btn { height: 30px; padding: 0 13px; font-size: 12.5px; border-radius: 7px; border: 1px solid rgba(255,255,255,.16); color: #c0c0d0; }
+.btn:hover { background: rgba(255,255,255,.08); color: #e8e8f0; }
+.btn--danger { color: #fda4af; border-color: rgba(244,63,94,.35); }
+.btn--danger:hover { background: rgba(244,63,94,.12); }
+.kbd { margin-left: 6px; font-size: 10.5px; opacity: .62; }
+.modal__group { margin-bottom: 12px; }
+.modal__group-name { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-faint); margin-bottom: 6px; }
+.modal__group-name code { color: var(--text-muted); font-size: 11px; }
+.modal__item { display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: 7px; background: rgba(255,255,255,.028); margin-bottom: 3px; }
+.modal__item-cli { flex: none; }
+.modal__item-title { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal__item-state { flex: none; font-size: 10.5px; color: #fda4af; }
+.modal__summary { margin: 4px 0 12px; font-size: 12.5px; line-height: 1.75; color: var(--text-muted); }
+.modal__summary b { color: var(--text); }
+.modal__warn {
+  display: flex; align-items: flex-start; gap: 8px; margin-bottom: 13px;
+  padding: 9px 11px; font-size: 12px; line-height: 1.6;
+  color: #e8b0b8; background: rgba(244,63,94,.08); border-radius: 8px;
+}
+.modal__warn b { color: #fda4af; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>会话列表 · 批量勾选删除</h1>
+  <button class="tabbtn" data-k="a">A 选择模式 + 底部操作条</button>
+  <button class="tabbtn" data-k="b">B 直接勾选 + 范围选择</button>
+  <button class="tabbtn" data-k="c">C 顶部工具条</button>
+  <button class="tabbtn" data-k="d">D 批量删除确认</button>
+</div>
+<div id="desc"></div>
+<div id="stage"></div>
+
+<script>
+/* ── 图标（照 Icons.tsx 抄的 path）──────────────────────── */
+const ICON = {
+  claude: `<svg viewBox="0 0 24 24" fill="#d97757" width="16" height="16"><path d="M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z"/></svg>`,
+  codex: `<svg viewBox="0 0 24 24" fill="#d0d0d8" width="15" height="15"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944z"/></svg>`,
+  dsh: `<svg viewBox="0 0 24 24" fill="#4d6bfe" width="15" height="15"><path d="M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588"/></svg>`,
+  folder: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="15" height="15"><path d="M1.8 4.2c0-.6.5-1.1 1.1-1.1h3l1.3 1.6h5.9c.6 0 1.1.5 1.1 1.1v5.5c0 .6-.5 1.1-1.1 1.1H2.9c-.6 0-1.1-.5-1.1-1.1z"/></svg>`,
+  plus: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" width="14" height="14"><path d="M8 3v10M3 8h10"/></svg>`,
+  search: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" width="14" height="14"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3 3"/></svg>`,
+  sort: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="14" height="14"><path d="M4.5 3v10M2.5 11l2 2 2-2M8.5 4.5h5M8.5 8h3.5M8.5 11.5h2"/></svg>`,
+  check: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="m3.5 8.5 3 3 6-7"/></svg>`,
+  checksq: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="14" height="14"><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="3"/><path d="m5 8.2 2 2 4-4.4"/></svg>`,
+  more: `<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><circle cx="3.5" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12.5" cy="8" r="1.1"/></svg>`,
+  plugin: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="15" height="15"><path d="M6 2.4v2M10 2.4v2M4 4.4h8v4.2a3.4 3.4 0 0 1-3.4 3.4H7.4A3.4 3.4 0 0 1 4 8.6zM8 12v2"/></svg>`,
+  clock: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="15" height="15"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.5"/></svg>`,
+  gear: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="15" height="15"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M12.4 3.6l-1.3 1.3M4.9 11.1l-1.3 1.3"/></svg>`,
+  archive: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="15" height="15"><rect x="2.2" y="2.6" width="11.6" height="3.2" rx="1"/><path d="M3.2 5.8v7c0 .5.4 1 1 1h7.6c.6 0 1-.5 1-1v-7M6.4 8.6h3.2"/></svg>`,
+  terminal: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" width="13" height="13"><rect x="1.8" y="2.6" width="12.4" height="10.8" rx="2"/><path d="m4.6 6.2 1.8 1.8-1.8 1.8M8.4 10h3"/></svg>`
+}
+
+/* ── 数据 ───────────────────────────────────────────────── */
+const WS = [
+  {
+    name: 'CCoder-Desktop',
+    cwd: 'C:\\Users\\CY\\Desktop\\CCoder-Desktop',
+    sessions: [
+      { cli: 'claude', title: '给这个示例服务补一个 /health 健康检查接口，把耗时格式化抽成工具…', time: '运行中', running: true, active: true, id: '1f3a' },
+      { cli: 'claude', title: '更新提示的位置', time: '3 分钟', id: '9c21' },
+      { cli: 'claude', title: '把渠道测试改成走真实请求', time: '5 小时', id: '7ab0' }
+    ]
+  },
+  {
+    name: 'agent-kit',
+    cwd: 'C:\\Users\\CY\\Desktop\\agent-kit',
+    sessions: [
+      { cli: 'dsh', title: '重构 run-state 的任务队列', time: '1 天', id: '55e8' },
+      { cli: 'codex', title: '修 permission-preview 的越权提示', time: '1 天', id: '31d4' }
+    ]
+  }
+]
+
+/** 勾选状态。运行中的会话也能删 —— 跟单条删除一致：先停进程再删记录 */
+const keyOf = (s) => s.id
+const CHECKED = new Set(['1f3a', '9c21', '7ab0', '55e8'])
+/** 已选条数 —— 所有用到数字的地方都从这一处取，免得文案和列表对不上 */
+const SEL = CHECKED.size
+
+/* ── 小组件 ─────────────────────────────────────────────── */
+const cbx = (state, cls = '') => {
+  // state: '' | 'is-on' | 'is-part'
+  if (state === 'is-part') return `<span class="cbx is-part ${cls}"></span>`
+  return `<span class="cbx ${state} ${cls}">${ICON.check}</span>`
+}
+
+const rowIcon = (cli) => `<span class="session__cli">${ICON[cli]}</span>`
+
+function sessionRow(s, opt = {}) {
+  const { selection = false, hoverRow = false } = opt
+  const on = CHECKED.has(keyOf(s))
+  return `
+  <div class="session ${s.active ? 'is-active' : ''} ${on ? 'is-checked' : ''} ${hoverRow ? 'is-hover' : ''}">
+    ${selection
+      ? `<div class="session__main">
+           ${cbx(on ? 'is-on' : '', 'cbx--row')}
+           ${rowIcon(s.cli)}
+           <span class="session__text">
+             <span class="session__line1">
+               <span class="session__title">${s.title}</span>
+               <span class="session__time ${s.running ? 'session__time--running' : ''}">${s.time}</span>
+             </span>
+           </span>
+         </div>`
+      : `<button class="session__main">
+           ${rowIcon(s.cli)}
+           <span class="session__text">
+             <span class="session__line1">
+               <span class="session__title">${s.title}</span>
+               <span class="session__time ${s.running ? 'session__time--running' : ''}">${s.time}</span>
+             </span>
+           </span>
+         </button>
+         <button class="session__pick" title="${on ? '取消选择' : '选择'}">${cbx(on ? 'is-on' : '')}</button>
+         ${hoverRow && !on ? '<button class="session__del" title="删除会话">×</button>' : ''}`}
+  </div>`
+}
+
+function groupHead(ws, opt = {}) {
+  const { selection = false } = opt
+  const checked = ws.sessions.filter((s) => CHECKED.has(keyOf(s))).length
+  const state = checked === 0 ? '' : checked === ws.sessions.length ? 'is-on' : 'is-part'
+  return `
+  <div class="wsgroup__head" title="${ws.cwd}">
+    ${selection ? cbx(state) : ''}
+    <button class="wsgroup__iconbtn">${ICON.folder}</button>
+    <span class="wsgroup__name">${ws.name}</span>
+    <span class="wsgroup__count">${ws.sessions.length}</span>
+    <span class="wsgroup__acts">
+      <button class="wsact" title="在这个目录新建会话">${ICON.plus}</button>
+      <button class="wsact" title="关闭工作区">×</button>
+    </span>
+  </div>`
+}
+
+const sidebarShell = (body, footer, topBar) => `
+<aside class="sidebar">
+  <nav class="sidebar__nav">
+    <button class="navitem">${ICON.plugin}<span>插件</span></button>
+    <button class="navitem">${ICON.clock}<span>自动化任务</span></button>
+  </nav>
+
+  <div class="sidebar__section-head">
+    <span class="sidebar__section-title">工作区</span>
+    <button class="sidebar__newws" title="新建工作区">${ICON.plus}</button>
+    <div class="sidebar__section-tools">
+      <button class="iconbtn" title="搜索会话 (Ctrl+K)">${ICON.search}</button>
+      <button class="iconbtn" title="按创建时间排序">${ICON.sort}</button>
+      <button class="iconbtn is-new" title="批量选择会话">${ICON.checksq}</button>
+    </div>
+  </div>
+
+  ${topBar || ''}
+  ${body}
+
+  <button class="sidebar__archived">${ICON.archive}<span>显示已归档</span></button>
+  ${footer || ''}
+  <button class="sidebar__settings">${ICON.gear}<span>设置</span></button>
+</aside>`
+
+const mainPane = (dim) => `
+<main class="main" style="${dim ? 'filter:brightness(.55)' : ''}">
+  <div class="chat-head">
+    <div class="chat-title">给这个示例服务补一个 /health 健康检查接口</div>
+    <div class="chat-sub">接着这条会话继续 · C:\\Users\\CY\\Desktop\\CCoder-Desktop</div>
+    <div class="chat-tabs"><span class="is-on">对话</span><span>轨迹</span></div>
+  </div>
+  <div class="chat-body">
+    <div class="msg-user">给这个示例服务补一个 /health 健康检查接口，把耗时格式化抽成工具函数，再让子代理独立审查一下 src 的模块划分。</div>
+    <p class="para">我先把这件事拆成可跟踪的任务，然后按顺序处理。先看一下现有路由是怎么组织的。</p>
+    <div class="toolrow"><span>${ICON.terminal}</span><span>server.ts</span><span class="toolrow__tag">READ</span></div>
+    <p class="para">路由是数组式的，加一个同形状的 <code>/health</code> 就行。健康检查好了，接下来把耗时格式化抽到 <code>src/utils.ts</code>。</p>
+    <div class="toolrow"><span style="color:#c9a227">✎</span><span>utils.ts</span><span class="toolrow__tag">EDIT · +9</span></div>
+  </div>
+  <div class="composer">
+    发消息或创建任务，/ 调用指令，@ 文件或对话
+    <div class="composer__row">
+      <span class="chip">标准模式</span>
+      <span class="chip chip--send">↑</span>
+    </div>
+  </div>
+</main>`
+
+function frame(sidebar, dimMain) {
+  return `
+  <div class="frame">
+    <div class="titlebar">
+      <div class="brand">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d8d8d8" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m7 10 2.6 2.6L7 15.2M12.4 15.2H17"/></svg>
+        <span class="brand__name">CCoder</span>
+      </div>
+      <div class="wcts">
+        <button class="wctl">—</button>
+        <button class="wctl">▢</button>
+        <button class="wctl">✕</button>
+      </div>
+    </div>
+    <div class="body">
+      ${sidebar}
+      ${mainPane(dimMain)}
+    </div>
+    <div id="overlay"></div>
+  </div>`
+}
+
+/* ── 方案 A：选择模式 + 底部操作条 ─────────────────────── */
+const batchbar = (n, total) => `
+  <div class="batchbar">
+    <span class="batchbar__count">已选 <b>${n}</b> 条 <span>/ ${total}</span></span>
+    <button class="batchbar__btn batchbar__btn--danger" ${n ? '' : 'disabled'}>删除</button>
+    <button class="batchbar__btn">取消</button>
+  </div>`
+
+const bodyA = () => `
+  <div class="sidebar__scroll selection">
+    ${WS.map((ws) => `
+      <div class="wsgroup">
+        ${groupHead(ws, { selection: true })}
+        ${ws.sessions.map((s) => sessionRow(s, { selection: true })).join('')}
+      </div>`).join('')}
+  </div>`
+
+const sidebarA = sidebarShell(bodyA(), batchbar(SEL, 5))
+
+/* ── 方案 B：直接勾选（hover 出行内勾选）+ 范围选择 ──── */
+const bodyB = () => `
+  <div class="sidebar__scroll">
+    ${WS.map((ws) => `
+      <div class="wsgroup">
+        ${groupHead(ws)}
+        ${ws.sessions.map((s, i) => sessionRow(s, { hoverRow: ws.name === 'CCoder-Desktop' && i === 2 })).join('')}
+      </div>`).join('')}
+  </div>`
+
+const sidebarB = sidebarShell(bodyB(), batchbar(SEL, 5))
+
+/* ── 方案 C：顶部工具条 ─────────────────────────────────── */
+const bodyC = () => `
+  <div class="sidebar__scroll selection">
+    ${WS.map((ws) => `
+      <div class="wsgroup">
+        ${groupHead(ws, { selection: true })}
+        ${ws.sessions.map((s) => sessionRow(s, { selection: true })).join('')}
+      </div>`).join('')}
+  </div>`
+
+const sidebarC = sidebarShell(bodyC(), '', `
+  <div class="selectbar">
+    <span class="selectbar__count">已选 <b>${SEL}</b> 条</span>
+    <button class="selectbar__btn selectbar__btn--danger">删除</button>
+    <button class="selectbar__btn">完成</button>
+  </div>`)
+
+/* ── 方案 D：确认弹窗 ───────────────────────────────────── */
+const modalD = () => {
+  const groups = WS.map((ws) => ({
+    ...ws,
+    picked: ws.sessions.filter((s) => CHECKED.has(keyOf(s)))
+  })).filter((g) => g.picked.length)
+  return `
+  <div class="modal">
+    <div class="modal__scrim"></div>
+    <div class="modal__dlg" role="dialog" aria-modal="true">
+      <div class="modal__h">
+        <span class="modal__badge">不可恢复</span>
+        <span class="modal__t">删除 ${SEL} 条会话</span>
+      </div>
+      <div class="modal__b">
+        ${groups.map((g) => `
+          <div class="modal__group">
+            <div class="modal__group-name">${ICON.folder}<code>${g.cwd}</code></div>
+            ${g.picked.map((s) => `
+              <div class="modal__item">
+                <span class="modal__item-cli">${ICON[s.cli]}</span>
+                <span class="modal__item-title">${s.title}</span>
+                ${s.running ? '<span class="modal__item-state">正在运行 · 将先停止</span>' : ''}
+              </div>`).join('')}
+          </div>`).join('')}
+        <p class="modal__summary">
+          对话记录文件会从磁盘删除，无法通过 <b>撤销</b> 恢复；该会话的重命名、置顶与模型选择等本地设置也会一并清除。
+        </p>
+        <div class="modal__warn">
+          <span>⚠</span>
+          <span>其中 <b>1 条正在运行</b>。删除会先终止该会话的 CLI 进程；后台任务随之中断，未完成的改动不会回滚。</span>
+        </div>
+      </div>
+      <div class="modal__f">
+        <span class="modal__sp"></span>
+        <button class="btn">取消<span class="kbd">Esc</span></button>
+        <button class="btn btn--danger">删除 ${SEL} 条</button>
+      </div>
+    </div>
+  </div>`
+}
+
+/* ── 变体表 ─────────────────────────────────────────────── */
+const VARIANTS = {
+  a: {
+    html: frame(sidebarA, false),
+    desc: '<b>A 选择模式 + 底部操作条</b><span class="rec">推荐</span> —— 点工作区标题旁新加的「批量选择」图标进入选择模式：'
+      + '每行左侧出现勾选框，组头多出一个「全选这一组」的复选框（目录图标仍然是打开 IDE），侧栏底部——设置上方——浮出操作条说明选了几条。'
+      + '<span class="fact">为什么推荐：删除键本来就藏在 hover 里，直接加常驻勾选框会让每行多一个"随时可点"的坑；'
+      + '显式模式让「勾选」和「打开会话」互不抢点击，按 Esc 或「取消」退出时勾选状态自然清空。'
+      + '组头全选解决"一个工作区几十条"；底部条离手最近，也不会遮住列表。</span>'
+  },
+  b: {
+    html: frame(sidebarB, false),
+    desc: '<b>B 直接勾选 + 范围选择</b> —— 不引入模式：hover 时行尾的「×」旁边出现勾选框，勾中任意一条后底部才滑出操作条；'
+      + '按住 Shift 点第二条可以选中一段。'
+      + '<span class="fact">代价：hover 才出勾选框，在触控板 / 触屏上第一次点击之前看不到入口，也不容易发现这个功能；'
+      + '另外「×」和勾选框同时出现，行尾两个 20px 按钮会有点挤。'
+      + '好处是学习成本几乎为零，跟文件管理器的心智一致，适合"偶尔删两三条"的用法。</span>'
+  },
+  c: {
+    html: frame(sidebarC, false),
+    desc: '<b>C 顶部工具条</b> —— 同样有选择模式，但操作条钉在「工作区」标题下面，不占底部；'
+      + '打开模式后视线不用从上往下扫一遍，删除入口离刚点的那个图标也更近。'
+      + '<span class="fact">代价：它和组头、列表挤在同一块滚动区上方，视觉上多一层"工具条"；'
+      + '而且紧挨着搜索 / 排序 / 批量选择三个图标，同时出现时侧栏顶部偏吵，'
+      + '在矮窗口下还会挤掉一行会话。</span>'
+  },
+  d: {
+    html: frame(sidebarB, true) .replace('<div id="overlay"></div>', `<div id="overlay">${modalD()}</div>`),
+    desc: '<b>D 批量删除确认</b> —— 沿用现有单条删除的 <code>ConfirmModal</code>（危险描边、默认焦点在取消、Esc 退出），'
+      + '正文按工作区分组列出要删的标题；有会话正在跑时多一条明确警告，说明会先终止进程。'
+      + '<span class="fact">这是 A / B / C 三种入口共用的确认页，不单独占一个方案。'
+      + '放在一张稿里是因为它决定了入口的文案：操作条上写的条数必须和这里列出的条数一致，'
+      + '而"运行中"这一条在确认页里是被 <b>显式点出</b>的，不是悄悄删掉。</span>'
+  }
+}
+
+const params = new URLSearchParams(location.search)
+const raw = params.get('v')
+const only = raw && raw !== 'bar' ? raw : null
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+
+function show(k) {
+  desc.innerHTML = VARIANTS[k].desc
+  stage.innerHTML = VARIANTS[k].html
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === k)
+}
+
+if (only) {
+  bar.remove(); desc.remove()
+  stage.style.padding = '0'
+  document.body.style.padding = '0'
+  stage.innerHTML = VARIANTS[only].html
+} else {
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('.tabbtn')
+    if (b) show(b.dataset.k)
+  })
+  show('a')
+}
+</script>
+</body>
+</html>

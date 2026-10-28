@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties
+} from 'react'
 import {
   sessionMetaKey,
   type SessionMeta,
@@ -16,6 +23,7 @@ import {
   IconArchive,
   IconBranch,
   IconClaudeCode,
+  IconCheck,
   IconClock,
   IconDeepSeek,
   IconFolder,
@@ -27,6 +35,7 @@ import {
   IconPlus,
   IconOpenAI,
   IconSearch,
+  IconSelectSquare,
   IconSort
 } from './Icons'
 
@@ -95,6 +104,16 @@ interface SidebarProps {
    */
   onPickWorkspace: (title?: string) => void
   onDeleteSession: (s: StoredSession) => void
+  /**
+   * 批量删除。侧栏只负责把勾选出来的会话交上去，
+   * 确认弹窗和逐条删除都在 App —— 那里才知道谁是当前会话、要回收哪个 controller。
+   */
+  onDeleteSessions: (list: StoredSession[]) => void
+  /**
+   * 每次批量删除结束后重置勾选。`keep` 里的键留着 —— 那是失败的几条，
+   * 它们还在列表上，用户最可能的下一步是「再删一次」。
+   */
+  selectionReset: { nonce: number; keep: string[] }
   onRefresh: () => void
   onOpenSettings: () => void
   /** 打开跨会话搜索 */
@@ -133,6 +152,8 @@ export function Sidebar({
   onOpenIde,
   onPickWorkspace,
   onDeleteSession,
+  onDeleteSessions,
+  selectionReset,
   onRefresh,
   onOpenSettings,
   onOpenSearch,
@@ -149,6 +170,91 @@ export function Sidebar({
   const [menu, setMenu] = useState<MenuState | null>(null)
   /** 正在内联重命名的会话键；同一时间只允许一行 */
   const [renamingKey, setRenamingKey] = useState<string | null>(null)
+  /**
+   * 批量选择模式。勾选键统一用 `sessionMetaKey` —— 同一个 CLI id 可以在
+   * 不同工作区各出现一次，只按 id 存会把两条会话一起勾上。
+   */
+  const [selecting, setSelecting] = useState(false)
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set())
+
+  const exitSelect = (): void => {
+    setSelecting(false)
+    setChecked(new Set())
+  }
+
+  /*
+   * 批量删除结束后重置勾选。只保留没删掉的那几条（`keep`），其余一律清掉；
+   * 全删干净时就退出选择模式 —— 停在一屏空勾选框上没有意义。
+   */
+  useEffect(() => {
+    if (selectionReset.nonce === 0) return
+    const keep = new Set(selectionReset.keep)
+    setChecked(keep)
+    if (keep.size === 0) setSelecting(false)
+  }, [selectionReset])
+
+  /**
+   * Esc 退出选择模式。
+   *
+   * 三处细节：
+   *  - 重命名输入框里按 Esc 是它自己的事；
+   *  - 右键菜单开着时 Esc 先关菜单；
+   *  - **有模态弹窗时不管** —— 确认删除弹窗的 Esc 是「取消这次删除」，
+   *    侧栏要是同时把勾选也清了，用户关掉弹窗会发现白勾一遍。
+   */
+  useEffect(() => {
+    if (!selecting) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      if (menu || renamingKey !== null) return
+      if (document.querySelector('.modal')) return
+      exitSelect()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selecting, menu, renamingKey])
+
+  const toggleChecked = (s: StoredSession): void => {
+    const key = sessionMetaKey(s.cli, s.cwd, s.id)
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  /** 组头全选 / 取消全选。半选状态下点一下是「全选」—— 常见的邮箱交互 */
+  const toggleGroup = (list: StoredSession[]): void => {
+    const keys = list.map((s) => sessionMetaKey(s.cli, s.cwd, s.id))
+    const all = keys.length > 0 && keys.every((k) => checked.has(k))
+    setChecked((prev) => {
+      const next = new Set(prev)
+      for (const k of keys) {
+        if (all) next.delete(k)
+        else next.add(k)
+      }
+      return next
+    })
+  }
+
+  /**
+   * 勾选集合 → 会话记录。
+   *
+   * 侧栏只认**当前列表里真的还在**的会话：会话可能在勾过之后被别处删掉、
+   * 或随「显示已归档」开关淡出列表。直接按集合计数会让底部写着「已选 3 条」
+   * 却只交上去 2 条 —— 这里以解析结果为准。
+   */
+  const picked = useMemo(() => {
+    if (checked.size === 0) return []
+    const out: StoredSession[] = []
+    for (const ws of workspaces) {
+      for (const s of ws.sessions) {
+        if (checked.has(sessionMetaKey(s.cli, s.cwd, s.id))) out.push(s)
+      }
+    }
+    return out
+  }, [checked, workspaces])
 
   const openMenu = (s: StoredSession, x: number, y: number): void => {
     setMenu({ s, x, y })
@@ -213,10 +319,32 @@ export function Sidebar({
           >
             <IconSort width={14} height={14} />
           </button>
+          {/*
+            批量选择入口。跟搜索 / 排序一样常驻在这一排 —— 藏进 hover 的话，
+            用户永远发现不了这个功能。选择模式下变成「退出」，位置不跳。
+          */}
+          <button
+            className={`iconbtn ${selecting ? 'is-on' : ''}`}
+            title={selecting ? t('sidebar.selectModeDone') : t('sidebar.selectMode')}
+            aria-pressed={selecting}
+            onClick={() => {
+              if (selecting) {
+                exitSelect()
+                return
+              }
+              // 进来时先收起右键菜单和重命名输入框：它们都是「单条会话」的操作，
+              // 挂在选择模式上面只会挡住勾选
+              setMenu(null)
+              setRenamingKey(null)
+              setSelecting(true)
+            }}
+          >
+            <IconSelectSquare width={14} height={14} />
+          </button>
         </div>
       </div>
 
-      <div className="sidebar__scroll">
+      <div className={`sidebar__scroll ${selecting ? 'is-selecting' : ''}`}>
         {loading && <p className="sidebar__hint">{t('sidebar.loading')}</p>}
         {!loading && workspaces.length === 0 && (
           <p className="sidebar__hint">
@@ -238,6 +366,8 @@ export function Sidebar({
             worktreeBranches={worktreeBranches}
             meta={meta}
             renamingKey={renamingKey}
+            selecting={selecting}
+            checked={checked}
             onSelect={onSelect}
             onRequestNewSession={onRequestNewSession}
             onCloseWorkspace={onCloseWorkspace}
@@ -247,9 +377,19 @@ export function Sidebar({
             onOpenMenu={openMenu}
             onCommitRename={commitRename}
             onCancelRename={() => setRenamingKey(null)}
+            onToggleChecked={toggleChecked}
+            onToggleGroup={(list) => toggleGroup(list)}
           />
         ))}
       </div>
+
+      {selecting && (
+        <BatchBar
+          count={picked.length}
+          onCancel={exitSelect}
+          onDelete={() => onDeleteSessions(picked)}
+        />
+      )}
 
       {archivedCount > 0 && (
         <button
@@ -300,6 +440,8 @@ function WorkspaceGroup({
   worktreeBranches,
   meta,
   renamingKey,
+  selecting,
+  checked,
   onSelect,
   onRequestNewSession,
   onCloseWorkspace,
@@ -308,7 +450,9 @@ function WorkspaceGroup({
   onRefresh,
   onOpenMenu,
   onCommitRename,
-  onCancelRename
+  onCancelRename,
+  onToggleChecked,
+  onToggleGroup
 }: {
   ws: WorkspaceView
   running: Set<string>
@@ -321,6 +465,9 @@ function WorkspaceGroup({
   worktreeBranches: Record<string, string>
   meta: SessionMetaMap
   renamingKey: string | null
+  /** 批量选择模式 */
+  selecting: boolean
+  checked: ReadonlySet<string>
   onSelect: (s: StoredSession) => void
   onRequestNewSession: (cwd: string) => void
   onCloseWorkspace: (cwd: string) => void
@@ -330,6 +477,12 @@ function WorkspaceGroup({
   onOpenMenu: (s: StoredSession, x: number, y: number) => void
   onCommitRename: (s: StoredSession, value: string) => void
   onCancelRename: () => void
+  onToggleChecked: (s: StoredSession) => void
+  /**
+   * 组头全选。传的是**当前可见池**：只看工作树时，「全选」应当只选
+   * 这一屏列出来的那几条，而不是连带把组里隐藏的普通会话也勾上。
+   */
+  onToggleGroup: (list: StoredSession[]) => void
 }): JSX.Element {
   const { t, tn } = useI18n()
   const [expanded, setExpanded] = useState(false)
@@ -357,6 +510,13 @@ function WorkspaceGroup({
   const visible =
     expanded || hidden === 0 || forceOpen ? pool : pool.slice(0, COLLAPSED_COUNT)
 
+  /** 组头全选：当前可见池里勾了几条。半选态用 minus */
+  const checkedInPool = pool.filter((s) =>
+    checked.has(sessionMetaKey(s.cli, s.cwd, s.id))
+  ).length
+  const groupAll = pool.length > 0 && checkedInPool === pool.length
+  const groupSome = checkedInPool > 0 && !groupAll
+
   // 工作树都关掉后别把筛选状态留着，下次再出现工作树时会莫名其妙只剩几行
   useEffect(() => {
     if (onlyWorktree && worktreeCount === 0) setOnlyWorktree(false)
@@ -366,6 +526,18 @@ function WorkspaceGroup({
     <div className="wsgroup">
       {/* 两个按钮常驻；目录名被省略时靠 title 看全路径。 */}
       <div className="wsgroup__head" title={ws.cwd}>
+        {/*
+          选择模式下组头多一个全选。文件夹图标留在原位 —— 它仍然是
+          「打开 IDE」的入口，不因为进入选择模式就失效。
+        */}
+        {selecting && (
+          <CheckBox
+            checked={groupAll}
+            mixed={groupSome}
+            label={t('sidebar.selectAllGroup', { name: ws.name })}
+            onToggle={() => onToggleGroup(pool)}
+          />
+        )}
         <button
           className="wsgroup__iconbtn"
           title={t('sidebar.openIde')}
@@ -442,10 +614,19 @@ function WorkspaceGroup({
             background={background.has(s.id)}
             approval={pending.get(s.id)}
             renaming={renamingKey === key}
+            selecting={selecting}
+            checked={checked.has(key)}
             onSelect={() => {
+              // 选择模式下点整行就是勾选：这时候用户的目标是"挑几条"，
+              // 不是"切过去看看"，多一层"先找到勾选框"反而是障碍
+              if (selecting) {
+                onToggleChecked(s)
+                return
+              }
               onSelect(s)
               onRefresh()
             }}
+            onToggleChecked={() => onToggleChecked(s)}
             onDelete={() => onDeleteSession(s)}
             onOpenMenu={(x, y) => onOpenMenu(s, x, y)}
             onCommitRename={(value) => onCommitRename(s, value)}
@@ -475,7 +656,10 @@ function SessionRow({
   background,
   approval,
   renaming,
+  selecting,
+  checked,
   onSelect,
+  onToggleChecked,
   onDelete,
   onOpenMenu,
   onCommitRename,
@@ -497,7 +681,11 @@ function SessionRow({
   approval?: PendingApproval
   /** 正在内联重命名 */
   renaming: boolean
+  /** 批量选择模式：整行点击变成勾选，行首出现勾选框 */
+  selecting: boolean
+  checked: boolean
   onSelect: () => void
+  onToggleChecked: () => void
   onDelete: () => void
   onOpenMenu: (x: number, y: number) => void
   onCommitRename: (value: string) => void
@@ -543,20 +731,33 @@ function SessionRow({
     <div
       className={`session ${active ? 'is-active' : ''} ${waiting ? 'is-pending' : ''} ${
         archived ? 'is-archived' : ''
-      }`}
+      } ${selecting ? 'is-selecting' : ''} ${checked ? 'is-checked' : ''}`}
       onContextMenu={(e) => {
-        // 右键整行弹出操作菜单，位置跟着光标走
+        // 右键整行弹出操作菜单，位置跟着光标走。
+        // 选择模式下不弹：那几项都是「对单条会话做点什么」，跟批量选择是两套心智。
         e.preventDefault()
+        if (selecting) return
         onOpenMenu(e.clientX, e.clientY)
       }}
     >
       <button
         className="session__main"
         onClick={onSelect}
+        // 选择模式下把整行的语义也换掉：读屏念的是「勾选 / 取消」而不是「打开」
+        aria-pressed={selecting ? checked : undefined}
+        aria-label={selecting ? (checked ? t('sidebar.unselectRow') : t('sidebar.selectRow')) : undefined}
         title={`${title}\n${s.cwd}\n${cliDef(s.cli).name}${
           branch ? `\n${branch}` : ''
         }${waiting ? `\n${label}: ${detail}` : ''}`}
       >
+        {selecting && (
+          <CheckBox
+            checked={checked}
+            label={checked ? t('sidebar.unselectRow') : t('sidebar.selectRow')}
+            decorative
+            onToggle={onToggleChecked}
+          />
+        )}
         {/*
           等审批时进程还活着，但卡在用户这里 —— 不是"在干活"，
           别让图标继续跳，把注意力留给跑马灯。
@@ -624,19 +825,103 @@ function SessionRow({
           )}
         </span>
       </button>
+      {/*
+        选择模式下隐藏「更多」和「×」：整行点击已经是勾选，这两个按钮
+        要么会误伤（×），要么跟批量操作抢注意力。退出模式后照旧。
+      */}
+      {!selecting && (
+        <>
+          <button
+            className="session__more"
+            title={t('sidebar.sessionActions')}
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              onOpenMenu(r.left, r.bottom + 5)
+            }}
+          >
+            <IconMore width={14} height={14} />
+          </button>
+          <button className="session__del" title={t('sidebar.deleteSession')} onClick={onDelete}>
+            ×
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 批量选择用的勾选框。
+ *
+ * 自绘成 span 而不是用 input[type=checkbox]：会话行本身是 button，
+ * input 嵌不进去；这里也不在表单里，自绘更容易跟侧栏的 20px 网格对齐。
+ * 组头那个用 role="checkbox" 对读屏发声；行内那个是纯装饰（行自己报状态）。
+ */
+function CheckBox({
+  checked,
+  mixed = false,
+  label,
+  decorative = false,
+  onToggle
+}: {
+  checked: boolean
+  /** 半选：组里只勾了一部分 */
+  mixed?: boolean
+  label: string
+  /**
+   * 纯装饰。放在整行 button 里时用 —— 那个 button 自己已经用 aria-pressed
+   * 表达了勾选状态，这里再挂一个 checkbox 角色，读屏会念两遍。
+   */
+  decorative?: boolean
+  onToggle: () => void
+}): JSX.Element {
+  return (
+    <span
+      className={`cbx ${checked ? 'is-on' : ''} ${mixed ? 'is-mixed' : ''}`}
+      role={decorative ? undefined : 'checkbox'}
+      aria-checked={decorative ? undefined : mixed ? 'mixed' : checked}
+      aria-hidden={decorative || undefined}
+      aria-label={decorative ? undefined : label}
+      tabIndex={-1}
+      title={decorative ? undefined : label}
+      onClick={(e) => {
+        // 行本身是个 button：不拦住会「先勾选、再被 onClick 翻回去」
+        e.stopPropagation()
+        onToggle()
+      }}
+    >
+      {checked && <IconCheck width={10} height={10} />}
+    </span>
+  )
+}
+
+/**
+ * 侧栏底部的批量操作条。选择模式下才出现，位置在「设置」上方 ——
+ * 离鼠标最近，也不会把会话列表往下挤。
+ */
+function BatchBar({
+  count,
+  onDelete,
+  onCancel
+}: {
+  count: number
+  onDelete: () => void
+  onCancel: () => void
+}): JSX.Element {
+  const { tn } = useI18n()
+  return (
+    <div className="batchbar" role="toolbar">
+      <span className="batchbar__count">{tn('sidebar.selectedCount', count)}</span>
       <button
-        className="session__more"
-        title={t('sidebar.sessionActions')}
-        aria-haspopup="menu"
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          onOpenMenu(r.left, r.bottom + 5)
-        }}
+        className="batchbar__btn batchbar__btn--danger"
+        disabled={count === 0}
+        onClick={onDelete}
       >
-        <IconMore width={14} height={14} />
+        {tn('sidebar.selectDelete', count)}
       </button>
-      <button className="session__del" title={t('sidebar.deleteSession')} onClick={onDelete}>
-        ×
+      <button className="batchbar__btn" onClick={onCancel}>
+        {tn('sidebar.selectCancel', count)}
       </button>
     </div>
   )
