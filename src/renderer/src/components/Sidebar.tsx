@@ -38,6 +38,7 @@ import {
   IconSelectSquare,
   IconSort
 } from './Icons'
+import { PopoverMenu } from './PopoverMenu'
 
 /** 折叠时露出几个会话，其余收进「展开其余 N 个会话」 */
 const COLLAPSED_COUNT = 5
@@ -1009,58 +1010,42 @@ function SessionMenu({
   onClose: () => void
 }): JSX.Element {
   const { t } = useI18n()
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    // 捕获阶段监听：点在任何地方都先经过这里，菜单能可靠收起
-    const onDown = (e: PointerEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-
-  const width = 176
-  const left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - width - 8))
-  // 菜单大约 4 项高；底部放不下就翻到触发按钮上方
-  const top = y + 172 > window.innerHeight ? Math.max(8, y - 182) : y
 
   return (
-    <div
-      ref={ref}
-      className="session-menu"
-      style={{ left, top, width }}
-      role="menu"
-      aria-label={t('sidebar.sessionActions')}
-    >
-      <button className="session-menu__item" role="menuitem" onClick={onRename}>
-        <IconPencil width={13} height={13} />
-        <span>{t('sidebar.rename')}</span>
-      </button>
-      <button className="session-menu__item" role="menuitem" onClick={onTogglePin}>
-        <IconPin width={13} height={13} />
-        <span>{meta.pinned ? t('sidebar.unpin') : t('sidebar.pin')}</span>
-      </button>
-      <button className="session-menu__item" role="menuitem" onClick={onToggleArchive}>
-        <IconArchive width={13} height={13} />
-        <span>{meta.archived ? t('sidebar.unarchive') : t('sidebar.archive')}</span>
-      </button>
-      <button
-        className="session-menu__item is-danger"
-        role="menuitem"
-        onClick={onDelete}
-      >
-        <span className="session-menu__glyph">×</span>
-        <span>{t('sidebar.deleteShort')}</span>
-      </button>
-    </div>
+    <PopoverMenu
+      x={x}
+      y={y}
+      label={t('sidebar.sessionActions')}
+      onClose={onClose}
+      entries={[
+        {
+          key: 'rename',
+          label: t('sidebar.rename'),
+          icon: <IconPencil width={13} height={13} />,
+          onSelect: onRename
+        },
+        {
+          key: 'pin',
+          label: meta.pinned ? t('sidebar.unpin') : t('sidebar.pin'),
+          icon: <IconPin width={13} height={13} />,
+          onSelect: onTogglePin
+        },
+        {
+          key: 'archive',
+          label: meta.archived ? t('sidebar.unarchive') : t('sidebar.archive'),
+          icon: <IconArchive width={13} height={13} />,
+          onSelect: onToggleArchive
+        },
+        { key: 'sep-delete', separator: true },
+        {
+          key: 'delete',
+          label: t('sidebar.deleteShort'),
+          icon: <span className="session-menu__glyph">×</span>,
+          danger: true,
+          onSelect: onDelete
+        }
+      ]}
+    />
   )
 }
 

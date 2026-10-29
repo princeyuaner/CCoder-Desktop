@@ -55,6 +55,7 @@ import type {
   StoredSession
 } from '../shared/session'
 import type { AgentEvent } from '../shared/events'
+import type { DirCheckResult } from '../shared/add-dirs'
 import type {
   IdeFsChanged,
   IdeSearchStreamEvent,
@@ -394,8 +395,15 @@ const api: WindowApi = {
       ipcRenderer.invoke(IPC.sessionsSetMeta, update),
     search: (query: string, limit?: number, offset?: number): Promise<SessionSearchResult> =>
       ipcRenderer.invoke(IPC.sessionsSearch, query, limit, offset),
+    validateDir: (dir: string, cwd: string, existing: string[]): Promise<DirCheckResult> =>
+      ipcRenderer.invoke(IPC.sessionsValidateDir, dir, cwd, existing),
     pickDir: (title?: string): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.sessionsPickDir, title)
+      ipcRenderer.invoke(IPC.sessionsPickDir, title),
+    saveMarkdown: (
+      name: string,
+      content: string
+    ): Promise<{ ok: boolean; path?: string; canceled?: boolean; message?: string }> =>
+      ipcRenderer.invoke(IPC.sessionsSaveMarkdown, name, content)
   },
 
   workspace: {

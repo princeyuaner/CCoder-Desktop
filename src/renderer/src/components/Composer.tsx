@@ -39,6 +39,8 @@ import { useI18n } from '../i18n'
 import { baseName } from '@shared/path'
 import type { ChangedFile } from '../changedFiles'
 import { ChangedFiles } from './ChangedFiles'
+import { ComposerDirs } from './ComposerDirs'
+import type { RecentAddDir } from '@shared/add-dirs'
 import { CommandPopup, MentionPopup } from './ComposerPopups'
 import { buildCommandItems, filterCommands, type PopupCommand } from '../commands'
 import {
@@ -164,6 +166,12 @@ interface Props {
   effort: EffortLevel
   /** 这条会话的工作目录。显示在输入框左上方 —— 文件会写到哪里全看它 */
   cwd: string
+  /** 这条会话的附加目录（Claude 的 --add-dir）；空 = 没有 */
+  addDirs?: string[]
+  /** 别的会话用过的目录，只作「最近使用」建议 */
+  recentAddDirs?: RecentAddDir[]
+  /** 改附加目录：主进程会换进程并 --resume 接回，忙碌时延到轮末 */
+  onAddDirsChange?: (next: string[]) => void
   /** 本轮改过的文件。空数组 = 这一轮还没动过文件，那颗按钮就不出现 */
   changedFiles: ChangedFile[]
   /**
@@ -225,6 +233,9 @@ export function Composer({
   permissionMode,
   effort,
   cwd,
+  addDirs,
+  recentAddDirs,
+  onAddDirsChange,
   changedFiles,
   changedTurnKey,
   nativeCommands,
@@ -915,6 +926,15 @@ export function Composer({
             <div className="composer__cwd" title={cwd}>
               <span className="composer__cwd-name">{baseName(cwd)}</span>
             </div>
+          )}
+          {cwd && cli === 'claude' && onAddDirsChange && (
+            <ComposerDirs
+              cwd={cwd}
+              dirs={addDirs ?? []}
+              recent={recentAddDirs ?? []}
+              running={running}
+              onChange={onAddDirsChange}
+            />
           )}
           <ChangedFiles files={changedFiles} cwd={cwd} turnKey={changedTurnKey} />
         </div>

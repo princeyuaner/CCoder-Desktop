@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { cliConfig, type CliAuthMode, type CliId } from '@shared/settings'
+import { cliConfig, cliDef, type CliAuthMode, type CliId } from '@shared/settings'
+import type { RecentAddDir } from '@shared/add-dirs'
 import { sameModel } from '@shared/model'
 import type { ChatActiveInfo, IdeCodeRef } from '@shared/ide-chat'
+import type { SessionMeta } from '@shared/session'
 import { parseIdeRefs, draftFromUserText } from '../ideRef'
 import { MODE_LABEL_KEY } from '../constants'
 import { useSettings } from '../useSettings'
@@ -18,7 +20,20 @@ import {
 import type { Active } from '../App'
 import { ChatHeader } from './ChatHeader'
 import { ConfirmModal } from './ConfirmModal'
-import { IconArrowRight, IconBranch, IconOpenInIde } from './Icons'
+import {
+  IconArchive,
+  IconArrowRight,
+  IconBranch,
+  IconCopy,
+  IconDownload,
+  IconFolder,
+  IconOpenInIde,
+  IconPencil,
+  IconPin,
+  IconTrash
+} from './Icons'
+import { PopoverMenu, type PopoverMenuEntry } from './PopoverMenu'
+import { sessionToMarkdown, markdownFilename } from '../session-markdown'
 import { notify } from '../notice'
 import { isBackgroundAgent } from '../run-state'
 import { TabBar, type TabKey } from './TabBar'
@@ -42,6 +57,8 @@ interface Props {
   initialAuthMode?: CliAuthMode
   /** 这条会话自己记下的渠道 id；undefined = 沿用设置里的默认值 */
   initialChannelId?: string
+  /** 这条会话自己记下的附加目录；undefined = 没有 */
+  initialAddDirs?: string[]
   /** 把会话级模型选择写进 session-meta；新会话要等拿到 CLI id 才有 key */
   onPersistModel?: (cli: CliId, cwd: string, id: string, model: string) => void
   /** 把会话级渠道选择写进 session-meta（键和模型一样要等 CLI id） */
@@ -51,6 +68,10 @@ interface Props {
     id: string,
     patch: { authMode?: CliAuthMode; channelId?: string }
   ) => void
+  /** 把会话级附加目录写进 session-meta（同样要等 CLI id） */
+  onPersistAddDirs?: (cli: CliId, cwd: string, id: string, addDirs: string[]) => void
+  /** 别的会话用过的附加目录，给「最近使用」做建议 */
+  recentAddDirs?: RecentAddDir[]
   /** 设置里「默认工作目录」留空时，新会话落到哪 —— 通常是上次打开的那个目录 */
   fallbackCwd: string
   /** 会话列表读完了没。没读完 fallbackCwd 还是空的，这时候建会话会跑错地方 */
@@ -67,6 +88,12 @@ interface Props {
   /** IDE 发来的代码引用，等 Composer 收下 */
   incomingRefs: { nonce: number; refs: IdeCodeRef[] } | null
   onIncomingConsumed: () => void
+  /** 当前已有会话的本地元数据（置顶 / 归档 / 自定义标题）；新会话没有 */
+  sessionMeta?: SessionMeta
+  /** 改当前会话的元数据；新会话还没有身份，不传 */
+  onUpdateMeta?: (patch: SessionMeta) => void
+  /** 删除当前会话；确认弹窗由 App 负责 */
+  onDeleteActive?: () => void
 }
 
 /** 当前会话跑在一条 linked worktree 里时，顶部信息条要显示的内容 */
@@ -83,18 +110,30 @@ export function MainPane({
   initialModel,
   initialAuthMode,
   initialChannelId,
+  initialAddDirs,
   onPersistModel,
   onPersistAuth,
+  onPersistAddDirs,
+  recentAddDirs,
   fallbackCwd,
   cwdReady,
   metaReady = true,
   onNewSession,
   onActiveInfo,
   incomingRefs,
-  onIncomingConsumed
+  onIncomingConsumed,
+  sessionMeta,
+  onUpdateMeta,
+  onDeleteActive
 }: Props): JSX.Element {
-  const { t, text } = useI18n()
+  const { t, text, tn, locale } = useI18n()
   const [tab, setTab] = useState<TabKey>('chat')
+  /** 标题右侧「•••」菜单的锚点；null = 没开 */
+  const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number } | null>(null)
+  /** 正在就地重命名标题 */
+  const [renaming, setRenaming] = useState(false)
+  /** 菜单刚收起的时间。用来吃掉触发按钮同一次点击里的 pointerdown + click */
+  const menuClosedAt = useRef(0)
   /** 新会话用哪个 CLI。换 CLI 就是另一套 provider + 另一份会话记录，等于开新会话 */
   const [pickedCli, setPickedCli] = useState<CliId>('claude')
   /**
@@ -202,6 +241,12 @@ export function MainPane({
   const sessionKey =
     active.kind === 'stored' ? `${active.cwd}\u0000${active.id}` : `new\u0000${active.n}`
 
+  // 换会话时把菜单 / 重命名收掉 —— 两者都是对"上一条会话"的操作
+  useEffect(() => {
+    setHeaderMenu(null)
+    setRenaming(false)
+  }, [sessionKey])
+
   const chat = useChat({
     cli,
     cwd,
@@ -216,6 +261,8 @@ export function MainPane({
     ...(active.kind === 'stored' && initialChannelId !== undefined
       ? { channelId: initialChannelId }
       : {}),
+    // 附加目录同样是会话级：已有会话带自己那份，新会话从空开始（不继承）
+    addDirs: active.kind === 'stored' ? (initialAddDirs ?? []) : [],
     resumeId,
     // 新会话每次点都换一个序号，不然连点两次时依赖没变，会话不会重建
     freshKey: active.kind === 'new' ? active.n : undefined,
@@ -384,6 +431,37 @@ export function MainPane({
       channelId: p.channelId ?? ''
     })
   }, [active.kind, chat.sessionId, chat.sessionCwd, cli, cwd, onPersistAuth])
+
+  /**
+   * 会话级附加目录的落盘。和模型 / 渠道同一条规矩：写 session-meta，
+   * 不写设置，也不带进新会话。新会话要等 CLI 回报 id 才知道 key。
+   */
+  const pendingDirsSave = useRef<string[] | null>(null)
+  const persistDirs = (dirs: string[]): void => {
+    if (!onPersistAddDirs) return
+    if (active.kind === 'stored') {
+      onPersistAddDirs(active.cli, active.cwd, active.id, dirs)
+      return
+    }
+    const id = chat.sessionId
+    if (id) onPersistAddDirs(cli, chat.sessionCwd || cwd, id, dirs)
+    else pendingDirsSave.current = dirs
+  }
+
+  useEffect(() => {
+    if (active.kind !== 'new' || !onPersistAddDirs) return
+    const id = chat.sessionId
+    const dirs = pendingDirsSave.current
+    if (!id || !dirs) return
+    pendingDirsSave.current = null
+    onPersistAddDirs(cli, chat.sessionCwd || cwd, id, dirs)
+  }, [active.kind, chat.sessionId, chat.sessionCwd, cli, cwd, onPersistAddDirs])
+
+  const changeAddDirs = (dirs: string[]): void => {
+    // 先乐观更新界面并让主进程换进程；再落盘。忙碌时主进程会延到轮末。
+    chat.applyAddDirs(dirs)
+    persistDirs(dirs)
+  }
 
   /**
    * 跨 CLI 选模型时，新会话对象要下一次渲染才建好 —— 先把选择记下来，
@@ -565,6 +643,79 @@ export function MainPane({
       i.kind === 'question' && i.state === 'pending'
   )
 
+  const closeHeaderMenu = (): void => {
+    menuClosedAt.current = Date.now()
+    setHeaderMenu(null)
+  }
+
+  /**
+   * 点「•••」开 / 收菜单。
+   *
+   * 菜单开着时，这次点击的 pointerdown 已经把菜单关掉了（见 PopoverMenu
+   * 的「点外部收起」），到这里再看到 headerMenu 为空就会又开一遍。
+   * 用时间戳吃掉紧接着的那次 click，按钮才能真的当开关用。
+   */
+  const toggleHeaderMenu = (x: number, y: number): void => {
+    if (headerMenu) {
+      setHeaderMenu(null)
+      return
+    }
+    if (Date.now() - menuClosedAt.current < 300) return
+    setHeaderMenu({ x, y })
+  }
+
+  const commitRename = (value: string): void => {
+    setRenaming(false)
+    // 空串在主进程里表示「恢复 CLI 原标题」
+    if (active.kind === 'stored') onUpdateMeta?.({ title: value })
+  }
+
+  const copyCwd = (): void => {
+    if (!cwd) return
+    void navigator.clipboard?.writeText(cwd).then(
+      () => notify(t('common.copied')),
+      () => notify(t('transcript.copyFailed'))
+    )
+  }
+
+  const revealInOs = async (): Promise<void> => {
+    if (!cwd) return
+    // '.' = 工作区根目录；主进程的空 rel 校验不接受空串
+    const r = await window.api?.ide.revealInOs(cwd, '.')
+    if (r && !r.ok && r.message) notify(r.message)
+  }
+
+  /** 导出当前转写。只在有内容时可用 —— 空文件对用户没有意义 */
+  const canExport = chat.items.some(
+    (i) =>
+      i.kind === 'user' ||
+      i.kind === 'text' ||
+      i.kind === 'tool' ||
+      i.kind === 'error' ||
+      (i.kind === 'question' && i.state === 'answered')
+  )
+
+  const exportMarkdown = async (): Promise<void> => {
+    if (!canExport) return
+    const id = active.kind === 'stored' ? active.id : undefined
+    const md = sessionToMarkdown(
+      { title, cwd, cliName: cliDef(cli).name, sessionId: id, items: chat.items },
+      { t, tn, text, locale }
+    )
+    const name = markdownFilename(title, id)
+    const r = await window.api?.sessions.saveMarkdown(name, md)
+    if (!r || r.canceled) return
+    if (r.ok) {
+      notify(t('chat.header.exported', { path: r.path ?? name }))
+    } else {
+      notify(
+        t('chat.header.exportFailed', {
+          error: r.message ?? t('errors.unknownReason')
+        })
+      )
+    }
+  }
+
   // 本轮改过的文件：输入框左上角那颗按钮由 Composer 自己渲染。
   // 数据来自 file_change 事件（工具、子代理、轮末磁盘快照都会汇进来）。
   const changedFiles = chat.files
@@ -600,6 +751,81 @@ export function MainPane({
     })
   }, [cwd, cli, activeId, title, active.kind, onActiveInfo])
 
+  /**
+   * 标题栏的「•••」菜单。
+   *
+   * 新会话还没拿到 CLI session id，重命名 / 置顶 / 归档 / 删除都没有身份
+   * 可写，所以只保留跟当前目录和转写有关的项。
+   */
+  const menuEntries: PopoverMenuEntry[] = []
+  if (active.kind === 'stored') {
+    menuEntries.push(
+      {
+        key: 'rename',
+        label: t('sidebar.rename'),
+        icon: <IconPencil width={13} height={13} />,
+        onSelect: () => setRenaming(true)
+      },
+      {
+        key: 'pin',
+        label: sessionMeta?.pinned ? t('sidebar.unpin') : t('sidebar.pin'),
+        icon: <IconPin width={13} height={13} />,
+        onSelect: () => onUpdateMeta?.({ pinned: !sessionMeta?.pinned })
+      },
+      {
+        key: 'archive',
+        label: sessionMeta?.archived ? t('sidebar.unarchive') : t('sidebar.archive'),
+        icon: <IconArchive width={13} height={13} />,
+        onSelect: () => onUpdateMeta?.({ archived: !sessionMeta?.archived })
+      },
+      { key: 'sep-session', separator: true }
+    )
+  }
+  if (cwd) {
+    menuEntries.push(
+      {
+        key: 'open-ide',
+        label: t('worktree.openInIde'),
+        icon: <IconOpenInIde width={13} height={13} />,
+        onSelect: () => void window.api?.ide.open(cwd)
+      },
+      {
+        key: 'reveal',
+        label: t('chat.header.revealInOs'),
+        icon: <IconFolder width={13} height={13} />,
+        onSelect: () => void revealInOs()
+      },
+      {
+        key: 'copy-cwd',
+        label: t('chat.header.copyCwd'),
+        icon: <IconCopy width={13} height={13} />,
+        onSelect: copyCwd
+      }
+    )
+  }
+  if (menuEntries.length > 0) {
+    menuEntries.push({ key: 'sep-export', separator: true })
+  }
+  menuEntries.push({
+    key: 'export',
+    label: t('chat.header.exportMarkdown'),
+    icon: <IconDownload width={13} height={13} />,
+    disabled: !canExport,
+    onSelect: () => void exportMarkdown()
+  })
+  if (active.kind === 'stored') {
+    menuEntries.push(
+      { key: 'sep-delete', separator: true },
+      {
+        key: 'delete',
+        label: t('sidebar.deleteShort'),
+        icon: <IconTrash width={13} height={13} />,
+        danger: true,
+        onSelect: () => onDeleteActive?.()
+      }
+    )
+  }
+
   return (
     <main className={`mainpane ${panelOpen ? 'has-panel' : ''}`}>
       <div className="chatcol">
@@ -611,7 +837,22 @@ export function MainPane({
           panelOpen={panelOpen}
           live={panelLive}
           onTogglePanel={() => setPanelPref(!panelOpen)}
+          menuOpen={headerMenu !== null}
+          onToggleMenu={toggleHeaderMenu}
+          renaming={renaming}
+          onCommitRename={commitRename}
+          onCancelRename={() => setRenaming(false)}
         />
+        {headerMenu && (
+          <PopoverMenu
+            x={headerMenu.x}
+            y={headerMenu.y}
+            align="right"
+            label={t('chat.header.actions')}
+            entries={menuEntries}
+            onClose={closeHeaderMenu}
+          />
+        )}
 
         {worktree && (
           <div className="wtbar" title={worktree.path}>
@@ -715,6 +956,9 @@ export function MainPane({
           permissionMode={chat.permissionMode}
           effort={chat.effort}
           cwd={cwd}
+          addDirs={chat.addDirs}
+          recentAddDirs={recentAddDirs ?? []}
+          onAddDirsChange={changeAddDirs}
           changedFiles={changedFiles}
           /*
            * 「本轮改动」的本地标记（已看过 / 已还原）按这个 key 复位。

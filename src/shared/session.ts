@@ -81,6 +81,13 @@ export interface SessionMeta {
   authMode?: CliAuthMode
   /** 这条会话自己选的渠道 id；空 = 没有显式选择，回到官方登录 / 默认渠道 */
   channelId?: string
+  /**
+   * 这条会话的附加目录（Claude 的 `--add-dir`）。
+   *
+   * 会话级而不是工作区级：`--add-dir` 本来就是进程启动参数，同一工作区的
+   * 两条会话可以各看各的目录。缺省 = 没有额外目录。
+   */
+  addDirs?: string[]
 }
 
 /** 键是 `sessionMetaKey()` 生成的字符串 */

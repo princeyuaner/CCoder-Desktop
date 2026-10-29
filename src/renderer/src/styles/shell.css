@@ -847,6 +847,20 @@
   background: rgba(244, 63, 94, 0.14);
   color: #fda4af;
 }
+.session-menu__item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.session-menu__item:disabled:hover {
+  background: none;
+  color: var(--text-dim);
+}
+/* 分组之间的细线。比外层 1px 间隔更轻，只用一小段，不横穿整个菜单 */
+.session-menu__sep {
+  height: 1px;
+  margin: 4px 7px;
+  background: var(--border);
+}
 .session-menu__glyph {
   display: grid;
   place-items: center;

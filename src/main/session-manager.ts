@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
+import { sanitizeAddDirs, sameAddDirs } from '../shared/add-dirs'
 import type { AgentEvent, PermissionMode } from '../shared/events'
 import type { McpScope } from '../shared/mcp'
 import {
@@ -33,6 +34,7 @@ import { DshProvider } from './providers/dsh/adapter'
 import type { Provider, ProviderSession } from './providers/types'
 import { diffWorkspace, snapshotWorkspace, type WorkspaceSnapshot } from './workspace-snapshot'
 import { getLegacyRuntimeMcpServers } from './mcp-service'
+import { existingAddDirs } from './session-dirs'
 
 interface Live {
   id: string
@@ -95,6 +97,14 @@ interface Live {
   queue: SessionSendInput[]
   /** 本会话"总是允许"的工具名 —— 收到请求时我们直接代答，不打扰用户 */
   autoAllow: Set<string>
+  /**
+   * 本会话的附加目录（Claude 的 --add-dir）。
+   *
+   * 跟模型一样是**启动参数**：改了要换进程。目录属于这条会话，不是工作区，
+   * 所以这里自己记一份，不读设置。磁盘上已不存在的目录在 spawn 时过滤掉，
+   * 但配置本身保留（拔掉移动硬盘不等于删掉设置）。
+   */
+  addDirs: string[]
   /** 最近一条转给用户的审批请求是哪个工具（"总是允许"要记的就是它） */
   lastAskedTool: string | null
   /** 模型/思考深度/MCP 改了，当前进程的启动参数已过期，下一轮要换一个 */
@@ -207,6 +217,7 @@ export class SessionManager {
       lastEventWasError: false,
       queue: [],
       autoAllow: new Set(),
+      addDirs: sanitizeAddDirs(o.addDirs),
       lastAskedTool: null,
       needsRespawn: false,
       diskBefore: null,
@@ -365,6 +376,7 @@ export class SessionManager {
       effort?: EffortLevel
       authMode?: CliAuthMode
       channelId?: string | null
+      addDirs?: string[]
     }
   ): void {
     const s = this.live.get(sessionId)
@@ -388,6 +400,13 @@ export class SessionManager {
     if (patch.channelId !== undefined && patch.channelId !== s.channelId) {
       s.channelId = patch.channelId
       needsRespawn = true
+    }
+    if (patch.addDirs !== undefined) {
+      const next = sanitizeAddDirs(patch.addDirs)
+      if (!sameAddDirs(next, s.addDirs)) {
+        s.addDirs = next
+        needsRespawn = true
+      }
     }
     if (patch.authMode !== undefined || patch.channelId !== undefined) {
       // 用户在这个会话里显式选过了 —— 之后设置页改默认渠道不再影响它
@@ -632,7 +651,9 @@ export class SessionManager {
         model,
         permissionMode: s.permissionMode,
         effort: s.effort,
-        addDirs: [],
+        // 附加目录只对 Claude 有意义；其它 CLI 的适配器会忽略，但别把
+        // 不属于它们的启动参数传过去。
+        addDirs: s.cli === 'claude' ? existingAddDirs(s.addDirs) : [],
         // 只注入旧私有 store 的条目（迁移期兼容）；原生条目由 CLI 自己读
         mcpServers: getLegacyRuntimeMcpServers(s.cli, s.cwd),
         // 进程活着就用它自己的 id；进程重启后回落到最初要接的那条

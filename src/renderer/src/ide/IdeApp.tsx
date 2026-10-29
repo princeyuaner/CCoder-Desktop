@@ -4278,20 +4278,6 @@ function TextViewer({
             onMouseDown={(e) => e.stopPropagation()}
           >
             {menu.sel && (
-              <>
-                <button
-                  onClick={() => {
-                    const text = window.getSelection()?.toString() ?? ''
-                    if (text) void navigator.clipboard?.writeText(text)
-                    setMenu(null)
-                  }}
-                >
-                  {t('ide.copy')}
-                </button>
-                <span className="ide-ctx-sep" />
-              </>
-            )}
-            {menu.sel && (
               <button
                 onClick={() => {
                   const sel = menu.sel
@@ -4312,6 +4298,20 @@ function TextViewer({
               <Ico d={P.plane} size={13} />
               {t('ide.sendFileToChat')}
             </button>
+            {menu.sel && (
+              <>
+                <span className="ide-ctx-sep" />
+                <button
+                  onClick={() => {
+                    const text = window.getSelection()?.toString() ?? ''
+                    if (text) void navigator.clipboard?.writeText(text)
+                    setMenu(null)
+                  }}
+                >
+                  {t('ide.copy')}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

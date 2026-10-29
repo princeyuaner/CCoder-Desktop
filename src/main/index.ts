@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, crashReporter, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
@@ -109,6 +110,7 @@ import {
   updateSessionMeta
 } from './session-meta-store'
 import { SessionManager } from './session-manager'
+import { validateSessionDir } from './session-dirs'
 import { searchWorkspaceFiles } from './workspace-search'
 import {
   createEntry,
@@ -1444,6 +1446,18 @@ function registerSessionIpc(sessions: SessionManager): void {
   ipcMain.handle(IPC.sessionsSetMeta, (_e, update: SessionMetaUpdate) =>
     updateSessionMeta(update)
   )
+
+  ipcMain.handle(
+    IPC.sessionsValidateDir,
+    (_e, dir: unknown, cwd: unknown, existing: unknown) =>
+      validateSessionDir(
+        typeof dir === 'string' ? dir : '',
+        typeof cwd === 'string' ? cwd : '',
+        Array.isArray(existing)
+          ? existing.filter((v): v is string => typeof v === 'string')
+          : []
+      )
+  )
   ipcMain.handle(IPC.sessionsSearch, (_e, query: string, limit?: number, offset?: number) =>
     searchStoredSessions(
       typeof query === 'string' ? query : '',
@@ -1475,6 +1489,37 @@ function registerSessionIpc(sessions: SessionManager): void {
   // 界面重载后侧栏要重新知道哪些会话在跑（平时靠 sessionStatus 增量维护）
   ipcMain.handle(IPC.sessionRunning, () => sessions.runningIds())
 
+  /*
+   * 导出转写给用户自己留档。走系统保存框而不是让渲染层直接下载：
+   * 下载目录不可控，用户也不知道文件去了哪。内容由渲染层拼好，主进程
+   * 只负责挑路径和落盘。
+   */
+  ipcMain.handle(
+    IPC.sessionsSaveMarkdown,
+    async (e, name: unknown, content: unknown) => {
+      if (typeof name !== 'string' || typeof content !== 'string') {
+        return { ok: false, message: t('main.dialog.saveFailed') }
+      }
+      const win = BrowserWindow.fromWebContents(e.sender)
+      // 只取文件名：调用方传路径分隔符也不该影响对话框的初始位置
+      const defaultPath = name.split(/[\\/]/).pop() || 'session.md'
+      const options = {
+        defaultPath,
+        filters: [{ name: 'Markdown', extensions: ['md'] }]
+      }
+      const r = win
+        ? await dialog.showSaveDialog(win, options)
+        : await dialog.showSaveDialog(options)
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true }
+      try {
+        await writeFile(r.filePath, content, 'utf8')
+        return { ok: true, path: r.filePath }
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
+
   ipcMain.handle(IPC.sessionStart, (_e, o: SessionStartOptions) => sessions.start(o))
   ipcMain.handle(IPC.sessionSend, (_e, id: string, input: SessionSendInput) =>
     sessions.send(id, input)
@@ -1505,6 +1550,7 @@ function registerSessionIpc(sessions: SessionManager): void {
         effort?: EffortLevel
         authMode?: CliAuthMode
         channelId?: string | null
+        addDirs?: string[]
       }
     ) => sessions.reconfigure(id, patch)
   )

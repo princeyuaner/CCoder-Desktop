@@ -43,6 +43,7 @@ import type {
   HookWritableScope
 } from './hooks'
 import type { AgentEvent, PermissionMode } from './events'
+import type { DirCheckResult } from './add-dirs'
 import type {
   PermissionDecision,
   QuestionAnswer,
@@ -216,8 +217,12 @@ export const IPC = {
   sessionsSetMeta: 'sessions:set-meta',
   /** 跨会话搜索对话内容；标题匹配在渲染层用已有的列表完成 */
   sessionsSearch: 'sessions:search',
+  /** 校验一条附加目录（存在 / 是文件夹 / 不在工作区内 / 不重复） */
+  sessionsValidateDir: 'sessions:validate-dir',
   /** 弹系统目录选择器，返回选中的目录（取消 = null） */
   sessionsPickDir: 'sessions:pick-dir',
+  /** 导出转写：弹系统保存框，把 Markdown 写到用户选的位置 */
+  sessionsSaveMarkdown: 'sessions:save-markdown',
   /** 搜索当前工作区里的文件，供 @ 引用使用 */
   workspaceSearchFiles: 'workspace:search-files',
   /** 打开对话里点到的地址：外链交给浏览器，本地文件交给系统默认程序 */
@@ -588,6 +593,8 @@ export interface WindowApi {
         effort?: EffortLevel
         authMode?: CliAuthMode
         channelId?: string | null
+        /** 会话级附加目录（Claude 的 --add-dir）；改了要换进程 */
+        addDirs?: string[]
       }
     ): void
     onEvent(cb: (payload: SessionEventPayload) => void): () => void
@@ -622,10 +629,24 @@ export interface WindowApi {
      */
     search(query: string, limit?: number, offset?: number): Promise<SessionSearchResult>
     /**
+     * 校验一条附加目录。`existing` 是当前会话已有的目录，用来判重；
+     * 返回的 path 是 realpath（符号链接按真实目标去重）。
+     */
+    validateDir(dir: string, cwd: string, existing: string[]): Promise<DirCheckResult>
+    /**
      * 弹系统目录选择器给工作区用。`title` 是对话框标题（缺省「打开工作区」）。
      * 取消返回 null。
      */
     pickDir(title?: string): Promise<string | null>
+    /**
+     * 把一段文本存成文件：弹系统保存框，用户选好路径后由主进程写入。
+     *
+     * 取消时 `canceled` 为 true —— 调用方据此静默返回，不当成错误。
+     */
+    saveMarkdown(
+      name: string,
+      content: string
+    ): Promise<{ ok: boolean; path?: string; canceled?: boolean; message?: string }>
   }
 
   /** 工作区文件检索 —— @ 引用用。主进程异步扫描并缓存，返回相对路径。 */

@@ -12,7 +12,8 @@ import { ConfirmModal } from './components/ConfirmModal'
 import { WhatsNewModal } from './components/WhatsNewModal'
 import { baseName, cwdKey } from '@shared/path'
 import { useSessions, type WorkspaceView } from './useSessions'
-import { metaOf, useSessionMeta } from './useSessionMeta'
+import { metaOf, displayTitle, useSessionMeta } from './useSessionMeta'
+import type { RecentAddDir } from '@shared/add-dirs'
 import { useWorktreeMap } from './useWorktreeMap'
 import { useSettings } from './useSettings'
 import { useWhatsNew } from './useWhatsNew'
@@ -130,6 +131,48 @@ export function App(): JSX.Element {
     },
     [updateSessionMeta]
   )
+  /**
+   * 会话级附加目录。和模型 / 渠道一样只写 session-meta，不写设置。
+   * 新会话拿到 CLI id 之前由 MainPane 暂存，id 到了再补写。
+   */
+  const persistSessionAddDirs = useCallback(
+    (cli: CliId, cwd: string, id: string, addDirs: string[]): void => {
+      void updateSessionMeta({ cli, cwd, id }, { addDirs })
+    },
+    [updateSessionMeta]
+  )
+
+  /**
+   * 「最近使用」的附加目录：从别的会话的 session-meta 里聚合。
+   *
+   * 只做建议，不会自动带进新会话。同一目录被多条会话用过时保留最近活跃
+   * 的那条的标题；按会话 updatedAt 倒序，最多 5 条。
+   */
+  const recentAddDirs = useMemo<RecentAddDir[]>(() => {
+    const currentKey =
+      active.kind === 'stored' ? sessionMetaKey(active.cli, active.cwd, active.id) : null
+    const byDir = new Map<string, { path: string; title: string; at: number }>()
+    for (const ws of workspaces) {
+      for (const s of ws.sessions) {
+        // --add-dir 只对 Claude 生效，别把别的 CLI 的元数据混进来
+        if (s.cli !== 'claude') continue
+        const key = sessionMetaKey(s.cli, s.cwd, s.id)
+        if (key === currentKey) continue
+        const dirs = meta[key]?.addDirs
+        if (!dirs?.length) continue
+        const title = displayTitle(s, meta)
+        for (const path of dirs) {
+          const k = cwdKey(path)
+          const prev = byDir.get(k)
+          if (!prev || s.updatedAt > prev.at) byDir.set(k, { path, title, at: s.updatedAt })
+        }
+      }
+    }
+    return [...byDir.values()]
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 5)
+      .map(({ path, title }) => ({ path, title }))
+  }, [active, workspaces, meta])
   const [searchOpen, setSearchOpen] = useState(false)
   /** 默认收起已归档会话；侧栏底部有入口临时显示 */
   const [showArchived, setShowArchived] = useState(false)
@@ -152,7 +195,10 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   /** 等着确认删除的那条会话。null = 没在删 */
-  const [pendingDelete, setPendingDelete] = useState<StoredSession | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<Pick<
+    StoredSession,
+    'id' | 'cwd' | 'cli' | 'title'
+  > | null>(null)
   /** 等着确认批量删除的会话；null / 空数组 = 没在删 */
   const [pendingDeleteBatch, setPendingDeleteBatch] = useState<StoredSession[] | null>(null)
   /**
@@ -683,8 +729,15 @@ export function App(): JSX.Element {
                 ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.channelId
                 : undefined
             }
+            initialAddDirs={
+              active.kind === 'stored'
+                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.addDirs
+                : undefined
+            }
             onPersistModel={persistSessionModel}
             onPersistAuth={persistSessionAuth}
+            onPersistAddDirs={persistSessionAddDirs}
+            recentAddDirs={recentAddDirs}
             // 默认工作目录留空时的兜底。会话列表没读完就建会话会用到空 cwd，
             // 所以 MainPane 要等 loading 落了才动手
             fallbackCwd={lastCwd}
@@ -694,6 +747,21 @@ export function App(): JSX.Element {
             onActiveInfo={reportActive}
             incomingRefs={incomingRefs}
             onIncomingConsumed={() => setIncomingRefs(null)}
+            /**
+             * 标题栏「•••」用的当前会话元数据。新会话还没有身份，
+             * 重命名 / 置顶 / 归档 / 删除都不会出现在菜单里。
+             */
+            sessionMeta={
+              active.kind === 'stored'
+                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]
+                : undefined
+            }
+            onUpdateMeta={(patch) => {
+              if (active.kind === 'stored') void updateSessionMeta(active, patch)
+            }}
+            onDeleteActive={() => {
+              if (active.kind === 'stored') setPendingDelete(active)
+            }}
           />
         )}
       </div>

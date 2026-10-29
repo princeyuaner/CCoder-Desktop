@@ -13,6 +13,7 @@ import { DEFAULT_EFFORT, sameCwd } from '@shared/settings'
 import type { NativeCommand } from '@shared/commands'
 import { toolDisplay, type ToolFallback, type ToolStat } from '@shared/tool'
 import { stripAnsi } from '@shared/ansi'
+import { sanitizeAddDirs, sameAddDirs } from '@shared/add-dirs'
 import { ltext, type LocalizedText } from '@shared/i18n'
 import { applyFileChange, filesAfterLastTurn, type ChangedFile } from './changedFiles'
 import type { ImageAttachment } from '@shared/attachment'
@@ -202,6 +203,8 @@ export interface ChatApi {
    */
   authMode?: CliAuthMode
   channelId?: string | null
+  /** 本会话的附加目录（Claude 的 --add-dir），跟着会话走 */
+  addDirs: string[]
   turns: number
   steps: number
   usage?: Usage
@@ -260,6 +263,11 @@ export interface ChatApi {
   applyChannel(from: ChannelLabel, to: ChannelTarget): void
   /** 切换凭据来源（官方登录 ↔ 渠道）。和换渠道一样，下一轮换进程生效。 */
   applyAuth(from: ChannelLabel, to: ChannelTarget): void
+  /**
+   * 改本会话的附加目录。目录是 CLI 的启动参数，和换模型一样会换进程并
+   * `--resume` 接回；忙碌时由主进程延到本轮结束后生效。
+   */
+  applyAddDirs(dirs: string[]): void
   notice: LocalizedText | null
   clearNotice(): void
 }
@@ -631,6 +639,7 @@ export interface ChatSnapshot {
    */
   authMode?: CliAuthMode
   channelId?: string | null
+  addDirs: string[]
   turns: number
   steps: number
   usage?: Usage
@@ -665,6 +674,8 @@ interface ChatInit {
    */
   authMode?: CliAuthMode
   channelId?: string | null
+  /** 这条会话自己记下的附加目录（来自 session-meta）；空 = 没有 */
+  addDirs?: string[]
 }
 
 const SEP = '\u0000'
@@ -762,6 +773,7 @@ class ChatController {
         effort?: EffortLevel
         authMode?: CliAuthMode
         channelId?: string | null
+        addDirs?: string[]
       }
     | null = null
 
@@ -778,6 +790,7 @@ class ChatController {
       effort: init.effort,
       authMode: init.authMode,
       channelId: init.channelId,
+      addDirs: sanitizeAddDirs(init.addDirs),
       turns: 0,
       steps: 0,
       usage: undefined,
@@ -857,7 +870,8 @@ class ChatController {
         resumeId: this.init.resumeId,
         // 会话自己的渠道 / 来源；undefined 时主进程回落到设置里的默认值
         authMode: this.init.authMode,
-        channelId: this.init.channelId
+        channelId: this.init.channelId,
+        addDirs: this.snap.addDirs
       })
       // start 比 dispose 慢时，别把已经没人要的 Live 留在主进程里
       if (this.disposed) {
@@ -1322,6 +1336,7 @@ class ChatController {
     effort?: EffortLevel
     authMode?: CliAuthMode
     channelId?: string | null
+    addDirs?: string[]
   }): void {
     if (this.liveId) {
       window.api?.session.reconfigure(this.liveId, patch)
@@ -1387,6 +1402,20 @@ class ChatController {
       items: pushSystem(this.snap.items, { key: 'auth', from, to: to.label })
     })
     this.reconfigure({ authMode: to.authMode, channelId: to.channelId })
+  }
+
+  /**
+   * 改本会话的附加目录。
+   *
+   * 目录是 CLI 的启动参数，和模型一样只能换进程；主进程忙的时候会把它
+   * 延到本轮结束后再生效。这里先乐观更新界面，重启后的会话用 --resume
+   * 接回，上下文不丢。
+   */
+  applyAddDirs = (dirs: string[]): void => {
+    const next = sanitizeAddDirs(dirs)
+    if (sameAddDirs(next, this.snap.addDirs)) return
+    this.patch({ addDirs: next })
+    this.reconfigure({ addDirs: next })
   }
 
   clearNotice = (): void => {
@@ -1512,6 +1541,7 @@ const EMPTY_SNAPSHOT: ChatSnapshot = {
   model: '',
   permissionMode: 'standard',
   effort: DEFAULT_EFFORT,
+  addDirs: [],
   turns: 0,
   steps: 0,
   usage: undefined,
@@ -1546,6 +1576,7 @@ const noopMode = (_mode: PermissionMode): void => undefined
 const noopEffort = (_level: EffortLevel): void => undefined
 const noopChannel = (_from: ChannelLabel, _to: ChannelTarget): void => undefined
 const noopAuth = (_from: ChannelLabel, _to: ChannelTarget): void => undefined
+const noopAddDirs = (_dirs: string[]): void => undefined
 
 export function useChat(opts: {
   /** 用哪个 CLI 跑；缺省 claude */
@@ -1565,6 +1596,8 @@ export function useChat(opts: {
    */
   authMode?: CliAuthMode
   channelId?: string | null
+  /** 这条会话自己的附加目录（来自 session-meta）；空 = 没有 */
+  addDirs?: string[]
   /** 接着哪条已有会话跑；变化时会复用/重建对应 controller */
   resumeId?: string | null
   /**
@@ -1607,6 +1640,7 @@ export function useChat(opts: {
       model: opts.model ?? '',
       authMode: opts.authMode,
       channelId: opts.channelId,
+      addDirs: opts.addDirs,
       resumeId
     })
     // 创建参数故意不进依赖：key 已经代表会话身份，默认设置变化不该重建会话
@@ -1636,6 +1670,7 @@ export function useChat(opts: {
       effort: s.effort,
       authMode: s.authMode,
       channelId: s.channelId,
+      addDirs: s.addDirs,
       turns: s.turns,
       steps: s.steps,
       usage: s.usage,
@@ -1661,6 +1696,7 @@ export function useChat(opts: {
       applyEffort: controller ? controller.applyEffort : noopEffort,
       applyChannel: controller ? controller.applyChannel : noopChannel,
       applyAuth: controller ? controller.applyAuth : noopAuth,
+      applyAddDirs: controller ? controller.applyAddDirs : noopAddDirs,
       notice: s.notice,
       clearNotice: controller ? controller.clearNotice : noop
     }

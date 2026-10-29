@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { sanitizeAddDirs } from '../shared/add-dirs'
 import { CLI_IDS, type CliId } from '../shared/settings'
 import {
   sessionMetaKey,
@@ -92,12 +93,15 @@ function normalize(raw: unknown): SessionMetaMap {
     if (o.authMode === 'official' || o.authMode === 'channel') entry.authMode = o.authMode
     const channelId = cleanChannelId(o.channelId)
     if (channelId) entry.channelId = channelId
+    const addDirs = sanitizeAddDirs(o.addDirs)
+    if (addDirs.length > 0) entry.addDirs = addDirs
     if (
       entry.title ||
       entry.pinned ||
       entry.archived ||
       entry.model ||
       entry.channelId ||
+      entry.addDirs ||
       entry.authMode === 'official'
     ) {
       out[key] = entry
@@ -185,6 +189,11 @@ export function updateSessionMeta(update: SessionMetaUpdate): SessionMetaMap {
     if (channelId) next.channelId = channelId
     else delete next.channelId
   }
+  if ('addDirs' in patch) {
+    const addDirs = sanitizeAddDirs(patch.addDirs)
+    if (addDirs.length > 0) next.addDirs = addDirs
+    else delete next.addDirs
+  }
 
   // 空条目不留在文件里，否则删掉的会话会在配置里越攒越多
   if (
@@ -193,6 +202,7 @@ export function updateSessionMeta(update: SessionMetaUpdate): SessionMetaMap {
     next.archived ||
     next.model ||
     next.channelId ||
+    next.addDirs ||
     // 显式的 official 也要留：没有它，下次打开会回落到设置里的默认来源
     next.authMode === 'official'
   ) {

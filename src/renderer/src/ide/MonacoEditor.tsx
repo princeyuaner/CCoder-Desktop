@@ -358,8 +358,10 @@ export function MonacoEditor({
       id: 'ccoder.sendSelection',
       label: t('ide.sendSelection'),
       precondition: 'editorHasSelection',
-      contextMenuGroupId: '9_cutcopypaste',
-      contextMenuOrder: 10,
+      // navigation 组在 Monaco 右键菜单里始终排最前，order 0/1 又早于自带的
+      // 跳转项（1.1），两个「发送到聊天」就是菜单最上面的两条
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 0,
       run: (ed) => {
         const host = hostRef.current
         const sel = host ? selectionOf(ed, host) : null
@@ -369,8 +371,8 @@ export function MonacoEditor({
     const sendFile = editor.addAction({
       id: 'ccoder.sendFile',
       label: t('ide.sendFile'),
-      contextMenuGroupId: '9_cutcopypaste',
-      contextMenuOrder: 11,
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 1,
       run: () => propsRef.current.onSendFile()
     })
     return () => {
