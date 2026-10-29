@@ -293,8 +293,14 @@ export function diffWorkspace(
     const prev = before.files.get(path)
     if (prev && sameState(prev, st)) continue
 
-    // 目录树来源下，轮前不存在的文件就是本轮新建的
-    const created = st.created || (!git && !prev && !st.deleted)
+    /*
+     * 「本轮新建」= 轮前的快照里根本没有这个路径。
+     *
+     * git 的 st.created 只是「此刻还是未跟踪」—— 几天前就建好、一直没提交
+     * 的文件也满足这个条件。只看 st.created 会把早就存在的未跟踪文件标成
+     * 这一轮的新增（实测：别的会话早先写的 mockup 被打上「新」）。
+     */
+    const created = !prev && (st.created || !git)
     /*
      * git 的新增/删除行数是权威值，覆盖工具事件里的估算；
      * 目录树拿不到行数，就**省略**字段 —— 否则会把工具事件已经算好的

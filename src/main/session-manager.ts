@@ -101,6 +101,13 @@ interface Live {
   needsRespawn: boolean
   /** 本轮开始时的磁盘快照；轮末再拍一次，两次对比出工具事件漏掉的改动 */
   diskBefore: WorkspaceSnapshot | null
+  /**
+   * 本轮开始时的文件归属序号。
+   *
+   * 同一工作区可以同时跑几条会话，磁盘快照只看目录状态、分不清文件是谁写
+   * 的。轮末要靠它判断某次写入是不是发生在本轮开始之后 —— 见 fileWriters。
+   */
+  claimSeq: number
 }
 
 /**
@@ -122,6 +129,22 @@ export class SessionManager {
     codex: new CodexProvider(),
     dsh: new DshProvider()
   }
+
+  /**
+   * 路径 → 最近一次用工具写过它的会话。
+   *
+   * 轮末的磁盘对比只看目录状态，不知道文件是谁写的：同一工作区里 A 会话在
+   * B 这一轮跑着的时候改了文件，B 的轮末快照就会把它算成 B 的改动 —— 界面
+   * 上表现为「A 会话改的文件显示到 B 会话里」（实测：A 会话写的 mockup 出现
+   * 在 B 的「本轮改动」里）。工具事件带着会话 id，这里按路径记下最近的写入
+   * 者，轮末把**别的会话**在这期间写过的路径排掉。
+   *
+   * 只覆盖工具来源（agent / subagent）：Bash、脚本、MCP 这类磁盘写入不带
+   * 路径，认不出来 —— 那种情况仍按原来的口径算给本轮。
+   */
+  private fileWriters = new Map<string, { sessionId: string; seq: number }>()
+  /** 单调递增的写入序号；不看时间戳，系统时间跳变也不会错序 */
+  private fileSeq = 0
 
   constructor(
     private getSettings: () => Settings,
@@ -186,7 +209,8 @@ export class SessionManager {
       autoAllow: new Set(),
       lastAskedTool: null,
       needsRespawn: false,
-      diskBefore: null
+      diskBefore: null,
+      claimSeq: 0
     })
     this.emitStatus({ sessionId: id, status: 'idle', providerSessionId: o.resumeId ?? null })
     return id
@@ -238,6 +262,7 @@ export class SessionManager {
     s.lastEventWasError = false
     s.toolCount = 0
     // 拍快照必须在把消息交给 CLI 之前 —— 然后才轮到模型动文件
+    s.claimSeq = this.fileSeq
     s.diskBefore = this.snapshotForTurn(s)
     this.emitEvent({ sessionId: s.id, event: { t: 'turn_started' } })
     this.emitStatus({
@@ -642,6 +667,14 @@ export class SessionManager {
 
   private onEvent(s: Live, e: AgentEvent): void {
     /*
+     * 记下这个文件刚被哪条会话写过。轮末的磁盘对比要靠它排掉别的会话在
+     * 本会话这一轮里写的路径 —— 见 fileWriters。
+     */
+    if (e.t === 'file_change' && e.source !== 'disk') {
+      this.fileWriters.set(pathKey(e.path), { sessionId: s.id, seq: ++this.fileSeq })
+    }
+
+    /*
      * 权限模式的实际生效值。以 CLI 为准而不是界面的点选值：CLI 可能拒绝
      * （bypass 未授权）或自己回落（auto 不可用）。主进程也同步一份，
      * 下一次换进程时按它启动。
@@ -724,16 +757,29 @@ export class SessionManager {
     }
   }
 
-  /** 轮末对比磁盘；快照失败时安静退化成「只用工具事件」 */
+  /**
+   * 轮末对比磁盘；快照失败时安静退化成「只用工具事件」。
+   *
+   * 同一工作区可能同时跑着别的会话，磁盘状态变了不代表是本会话写的。
+   * 本轮开始之后被**别的会话**用工具写过的路径一律跳过 —— 那条会话自己会
+   * 报它的改动，本会话再报一遍就成了「A 改的文件显示到 B 里」。
+   */
   private collectDiskChanges(s: Live): AgentEvent[] {
     const before = s.diskBefore
+    const since = s.claimSeq
     s.diskBefore = null
     if (!before) return []
+    let changes: AgentEvent[]
     try {
-      return diffWorkspace(before, snapshotWorkspace(s.cwd))
+      changes = diffWorkspace(before, snapshotWorkspace(s.cwd))
     } catch {
       return []
     }
+    return changes.filter((c) => {
+      if (c.t !== 'file_change') return true
+      const writer = this.fileWriters.get(pathKey(c.path))
+      return !(writer && writer.sessionId !== s.id && writer.seq > since)
+    })
   }
 
   private flushQueue(s: Live): void {
@@ -761,6 +807,7 @@ export class SessionManager {
     s.interrupted = false
     s.lastEventWasError = false
     s.toolCount = 0
+    s.claimSeq = this.fileSeq
     s.diskBefore = this.snapshotForTurn(s)
     this.emitEvent({ sessionId: s.id, event: { t: 'turn_started' } })
     this.emitStatus({

@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>AskUserQuestion · 最小化方案</title>
+<style>
+/* ══ 主题变量 ═══════════════════════════════════════════ */
+:root {
+  --page: #0d0d0f;
+  --bar-bg: rgba(13, 13, 15, .92);
+  --panel: #191919;
+  --side: #141414;
+  --raised: #202024;
+  --raised-2: #1d1d22;
+  --hover: #242429;
+  --composer-bg: #232323;
+  --border: #2c2c34;
+  --border-soft: #28282f;
+  --shell-border: #26262e;
+  --shell-shadow: 0 20px 60px rgba(0, 0, 0, .45);
+  --text: #e8e8e8;
+  --text-2: #d8d8e2;
+  --text-3: #8a8a9a;
+  --text-4: #5f5f6c;
+  --text-5: #4a4a55;
+  --accent: #22d3ee;
+  --accent-text: #a5f3fc;
+  --accent-bg: rgba(34, 211, 238, .14);
+  --accent-soft: rgba(34, 211, 238, .07);
+  --accent-border: rgba(34, 211, 238, .32);
+  --accent-glow: rgba(34, 211, 238, .4);
+  --btn-bg: rgba(255, 255, 255, .92);
+  --btn-text: #0d0d0f;
+  --code-bg: #26262f;
+  --code-text: #ddd6fe;
+  --green: #4b9e5f;
+  --yellow: #fcd34d;
+  --track: #2c2c2c;
+  --drawer-shadow: 0 10px 30px rgba(0, 0, 0, .38), 0 0 0 3px rgba(34, 211, 238, .05);
+}
+body[data-scheme="light"] {
+  --page: #f2f2f4;
+  --bar-bg: rgba(242, 242, 244, .92);
+  --panel: #fafafa;
+  --side: #f0f0f2;
+  --raised: #ffffff;
+  --raised-2: #f7f7f9;
+  --hover: #efeff2;
+  --composer-bg: #ffffff;
+  --border: #e4e4e9;
+  --border-soft: #e4e4e9;
+  --shell-border: #e0e0e5;
+  --shell-shadow: 0 20px 60px rgba(0, 0, 0, .12);
+  --text: #1d1d1f;
+  --text-2: #3d3d44;
+  --text-3: #6b6b75;
+  --text-4: #92929c;
+  --text-5: #b0b0b8;
+  --accent: #0891b2;
+  --accent-text: #0b6b8a;
+  --accent-bg: #e8f7fc;
+  --accent-soft: rgba(8, 145, 178, .05);
+  --accent-border: rgba(8, 145, 178, .35);
+  --accent-glow: rgba(8, 145, 178, .28);
+  --btn-bg: #1d1d1f;
+  --btn-text: #ffffff;
+  --code-bg: #f1f1f4;
+  --code-text: #6d28d9;
+  --green: #2f7d43;
+  --yellow: #b45309;
+  --track: #e4e4e9;
+  --drawer-shadow: 0 10px 30px rgba(0, 0, 0, .12), 0 0 0 3px rgba(8, 145, 178, .06);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--page); }
+body {
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 60px;
+}
+code, pre { font-family: 'Cascadia Mono', Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: default; }
+b { font-weight: 600; }
+
+/* ══ 顶部工具栏 ═════════════════════════════════════════ */
+#bar {
+  position: sticky; top: 0; z-index: 90;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 13px 24px;
+  background: var(--bar-bg); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+#bar h1 { font-size: 14px; font-weight: 600; margin-right: 10px; color: var(--text-2); }
+.tabbtn {
+  padding: 6px 14px; font-size: 13px; border-radius: 8px;
+  color: var(--text-3); border: 1px solid var(--border); background: var(--raised-2);
+}
+.tabbtn:hover { color: var(--text); border-color: var(--text-5); }
+.tabbtn.is-on { color: var(--page); background: var(--text); border-color: var(--text); font-weight: 600; }
+#bar .sp { flex: 1; }
+.seg {
+  display: inline-flex; padding: 2px; gap: 2px;
+  background: var(--raised-2); border: 1px solid var(--border); border-radius: 9px;
+}
+.seg button {
+  padding: 4px 11px; font-size: 12px; border-radius: 7px; color: var(--text-3);
+}
+.seg button.is-on { color: var(--text); background: var(--raised); box-shadow: 0 1px 3px rgba(0,0,0,.18); font-weight: 500; }
+
+#desc {
+  padding: 14px 24px 0; font-size: 12.5px; color: var(--text-3);
+  max-width: 1080px; line-height: 1.85;
+}
+#desc b { color: var(--text-2); font-weight: 500; }
+#desc code { color: var(--code-text); }
+#desc .rec {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; vertical-align: 1px;
+  font-size: 10.5px; color: var(--accent-text); background: var(--accent-bg);
+  border: 1px solid var(--accent-border); border-radius: 999px;
+}
+#desc .fact {
+  display: block; margin-top: 8px; padding: 9px 12px;
+  background: var(--raised-2); border-left: 2px solid var(--text-5); border-radius: 0 6px 6px 0;
+  color: var(--text-3);
+}
+#desc .fact b { color: var(--text-3); }
+#stage { padding: 18px 24px 0; }
+#hint {
+  padding: 4px 24px 0; font-size: 11.5px; color: var(--text-4);
+}
+#hint b { color: var(--accent-text); font-weight: 500; }
+
+/* ══ 应用外壳 ═══════════════════════════════════════════ */
+.app {
+  position: relative; display: flex;
+  width: 1080px; height: 720px;
+  background: var(--panel); border: 1px solid var(--shell-border); border-radius: 12px;
+  box-shadow: var(--shell-shadow);
+  overflow: hidden;
+}
+.side {
+  flex: none; width: 210px; padding: 16px 12px;
+  background: var(--side); border-right: 1px solid var(--border);
+}
+.side__brand { padding: 0 8px 16px; font-size: 13px; font-weight: 600; color: var(--text); }
+.side__new {
+  display: block; width: 100%; margin-bottom: 16px; padding: 8px;
+  text-align: center; font-size: 12.5px; color: var(--text-2);
+  background: var(--raised); border: 1px solid var(--border); border-radius: 8px;
+}
+.side__grp { padding: 8px; font-size: 10.5px; letter-spacing: .4px; color: var(--text-5); }
+.side__it {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 8px; font-size: 12.5px; color: var(--text-3); border-radius: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.side__it.is-on { background: var(--hover); color: var(--text-2); }
+
+.main { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 26px 12px; border-bottom: 1px solid var(--border);
+  min-height: 48px;
+}
+.head__t {
+  font-size: 13.5px; font-weight: 500; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.head__badge {
+  flex: none; padding: 2px 9px; font-size: 11.5px; border-radius: 999px;
+  color: var(--text-3); background: var(--hover); border: 1px solid var(--border);
+}
+.body { flex: 1; min-height: 0; overflow: auto; padding: 16px 26px 10px; scrollbar-width: thin; }
+.body__inner { max-width: 660px; margin: 0 auto; }
+.tl { position: relative; }
+.tl::before {
+  content: ''; position: absolute; left: 4px; top: 10px; bottom: 14px;
+  width: 1px; background: var(--track);
+}
+.row { position: relative; padding-left: 24px; margin-bottom: 11px; }
+.dot {
+  position: absolute; left: 0; top: 5px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--text-5); box-shadow: 0 0 0 3px var(--panel);
+}
+.dot.me { background: var(--accent); box-shadow: 0 0 0 3px var(--panel), 0 0 10px var(--accent-glow); }
+.dot.ok { background: var(--green); }
+.dot.ask { background: var(--accent); box-shadow: 0 0 0 3px var(--panel); }
+.row--me { display: flex; justify-content: flex-end; }
+.me {
+  display: inline-block; max-width: 80%; padding: 6px 11px;
+  font-size: 13px; line-height: 1.6; color: var(--accent-text);
+  background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: 8px;
+}
+.say { font-size: 13px; line-height: 1.7; color: var(--text-2); }
+.say .ic { padding: 2px 5px; font-size: .86em; border-radius: 5px; background: var(--code-bg); color: var(--code-text); }
+.code {
+  display: block; margin-top: 9px; padding: 9px 11px;
+  font-size: 11.5px; line-height: 1.65; white-space: pre;
+  color: var(--text-3); background: var(--raised-2);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.tool {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 11px; border-radius: 8px; font-size: 12.5px;
+  background: var(--raised-2); border: 1px solid var(--border-soft); color: var(--text-3);
+}
+.tool .g { color: var(--green); }
+.tool--ask { border-color: var(--accent-border); color: var(--accent-text); }
+
+/* ══ 输入框 ═════════════════════════════════════════════ */
+.composer { flex: none; padding: 10px 26px 14px; position: relative; z-index: 2; }
+.cbox {
+  max-width: 660px; margin: 0 auto; padding: 11px 11px 9px;
+  background: var(--composer-bg); border: 1px solid var(--border); border-radius: 14px;
+  transition: border-color .16s, opacity .16s;
+}
+.cin { padding: 2px 4px 9px; font-size: 13px; color: var(--text-4); }
+.cbar { display: flex; align-items: center; gap: 7px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px;
+  font-size: 12px; color: var(--text-3); background: var(--composer-bg);
+  border: 1px solid var(--border); border-radius: 999px;
+}
+.chip .d { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.send {
+  display: grid; place-items: center; width: 30px; height: 30px;
+  margin-left: auto; font-size: 14px; color: var(--btn-text);
+  background: var(--btn-bg); border-radius: 50%;
+}
+.cbox.is-locked .cin,
+.cbox.is-locked .cbar { opacity: .45; }
+.cbox.is-locked .send { background: var(--hover); color: var(--text-4); }
+.cbox.is-pending { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); cursor: pointer; }
+.cbox.is-pending .cin { opacity: 1; color: var(--text-3); padding-top: 0; }
+.cbox.is-pending .cbar { opacity: .45; }
+
+/* C 方案：输入框顶部的待回答条 */
+.pending-row {
+  display: flex; align-items: center; gap: 8px;
+  margin: -2px -1px 9px; padding: 7px 9px;
+  background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: 9px;
+}
+.pending-row .badge {
+  flex: none; padding: 1px 8px; font-size: 11px; color: var(--accent-text);
+  background: var(--accent-bg); border: 1px solid var(--accent-border); border-radius: 999px;
+}
+.pending-row .n { flex: none; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.pending-row .q {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pending-row .cta {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; color: var(--accent-text);
+}
+
+/* ══ 抽屉（现有展开态） ═════════════════════════════════ */
+.qdrawer {
+  flex: none; width: calc(100% - 52px); max-width: 660px; margin: 0 auto 2px;
+  background: var(--raised); border: 1px solid var(--accent-border); border-radius: 14px;
+  box-shadow: var(--drawer-shadow);
+  overflow: hidden; outline: none;
+  animation: qdrawer-in .16s ease-out;
+}
+@keyframes qdrawer-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.qdrawer__h {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 14px 9px; border-bottom: 1px solid var(--border);
+}
+.qdrawer__badge {
+  flex: none; padding: 2px 9px; font-size: 11.5px; border-radius: 999px;
+  color: var(--accent-text); background: var(--accent-bg); border: 1px solid var(--accent-border);
+}
+.qdrawer__t { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--text-2); }
+.qdrawer__queue { flex: none; font-size: 11px; color: var(--text-4); }
+.qdrawer__n { flex: none; font-size: 11.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+
+.qmin {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; font-size: 11px; color: var(--text-3);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.qmin:hover { color: var(--text-2); border-color: var(--text-5); background: var(--hover); }
+
+.qdrawer__b { max-height: 250px; overflow: auto; padding: 12px 14px 2px; }
+.qdrawer__meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.qdrawer__chip {
+  padding: 2px 8px; font-size: 10.5px; letter-spacing: .3px;
+  color: var(--accent-text); background: var(--accent-soft); border: 1px solid var(--accent-border);
+  border-radius: 999px;
+}
+.qdrawer__count { font-size: 11px; color: var(--text-4); }
+.qdrawer__q { font-size: 14.5px; line-height: 1.6; color: var(--text); }
+.qdrawer__q code { padding: 1px 5px; font-size: .88em; border-radius: 5px; background: var(--code-bg); color: var(--code-text); }
+
+.opts { display: flex; flex-direction: column; gap: 6px; margin-top: 11px; }
+.opt {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 11px; border: 1px solid var(--border-soft); border-radius: 10px;
+  background: var(--raised-2);
+}
+.opt.is-on {
+  border-color: rgba(34, 211, 238, .55);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, .1);
+}
+body[data-scheme="light"] .opt.is-on {
+  border-color: rgba(8, 145, 178, .5);
+  box-shadow: inset 0 0 0 1px rgba(8, 145, 178, .08);
+}
+.opt__m {
+  flex: none; width: 16px; height: 16px; margin-top: 1px;
+  border: 1.5px solid var(--text-5); border-radius: 50%;
+  display: grid; place-items: center;
+}
+.opt.is-on .opt__m { border-color: var(--accent); }
+.opt.is-on .opt__m::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.opt__b { flex: 1; min-width: 0; display: block; }
+.opt__t { display: block; font-size: 12.8px; line-height: 1.5; color: var(--text-2); }
+.opt__d { display: block; margin-top: 2px; font-size: 11.5px; line-height: 1.55; color: var(--text-3); }
+.opt__k {
+  flex: none; width: 18px; height: 18px; margin-top: 1px;
+  display: grid; place-items: center; font-size: 10.5px;
+  color: var(--text-3); border: 1px solid var(--border); border-radius: 5px;
+}
+.opt.is-on .opt__k { color: var(--accent-text); border-color: var(--accent-border); }
+.other {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 11px; font-size: 12px; color: var(--text-3);
+  border: 1px dashed var(--text-5); border-radius: 10px;
+}
+.other .opt__m { border-style: dashed; }
+.qdrawer__f {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px 11px; border-top: 1px solid var(--border);
+}
+.qdrawer__keys {
+  flex: 1; min-width: 0; font-size: 11px; color: var(--text-4);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qbtn {
+  padding: 6px 13px; font-size: 12.5px; border-radius: 8px;
+  color: var(--text-2); border: 1px solid rgba(127, 127, 142, .35); background: transparent;
+}
+.qbtn:hover { background: var(--hover); color: var(--text); }
+.qbtn--primary { color: var(--btn-text); background: var(--btn-bg); border-color: transparent; font-weight: 600; }
+.qbtn--primary .kbd { margin-left: 6px; font-size: 10.5px; opacity: .62; }
+
+/* ══ 收起态通用：脉冲点 ═════════════════════════════════ */
+.pulse {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); animation: pulse 1.8s ease-out infinite;
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  70% { box-shadow: 0 0 0 5px rgba(0, 0, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+
+/* ══ A · 原地收起成一行 ════════════════════════════════ */
+.qdrawer.is-min {
+  display: flex; align-items: center; gap: 8px;
+  height: 42px; padding: 0 12px; margin-bottom: 2px;
+  border-radius: 12px; cursor: pointer;
+}
+.qdrawer.is-min:hover { border-color: var(--accent); background: var(--accent-soft); }
+.qdrawer.is-min .qdrawer__badge { padding: 1px 8px; font-size: 11px; }
+.qdrawer.is-min .qdrawer__chip { flex: none; }
+.qdrawer.is-min .min-q {
+  flex: 1; min-width: 0; font-size: 12.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qdrawer.is-min .qdrawer__n { color: var(--text-3); }
+.qdrawer.is-min .qdrawer__queue { font-size: 10.5px; color: var(--text-3); }
+.qdrawer.is-min .min-cta {
+  flex: none; display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; color: var(--accent-text);
+}
+
+/* ══ B · 右侧悬浮胶囊 ══════════════════════════════════ */
+.qpill {
+  position: absolute; right: 105px; bottom: 118px; z-index: 5;
+  display: inline-flex; align-items: center; gap: 8px;
+  max-width: 400px; height: 34px; padding: 0 12px;
+  background: var(--raised); border: 1px solid var(--accent-border);
+  border-radius: 999px; cursor: pointer;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .35), 0 0 0 3px var(--accent-soft);
+  animation: qdrawer-in .16s ease-out;
+}
+body[data-scheme="light"] .qpill { box-shadow: 0 10px 26px rgba(0, 0, 0, .12), 0 0 0 3px var(--accent-soft); }
+.qpill:hover { border-color: var(--accent); }
+.qpill__badge { flex: none; font-size: 11px; color: var(--accent-text); }
+.qpill__n { flex: none; font-size: 11px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.qpill__sep { flex: none; width: 1px; height: 12px; background: var(--border); }
+.qpill__t {
+  min-width: 0; font-size: 12px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qpill__chev { flex: none; display: inline-flex; color: var(--accent-text); }
+
+/* ══ D · 会话标题徽标 ══════════════════════════════════ */
+.hchip {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  height: 27px; padding: 0 10px; margin-left: auto;
+  font-size: 11.5px; color: var(--accent-text);
+  background: var(--accent-bg); border: 1px solid var(--accent-border);
+  border-radius: 999px; cursor: pointer;
+}
+.hchip:hover { border-color: var(--accent); }
+.hchip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.hchip__q { color: var(--text-3); }
+.hchip .chev { display: inline-flex; }
+.sdot {
+  flex: none; width: 6px; height: 6px; margin-left: auto; border-radius: 50%;
+  background: var(--accent); animation: pulse 1.8s ease-out infinite;
+}
+
+/* ══ 底部说明 ═══════════════════════════════════════════ */
+#notes {
+  width: 1080px; margin: 20px 0 0; padding: 15px 18px;
+  background: var(--raised-2); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 12px; line-height: 1.85; color: var(--text-3);
+}
+#notes h2 { font-size: 12.5px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+#notes b { color: var(--text-2); font-weight: 500; }
+#notes code { color: var(--code-text); }
+#notes .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+#notes ul { padding-left: 16px; }
+#notes li { margin: 2px 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body data-scheme="dark">
+
+<div id="bar">
+  <h1>AskUserQuestion · 最小化</h1>
+  <button class="tabbtn" data-k="a">A 原地成条</button>
+  <button class="tabbtn" data-k="b">B 悬浮胶囊</button>
+  <button class="tabbtn" data-k="c">C 输入框接管</button>
+  <button class="tabbtn" data-k="d">D 标题徽标</button>
+  <span class="sp"></span>
+  <span class="seg" id="stateSeg">
+    <button data-state="open">展开</button>
+    <button data-state="min">收起</button>
+  </span>
+  <span class="seg" id="schemeSeg">
+    <button data-scheme="dark">深色</button>
+    <button data-scheme="light">浅色</button>
+  </span>
+</div>
+<div id="desc"></div>
+<div id="hint">交互：用右上角的 <b>展开 / 收起</b> 切换状态，也可以直接点收起后的 <b>条形 / 胶囊 / 待回答条 / 徽标</b> 展开。</div>
+<div id="stage"></div>
+<div id="notes">
+  <h2>四案共用的行为约定</h2>
+  <div class="cols">
+    <ul>
+      <li><b>只作用于当前这组提问</b>：已选项、当前题号、「其他」里输入的文字全部保留；下次展开原样恢复。</li>
+      <li><b>新的一组提问到达时自动展开</b>，不会因为上一组被收起而漏掉新的问题。</li>
+      <li><b>收起期间输入框仍然锁定</b>：模型在等答案，不能把新消息塞进正在等待的一轮。</li>
+      <li><b>收起态不提供「跳过」</b>，避免误触；要跳过请展开后按 Esc 或点「跳过」。</li>
+    </ul>
+    <ul>
+      <li><b>不抢键</b>：Esc 仍然只做「跳过」，收起/展开用显式按钮和点击，不新增全局快捷键。</li>
+      <li><b>焦点</b>：收起后焦点回到转写区；展开后焦点回到抽屉，↑↓ / 数字键立即可用；<code>aria-expanded</code> 跟随状态。</li>
+      <li><b>动效</b>：160ms ease-out；<code>prefers-reduced-motion</code> 下直接切换。</li>
+      <li><b>切换会话</b>：再回到这个会话时默认展开（收起状态暂不持久化，可后续加）。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+/* ══ 样例数据：一道真实的单选题（CLI 的 input.questions[0]） ══ */
+const Q = {
+  header: '错误处理',
+  text: 'loadSettings() 读文件失败时，应该怎么处理？',
+  options: [
+    { t: '抛错，让调用方决定', d: '保持现在的行为：启动立即失败，坏掉的配置不会被静默吞掉。', on: true },
+    { t: '回退到默认值并记一条日志', d: '应用总能启动，但坏掉的配置会被悄悄忽略。', on: false },
+    { t: '回退到默认值，并在界面上提示', d: '最稳，但需要新增一条从主进程到界面的提示通路。', on: false }
+  ]
+}
+
+const CHEV_DOWN = '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+const CHEV_UP = '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 6l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+
+/* ══ 转写区：让"收起后能多看到多少上下文"看得见 ══════════ */
+const TRANSCRIPT = `
+<div class="row row--me"><span class="dot me"></span>
+  <span class="me">设置文件坏掉的时候，app 现在会怎样？</span></div>
+<div class="row"><span class="dot"></span>
+  <div class="say">现在 <code class="ic">main()</code> 里直接 <code class="ic">readFileSync</code>，配置一坏整个进程就退出了。
+  三种改法各有取舍，我先确认你要哪一种再动手：</div></div>
+<div class="row"><span class="dot ok"></span>
+  <span class="tool"><span class="g">✓</span> Read <code>src/main/settings-store.ts</code></span></div>
+<div class="row"><span class="dot"></span>
+  <div class="say">顺带确认了一下：现在的兜底只覆盖 <code class="ic">ENOENT</code>，JSON 解析失败仍然会抛。
+  <pre class="code">try {
+  return JSON.parse(raw)
+} catch (e) {
+  if (e.code === 'ENOENT') return defaults
+  throw e
+}</pre></div></div>
+<div class="row"><span class="dot ok"></span>
+  <span class="tool"><span class="g">✓</span> Grep <code>loadSettings</code> · 6 处调用</span></div>
+<div class="row"><span class="dot"></span>
+  <div class="say">这 6 个调用点里，只有启动路径会把异常继续往上抛，其余都在自己的 try 里兜住了。</div></div>
+<div class="row"><span class="dot ask"></span>
+  <span class="tool tool--ask"><span>?</span> 模型正在等你回答一个问题</span></div>`
+
+/* ══ 抽屉正文（展开态，四个方案共用） ═══════════════════ */
+function optionsHtml() {
+  return Q.options.map((o, i) => `
+    <div class="opt ${o.on ? 'is-on' : ''}">
+      <span class="opt__m"></span>
+      <span class="opt__b">
+        <span class="opt__t">${o.t}</span>
+        <span class="opt__d">${o.d}</span>
+      </span>
+      <span class="opt__k">${i + 1}</span>
+    </div>`).join('')
+}
+
+function drawerExpanded() {
+  return `
+  <div class="qdrawer">
+    <div class="qdrawer__h">
+      <span class="qdrawer__badge">模型在问你</span>
+      <span class="qdrawer__t">回答后我会继续</span>
+      <span class="qdrawer__queue">还有 1 组</span>
+      <span class="qdrawer__n">1/3</span>
+      <button class="qmin" data-collapse title="收起问题（不跳过）">收起 ${CHEV_DOWN}</button>
+    </div>
+    <div class="qdrawer__b">
+      <div class="qdrawer__meta">
+        <span class="qdrawer__chip">${Q.header}</span>
+        <span class="qdrawer__count">第 1 题，共 3 题</span>
+      </div>
+      <div class="qdrawer__q"><code>loadSettings()</code> 读文件失败时，应该怎么处理？</div>
+      <div class="opts">
+        ${optionsHtml()}
+        <div class="other"><span class="opt__m"></span><span>其他…（输入你的答案）</span></div>
+      </div>
+    </div>
+    <div class="qdrawer__f">
+      <span class="qdrawer__keys">↑↓ 选择 · ⏎ 选定 · Esc 跳过</span>
+      <button class="qbtn">跳过</button>
+      <button class="qbtn qbtn--primary">下一题<span class="kbd">⏎</span></button>
+    </div>
+  </div>`
+}
+
+/* ══ A · 收起后的一行 ══════════════════════════════════ */
+function minimBar() {
+  return `
+  <div class="qdrawer is-min" data-expand role="button" tabindex="0" aria-expanded="false"
+       aria-label="模型在等你回答，第 1 题，共 3 题；点击展开">
+    <span class="pulse"></span>
+    <span class="qdrawer__badge">模型在等你</span>
+    <span class="qdrawer__n">1/3</span>
+    <span class="qdrawer__chip">${Q.header}</span>
+    <span class="min-q">${Q.text}</span>
+    <span class="qdrawer__queue">还有 1 组</span>
+    <span class="min-cta">展开 ${CHEV_UP}</span>
+  </div>`
+}
+
+/* ══ B · 悬浮胶囊 ══════════════════════════════════════ */
+function pill() {
+  return `
+  <button class="qpill" data-expand aria-expanded="false"
+          aria-label="模型在等你回答，第 1 题，共 3 题；点击展开">
+    <span class="pulse"></span>
+    <span class="qpill__badge">模型在等你</span>
+    <span class="qpill__n">1/3</span>
+    <span class="qpill__sep"></span>
+    <span class="qpill__t">${Q.header} · ${Q.text}</span>
+    <span class="qpill__chev">${CHEV_UP}</span>
+  </button>`
+}
+
+/* ══ C · 输入框顶部的待回答条 ═══════════════════════════ */
+function pendingRow() {
+  return `
+  <div class="pending-row" data-expand role="button" tabindex="0" aria-expanded="false">
+    <span class="pulse"></span>
+    <span class="badge">模型在等你回答</span>
+    <span class="n">1/3</span>
+    <span class="q">${Q.header} · ${Q.text}</span>
+    <span class="cta">展开回答 ${CHEV_UP}</span>
+  </div>`
+}
+
+/* ══ D · 标题栏徽标 ════════════════════════════════════ */
+function headerChip() {
+  return `
+  <button class="hchip" data-expand aria-expanded="false" title="展开问题">
+    <span class="pulse"></span>
+    <span>待回答</span>
+    <b>1/3</b>
+    <span class="hchip__q">${Q.header}</span>
+    <span class="chev">${CHEV_UP}</span>
+  </button>`
+}
+
+/* ══ 输入框 ═════════════════════════════════════════════ */
+function composer({ locked, pending, placeholder }) {
+  return `
+  <div class="composer">
+    <div class="cbox ${locked ? 'is-locked' : ''} ${pending ? 'is-pending' : ''}"
+         ${pending ? 'data-expand role="button" tabindex="0" aria-expanded="false"' : ''}>
+      ${pending ? pendingRow() : ''}
+      <div class="cin">${placeholder}</div>
+      <div class="cbar">
+        <span class="chip">deepseek-reasoner</span>
+        <span class="chip">◈ ▬▬▬ 高</span>
+        <span class="chip"><span class="d"></span>标准</span>
+        <span class="send" aria-hidden="true">↑</span>
+      </div>
+    </div>
+  </div>`
+}
+
+/* ══ 应用外壳 ═══════════════════════════════════════════ */
+function shell(v, state) {
+  const min = state === 'min'
+  const inSide = v === 'd' && min
+  const headChip = v === 'd' && min ? headerChip() : ''
+
+  let drawer = ''
+  let pillHtml = ''
+  let pending = false
+  let placeholder = '先回答上面的问题，再继续发消息…'
+
+  if (!min) {
+    drawer = drawerExpanded()
+  } else if (v === 'a') {
+    drawer = minimBar()
+  } else if (v === 'b') {
+    pillHtml = pill()
+  } else if (v === 'c') {
+    pending = true
+    placeholder = '问题已收起，展开后继续回答（当前输入已锁定）'
+  } else if (v === 'd') {
+    placeholder = '问题已收进标题栏，点右上角「待回答」展开…'
+  }
+
+  return `
+  <div class="app" data-v="${v}" data-state="${state}">
+    <div class="side">
+      <div class="side__brand">◍ CCoder</div>
+      <div class="side__new">+ 新会话</div>
+      <div class="side__grp">今天</div>
+      <div class="side__it is-on">设置读取失败时的兜底策略 ${inSide ? '<span class="sdot"></span>' : ''}</div>
+      <div class="side__it">Markdown 渲染换用 react-markdown</div>
+      <div class="side__it">会话列表批量勾选删除</div>
+      <div class="side__grp">昨天</div>
+      <div class="side__it">消息级操作与会话内查找</div>
+      <div class="side__it">IDE 设置弹窗与快捷键</div>
+    </div>
+    <div class="main">
+      <div class="head">
+        <span class="head__t">设置读取失败时的兜底策略</span>
+        <span class="head__badge">标准模式</span>
+        ${headChip}
+      </div>
+      <div class="body"><div class="body__inner"><div class="tl">${TRANSCRIPT}</div></div></div>
+      ${drawer}
+      ${composer({ locked: true, pending, placeholder })}
+      ${pillHtml}
+    </div>
+  </div>`
+}
+
+/* ══ 方案文案 ═══════════════════════════════════════════ */
+const COPY = {
+  a: {
+    title: 'A 原地收起成一行',
+    desc: '<b>A 原地收起成一行</b><span class="rec">推荐</span> —— 面板不换位置，只把正文和页脚折起来，'
+      + '标题栏变成 42px 的窄条：脉冲点 + 题号 + 分类 + 一行题干 + 展开。'
+      + '同一位置、同一圈青色描边，用户不用重新找；展开后选择状态原样保留。'
+      + '<span class="fact">代价：仍占一行高度（约 42px）；题干只能显示一行，长问题会被截断。'
+      + '但它离输入框最近，按下「收起」和再次「展开」手都不用移。</span>',
+  },
+  b: {
+    title: 'B 右侧悬浮胶囊',
+    desc: '<b>B 右侧悬浮胶囊</b> —— 完全脱离文档流，转写区拿回整行高度；胶囊停在输入框右上方，'
+      + '只带脉冲点、题号和分类，点它展开回原抽屉。'
+      + '<span class="fact">代价：胶囊浮在正文上，窗口变窄或滚动到底部时可能压住内容；'
+      + '而且它更像一条通知，提醒强度明显弱于抽屉 —— 适合「用户主动收起」的场景，不适合默认收起。</span>',
+  },
+  c: {
+    title: 'C 输入框接管',
+    desc: '<b>C 输入框接管</b> —— 抽屉整块消失，输入框顶部多出一条待回答提示，整个输入框可点展开。'
+      + '收起后位置最集中：手和视线都在输入框，不用抬头找；也不额外占用垂直空间。'
+      + '<span class="fact">代价：输入框高度会变化，收起/展开时布局跳动；'
+      + '必须把锁定态做得很明显，否则用户会以为可以直接打字。</span>',
+  },
+  d: {
+    title: 'D 标题栏徽标',
+    desc: '<b>D 标题栏徽标</b> —— 抽屉完全消失，标题栏出现「待回答 1/3」徽标，侧边栏的会话行也带一个脉冲点。'
+      + '空间释放得最彻底，适合需要长时间查阅上下文再作答的问题。'
+      + '<span class="fact">代价：提醒离输入区最远，模型还在阻塞等待，用户可能直接切走或忘记；'
+      + '必须配合「切回来时自动展开」或更强的侧边栏提示才安全。</span>',
+  }
+}
+
+/* ══ 渲染与交互 ═════════════════════════════════════════ */
+const params = new URLSearchParams(location.search)
+const only = params.get('v')
+const initialScheme = params.get('scheme') === 'light' ? 'light' : 'dark'
+let variant = COPY[only] ? only : 'a'
+let state = params.get('state') === 'open' ? 'open' : 'min'
+
+const bar = document.getElementById('bar')
+const desc = document.getElementById('desc')
+const stage = document.getElementById('stage')
+const stateSeg = document.getElementById('stateSeg')
+const schemeSeg = document.getElementById('schemeSeg')
+
+function syncBar() {
+  for (const b of bar.querySelectorAll('.tabbtn')) b.classList.toggle('is-on', b.dataset.k === variant)
+  for (const b of stateSeg.querySelectorAll('button')) b.classList.toggle('is-on', b.dataset.state === state)
+  for (const b of schemeSeg.querySelectorAll('button')) b.classList.toggle('is-on', b.dataset.scheme === document.body.dataset.scheme)
+}
+
+function render() {
+  document.body.dataset.scheme = document.body.dataset.scheme || initialScheme
+  desc.innerHTML = COPY[variant].desc
+  stage.innerHTML = shell(variant, state)
+  // 转写区按真实聊天的习惯停在最新一条 —— 收起后能多看到多少上下文才看得出来
+  const body = stage.querySelector('.body')
+  if (body) body.scrollTop = body.scrollHeight
+  syncBar()
+}
+
+function setState(next) {
+  if (state === next) return
+  state = next
+  render()
+}
+
+function setVariant(k) {
+  variant = k
+  render()
+}
+
+bar.addEventListener('click', (e) => {
+  const tab = e.target.closest('.tabbtn')
+  if (tab) { setVariant(tab.dataset.k); return }
+  const st = e.target.closest('#stateSeg button')
+  if (st) { setState(st.dataset.state); return }
+  const sc = e.target.closest('#schemeSeg button')
+  if (sc) { document.body.dataset.scheme = sc.dataset.scheme; render() }
+})
+
+stage.addEventListener('click', (e) => {
+  if (e.target.closest('[data-collapse]')) { e.stopPropagation(); setState('min'); return }
+  if (e.target.closest('[data-expand]')) setState('open')
+})
+
+stage.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  const el = e.target.closest('[data-expand]')
+  if (!el) return
+  e.preventDefault()
+  setState('open')
+})
+
+document.body.dataset.scheme = initialScheme
+if (only) {
+  bar.remove(); desc.remove()
+  document.getElementById('hint').remove()
+  stage.style.padding = '0'
+  document.getElementById('notes').remove()
+  document.body.style.padding = '0'
+}
+render()
+</script>
+</body>
+</html>

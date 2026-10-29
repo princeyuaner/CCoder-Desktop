@@ -625,6 +625,48 @@ html[data-scheme='light'] .qdrawer__multi {
 html[data-scheme='light'] .qdrawer__q {
   color: #1d1d1f;
 }
+html[data-scheme='light'] .qdrawer--min:hover {
+  border-color: rgba(8, 145, 178, 0.55);
+  background: rgba(8, 145, 178, 0.05);
+}
+html[data-scheme='light'] .qdrawer--min:focus-visible {
+  outline-color: rgba(8, 145, 178, 0.55);
+}
+html[data-scheme='light'] .qdrawer--min__dot {
+  background: #0891b2;
+  animation-name: qdrawer-pulse-light;
+}
+@keyframes qdrawer-pulse-light {
+  0% {
+    box-shadow: 0 0 0 0 rgba(8, 145, 178, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(8, 145, 178, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(8, 145, 178, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-scheme='light'] .qdrawer--min__dot {
+    animation: none;
+  }
+}
+html[data-scheme='light'] .qdrawer--min__q {
+  color: #1d1d1f;
+}
+html[data-scheme='light'] .qdrawer--min__cta {
+  color: #0b6b8a;
+}
+html[data-scheme='light'] .qdrawer__min {
+  color: #6b6b75;
+  border-color: #e0e0e5;
+}
+html[data-scheme='light'] .qdrawer__min:hover {
+  color: #1d1d1f;
+  border-color: #c9c9d0;
+  background: rgba(0, 0, 0, 0.04);
+}
 html[data-scheme='light'] .qopt {
   background: #f7f7f9;
   border-color: #dcdce2;

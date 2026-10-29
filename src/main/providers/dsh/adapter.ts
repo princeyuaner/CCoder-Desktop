@@ -1053,12 +1053,15 @@ export class DshProvider implements Provider {
 }
 
 /**
- * 渠道连通性测试：起一个临时 ACP 会话，发一句 ping，等 turn_end。
+ * 渠道连通性测试：起一个临时会话，发一句 ping，等 turn_end。
  *
- * 走完整的 `dsh --profile acp` 链路（含 dshChannelEnv 注入），所以它验证的
- * 是"这个渠道真的能出字"，不是"二进制存在"。临时 workspace 用完即删；
- * DSH_HOME 用用户自己的（`~/.dsh` 优先），这样没填渠道时也能用终端里
- * 已经配好的 Harness 凭据。
+ * 传输层跟着 `DshProvider.start()` 走（默认 Web，`CCCODER_DSH_TRANSPORT=acp`
+ * 时走 ACP），所以它验证的是"这个渠道真的能出字"，不是"二进制存在"。
+ * 临时 workspace 用完即删；DSH_HOME 走渠道自己的目录，和真实会话一致。
+ *
+ * 注意：Web 会话是**懒启动**的 —— host 和 `session_started` 都要等第一次
+ * `send()` 才出现。所以这里必须在 start() 之后立刻 send，不能等
+ * `session_started`，否则两边互相等，永远发不出第一条消息（会卡满 60 秒）。
  */
 export async function testDshChannel(channel: Channel): Promise<ChannelTestResult> {
   const started = Date.now()
@@ -1071,9 +1074,18 @@ export async function testDshChannel(channel: Channel): Promise<ChannelTestResul
   try {
     const message = await new Promise<string>((resolve, reject) => {
       let text = ''
-      let sent = false
-      const timer = setTimeout(
-        () => reject(new Error('60 秒内没有返回（模型或端点没有响应）')),
+      /** 失败轮次是「非 fatal 的 error 事件 + turn_end」，不能只认 fatal */
+      let errorText = ''
+      let settled = false
+      let timer: NodeJS.Timeout | undefined
+      const finish = (fn: () => void): void => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        fn()
+      }
+      timer = setTimeout(
+        () => finish(() => reject(new Error('60 秒内没有返回（模型或端点没有响应）'))),
         60_000
       )
 
@@ -1089,35 +1101,38 @@ export async function testDshChannel(channel: Channel): Promise<ChannelTestResul
         resumeId: null,
         // 不传 dshHome：走渠道自己的 home，测的就是真实会话会用的那个目录
         onEvent: (e) => {
-          if (e.t === 'session_started' && !sent) {
-            sent = true
-            holder.session?.send({ text: 'ping' })
-            return
-          }
           if (e.t === 'text_delta') {
             text += e.text
             return
           }
-          if (e.t === 'turn_end') {
-            clearTimeout(timer)
-            resolve(text.trim() || '连接正常')
+          if (e.t === 'error') {
+            if (e.fatal) {
+              finish(() => reject(new Error(localizeText(mainLocale(), e.message))))
+              return
+            }
+            errorText = localizeText(mainLocale(), e.message)
             return
           }
-          if (e.t === 'error' && e.fatal) {
-            clearTimeout(timer)
-            reject(new Error(localizeText(mainLocale(), e.message)))
+          if (e.t === 'turn_end') {
+            const reply = text.trim()
+            if (reply) finish(() => resolve(reply))
+            else if (errorText) finish(() => reject(new Error(errorText)))
+            else finish(() => resolve('连接正常'))
           }
         },
         onExit: (code, stderr) => {
-          clearTimeout(timer)
-          reject(
-            new Error(
-              `dsh 在测试期间退出（${code ?? 'signal'}）` +
-                (stderr ? `\n${stderr.slice(-400)}` : '')
+          finish(() =>
+            reject(
+              new Error(
+                `dsh 在测试期间退出（${code ?? 'signal'}）` +
+                  (stderr ? `\n${stderr.slice(-400)}` : '')
+              )
             )
           )
         }
       })
+      // 懒启动的 Web 会话：不主动 send 就永远不会有 session_started
+      holder.session.send({ text: 'ping' })
     })
 
     return { ok: true, message, latencyMs: Date.now() - started }

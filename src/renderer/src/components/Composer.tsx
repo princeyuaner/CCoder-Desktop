@@ -641,13 +641,17 @@ export function Composer({
         break
       case 'compact':
         /*
-         * Claude 自己会分发 /compact；Codex 需要 app-server 的
-         * thread/compact/start；dsh 的 ACP 没有这个能力 —— 直接提示，
-         * 不能为了报错先白拉起一个 dsh 进程。
+         * Claude 自己会分发 /compact；Codex 走 app-server 的
+         * thread/compact/start；dsh Web 有 commands/execute（ACP 退路没有
+         * 这个能力，SessionManager 会明确回「不支持」）。
          */
         if (cli === 'claude') onSend({ text: c.name })
-        else if (cli === 'codex') runProviderCommand('compact')
+        else if (cli === 'codex' || cli === 'dsh') runProviderCommand('compact')
         else showToast(t('composer.toast.commandUnsupported'))
+        break
+      case 'provider':
+        // dsh 自己的原生指令（/goal、/export、/feedback…）走 commands/execute
+        runProviderCommand(c.name)
         break
       case 'model':
         setOpenPicker('model')

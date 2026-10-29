@@ -48,6 +48,15 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - **续接历史会话**：打开旧会话后可以继续对话，CLI 侧使用 `--resume` 接回上下文。
 - **权限与提问**：权限审批、`AskUserQuestion` 在界面里直接答复；支持标准 / 接受编辑 / 自动 / 计划 / 免询问 / 绕过等模式。
 
+### Hooks
+
+![Hooks 管理](docs/screenshots/hooks.png)
+
+- 只管理 **Claude Code** 的 Hooks：用户 / 项目 / 本地三档可写，插件 Hook 只读展示。
+- 支持 CLI 2.1 的 **command / prompt / agent / http / mcp_tool** 五种类型和完整的 33 个事件；命令与 HTTP 类型可以直接在表单里试运行。
+- **停用不是写 `enabled:false`**：从 `settings.json` 移除并在应用侧记录指纹，启用时按原样写回；每次写入前自动备份。
+- 按事件分组，支持作用域筛选、搜索、只读标记与安全提示。入口：设置 → 能力 → Hooks 钩子。
+
 ### 对话与执行台
 
 - 流式输出、思考块、工具卡片、代码高亮与 diff。
@@ -96,6 +105,7 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - NSIS 安装版从 GitHub Releases 检查更新；开发模式和便携版自动禁用。
 - 检查到新版本后由用户手动「下载」和「重启并安装」，不会后台偷偷替换。
 - 有会话正在跑时拒绝重启；安装前会收掉所有 CLI 子进程，避免 Windows 上文件被占用。
+- 版本变化后首次启动会弹一次本次更新说明（重点 / 新增 / 改进），同一个版本只弹一次。
 
 ### 诊断日志
 
@@ -318,6 +328,7 @@ src/
 - 会话内查找依赖 **CSS Custom Highlight API**（Chrome 105+）。Electron 33 自带的 Chromium 支持它；如果将来降级到更老的运行时，高亮会静默失效（查找本身、计数和跳转仍然可用）。
 - 拖入的文本文件按 UTF-8 读取。GBK / Shift-JIS 等编码的文本会出现乱码 —— 内置 IDE 的编码选择器不适用于这条路径。
 - 跑完提醒是**应用级**开关，不区分 CLI 或工作区；也不提供「只在窗口最小化时提醒」这类细分条件。
+- Hooks 只覆盖 Claude Code；插件提供的 Hook 只读展示，CLI managed settings 里的 Hook 暂不列出。
 - 应用是 CLI 的 GUI 前端，**不内置模型、不代理请求**；没有安装或登录对应 CLI 时无法开始会话。
 - 安装包未做代码签名，Windows SmartScreen 可能提示「未知发布者」。
 - 历史会话回放受 CLI 记录内容限制：旧记录里没有每轮耗时 / 输出 token，界面会显示 `0 tok` 或只显示「已完成」。
@@ -397,6 +408,15 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - **Resume historical sessions**: continue an old session and the CLI reconnects with `--resume`.
 - **Permissions and questions**: approve permissions and answer `AskUserQuestion` directly in the UI; modes include standard / accept edits / auto / plan / don't ask / bypass.
 
+### Hooks
+
+![Hooks manager](docs/screenshots/hooks.png)
+
+- Manages **Claude Code** hooks only: user / project / local scopes are writable; plugin hooks are shown read-only.
+- Supports the CLI 2.1 hook types — **command / prompt / agent / http / mcp_tool** — and all 33 events. Command and HTTP hooks can be test-run from the form.
+- **Disabling does not write `enabled:false`**: the entry is removed from `settings.json` and fingerprinted in app state, then restored on enable. Every write is backed up first.
+- Grouped by event, with scope filters, search, read-only markers, and a security warning. Settings → Capabilities → Hooks.
+
 ### Chat and run panel
 
 - Streaming output, thinking blocks, tool cards, syntax highlighting, and diffs.
@@ -445,6 +465,7 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - The NSIS installer checks GitHub Releases; disabled in development and portable builds.
 - After an update is found, the user explicitly clicks Download and then Restart & Install; nothing is replaced silently.
 - Restart is refused while a session is running; all CLI child processes are stopped before installing to avoid locked files on Windows.
+- The first launch after a version change shows a one-time release note (highlight / new / improved).
 
 ### Diagnostics
 
@@ -666,6 +687,7 @@ src/
 - Find in conversation relies on the **CSS Custom Highlight API** (Chrome 105+). Electron 33's Chromium supports it; on an older runtime highlights silently disappear while search, counts, and jumping still work.
 - Dropped text files are read as UTF-8. Files in GBK / Shift-JIS and similar encodings come out garbled — the IDE's encoding picker does not apply to this path.
 - The finish alert is an **application-wide** switch: it is not per CLI or per workspace, and there is no narrower condition such as "only when minimized".
+- Hooks cover Claude Code only. Plugin hooks are read-only, and hooks in the CLI's managed settings are not listed yet.
 - The app is a GUI frontend for the CLIs. It **does not bundle models or proxy requests**; without an installed and signed-in CLI you cannot start a session.
 - Installers are not code-signed, so Windows SmartScreen may warn about an unknown publisher.
 - Historical replay is limited by what the CLIs record: older entries may lack per-turn duration / output tokens, in which case the UI shows `0 tok` or only "Completed".

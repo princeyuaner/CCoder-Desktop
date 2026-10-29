@@ -55,6 +55,21 @@ import {
 } from './skills-service'
 import { createSkillNativeContext } from './skills-native'
 import {
+  coerceHookInput,
+  coerceHookTestInput,
+  isWritableHookScope,
+  type HookWritableScope
+} from '../shared/hooks'
+import {
+  createHookNativeContext,
+  hookConfigDir,
+  listHooksNative,
+  removeHookNative,
+  saveHookNative,
+  setHookEnabledNative,
+  testHookNative
+} from './hooks-native'
+import {
   defaultDshHomeForSettings,
   listDshHomeOptions
 } from './providers/dsh/runner'
@@ -1591,6 +1606,7 @@ app.whenReady().then(() => {
   registerSettingsIpc(sessions)
   registerMcpIpc(sessions)
   registerSkillsIpc()
+  registerHooksIpc()
   registerClaudeAuthIpc()
   // CLI 版本检查 / 更新：状态归主进程，设置页与导航标记都订它
   initCliUpdate({ emit: (e) => broadcast(IPC.cliUpdateEvent, e) })
@@ -1655,3 +1671,108 @@ app.on('window-all-closed', () => {
   logMain('app', 'window-all-closed')
   if (process.platform !== 'darwin') app.quit()
 })
+
+/**
+ * Claude Code Hooks：用户 / 项目 / 本地可写，插件只读。
+ *
+ * 和 MCP / Skills 一样，渲染层不传文件路径；主进程按 scope + 当前工作区
+ * 计算目标文件，并在写入前校验 cwd 是已打开的工作区。
+ */
+function registerHooksIpc(): void {
+  const cwdOf = (raw: unknown): string => (typeof raw === 'string' ? raw.slice(0, 4096) : '')
+
+  const context = (): ReturnType<typeof createHookNativeContext> =>
+    createHookNativeContext({
+      backupRoot: join(app.getPath('userData'), 'hooks-backups'),
+      disabledPath: join(app.getPath('userData'), 'hooks-disabled.json')
+    })
+
+  const assertKnownCwd = (cwd: string): void => {
+    if (!cwd.trim()) throw new Error(t('hook.error.cwdRequired'))
+    const settings = loadSettings()
+    const known = [settings.defaultCwd, ...settings.openedCwds].filter(Boolean)
+    if (!known.some((k) => pathKey(k) === pathKey(cwd))) {
+      throw new Error(t('hook.error.cwdNotAllowed'))
+    }
+    try {
+      if (!statSync(cwd).isDirectory()) throw new Error('not a directory')
+    } catch {
+      throw new Error(t('hook.error.cwdNotAllowed'))
+    }
+  }
+
+  const scopeOf = (raw: unknown): HookWritableScope => {
+    if (!isWritableHookScope(raw)) throw new Error(t('hook.error.invalidScope'))
+    return raw
+  }
+
+  ipcMain.handle(IPC.hooksList, (_e, cwdRaw: unknown) =>
+    listHooksNative(cwdOf(cwdRaw), context())
+  )
+
+  ipcMain.handle(
+    IPC.hooksSave,
+    (_e, inputRaw: unknown, cwdRaw: unknown) => {
+      const cwd = cwdOf(cwdRaw)
+      const input = coerceHookInput(inputRaw)
+      if (!input) throw new Error(t('hook.error.invalidInput'))
+      if (input.scope !== 'user') assertKnownCwd(input.cwd || cwd)
+      return saveHookNative(input, cwd, context())
+    }
+  )
+
+  ipcMain.handle(
+    IPC.hooksRemove,
+    (_e, idRaw: unknown, cwdRaw: unknown) => {
+      const cwd = cwdOf(cwdRaw)
+      if (cwd) assertKnownCwd(cwd)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      return removeHookNative(id, cwd, context())
+    }
+  )
+
+  ipcMain.handle(
+    IPC.hooksSetEnabled,
+    (_e, idRaw: unknown, enabledRaw: unknown, cwdRaw: unknown) => {
+      const cwd = cwdOf(cwdRaw)
+      if (cwd) assertKnownCwd(cwd)
+      const id = typeof idRaw === 'string' ? idRaw : ''
+      return setHookEnabledNative(id, enabledRaw === true, cwd, context())
+    }
+  )
+
+  ipcMain.handle(IPC.hooksTest, async (_e, inputRaw: unknown) => {
+    const input = coerceHookTestInput(inputRaw)
+    if (!input) throw new Error(t('hook.error.invalidInput'))
+    if (input.scope !== 'user') assertKnownCwd(input.cwd)
+    return testHookNative(input, context())
+  })
+
+  ipcMain.handle(
+    IPC.hooksOpenConfig,
+    async (_e, scopeRaw: unknown, cwdRaw: unknown) => {
+      const scope = scopeOf(scopeRaw)
+      const cwd = cwdOf(cwdRaw)
+      if (scope !== 'user') assertKnownCwd(cwd)
+      const dir = hookConfigDir(scope, cwd, context())
+      try {
+        mkdirSync(dir, { recursive: true })
+      } catch {
+        // openPath 会给出具体错误
+      }
+      const err = await shell.openPath(dir)
+      return err ? { ok: false, error: err } : { ok: true }
+    }
+  )
+
+  ipcMain.handle(IPC.hooksOpenBackups, async () => {
+    const dir = join(app.getPath('userData'), 'hooks-backups')
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      // openPath 会给出具体错误
+    }
+    const err = await shell.openPath(dir)
+    return err ? { ok: false, error: err } : { ok: true }
+  })
+}

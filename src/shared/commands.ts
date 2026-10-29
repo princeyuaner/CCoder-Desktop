@@ -16,6 +16,8 @@ export type CommandAction =
   | 'help'
   | 'plan'
   | 'insert'
+  /** 交给 ProviderSession.command() 执行（dsh 的 /goal、/export 等） */
+  | 'provider'
   | 'none'
 
 /**

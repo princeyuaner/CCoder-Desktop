@@ -47,6 +47,7 @@ import { CodexStatusPanel } from './CodexStatusPanel'
 import { DshStatusPanel } from './DshStatusPanel'
 import { McpManagerPage } from './McpManagerPage'
 import { SkillsManagerPage } from './SkillsManagerPage'
+import { HooksManagerPage } from './HooksManagerPage'
 import { IconChevronLeft, IconPlus } from './Icons'
 
 /** 设置页的几类页面：某个 CLI 的渠道配置、与 CLI 无关的系统设置，或关于/更新 */
@@ -55,6 +56,7 @@ type Page =
   | { kind: 'general' }
   | { kind: 'permissions' }
   | { kind: 'mcp' }
+  | { kind: 'hooks' }
   | { kind: 'skills' }
   | { kind: 'about' }
 
@@ -319,9 +321,15 @@ export function SettingsPage({
         </button>
         <h1 className="settings__title">{t('settings.title')}</h1>
         <div className="settings__head-right">
-          {page.kind === 'mcp' || page.kind === 'skills' ? (
+          {page.kind === 'mcp' || page.kind === 'skills' || page.kind === 'hooks' ? (
             <span className="saved-flash is-busy">
-              {t(page.kind === 'mcp' ? 'mcp.saveHint' : 'skill.saveHint')}
+              {t(
+                page.kind === 'mcp'
+                  ? 'mcp.saveHint'
+                  : page.kind === 'skills'
+                    ? 'skill.saveHint'
+                    : 'hook.list.sub'
+              )}
             </span>
           ) : saveState === 'error' ? (
             <>
@@ -351,8 +359,13 @@ export function SettingsPage({
           <NavItem active={page.kind === 'permissions'} onClick={() => setPage({ kind: 'permissions' })}>
             {t('settings.nav.permissions')}
           </NavItem>
+
+          <div className="settings__navgroup">{t('settings.nav.capability')}</div>
           <NavItem active={page.kind === 'mcp'} onClick={() => setPage({ kind: 'mcp' })}>
             {t('settings.nav.mcp')}
+          </NavItem>
+          <NavItem active={page.kind === 'hooks'} onClick={() => setPage({ kind: 'hooks' })}>
+            {t('settings.nav.hooks')}
           </NavItem>
           <NavItem active={page.kind === 'skills'} onClick={() => setPage({ kind: 'skills' })}>
             {t('settings.nav.skills')}
@@ -379,12 +392,13 @@ export function SettingsPage({
             </NavItem>
           ))}
 
+          <div className="settings__navgroup">{t('settings.nav.other')}</div>
           <NavItem active={page.kind === 'about'} onClick={() => setPage({ kind: 'about' })}>
             {t('settings.nav.about')}
           </NavItem>
         </nav>
 
-        <div className={`settings__content${page.kind === 'mcp' || page.kind === 'skills' ? ' settings__content--wide' : ''}`}>
+        <div className={`settings__content${page.kind === 'mcp' || page.kind === 'skills' || page.kind === 'hooks' ? ' settings__content--wide' : ''}`}>
           {page.kind === 'cli' && cfg && (
             <>
               {page.id === 'codex' && (
@@ -582,6 +596,13 @@ export function SettingsPage({
 
           {page.kind === 'skills' && (
             <SkillsManagerPage
+              cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+              openedCwds={draft.openedCwds}
+            />
+          )}
+
+          {page.kind === 'hooks' && (
+            <HooksManagerPage
               cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
               openedCwds={draft.openedCwds}
             />

@@ -9,11 +9,13 @@ import { MainPane } from './components/MainPane'
 import { NewSessionDialog } from './components/NewSessionDialog'
 import { SettingsPage } from './components/SettingsPage'
 import { ConfirmModal } from './components/ConfirmModal'
+import { WhatsNewModal } from './components/WhatsNewModal'
 import { baseName, cwdKey } from '@shared/path'
 import { useSessions, type WorkspaceView } from './useSessions'
 import { metaOf, useSessionMeta } from './useSessionMeta'
 import { useWorktreeMap } from './useWorktreeMap'
 import { useSettings } from './useSettings'
+import { useWhatsNew } from './useWhatsNew'
 import { configureDoneNotify } from './done-notify'
 import { useUpdater } from './useUpdater'
 import { applyAppearance } from './appearance'
@@ -25,8 +27,10 @@ import './styles/chat.css'
 import './styles/settings.css'
 import './styles/mcp.css'
 import './styles/skills.css'
+import './styles/hooks.css'
 import './styles/panel.css'
 import './styles/update.css'
+import './styles/whats-new.css'
 import './styles/search.css'
 import './styles/newsession.css'
 /* 浅色覆盖必须最后加载（或靠选择器权重压过组件样式），这里放最后一行 */
@@ -96,6 +100,8 @@ export function App(): JSX.Element {
   } = useSessions(activeStoredId)
   const { settings, save } = useSettings()
   const updater = useUpdater()
+  /** 版本号变化后，启动时弹一次本次更新说明 */
+  const whatsNew = useWhatsNew(updater.state?.currentVersion)
   /** 重命名 / 置顶 / 归档 / 会话级模型 —— 应用本地元数据，不写回 CLI 记录 */
   const { meta, loading: metaLoading, update: updateSessionMeta } = useSessionMeta()
   /**
@@ -801,6 +807,13 @@ export function App(): JSX.Element {
             )}
           </div>
         </ConfirmModal>
+      )}
+      {whatsNew.pending && (
+        <WhatsNewModal
+          release={whatsNew.pending.release}
+          welcome={whatsNew.pending.welcome}
+          onClose={whatsNew.dismiss}
+        />
       )}
     </div>
   )

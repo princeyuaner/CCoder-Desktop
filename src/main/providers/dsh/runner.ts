@@ -264,6 +264,24 @@ export function dshHomePathForChannel(channelId: string): string {
 }
 
 /**
+ * 实际用来拉起 dsh 的 home（$DSH_HOME 优先），**不创建目录**。
+ *
+ * 历史扫描必须和 spawn 用同一个目录，否则自定义 DSH_HOME 下写出来的
+ * 会话在侧栏里永远看不到。这里刻意不 mkdir：列表/搜索是只读路径，
+ * 不能因为打开侧栏就凭空建目录。
+ */
+export function activeDshHome(): string {
+  const explicit = process.env.DSH_HOME?.trim()
+  if (explicit) return resolve(explicit)
+  /*
+   * 用户很可能已经在终端里跑过 dsh：`~/.dsh` 是它的默认 home，凭据、
+   * 插件、会话都躺在里面。official 模式共享它，用的就是同一套凭据。
+   */
+  const shared = sharedDshHome()
+  return existsSync(shared) ? shared : appDshHome()
+}
+
+/**
  * 选一个显式的 DSH_HOME。
  *
  * 文档要求调用方显式给 home；这里优先用调用方给的目录，其次 $DSH_HOME，
@@ -277,15 +295,8 @@ export function ensureDshHome(override?: string): string {
     return home
   }
 
-  /*
-   * 用户很可能已经在终端里跑过 dsh：`~/.dsh` 是它的默认 home，凭据、
-   * 插件、会话都躺在里面。official 模式共享它，用的就是同一套凭据。
-   */
-  const shared = sharedDshHome()
-  if (existsSync(shared)) return shared
-
-  const home = appDshHome()
-  mkdirSync(home, { recursive: true })
+  const home = activeDshHome()
+  if (home === appDshHome()) mkdirSync(home, { recursive: true })
   return home
 }
 
@@ -347,9 +358,10 @@ export function dshHomeForChannel(channel: { id?: string } | null | undefined): 
 }
 
 /**
- * 所有可能放着 dsh 会话的 home：共享 home、旧版 fallback、每个渠道。
+ * 所有可能放着 dsh 会话的 home：**实际使用的 home**（$DSH_HOME 优先）、
+ * 共享 home、旧版 fallback、每个渠道。
  *
- * 顺序固定（共享 → fallback → 渠道按名排序）—— 历史列表和
+ * 顺序固定（active → 共享 → fallback → 渠道按名排序）—— 历史列表和
  * `findDshHomeForSession` 必须用同一顺序，否则同一条会话可能指到不同目录。
  */
 export function listDshHomes(): string[] {
@@ -363,6 +375,8 @@ export function listDshHomes(): string[] {
     out.push(p)
   }
 
+  // $DSH_HOME 存在时 spawn 写的是它，不是 ~/.dsh —— 不扫这里历史就丢了
+  push(activeDshHome())
   push(sharedDshHome())
   push(appDshHome())
 

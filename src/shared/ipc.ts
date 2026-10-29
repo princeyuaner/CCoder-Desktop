@@ -34,6 +34,14 @@ import type {
   SkillMutationResult,
   SkillScope
 } from './skills'
+import type {
+  HookInput,
+  HookListResult,
+  HookMutationResult,
+  HookTestInput,
+  HookTestResult,
+  HookWritableScope
+} from './hooks'
 import type { AgentEvent, PermissionMode } from './events'
 import type {
   PermissionDecision,
@@ -167,6 +175,15 @@ export const IPC = {
   skillsOpenFile: 'skills:open-file',
   skillsOpenResource: 'skills:open-resource',
   skillsOpenBackups: 'skills:open-backups',
+
+  /* ── Claude Code Hooks（插件只读） ─────────────────────── */
+  hooksList: 'hooks:list',
+  hooksSave: 'hooks:save',
+  hooksRemove: 'hooks:remove',
+  hooksSetEnabled: 'hooks:set-enabled',
+  hooksTest: 'hooks:test',
+  hooksOpenConfig: 'hooks:open-config',
+  hooksOpenBackups: 'hooks:open-backups',
 
   /** 渲染进程 → 主进程：未捕获错误 / Promise 拒绝，只用于写本地日志 */
   rendererLog: 'log:renderer',
@@ -453,6 +470,25 @@ export interface WindowApi {
       rel: string,
       cwd: string,
       dshHome?: string
+    ): Promise<{ ok: boolean; error?: string }>
+    openBackups(): Promise<{ ok: boolean; error?: string }>
+  }
+
+  /**
+   * Claude Code Hooks。
+   *
+   * 用户 / 项目 / 本地可写；插件 Hook 只读。禁用不是往 settings.json
+   * 写 enabled:false，而是从文件移除并由主进程记录指纹，启用时写回。
+   */
+  hooks: {
+    list(cwd: string): Promise<HookListResult>
+    save(input: HookInput, cwd: string): Promise<HookMutationResult>
+    remove(id: string, cwd: string): Promise<HookMutationResult>
+    setEnabled(id: string, enabled: boolean, cwd: string): Promise<HookMutationResult>
+    test(input: HookTestInput): Promise<HookTestResult>
+    openConfig(
+      scope: HookWritableScope,
+      cwd: string
     ): Promise<{ ok: boolean; error?: string }>
     openBackups(): Promise<{ ok: boolean; error?: string }>
   }

@@ -140,6 +140,11 @@ export class DshWebHost {
   private rejectOnline: ((e: Error) => void) | null = null
   private reconnecting = false
   private closing = false
+  /** 配置变化后从池里退下来：不再复用，但已有会话继续跑 */
+  private retired = false
+  private closedNotified = false
+  /** host 真正关闭时通知池做清理（retired 的实例不在 hosts 里） */
+  onClosed?: () => void
   private processExited = false
   private stderr = ''
   private refs = 0
@@ -536,6 +541,7 @@ export class DshWebHost {
     for (const session of this.sessions.values()) session.onHostExit(code, stderr)
     this.sessions.clear()
     if (hosts.get(this.key) === this) hosts.delete(this.key)
+    this.notifyClosed()
   }
 
   /* ── 流 ────────────────────────────────────────────────── */
@@ -814,11 +820,31 @@ export class DshWebHost {
 
   unref(): void {
     this.refs = Math.max(0, this.refs - 1)
-    if (this.refs > 0 || this.closing) return
+    if (this.refs > 0) return
+    // 已退池（配置变了）的 host 不再等空闲超时：最后一个会话放手就关
+    if (this.retired) {
+      this.shutdown()
+      return
+    }
+    if (this.closing) return
     this.idleTimer = setTimeout(() => {
       if (this.refs === 0) this.shutdown()
     }, IDLE_SHUTDOWN_MS)
     this.idleTimer.unref?.()
+  }
+
+  /**
+   * 从 host 池里退下来，但**不立刻关闭**。
+   *
+   * 渠道 key / MCP patch 变了时，新会话必须用新进程；可旧进程里可能还有
+   * 别的会话正在跑这一轮。直接 shutdown 会把它们连同 in-flight 的 turn
+   * 一起掐掉（还会给它们弹「服务已关闭」的错误卡）。所以旧 host 只是不再
+   * 被池复用，让已有会话继续跑；最后一个会话 unref 之后自然关闭。
+   */
+  retire(): void {
+    if (this.closing || this.retired) return
+    this.retired = true
+    if (this.refs === 0) this.shutdown()
   }
 
   shutdown(): void {
@@ -843,6 +869,13 @@ export class DshWebHost {
     this.sessions.clear()
     if (hosts.get(this.key) === this) hosts.delete(this.key)
     logMain('dsh.web.shutdown', { home: this.o.home, uptimeMs: Date.now() - this.startedAt })
+    this.notifyClosed()
+  }
+
+  private notifyClosed(): void {
+    if (this.closedNotified) return
+    this.closedNotified = true
+    this.onClosed?.()
   }
 
   private killProcess(): void {
@@ -869,6 +902,11 @@ export class DshWebHost {
 /* ── host 池 ─────────────────────────────────────────────── */
 
 const hosts = new Map<string, DshWebHost>()
+/**
+ * 所有还活着的 host（含已退池、仍在服务旧会话的实例）。
+ * retired 的实例不在 hosts 里，退出时必须靠这张表一起收掉。
+ */
+const liveHosts = new Set<DshWebHost>()
 
 export function getDshWebHost(o: DshHostOptions): DshWebHost {
   const key = pathKey(o.home)
@@ -877,20 +915,27 @@ export function getDshWebHost(o: DshHostOptions): DshWebHost {
   if (existing && !existing.isClosed && existing.fingerprint === fingerprint) {
     return existing
   }
-  // 渠道 key / MCP patch 变了：旧进程读不到新配置，换一个。
-  // 先登记新 host，再关旧 host —— 旧会话的 onExit 可能同步触发 flushQueue，
-  // 那时它必须拿到已经换好的新实例，而不是再拉起第三个进程。
+  /*
+   * 渠道 key / MCP patch 变了：新会话必须用新进程，旧进程读不到新配置。
+   * 但旧进程里可能还有别的会话正在跑 —— 这里只把它「退池」，不立刻关：
+   * 已有会话继续用旧配置跑完，最后一个 unref 时 host 自己 shutdown。
+   * 直接关会中断别的会话的 turn，并给它们弹「服务已关闭」的错误卡。
+   */
   const host = new DshWebHost(o, fingerprint)
+  liveHosts.add(host)
+  host.onClosed = () => liveHosts.delete(host)
   hosts.set(key, host)
-  if (existing && !existing.isClosed) existing.shutdown()
+  if (existing && !existing.isClosed) existing.retire()
   // 启动失败就把池里的坏实例拿掉，下一次 send 重新拉起
   void host.ready.catch(() => {
     if (hosts.get(key) === host) hosts.delete(key)
+    liveHosts.delete(host)
   })
   return host
 }
 
 export function disposeAllDshWebHosts(): void {
-  for (const host of [...hosts.values()]) host.shutdown()
+  for (const host of [...liveHosts]) host.shutdown()
   hosts.clear()
+  liveHosts.clear()
 }

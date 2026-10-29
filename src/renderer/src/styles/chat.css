@@ -2088,6 +2088,104 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 收起：只留标题栏那一行，把高度还给转写区。整条就是一个按钮 */
+.qdrawer--min {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  text-align: left;
+}
+.qdrawer--min:hover {
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.05);
+}
+.qdrawer--min:focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.55);
+  outline-offset: 2px;
+}
+.qdrawer--min__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22d3ee;
+  animation: qdrawer-pulse 1.8s ease-out infinite;
+}
+@keyframes qdrawer-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(34, 211, 238, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+  }
+}
+.qdrawer--min .qdrawer__badge {
+  padding: 1px 8px;
+  font-size: 11px;
+}
+.qdrawer--min .qdrawer__chip {
+  flex: none;
+}
+.qdrawer--min .qdrawer__n,
+.qdrawer--min .qdrawer__queue {
+  color: #8a8a9a;
+}
+.qdrawer--min__q {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: #e2e2ec;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qdrawer--min__cta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #a5f3fc;
+}
+.qdrawer--min__chev {
+  width: 10px;
+  height: 10px;
+  transform: rotate(180deg);
+}
+
+/* 展开态的「收起」—— 放在进度后面，用文字而不是纯图标，降低发现成本 */
+.qdrawer__min {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #6b6b78;
+  border: 1px solid #2c2c34;
+  border-radius: 6px;
+}
+.qdrawer__min:hover {
+  color: #b9b9c8;
+  border-color: #3a3a46;
+  background: rgba(255, 255, 255, 0.04);
+}
+.qdrawer__min-ic {
+  width: 10px;
+  height: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .qdrawer,
+  .qdrawer--min__dot {
+    animation: none;
+  }
+}
+
 .qdrawer__b {
   max-height: min(44vh, 360px);
   overflow: auto;

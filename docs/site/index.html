@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#07080a" />
+<title>CCoder — 三个编码智能体，一个驾驶舱</title>
+<meta name="description" content="CCoder Desktop 把 Claude Code、Codex CLI 与 DeepSeek Harness 装进同一个桌面窗口。多会话并行、子代理执行台、独立 IDE、Git / SVN、MCP 与九套配色。" />
+<meta property="og:title" content="CCoder — 三个编码智能体，一个驾驶舱" />
+<meta property="og:description" content="把 Claude Code、Codex CLI 与 DeepSeek Harness 装进一个桌面窗口。" />
+<meta property="og:image" content="assets/chat.png" />
+<link rel="icon" href="assets/icon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<noscript><style>.reveal { opacity: 1; transform: none; }</style></noscript>
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="site-head" id="siteHead">
+  <div class="scroll-progress" aria-hidden="true"><span id="progressBar"></span></div>
+  <div class="nav-wrap">
+    <a class="brand" href="#top" aria-label="CCoder 首页">
+      <img class="brand-icon" src="assets/icon.png" alt="" width="30" height="30" />
+      <span class="brand-name">CCoder</span>
+      <span class="brand-tag">DESKTOP</span>
+    </a>
+    <nav class="nav-links" aria-label="页面导航">
+      <a href="#engines">引擎</a>
+      <a href="#deck">执行台</a>
+      <a href="#workspace">工作台</a>
+      <a href="#themes">配色</a>
+    </nav>
+    <div class="nav-right">
+      <span class="nav-ver">v1.2.7</span>
+      <a class="btn btn-primary btn-sm" href="#download">下载 <span aria-hidden="true">↓</span></a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- HERO -->
+  <section class="hero" id="top">
+    <div class="hero-aura" aria-hidden="true">
+      <i class="aura aura-coral"></i>
+      <i class="aura aura-peri"></i>
+      <i class="aura aura-mint"></i>
+    </div>
+    <div class="hero-grid" aria-hidden="true"></div>
+    <div class="hero-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+
+    <div class="wrap hero-wrap">
+      <div class="hero-copy">
+        <p class="eyebrow hero-eyebrow">
+          <span class="pulse" aria-hidden="true"></span>
+          <span class="eyebrow-main">Desktop cockpit for coding agents</span>
+          <span class="eyebrow-tail"><span class="eyebrow-sep">/</span> Windows · x64</span>
+        </p>
+        <h1 class="hero-title">
+          <span class="line-1">三个编码智能体，</span>
+          <span class="line-2">一个驾驶舱。</span>
+        </h1>
+        <p class="hero-lede">
+          <span class="lede-line">把 <strong>Claude Code</strong>、<strong>Codex CLI</strong> 与 <strong>DeepSeek Harness</strong> 装进同一个桌面窗口。</span>
+          <span class="lede-line">多会话并行、子代理进度、独立 IDE、Git / SVN 与九套配色，全部收进一块控制台。</span>
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-lg" href="#download">下载 Windows 版 <span class="btn-arrow" aria-hidden="true">↓</span></a>
+          <a class="btn btn-ghost btn-lg" href="#deck">看看它怎么跑 <span class="btn-arrow" aria-hidden="true">↘</span></a>
+        </div>
+        <p class="hero-micro">v1.2.7 · 安装版 / 便携版 · 约 85 MB · 首次启动自动检测已安装的 CLI</p>
+      </div>
+
+      <div class="stage">
+        <div class="fleet" aria-label="三条 CLI 链路示意">
+          <div class="fleet-label">
+            <span class="pulse" aria-hidden="true"></span>
+            FLEET <b>03</b> ONLINE
+            <span class="fleet-sub">/ 界面示意</span>
+          </div>
+          <div class="fleet-nodes">
+            <div class="fnode" style="--node: var(--coral)">
+              <span class="fmono">C</span>
+              <span class="fnode-text"><b>Claude Code</b><i>编辑 src/server.ts <em>+8</em></i></span>
+              <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </div>
+            <div class="fnode" style="--node: var(--peri)">
+              <span class="fmono">X</span>
+              <span class="fnode-text"><b>Codex CLI</b><i>运行 npm test · 00:19</i></span>
+              <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </div>
+            <div class="fnode" style="--node: var(--mint)">
+              <span class="fmono">D</span>
+              <span class="fnode-text"><b>DeepSeek Harness</b><i>子代理 3 个运行中</i></span>
+              <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </div>
+          </div>
+        </div>
+
+        <figure class="stage-figure" id="stageFigure">
+          <div class="hud-corner tl" aria-hidden="true"></div>
+          <div class="hud-corner tr" aria-hidden="true"></div>
+          <div class="hud-corner bl" aria-hidden="true"></div>
+          <div class="hud-corner br" aria-hidden="true"></div>
+
+          <div class="window stage-window">
+            <div class="window-bar">
+              <div class="win-left">
+                <img src="assets/icon.png" alt="" width="16" height="16" />
+                <span class="win-app">CCoder</span>
+                <span class="win-slash">/</span>
+                <span class="win-title">ccoder-demo</span>
+                <span class="win-state"><span class="live-dot" aria-hidden="true"></span>1 个会话运行中</span>
+              </div>
+              <div class="win-right" aria-hidden="true">
+                <span class="win-ctrl">—</span><span class="win-ctrl">□</span><span class="win-ctrl">×</span>
+              </div>
+            </div>
+            <div class="window-body">
+              <img src="assets/chat.png" alt="CCoder 主界面：左侧工作区与会话列表，中间对话，右侧执行台显示任务清单与子代理进度" />
+              <div class="scan" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <div class="callout callout-a">
+            <span class="callout-k mono">执行台</span>
+            <span class="callout-v">5 / 6 任务</span>
+            <span class="callout-bar" aria-hidden="true"><i style="--w:83%"></i></span>
+          </div>
+          <div class="callout callout-b">
+            <span class="callout-k mono">本轮改动</span>
+            <span class="callout-v"><em class="add">+62</em> <em class="del">−29</em></span>
+            <span class="callout-k mono">3 个文件</span>
+          </div>
+        </figure>
+
+        <div class="stage-spec" aria-label="产品规格">
+          <div class="spec"><b>03</b><span>CLI 链路</span></div>
+          <div class="spec"><b>01</b><span>独立 IDE</span></div>
+          <div class="spec"><b>09</b><span>套配色</span></div>
+          <div class="spec"><b>08+</b><span>语言服务器</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-track">
+      <span>Claude Code <i>/</i> Codex CLI <i>/</i> DeepSeek Harness <i>/</i> LSP <i>/</i> MCP <i>/</i> Git <i>/</i> SVN <i>/</i> Skills <i>/</i></span>
+      <span>Claude Code <i>/</i> Codex CLI <i>/</i> DeepSeek Harness <i>/</i> LSP <i>/</i> MCP <i>/</i> Git <i>/</i> SVN <i>/</i> Skills <i>/</i></span>
+    </div>
+  </div>
+
+  <!-- ENGINES -->
+  <section class="section engines" id="engines">
+    <div class="wrap">
+      <header class="sec-head reveal">
+        <p class="eyebrow">// 引擎</p>
+        <h2>三条链路，<span class="dim">互不打扰。</span></h2>
+        <p class="lead">三家 CLI 的协议、渠道、模型与凭据完全隔离。可以在一个窗口里同时跑，也可以让它们各自守着一块工作区。</p>
+      </header>
+
+      <div class="engine-grid">
+        <article class="engine reveal" style="--accent: var(--coral)">
+          <div class="engine-top">
+            <span class="engine-mono">C</span>
+            <div class="engine-id">
+              <h3>Claude Code</h3>
+              <span class="engine-code mono">CH / 01</span>
+            </div>
+            <span class="engine-state"><i aria-hidden="true"></i>独立通道</span>
+          </div>
+          <p class="engine-desc">Anthropic 协议。直接用 CLI 自己的 OAuth 登录，或接任意兼容端点；思考深度还能按会话单独覆盖。</p>
+          <dl class="engine-spec">
+            <div><dt>协议</dt><dd>Anthropic</dd></div>
+            <div><dt>会话</dt><dd class="mono">~/.claude/projects</dd></div>
+            <div><dt>凭据</dt><dd>OAuth / API 渠道</dd></div>
+          </dl>
+          <div class="engine-tags"><span>权限审批</span><span>AskUserQuestion</span><span>续接历史</span></div>
+        </article>
+
+        <article class="engine reveal" style="--accent: var(--peri); --d: .08s">
+          <div class="engine-top">
+            <span class="engine-mono">X</span>
+            <div class="engine-id">
+              <h3>Codex CLI</h3>
+              <span class="engine-code mono">CH / 02</span>
+            </div>
+            <span class="engine-state"><i aria-hidden="true"></i>独立通道</span>
+          </div>
+          <p class="engine-desc">OpenAI 协议。渠道、主模型与 small / fast 模型分别配置，和另外两条链路互不串台。</p>
+          <dl class="engine-spec">
+            <div><dt>协议</dt><dd>OpenAI</dd></div>
+            <div><dt>会话</dt><dd class="mono">~/.codex/sessions</dd></div>
+            <div><dt>凭据</dt><dd>API 渠道</dd></div>
+          </dl>
+          <div class="engine-tags"><span>审批</span><span>续接历史</span><span>模型覆盖</span></div>
+        </article>
+
+        <article class="engine reveal" style="--accent: var(--mint); --d: .16s">
+          <div class="engine-top">
+            <span class="engine-mono">D</span>
+            <div class="engine-id">
+              <h3>DeepSeek Harness</h3>
+              <span class="engine-code mono">CH / 03</span>
+            </div>
+            <span class="engine-state"><i aria-hidden="true"></i>独立通道</span>
+          </div>
+          <p class="engine-desc">Web 协议直连 dsh，模型目录由 Harness 自己返回。审批和提问都能在界面里答，不靠终端模拟。</p>
+          <dl class="engine-spec">
+            <div><dt>协议</dt><dd>Web / ACP</dd></div>
+            <div><dt>会话</dt><dd class="mono">~/.dsh/sessions</dd></div>
+            <div><dt>凭据</dt><dd>Harness / API</dd></div>
+          </dl>
+          <div class="engine-tags"><span>子代理</span><span>计划审阅</span><span>界面提问</span></div>
+        </article>
+      </div>
+
+      <div class="history-note reveal">
+        <div class="history-copy">
+          <strong>历史不用导入。</strong>
+          <span>CCoder 直接读 CLI 自己的会话记录——终端里聊过的，窗口里接着聊。</span>
+        </div>
+        <div class="history-paths" aria-label="会话存储位置">
+          <span class="path-chip mono">~/.claude/projects</span>
+          <span class="path-chip mono">~/.codex/sessions</span>
+          <span class="path-chip mono">~/.dsh/sessions</span>
+          <span class="path-arrow" aria-hidden="true">→</span>
+          <span class="path-end mono">ONE HISTORY</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- EXECUTION DECK -->
+  <section class="section deck" id="deck">
+    <div class="wrap deck-grid">
+      <div class="deck-copy reveal">
+        <p class="eyebrow">// 执行台</p>
+        <h2>不只看输出，<br /><span class="dim">看它怎么跑。</span></h2>
+        <p class="lead">任务清单、子代理、工具次数、token、耗时和完整报告收在右侧。对话区只留真正的对话、思考块和工具卡片。</p>
+        <ul class="ticks">
+          <li><span class="tick" aria-hidden="true"></span><span><b>任务清单</b>随 TodoWrite / TaskCreate 实时推进</span></li>
+          <li><span class="tick" aria-hidden="true"></span><span><b>子代理</b>独立进度，跑完可打开完整报告</span></li>
+          <li><span class="tick" aria-hidden="true"></span><span><b>本轮统计</b>步数、增删行、上下文、缓存命中</span></li>
+          <li><span class="tick" aria-hidden="true"></span><span><b>跑完提醒</b>系统通知，点一下回到那条会话</span></li>
+        </ul>
+        <div class="deck-stats">
+          <div><b>5/6</b><span>任务</span></div>
+          <div><b>3</b><span>子代理</span></div>
+          <div><b>61%</b><span>缓存命中</span></div>
+        </div>
+      </div>
+
+      <figure class="deck-figure reveal">
+        <div class="deck-glow" aria-hidden="true"></div>
+        <div class="window deck-window">
+          <div class="window-bar">
+            <div class="win-left">
+              <img src="assets/icon.png" alt="" width="16" height="16" />
+              <span class="win-app">CCoder</span>
+              <span class="win-slash">/</span>
+              <span class="win-title">重构会话校验与 token 刷新</span>
+            </div>
+            <div class="win-right"><span class="live-badge"><i aria-hidden="true"></i>LIVE</span></div>
+          </div>
+          <div class="window-body">
+            <img src="assets/execution.png" alt="CCoder 执行台：本轮进度、任务清单、三个子代理的运行状态与完整报告入口" />
+            <div class="scan" aria-hidden="true"></div>
+          </div>
+        </div>
+        <figcaption class="figure-cap mono"><span>EXECUTION DECK</span><span>3 子代理 · 实时</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- WORKSPACE / BENTO -->
+  <section class="section workspace" id="workspace">
+    <div class="wrap">
+      <header class="sec-head reveal">
+        <p class="eyebrow">// 工作台</p>
+        <h2>窗口以内，<span class="dim">都是你的工作台。</span></h2>
+        <p class="lead">独立 IDE、版本控制、MCP、技能、改动审阅和自动更新——不用切出去找工具。</p>
+      </header>
+
+      <div class="bento">
+        <article class="card c7 reveal">
+          <div class="card-head">
+            <span class="card-tag mono">IDE</span>
+            <h3>独立 IDE</h3>
+            <p>一个工作区一个窗口。Monaco、LSP、多标签、内置终端与崩溃恢复都在里面。</p>
+          </div>
+          <div class="card-media">
+            <img src="assets/ide.png" alt="CCoder 独立 IDE 窗口：文件树、Monaco 编辑器、与 HEAD 比较的缩略图" />
+          </div>
+          <div class="card-chips"><span>Monaco</span><span>LSP</span><span>内置终端</span><span>崩溃恢复</span></div>
+        </article>
+
+        <article class="card c5 reveal" style="--d: .06s">
+          <div class="card-head">
+            <span class="card-tag mono">MCP</span>
+            <h3>把外部工具接进来</h3>
+            <p>GitHub、Playwright、Postgres 按服务器开关，只把当前任务需要的工具带进上下文。</p>
+          </div>
+          <div class="card-media card-media--mcp">
+            <img src="assets/mcp.png" alt="CCoder MCP 服务器管理界面：服务器列表、连接状态与工具开关" />
+          </div>
+          <div class="card-chips"><span>HTTP / STDIO</span><span>逐工具开关</span><span>延迟探测</span></div>
+        </article>
+
+        <article class="card c5 reveal">
+          <div class="card-head">
+            <span class="card-tag mono">SKILLS</span>
+            <h3>把工作流存成技能</h3>
+            <p>斜杠一敲就调用。Claude、Codex 与 DSH 的技能各自管理，也能从目录里直接装。</p>
+          </div>
+          <div class="card-media card-media--skills">
+            <img src="assets/skills.png" alt="CCoder 技能管理界面：按 CLI 分组，显示技能详情、触发方式与文件资源" />
+          </div>
+          <div class="card-chips"><span>SKILL.md</span><span>斜杠命令</span><span>自动触发</span></div>
+        </article>
+
+        <article class="card c7 reveal" style="--d: .06s">
+          <div class="card-head">
+            <span class="card-tag mono">VCS</span>
+            <h3>Git 与 SVN，一套面板</h3>
+            <p>按工作区自动识别仓库类型。stage、diff、提交、冲突解决、fetch / pull / push 和 worktree 都在这里。</p>
+          </div>
+          <div class="card-media card-media--vcs">
+            <img src="assets/vcs.png" alt="CCoder IDE 中的源代码管理面板：提交信息、暂存改动与 diff 视图" />
+          </div>
+          <div class="card-chips"><span>Git</span><span>SVN</span><span>worktree</span><span>冲突处理</span></div>
+        </article>
+
+        <article class="card c4 reveal">
+          <div class="card-head">
+            <span class="card-tag mono">REVIEW</span>
+            <h3>本轮改动，逐条看过</h3>
+            <p>输入框左上角列出这一轮动过的文件。点一行，直接在 IDE 打开相对 HEAD 的 diff。</p>
+          </div>
+          <div class="mini-app diff">
+            <div class="mini-head mono">
+              <span>src/main/session-manager.ts</span>
+              <span class="mini-badge">相对 HEAD</span>
+            </div>
+            <div class="diff-body mono" aria-hidden="true">
+              <div class="dline"><span class="ln">188</span><span>private async ensureProc(s: LiveSession) {</span></div>
+              <div class="dline del"><span class="ln">189</span><span>−  if (!s.proc) await this.spawn(s)</span></div>
+              <div class="dline add"><span class="ln">189</span><span>+  if (!s.proc) {</span></div>
+              <div class="dline add"><span class="ln">190</span><span>+    await this.spawn(s)</span></div>
+              <div class="dline add"><span class="ln">191</span><span>+  }</span></div>
+              <div class="dline"><span class="ln">192</span><span>  return s.proc</span></div>
+            </div>
+            <div class="mini-foot">
+              <span class="mono">3 个文件 · +62 −29</span>
+              <span class="mini-btn">在 IDE 中审阅</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="card c4 reveal" style="--d: .06s">
+          <div class="card-head">
+            <span class="card-tag mono">KEYS</span>
+            <h3>手不用离开键盘</h3>
+            <p>快速打开、命令面板、会话内查找，全部走同一套快捷键。</p>
+          </div>
+          <div class="mini-app palette">
+            <div class="pal-search">
+              <span class="pal-prompt mono">›</span>
+              <span class="pal-text">切换主题</span>
+              <span class="pal-caret" aria-hidden="true"></span>
+              <kbd>Ctrl ⇧ P</kbd>
+            </div>
+            <div class="pal-list" aria-hidden="true">
+              <div class="pal-row is-active"><span>切换到「午夜蓝」</span><kbd>↵</kbd></div>
+              <div class="pal-row"><span>打开工作区搜索</span><kbd>Ctrl ⇧ F</kbd></div>
+              <div class="pal-row"><span>新建会话</span><kbd>Ctrl N</kbd></div>
+              <div class="pal-row"><span>快速打开文件</span><kbd>Ctrl P</kbd></div>
+            </div>
+            <div class="pal-hint mono">命令面板 / 快速打开 / 会话内查找</div>
+          </div>
+        </article>
+
+        <article class="card c4 reveal" style="--d: .12s">
+          <div class="card-head">
+            <span class="card-tag mono">UPDATE</span>
+            <h3>更新，先问你</h3>
+            <p>CLI 有新版本先在设置和侧栏提示，点一下才更新。应用本身也不静默替换。</p>
+          </div>
+          <div class="card-media card-media--update">
+            <img src="assets/update.png" alt="CCoder 设置页的 CLI 更新面板：发现新版本、更新说明与自动检查开关" />
+            <span class="media-chip mono">v2.1.0 可更新</span>
+          </div>
+          <div class="card-chips"><span>每 6 小时检查</span><span>手动确认</span><span>npm 全局识别</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- THEMES -->
+  <section class="section themes" id="themes">
+    <div class="theme-watermark" aria-hidden="true">09</div>
+    <div class="wrap">
+      <header class="sec-head reveal">
+        <p class="eyebrow eyebrow-dark">// 配色</p>
+        <h2>九套配色，<span class="theme-dim">一台机器。</span></h2>
+        <p class="lead lead-dark">深色、午夜蓝、森林绿、雾紫、咖啡棕、苔原、高对比、浅色、暖纸。主窗口、IDE 和弹窗共享一套主题，切换即时生效，不用重启。</p>
+      </header>
+
+      <div class="theme-lab reveal">
+        <div class="theme-picker">
+          <div class="picker-head">
+            <span class="mono">THEME /</span>
+            <strong id="themeName" aria-live="polite">深色</strong>
+            <span class="picker-hex mono" id="themeHex">#0B0B0B</span>
+          </div>
+          <div class="swatches" id="swatches" role="group" aria-label="选择配色">
+            <button class="swatch is-active" type="button" data-theme="dark" aria-pressed="true">
+              <span class="sw-bar" style="--sw-bg:#0b0b0b; --sw-panel:#1a1a1a; --sw-accent:#4ade80" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">深色</span><span class="sw-hex mono">#0B0B0B</span>
+            </button>
+            <button class="swatch" type="button" data-theme="light" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#ffffff; --sw-panel:#eeeeee; --sw-accent:#16a34a" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">浅色</span><span class="sw-hex mono">#FFFFFF</span>
+            </button>
+            <button class="swatch" type="button" data-theme="midnight" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#0a1020; --sw-panel:#18233a; --sw-accent:#60a5fa" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">午夜蓝</span><span class="sw-hex mono">#0A1020</span>
+            </button>
+            <button class="swatch" type="button" data-theme="forest" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#0a130f; --sw-panel:#17261d; --sw-accent:#34d399" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">森林绿</span><span class="sw-hex mono">#0A130F</span>
+            </button>
+            <button class="swatch" type="button" data-theme="mist" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#14121f; --sw-panel:#252040; --sw-accent:#a78bfa" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">雾紫</span><span class="sw-hex mono">#14121F</span>
+            </button>
+            <button class="swatch" type="button" data-theme="coffee" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#140f0b; --sw-panel:#2a2018; --sw-accent:#e08b62" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">咖啡棕</span><span class="sw-hex mono">#140F0B</span>
+            </button>
+            <button class="swatch" type="button" data-theme="moss" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#101110; --sw-panel:#202320; --sw-accent:#b7c0a8" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">苔原</span><span class="sw-hex mono">#101110</span>
+            </button>
+            <button class="swatch" type="button" data-theme="contrast" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#000000; --sw-panel:#1a1a1a; --sw-accent:#ffd400" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">高对比</span><span class="sw-hex mono">#000000</span>
+            </button>
+            <button class="swatch" type="button" data-theme="sepia" aria-pressed="false">
+              <span class="sw-bar" style="--sw-bg:#f5efe3; --sw-panel:#e3d8c4; --sw-accent:#b45309" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sw-name">暖纸</span><span class="sw-hex mono">#F5EFE3</span>
+            </button>
+          </div>
+          <p class="picker-note">点一套配色，右边的窗口会立刻切换。</p>
+        </div>
+
+        <div class="preview-shell">
+          <span class="preview-tag mono">LIVE PREVIEW</span>
+          <div class="pv" id="themePreview">
+            <div class="pv-bar">
+              <span class="pv-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="pv-title">CCoder</span>
+              <span class="pv-mode">标准模式</span>
+            </div>
+            <div class="pv-body">
+              <aside class="pv-side">
+                <div class="pv-new">＋ 新会话</div>
+                <div class="pv-label">工作区</div>
+                <div class="pv-item is-active">给示例服务补一个 /health</div>
+                <div class="pv-item">修复登录后的会话恢复</div>
+                <div class="pv-item">整理 MCP 配置文件</div>
+                <div class="pv-label pv-label-2">今天</div>
+                <div class="pv-item">把这轮改动逐条审完</div>
+              </aside>
+              <div class="pv-main">
+                <div class="pv-msg">先把示例服务的 <code>/health</code> 补上，再顺手跑一遍类型检查。</div>
+                <div class="pv-think"><span aria-hidden="true">◌</span> 思考 · 先看 routes 是怎么组织的</div>
+                <div class="pv-tool">
+                  <span class="pv-file">server.ts</span>
+                  <span class="pv-tag">READ</span>
+                  <span class="pv-ok">✓</span>
+                </div>
+                <div class="pv-reply">路由是数组式的，加一个同形状的 <code>/health</code> 就行。</div>
+                <div class="pv-tool">
+                  <span class="pv-file">server.ts</span>
+                  <span class="pv-add">+8</span>
+                  <span class="pv-tag">EDIT</span>
+                  <span class="pv-ok">✓</span>
+                </div>
+                <div class="pv-reply">健康检查好了。接下来把时长格式化抽到 <code>src/utils.ts</code>。</div>
+                <div class="pv-tool">
+                  <span class="pv-file">utils.ts</span>
+                  <span class="pv-add">+9</span>
+                  <span class="pv-tag">EDIT</span>
+                  <span class="pv-ok">✓</span>
+                </div>
+                <div class="pv-done"><span class="pv-ok">✓</span> 类型检查通过 · 14 步 · 52.1k tok</div>
+                <div class="pv-composer">
+                  <span class="pv-placeholder">发消息或创建任务，/ 调用指令，@ 文件或对话</span>
+                  <div class="pv-composer-foot">
+                    <span class="pv-chip">deepseek-chat</span>
+                    <span class="pv-chip">标准模式</span>
+                    <span class="pv-send" aria-hidden="true">↑</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DOWNLOAD -->
+  <section class="section download" id="download">
+    <div class="wrap">
+      <div class="dl-panel reveal">
+        <div class="hud-corner tl" aria-hidden="true"></div>
+        <div class="hud-corner tr" aria-hidden="true"></div>
+        <div class="hud-corner bl" aria-hidden="true"></div>
+        <div class="hud-corner br" aria-hidden="true"></div>
+        <div class="dl-main">
+          <p class="eyebrow">// 下载</p>
+          <h2>准备<br /><span class="hl">起飞。</span></h2>
+          <p class="dl-lede">Windows 10 / 11 · x64 · 约 85 MB。安装前请先装好并登录对应的 CLI，首次启动会自动检测。</p>
+          <div class="hero-actions dl-actions">
+            <a class="btn btn-primary btn-lg" href="https://github.com/princeyuaner/CCoder-Desktop/releases/latest" target="_blank" rel="noopener">下载安装版 <span class="btn-arrow" aria-hidden="true">↗</span></a>
+            <a class="btn btn-ghost btn-lg" href="https://github.com/princeyuaner/CCoder-Desktop/releases/latest" target="_blank" rel="noopener">便携版 / 历史版本 <span class="btn-arrow" aria-hidden="true">↗</span></a>
+          </div>
+          <p class="dl-note"><span class="pulse" aria-hidden="true"></span>应用内更新 · 下载与重启都由你确认</p>
+        </div>
+
+        <div class="dl-spec">
+          <div class="dl-row"><span class="mono">VERSION</span><b>1.2.7</b></div>
+          <div class="dl-row"><span class="mono">PLATFORM</span><b>Windows 10 / 11 · x64</b></div>
+          <div class="dl-row"><span class="mono">PACKAGE</span><b>安装版 / 便携版</b></div>
+          <div class="dl-row"><span class="mono">CLI</span><b>Claude Code · Codex CLI · DeepSeek Harness</b></div>
+          <div class="dl-row"><span class="mono">DATA</span><b>会话留在各 CLI 自己的目录</b></div>
+          <div class="dl-row"><span class="mono">LICENSE</span><b>免费 · 第三方客户端</b></div>
+        </div>
+      </div>
+
+      <ol class="steps reveal" aria-label="开始使用">
+        <li>
+          <span class="step-num mono">01</span>
+          <div><b>安装 CCoder</b><span>安装版或便携版，装完直接打开。</span></div>
+        </li>
+        <li>
+          <span class="step-num mono">02</span>
+          <div><b>检测 CLI，配置渠道</b><span>自动找到已装的 CLI；官方登录或用 API 渠道。</span></div>
+        </li>
+        <li>
+          <span class="step-num mono">03</span>
+          <div><b>新建会话，开工</b><span>选工作区、模型与权限模式，让三支舰队并行跑。</span></div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap foot-grid">
+    <div class="foot-brand">
+      <a class="brand" href="#top" aria-label="回到顶部">
+        <img class="brand-icon" src="assets/icon.png" alt="" width="28" height="28" />
+        <span class="brand-name">CCoder</span>
+      </a>
+      <p>把编码智能体装进一个桌面窗口。</p>
+    </div>
+    <nav class="foot-links" aria-label="相关链接">
+      <a href="https://github.com/princeyuaner/CCoder-Desktop" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/princeyuaner/CCoder-Desktop/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/princeyuaner/CCoder-Desktop/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/princeyuaner/CCoder-Desktop#readme" target="_blank" rel="noopener">README</a>
+    </nav>
+    <p class="foot-note">本项目是第三方桌面客户端，不是 Anthropic / OpenAI / DeepSeek 官方产品。使用前需要自行安装并登录对应的 CLI。<span>© 2026 CCoder</span></p>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

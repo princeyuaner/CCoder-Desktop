@@ -1,0 +1,2359 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CCoder · Hooks 钩子</title>
+<style>
+  /* ── 设计 token（与 src/renderer/src/styles/tokens.css 对齐） ── */
+  :root {
+    color-scheme: dark;
+    --bg-app: #191919;
+    --bg-sidebar: #141414;
+    --bg-raised: #232323;
+    --bg-hover: #1f1f1f;
+    --bg-active: #2a2a2a;
+
+    --border: #2c2c2c;
+    --border-soft: #242424;
+
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+
+    --accent: #e8e8e8;
+    --accent-fg: #191919;
+    --ok: #4b9e5f;
+    --warn: #c9a227;
+    --danger: #e5534b;
+    --running: #d97757;
+
+    /* Hooks 页唯一的彩色强调：冷钢蓝。跟技能的金色、分支的蓝色区分开，
+       又不像告警色那样抢注意力。 */
+    --hook: #7aa2c8;
+    --hook-strong: #a9c6e2;
+    --hook-soft: rgba(122, 162, 200, .09);
+    --hook-line: rgba(122, 162, 200, .26);
+
+    --plugin: #b8a1e0;
+    --plugin-soft: rgba(184, 161, 224, .08);
+    --plugin-line: rgba(184, 161, 224, .26);
+
+    --ok-soft: rgba(75, 158, 95, .10);
+    --ok-line: rgba(75, 158, 95, .28);
+    --danger-soft: rgba(229, 83, 75, .10);
+    --danger-line: rgba(229, 83, 75, .28);
+    --warn-soft: rgba(201, 162, 39, .08);
+    --warn-line: rgba(201, 162, 39, .24);
+
+    --panel: #1c1c1c;
+    --panel-head: #1f1f1f;
+    --panel-line: #313131;
+
+    --radius-card: 12px;
+    --radius-chip: 8px;
+    --radius-sm: 6px;
+    --radius-pill: 999px;
+
+    --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+    --titlebar-h: 36px;
+    --sidebar-w: 280px;
+    --pane-pad-x: 40px;
+  }
+
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg-app: #f6f6f7;
+    --bg-sidebar: #efeff1;
+    --bg-raised: #ffffff;
+    --bg-hover: #e9e9ec;
+    --bg-active: #e2e2e6;
+
+    --border: #d7d7dc;
+    --border-soft: #e5e5e8;
+
+    --text: #1d1d1f;
+    --text-dim: #4c4c53;
+    --text-muted: #6c6c75;
+    --text-faint: #95959e;
+
+    --accent: #1d1d1f;
+    --accent-fg: #ffffff;
+    --ok: #2f8a45;
+    --warn: #a97b0b;
+    --danger: #c83b32;
+    --running: #b04a28;
+
+    --hook: #3f6f9d;
+    --hook-strong: #2f5f8a;
+    --hook-soft: rgba(63, 111, 157, .07);
+    --hook-line: rgba(63, 111, 157, .24);
+
+    --plugin: #7a5bb0;
+    --plugin-soft: rgba(122, 91, 176, .07);
+    --plugin-line: rgba(122, 91, 176, .22);
+
+    --ok-soft: rgba(47, 138, 69, .07);
+    --ok-line: rgba(47, 138, 69, .22);
+    --danger-soft: rgba(200, 59, 50, .07);
+    --danger-line: rgba(200, 59, 50, .22);
+    --warn-soft: rgba(169, 123, 11, .07);
+    --warn-line: rgba(169, 123, 11, .22);
+
+    --panel: #ffffff;
+    --panel-head: #fafafb;
+    --panel-line: #c9c9d0;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    display: grid;
+    place-items: center;
+    min-width: 1360px;
+    min-height: 860px;
+    background: #0c0c0c;
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { padding: 0; background: none; border: 0; cursor: pointer; }
+  input, textarea { user-select: text; }
+  [hidden] { display: none !important; }
+
+  .icon {
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #343434;
+    border: 2px solid var(--bg-app);
+    border-radius: 6px;
+  }
+  :root[data-theme='light'] ::-webkit-scrollbar-thumb { background: #c5c5cc; }
+
+  /* ── 窗口骨架 ─────────────────────────────────────────── */
+  .window {
+    position: relative;
+    width: 1360px;
+    height: 860px;
+    display: grid;
+    grid-template-rows: var(--titlebar-h) 1fr;
+    background: var(--bg-app);
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, .5);
+  }
+  :root[data-theme='light'] .window { box-shadow: 0 24px 70px rgba(0, 0, 0, .18); }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    height: var(--titlebar-h);
+    padding-left: 12px;
+    background: var(--bg-app);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .titlebar__brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    padding: 0 12px;
+  }
+  .titlebar__brand-mark { color: #d8d8d8; }
+  :root[data-theme='light'] .titlebar__brand-mark { color: #333338; }
+  .titlebar__brand-name { font-size: 15px; font-weight: 650; letter-spacing: .2px; }
+  .titlebar__right { display: flex; align-items: center; height: 100%; margin-left: auto; }
+  .titlebar__theme {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 26px;
+    margin-right: 4px;
+    color: var(--text-muted);
+    border-radius: 5px;
+  }
+  .titlebar__theme:hover { background: var(--bg-raised); color: var(--text); }
+  .titlebar__theme .icon { width: 15px; height: 15px; }
+  .titlebar__theme .icon-moon { display: none; }
+  :root[data-theme='light'] .titlebar__theme .icon-sun { display: none; }
+  :root[data-theme='light'] .titlebar__theme .icon-moon { display: block; }
+  .wctl {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 100%;
+    color: var(--text-dim);
+  }
+  .wctl:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl--close:hover { background: #c42b1c; color: #fff; }
+
+  .app__body {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    min-height: 0;
+  }
+
+  /* ── 左侧栏 ───────────────────────────────────────────── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 10px 10px 6px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-soft);
+  }
+  .sidebar__nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 8px; }
+  .navitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .navitem:hover { background: var(--bg-hover); color: var(--text); }
+  .navitem .icon { width: 15px; height: 15px; color: var(--text-muted); }
+
+  .sidebar__section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px 6px;
+  }
+  .sidebar__section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: .4px;
+  }
+  .sidebar__section-tools { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+  .sidebar__section-head:hover .sidebar__section-tools { opacity: 1; }
+  .iconbtn {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .iconbtn:hover { background: var(--bg-raised); color: var(--text); }
+  .iconbtn .icon { width: 14px; height: 14px; }
+
+  .sidebar__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+  .wsgroup { margin-bottom: 6px; padding-bottom: 8px; }
+  .wsgroup + .wsgroup {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .wsgroup__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    color: var(--text-dim);
+  }
+  .wsgroup__iconbtn {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin: 0 -2px 0 -4px;
+    border-radius: 5px;
+  }
+  .wsgroup__iconbtn:hover { background: var(--bg-active); }
+  .wsgroup__icon { color: var(--text-muted); }
+  .wsgroup__name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wsgroup__count {
+    flex: none;
+    padding: 1px 6px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-active);
+    border-radius: var(--radius-pill);
+  }
+  .session { display: flex; align-items: center; margin-left: 16px; border-radius: var(--radius-sm); }
+  .session:hover { background: var(--bg-hover); }
+  .session__main {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px 5px 12px;
+    text-align: left;
+  }
+  .session__cli {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    font-size: 8.5px;
+    font-weight: 700;
+    border-radius: 4px;
+  }
+  .session__cli--claude { color: #d97757; background: rgba(217, 119, 87, .13); }
+  .session__cli--codex { color: var(--text-muted); background: var(--bg-active); }
+  .session__cli--dsh { color: #4d6bfe; background: rgba(77, 107, 254, .13); }
+  .session__title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session__time { flex: none; font-size: 11.5px; color: var(--text-faint); }
+  .session__time--run { color: var(--running); }
+  .session--run .session__title { color: var(--text); }
+  .sidebar__settings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-top: 4px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .sidebar__settings .icon { width: 15px; height: 15px; color: var(--text-muted); }
+  .sidebar__settings:hover { background: var(--bg-hover); color: var(--text); }
+  .sidebar__settings.is-active { background: var(--bg-active); color: var(--text); }
+
+  /* ── 设置页骨架 ───────────────────────────────────────── */
+  .settings {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg-app);
+  }
+  .settings__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px var(--pane-pad-x) 9px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .backbtn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+    padding: 0 8px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    border-radius: 6px;
+  }
+  .backbtn:hover { background: var(--bg-hover); color: var(--text); }
+  .backbtn .icon { width: 14px; height: 14px; }
+  .settings__title { margin: 0; font-size: 15px; font-weight: 600; }
+  .settings__head-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .saved-flash { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-faint); }
+  .saved-flash .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+
+  .settings__body { display: grid; grid-template-columns: 168px 1fr; min-height: 0; }
+  .settings__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 12px;
+    border-right: 1px solid var(--border-soft);
+  }
+  .settings__navgroup {
+    padding: 12px 12px 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .5px;
+    color: var(--text-faint);
+  }
+  .settings__navgroup:first-child { padding-top: 2px; }
+  .settings__navitem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .settings__navitem:hover { background: var(--bg-hover); color: var(--text); }
+  .settings__navitem.is-active { background: var(--bg-active); color: var(--text); }
+  .settings__navcount {
+    margin-left: auto;
+    min-width: 18px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 16px;
+    color: var(--text-faint);
+    text-align: center;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+
+  .settings__content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 18px 32px 22px var(--pane-pad-x);
+    overflow: hidden;
+  }
+
+  /* ── 通用按钮 / 标签 / 开关 ───────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
+    white-space: nowrap;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .btn .icon { width: 14px; height: 14px; }
+  .btn--ghost { color: var(--text-dim); border-color: var(--border); }
+  .btn--ghost:hover { background: var(--bg-raised); color: var(--text); }
+  .btn--primary { color: var(--accent-fg); background: var(--accent); font-weight: 500; }
+  .btn--primary:hover { filter: brightness(.94); }
+  .btn--danger { color: var(--danger); border-color: var(--danger-line); }
+  .btn--danger:hover { background: var(--danger-soft); }
+  .btn--xs { padding: 3px 9px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn:disabled:hover { background: none; color: var(--text-dim); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    font-size: 10.5px;
+    line-height: 16px;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .badge--mono { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .35px; }
+  .badge--hook { color: var(--hook-strong); background: var(--hook-soft); border-color: var(--hook-line); }
+  .badge--ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+  .badge--warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .badge--bad { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+  .badge--plugin { color: var(--plugin); background: var(--plugin-soft); border-color: var(--plugin-line); }
+
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .switch input {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    margin: 0;
+    appearance: none;
+    background: var(--bg-active);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .14s, border-color .14s;
+  }
+  .switch input::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    background: var(--text-faint);
+    border-radius: 50%;
+    transition: transform .14s, background .14s;
+  }
+  .switch input:checked { background: var(--hook); border-color: var(--hook); }
+  .switch input:checked::after { transform: translateX(14px); background: #10151a; }
+  :root[data-theme='light'] .switch input:checked::after { background: #fff; }
+  .switch input:disabled { opacity: .4; cursor: default; }
+  .switch--sm input { width: 28px; height: 16px; }
+  .switch--sm input::after { width: 10px; height: 10px; }
+  .switch--sm input:checked::after { transform: translateX(12px); }
+
+  /* ── 页头 ─────────────────────────────────────────────── */
+  .hooks-page {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    height: 100%;
+    min-height: 0;
+  }
+  .intro {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    flex: none;
+    min-height: 46px;
+  }
+  .intro__main { flex: 1; min-width: 0; }
+  .intro__title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 0;
+    font-size: 18px;
+    font-weight: 650;
+    letter-spacing: -.15px;
+  }
+  .intro__title .badge { transform: translateY(1px); }
+  .intro__lead {
+    margin: 3px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+  .intro__lead a { color: var(--text-dim); border-bottom: 1px solid var(--border); }
+  .intro__lead a:hover { color: var(--text); border-color: var(--text-muted); }
+  .intro__meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 5px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+  }
+  .intro__meta > span { display: inline-flex; align-items: center; gap: 5px; }
+  .intro__meta .sep { color: var(--border); }
+  .intro__meta .state-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+  .intro__actions { display: flex; align-items: center; gap: 7px; padding-top: 3px; flex: none; }
+  .intro__actions .btn { height: 31px; }
+  .intro__actions .btn .icon { width: 13px; height: 13px; }
+
+  /* ── 安全提示 ─────────────────────────────────────────── */
+  .security {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    flex: none;
+    padding: 7px 11px;
+    background: var(--warn-soft);
+    border: 1px solid var(--warn-line);
+    border-radius: 8px;
+  }
+  .security__icon { flex: none; width: 15px; height: 15px; margin-top: 1px; color: var(--warn); }
+  .security__body { flex: 1; min-width: 0; font-size: 11px; line-height: 1.55; color: var(--text-muted); }
+  .security__body strong { font-weight: 600; color: var(--text-dim); }
+  .security__body code { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+  .security__link { flex: none; font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
+  .security__link:hover { color: var(--text); }
+
+  /* ── 列表面板 ─────────────────────────────────────────── */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+  }
+  .panel__head {
+    flex: none;
+    padding: 9px 12px 7px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .panel__row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .panel__title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .25px;
+    color: var(--text-muted);
+  }
+  .count {
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 16px;
+    font-weight: 500;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+  .panel__sub { min-width: 0; font-size: 10.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panel__row2 { display: flex; align-items: center; gap: 9px; margin-top: 8px; }
+  .linkbtn { margin-left: auto; font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
+  .linkbtn:hover { color: var(--text); }
+
+  .searchbox { position: relative; display: flex; align-items: center; flex: none; width: 248px; }
+  .searchbox .icon {
+    position: absolute;
+    left: 9px;
+    width: 13px;
+    height: 13px;
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+  .searchbox input {
+    width: 100%;
+    height: 28px;
+    padding: 0 26px 0 28px;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+  }
+  .searchbox input::placeholder { color: var(--text-faint); }
+  .searchbox input:focus { border-color: var(--panel-line); background: var(--bg-raised); }
+  .searchbox__clear {
+    position: absolute;
+    right: 5px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    color: var(--text-faint);
+    border-radius: 4px;
+    opacity: 0;
+  }
+  .searchbox.has-value .searchbox__clear { opacity: 1; }
+  .searchbox__clear:hover { background: var(--bg-active); color: var(--text); }
+
+  .scope-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+  .scope-tab {
+    padding: 2px 7px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+  .scope-tab:hover { color: var(--text-dim); }
+  .scope-tab.is-active { color: var(--text); background: var(--bg-active); }
+  .scope-tab b { margin-left: 3px; font-weight: 500; color: var(--text-faint); }
+  .scope-tab.is-active b { color: var(--text-muted); }
+
+  .only-enabled {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-faint);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .hooks-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+  .hooks-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 100%;
+    color: var(--text-faint);
+  }
+  .hooks-empty .icon { width: 22px; height: 22px; margin-bottom: 4px; opacity: .7; }
+  .hooks-empty strong { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .hooks-empty span { font-size: 11px; }
+
+  /* ── 事件分组与 Hook 行 ──────────────────────────────── */
+  .evgroup { border-bottom: 1px solid var(--border-soft); }
+  .evgroup:last-child { border-bottom: 0; }
+  .evgroup__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 11px 0 8px;
+    background: var(--panel-head);
+    cursor: pointer;
+  }
+  .evgroup__head:hover { background: var(--bg-raised); }
+  .evgroup__collapse {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    color: var(--text-faint);
+    border-radius: 4px;
+  }
+  .evgroup__collapse .icon { width: 12px; height: 12px; transform: rotate(0deg); transition: transform .14s; }
+  .evgroup.is-collapsed .evgroup__collapse .icon { transform: rotate(-90deg); }
+  .evgroup.is-collapsed .evgroup__body { display: none; }
+  .evgroup__icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 19px;
+    height: 19px;
+    color: var(--hook);
+    background: var(--hook-soft);
+    border: 1px solid var(--hook-line);
+    border-radius: 5px;
+  }
+  .evgroup__icon .icon { width: 11px; height: 11px; }
+  .evgroup__title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .evgroup__title code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1px;
+    color: var(--text-dim);
+  }
+  .evgroup__desc {
+    min-width: 0;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .evgroup__count {
+    flex: none;
+    margin-left: auto;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 15px;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+  .evgroup__add {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    border-radius: 5px;
+    opacity: .6;
+  }
+  .evgroup__head:hover .evgroup__add { opacity: 1; }
+  .evgroup__add:hover { background: var(--bg-active); color: var(--text); }
+  .evgroup__add .icon { width: 11px; height: 11px; }
+
+  .hook {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-height: 40px;
+    padding: 3px 11px 3px 14px;
+    border-top: 1px solid var(--border-soft);
+    transition: background .12s;
+  }
+  .hook:first-child { border-top: 0; }
+  .hook:hover { background: var(--bg-hover); }
+  .hook.is-off .hook__cmd, .hook.is-off .hook__matcher code { opacity: .45; }
+  .hook.is-off .hook__last { color: var(--text-faint); }
+  .hook.is-off .hook__last i { background: var(--text-faint); }
+
+  .hook__matcher { flex: none; min-width: 0; }
+  .hook__matcher code {
+    display: block;
+    padding: 2px 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+    color: var(--hook-strong);
+    background: var(--hook-soft);
+    border: 1px solid var(--hook-line);
+    border-radius: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hook__matcher--all code {
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border-color: var(--border);
+  }
+
+  .hook__main { min-width: 0; }
+  .hook__cmd {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hook:hover .hook__cmd { color: var(--text); }
+  .hook__meta {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 1px;
+    font-size: 9.5px;
+    line-height: 1.5;
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .hook__meta > span { display: inline-flex; align-items: center; gap: 4px; }
+  .hook__last i { width: 4px; height: 4px; border-radius: 50%; background: var(--ok); }
+  .hook__last.is-err { color: var(--danger); }
+  .hook__last.is-err i { background: var(--danger); }
+
+  .scope {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 5px;
+    font-size: 9px;
+    line-height: 14px;
+    border: 1px solid;
+    border-radius: var(--radius-pill);
+  }
+  .scope--global { color: var(--hook-strong); background: var(--hook-soft); border-color: var(--hook-line); }
+  .scope--project { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+  .scope--local { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .scope--plugin { color: var(--plugin); background: var(--plugin-soft); border-color: var(--plugin-line); }
+
+  .hook__actions { display: flex; align-items: center; gap: 2px; opacity: .55; transition: opacity .12s; }
+  .hook:hover .hook__actions { opacity: 1; }
+  .ghost-icon {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: var(--text-faint);
+    border-radius: 5px;
+  }
+  .ghost-icon:hover { background: var(--bg-active); color: var(--text); }
+  .ghost-icon--danger:hover { color: var(--danger); background: var(--danger-soft); }
+  .ghost-icon .icon { width: 13px; height: 13px; }
+  .hook__actions .switch { margin: 0 1px; }
+
+  .readonly-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    font-size: 10px;
+    color: var(--plugin);
+    background: var(--plugin-soft);
+    border: 1px solid var(--plugin-line);
+    border-radius: var(--radius-pill);
+  }
+  .readonly-tag .icon { width: 10px; height: 10px; }
+  .hook.is-readonly .hook__cmd { color: var(--text-muted); }
+
+  /* ── 面板底栏 ─────────────────────────────────────────── */
+  .pathbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    height: 33px;
+    padding: 0 12px;
+    font-size: 10px;
+    color: var(--text-faint);
+    background: var(--panel-head);
+    border-top: 1px solid var(--border-soft);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .pathbar > .icon { flex: none; width: 12px; height: 12px; color: var(--text-faint); }
+  .pathbar code {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--text-muted);
+  }
+  .pathbar .sep { color: var(--border); }
+  .pathbar__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    margin-left: auto;
+    padding: 2px 6px;
+    font-size: 10px;
+    color: var(--text-faint);
+    border-radius: 4px;
+  }
+  .pathbar__btn:hover { background: var(--bg-active); color: var(--text); }
+  .pathbar__btn .icon { width: 10px; height: 10px; }
+
+  /* ── 新建 / 编辑抽屉 ─────────────────────────────────── */
+  .drawer-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    justify-content: flex-end;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity .16s ease, visibility .16s;
+  }
+  .drawer-layer.is-open { visibility: visible; opacity: 1; }
+  .drawer-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .44);
+    backdrop-filter: blur(1px);
+  }
+  .drawer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 500px;
+    height: 100%;
+    background: var(--bg-app);
+    border-left: 1px solid var(--border);
+    box-shadow: -24px 0 70px rgba(0, 0, 0, .45);
+    transform: translateX(16px);
+    transition: transform .18s ease;
+  }
+  :root[data-theme='light'] .drawer { box-shadow: -20px 0 60px rgba(0, 0, 0, .16); }
+  .drawer-layer.is-open .drawer { transform: translateX(0); }
+  .drawer__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex: none;
+    padding: 14px 22px 11px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .drawer__kicker {
+    margin: 0 0 2px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .55px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+  .drawer__title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.1px; }
+  .drawer__close {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    margin: 2px -5px 0 auto;
+    color: var(--text-muted);
+    border-radius: 6px;
+  }
+  .drawer__close:hover { color: var(--text); background: var(--bg-hover); }
+  .drawer__close .icon { width: 15px; height: 15px; }
+
+  .drawer__body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 22px 12px; }
+  .drawer-context {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 10px;
+    padding: 7px 10px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+  }
+  .drawer-context__mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    color: var(--hook);
+    background: var(--hook-soft);
+    border: 1px solid var(--hook-line);
+    border-radius: 7px;
+  }
+  .drawer-context__mark .icon { width: 14px; height: 14px; }
+  .drawer-context__main { flex: 1; min-width: 0; }
+  .drawer-context__main strong { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
+  .drawer-context__main code {
+    display: block;
+    margin-top: 1px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .form-field { margin-bottom: 10px; }
+  .form-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+  }
+  .form-label .required { color: var(--danger); font-size: 11px; }
+  .form-label .optional { font-size: 10.5px; font-weight: 400; color: var(--text-faint); }
+  .form-input, .form-textarea, .form-select {
+    width: 100%;
+    padding: 6px 9px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+  }
+  .form-input, .form-select { height: 33px; }
+  .form-select { padding-right: 28px; appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%), linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+    background-position: calc(100% - 13px) 14px, calc(100% - 9px) 14px;
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+  }
+  .form-textarea { min-height: 62px; resize: vertical; line-height: 1.6; }
+  .form-textarea--code { min-height: 62px; font-family: var(--font-mono); font-size: 11px; line-height: 1.6; }
+  .form-input:focus, .form-textarea:focus, .form-select:focus {
+    border-color: var(--panel-line);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 4%, transparent);
+  }
+  .form-input::placeholder, .form-textarea::placeholder { color: var(--text-faint); }
+  .form-input.is-error, .form-textarea.is-error { border-color: var(--danger); }
+  .form-hint { margin: 3px 0 0; font-size: 10px; line-height: 1.5; color: var(--text-faint); }
+  .form-hint code { font-family: var(--font-mono); color: var(--text-muted); }
+
+  .segmented {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 3px;
+    padding: 3px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .segmented button {
+    padding: 4px 8px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    border-radius: 5px;
+  }
+  .segmented button:hover { color: var(--text-dim); }
+  .segmented button.is-active { color: var(--text); background: var(--bg-active); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+
+  .scope-hint {
+    display: flex;
+    gap: 7px;
+    margin-top: 6px;
+    padding: 6px 9px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+  }
+  .scope-hint .icon { width: 12px; height: 12px; margin-top: 1px; flex: none; }
+  .scope-hint code { font-family: var(--font-mono); color: var(--text-muted); }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .chip {
+    padding: 2px 7px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--text-faint);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+  }
+  .chip:hover { color: var(--text); border-color: var(--panel-line); }
+  .chip.is-active { color: var(--hook-strong); background: var(--hook-soft); border-color: var(--hook-line); }
+
+  .insert-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 5px;
+    font-size: 9.5px;
+    color: var(--text-faint);
+  }
+  .insert-row .chip { font-size: 9px; }
+  .insert-row .insert-note { margin-left: auto; white-space: nowrap; }
+
+  .inline-row { display: flex; align-items: center; gap: 12px; }
+  .timeout-box { display: flex; align-items: center; gap: 6px; }
+  .timeout-box input {
+    width: 64px;
+    height: 33px;
+    padding: 0 8px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    outline: none;
+  }
+  .timeout-box input:focus { border-color: var(--panel-line); }
+  .timeout-box span { font-size: 11px; color: var(--text-faint); }
+  .switch-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  /* ── 试运行 ───────────────────────────────────────────── */
+  .test-card {
+    margin-bottom: 11px;
+    padding: 8px 10px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .test-card__head { display: flex; align-items: center; gap: 7px; }
+  .test-card__title {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .test-card__title .icon { width: 12px; height: 12px; color: var(--hook); }
+  .test-card__meta { margin-left: auto; font-size: 9.5px; color: var(--text-faint); }
+  .test-card__hint { margin: 4px 0 0; font-size: 9.5px; line-height: 1.5; color: var(--text-faint); }
+  .test-out {
+    display: none;
+    margin-top: 8px;
+    padding: 7px 8px;
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    max-height: 104px;
+    overflow: auto;
+  }
+  .test-out.is-open { display: block; }
+  .test-line { display: flex; gap: 8px; }
+  .test-key { flex: none; width: 40px; color: var(--text-faint); }
+  .test-val { min-width: 0; white-space: pre-wrap; word-break: break-all; }
+  .test-val.is-err { color: var(--danger); }
+  .test-val.is-ok { color: var(--ok); }
+  .test-time { margin-left: auto; color: var(--text-faint); }
+  .test-placeholder { color: var(--text-faint); font-family: var(--font-ui); font-size: 10px; }
+
+  /* ── JSON 预览 ────────────────────────────────────────── */
+  .json-preview {
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+    background: var(--bg-raised);
+  }
+  .json-preview summary {
+    padding: 7px 10px;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    cursor: pointer;
+    list-style: none;
+  }
+  .json-preview summary::-webkit-details-marker { display: none; }
+  .json-preview summary::before {
+    content: '▸';
+    display: inline-block;
+    width: 12px;
+    color: var(--text-faint);
+  }
+  .json-preview[open] summary::before { content: '▾'; }
+  .json-preview pre {
+    margin: 0;
+    padding: 0 10px 10px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    white-space: pre;
+    overflow: auto;
+  }
+
+  .drawer__foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 12px 22px;
+    background: var(--bg-app);
+    border-top: 1px solid var(--border-soft);
+  }
+  .drawer__spacer { flex: 1; }
+  .drawer__foot .btn { height: 32px; }
+
+  /* ── 删除确认 ─────────────────────────────────────────── */
+  .modal-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 70;
+    display: grid;
+    place-items: center;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity .14s ease, visibility .14s;
+  }
+  .modal-layer.is-open { visibility: visible; opacity: 1; }
+  .modal-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .52); backdrop-filter: blur(1px); }
+  .modal {
+    position: relative;
+    width: 390px;
+    padding: 18px 20px 16px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, .42);
+  }
+  :root[data-theme='light'] .modal { box-shadow: 0 18px 50px rgba(0, 0, 0, .18); }
+  .modal__head { display: flex; align-items: center; gap: 8px; }
+  .modal__title { margin: 0; font-size: 15px; font-weight: 650; }
+  .modal__body { margin: 10px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+  .modal__body code { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); }
+  .modal__hint {
+    margin: 8px 0 0;
+    padding: 7px 9px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+  }
+  .modal__foot { display: flex; align-items: center; gap: 8px; margin-top: 15px; }
+  .modal__spacer { flex: 1; }
+  .modal__foot .btn { height: 31px; }
+
+  /* ── Toast ────────────────────────────────────────────── */
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 13px;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    transform: translate(-50%, 8px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .16s ease, transform .16s ease;
+  }
+  .toast.is-open { opacity: 1; transform: translate(-50%, 0); }
+  .toast .icon { width: 14px; height: 14px; color: var(--ok); }
+
+  .spin { animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-brand" viewBox="0 0 24 24"><path d="M7.5 8.5 4 12l3.5 3.5M16.5 8.5 20 12l-3.5 3.5M13.5 5.5l-3 13"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="m9.2 12 2 2 3.8-4"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-plugin" viewBox="0 0 24 24"><path d="M10 3v3M14 3v3M8 6h8v4a4 4 0 0 1-8 0zM6 14h12v6H6z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m14 6 4 4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 9v5M12 17.2v.1"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.5l3.5 2"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.1"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1l-.3-2.6h-4l-.3 2.6a7 7 0 0 0-1.7 1l-2.3-1-2 3.4L6.1 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5a7 7 0 0 0 .1-1z"/></symbol>
+</svg>
+
+<div class="window">
+  <header class="titlebar">
+    <div class="titlebar__brand">
+      <svg width="22" height="22" class="titlebar__brand-mark"><use href="#i-brand"/></svg>
+      <span class="titlebar__brand-name">CCoder</span>
+    </div>
+    <div class="titlebar__right">
+      <button class="titlebar__panel" title="切换侧栏"><svg class="icon" width="15" height="15"><use href="#i-panel"/></svg></button>
+      <button class="titlebar__theme" id="themeBtn" title="切换到浅色">
+        <svg class="icon icon-sun" width="15" height="15"><use href="#i-sun"/></svg>
+        <svg class="icon icon-moon" width="15" height="15"><use href="#i-moon"/></svg>
+      </button>
+      <button class="wctl" title="最小化"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="wctl" title="最大化"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9"/></svg></button>
+      <button class="wctl wctl--close" title="关闭"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></button>
+    </div>
+  </header>
+
+  <div class="app__body">
+    <aside class="sidebar">
+      <nav class="sidebar__nav">
+        <button class="navitem"><svg class="icon"><use href="#i-plugin"/></svg><span>插件</span></button>
+        <button class="navitem"><svg class="icon"><use href="#i-clock"/></svg><span>自动化任务</span></button>
+      </nav>
+
+      <div class="sidebar__section-head">
+        <span class="sidebar__section-title">工作区</span>
+        <div class="sidebar__section-tools">
+          <button class="iconbtn" title="搜索会话"><svg class="icon"><use href="#i-search"/></svg></button>
+          <button class="iconbtn" title="添加工作区"><svg class="icon"><use href="#i-plus"/></svg></button>
+        </div>
+      </div>
+
+      <div class="sidebar__scroll">
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">CCoder-Desktop</span>
+            <span class="wsgroup__count">3</span>
+          </div>
+          <div class="session session--run">
+            <button class="session__main">
+              <span class="session__cli session__cli--claude">C</span>
+              <span class="session__title">给 Hooks 加管理页</span>
+              <span class="session__time session__time--run">运行中</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli session__cli--codex">O</span>
+              <span class="session__title">修复工具调用超时</span>
+              <span class="session__time">1 小时</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli session__cli--dsh">D</span>
+              <span class="session__title">整理 MCP 配置文件</span>
+              <span class="session__time">昨天</span>
+            </button>
+          </div>
+        </div>
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">docs-site</span>
+            <span class="wsgroup__count">0</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="sidebar__settings is-active">
+        <svg class="icon"><use href="#i-gear"/></svg>
+        <span>设置</span>
+      </button>
+    </aside>
+
+    <main class="settings">
+      <header class="settings__head">
+        <button class="backbtn"><svg class="icon"><use href="#i-chevron-left"/></svg>返回</button>
+        <h1 class="settings__title">设置</h1>
+        <div class="settings__head-right">
+          <span class="saved-flash"><i class="dot"></i>配置已同步</span>
+        </div>
+      </header>
+
+      <div class="settings__body">
+        <nav class="settings__nav">
+          <div class="settings__navgroup">系统</div>
+          <button class="settings__navitem">通用</button>
+          <button class="settings__navitem">权限</button>
+
+          <div class="settings__navgroup">能力</div>
+          <button class="settings__navitem">MCP 服务器</button>
+          <button class="settings__navitem is-active">Hooks 钩子<span class="settings__navcount">8</span></button>
+          <button class="settings__navitem">技能</button>
+
+          <div class="settings__navgroup">CLI</div>
+          <button class="settings__navitem">Claude Code</button>
+          <button class="settings__navitem">Codex CLI</button>
+          <button class="settings__navitem">DeepSeek Harness</button>
+
+          <div class="settings__navgroup">其他</div>
+          <button class="settings__navitem">关于</button>
+        </nav>
+
+        <div class="settings__content">
+          <div class="hooks-page">
+            <header class="intro">
+              <div class="intro__main">
+                <h2 class="intro__title">
+                  Hooks 钩子
+                  <span class="badge badge--mono">HOOKS</span>
+                </h2>
+                <p class="intro__lead">
+                  在 Claude Code 的生命周期节点自动执行命令：拦截工具调用、注入上下文、跑完提醒。
+                  <a href="#" data-action="docs">了解 Hooks ↗</a>
+                </p>
+                <div class="intro__meta">
+                  <span><i class="state-dot"></i><span id="statTotal">8 个 Hook</span></span>
+                  <span class="sep">·</span>
+                  <span id="statEnabled">7 个已启用</span>
+                  <span class="sep">·</span>
+                  <span>覆盖 5 个事件</span>
+                  <span class="sep">·</span>
+                  <span>1 个只读</span>
+                  <span class="sep">·</span>
+                  <span>2 分钟前扫描</span>
+                </div>
+              </div>
+              <div class="intro__actions">
+                <button class="btn btn--ghost" id="rescanBtn" title="重新读取三个 settings 文件">
+                  <svg class="icon" id="rescanIcon"><use href="#i-refresh"/></svg>重新扫描
+                </button>
+                <button class="btn btn--primary" id="newHookBtn">
+                  <svg class="icon"><use href="#i-plus"/></svg>新建 Hook
+                </button>
+              </div>
+            </header>
+
+            <div class="security">
+              <svg class="icon security__icon"><use href="#i-alert"/></svg>
+              <div class="security__body">
+                <strong>Hook 会以当前用户权限执行任意命令。</strong>
+                只添加你信任的脚本；项目级 Hook 会写入 <code>.claude/settings.json</code> 随仓库分发，团队成员拉取后同样会执行。
+              </div>
+              <a class="security__link" href="#" data-action="docs">安全说明 ↗</a>
+            </div>
+
+            <section class="panel" aria-label="已配置的 Hook">
+              <div class="panel__head">
+                <div class="panel__row">
+                  <h3 class="panel__title">已配置的 Hook <span class="count" id="listTotal">8</span></h3>
+                  <span class="panel__sub">按事件分组 · 保存后下一轮会话生效</span>
+                  <button class="linkbtn" id="collapseAll">全部收起</button>
+                </div>
+                <div class="panel__row2">
+                  <div class="searchbox" id="searchBox">
+                    <svg class="icon"><use href="#i-search"/></svg>
+                    <input id="hookSearch" type="search" placeholder="搜索事件、匹配器或命令…" autocomplete="off" spellcheck="false" />
+                    <button class="searchbox__clear" id="clearSearch" title="清空"><svg class="icon" width="12" height="12"><use href="#i-x"/></svg></button>
+                  </div>
+                  <div class="scope-tabs" id="scopeTabs">
+                    <button class="scope-tab is-active" data-scope="all">全部 <b>8</b></button>
+                    <button class="scope-tab" data-scope="global">用户 <b>4</b></button>
+                    <button class="scope-tab" data-scope="project">项目 <b>2</b></button>
+                    <button class="scope-tab" data-scope="local">本地 <b>1</b></button>
+                    <button class="scope-tab" data-scope="plugin">插件 <b>1</b></button>
+                  </div>
+                  <label class="only-enabled">
+                    <span>只看启用</span>
+                    <span class="switch switch--sm"><input type="checkbox" id="onlyEnabled" /></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="hooks-scroll" id="hooksScroll">
+                <section class="evgroup" data-event="PreToolUse">
+                  <div class="evgroup__head" role="button" aria-expanded="true">
+                    <button class="evgroup__collapse" title="收起"><svg class="icon"><use href="#i-chevron"/></svg></button>
+                    <span class="evgroup__icon"><svg class="icon"><use href="#i-bolt"/></svg></span>
+                    <span class="evgroup__title">
+                      <code>PreToolUse</code>
+                      <span class="evgroup__desc">工具执行前 · 退出码 2 会阻止本次调用</span>
+                    </span>
+                    <span class="evgroup__count">3</span>
+                    <button class="evgroup__add" data-add-event="PreToolUse"><svg class="icon"><use href="#i-plus"/></svg>添加</button>
+                  </div>
+                  <div class="evgroup__body">
+                    <article class="hook" data-scope="project" data-enabled="true" data-event="PreToolUse" data-matcher="Bash" data-command='node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.mjs"' data-timeout="10">
+                      <span class="hook__matcher"><code>Bash</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.mjs"</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--project">项目</span>
+                          <span>超时 10s</span>
+                          <span class="hook__last"><i></i>刚刚 · exit 0</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <button class="ghost-icon" data-act="test" title="试运行"><svg class="icon"><use href="#i-play"/></svg></button>
+                        <span class="switch switch--sm"><input type="checkbox" checked aria-label="启用" /></span>
+                        <button class="ghost-icon" data-act="edit" title="编辑"><svg class="icon"><use href="#i-pencil"/></svg></button>
+                        <button class="ghost-icon ghost-icon--danger" data-act="del" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                      </div>
+                    </article>
+
+                    <article class="hook" data-scope="global" data-enabled="true" data-event="PreToolUse" data-matcher="Edit|Write" data-command="node ~/.claude/hooks/protect-secrets.mjs" data-timeout="15">
+                      <span class="hook__matcher"><code>Edit|Write</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">node ~/.claude/hooks/protect-secrets.mjs</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--global">用户</span>
+                          <span>超时 15s</span>
+                          <span class="hook__last"><i></i>2 分钟前 · exit 0</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <button class="ghost-icon" data-act="test" title="试运行"><svg class="icon"><use href="#i-play"/></svg></button>
+                        <span class="switch switch--sm"><input type="checkbox" checked aria-label="启用" /></span>
+                        <button class="ghost-icon" data-act="edit" title="编辑"><svg class="icon"><use href="#i-pencil"/></svg></button>
+                        <button class="ghost-icon ghost-icon--danger" data-act="del" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                      </div>
+                    </article>
+
+                    <article class="hook is-off" data-scope="local" data-enabled="false" data-event="PreToolUse" data-matcher="mcp__.*" data-command="node .claude/hooks/log-mcp.mjs" data-timeout="5">
+                      <span class="hook__matcher"><code>mcp__.*</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">node .claude/hooks/log-mcp.mjs</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--local">本地</span>
+                          <span>超时 5s</span>
+                          <span class="hook__last">已停用</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <button class="ghost-icon" data-act="test" title="试运行"><svg class="icon"><use href="#i-play"/></svg></button>
+                        <span class="switch switch--sm"><input type="checkbox" aria-label="启用" /></span>
+                        <button class="ghost-icon" data-act="edit" title="编辑"><svg class="icon"><use href="#i-pencil"/></svg></button>
+                        <button class="ghost-icon ghost-icon--danger" data-act="del" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="evgroup" data-event="PostToolUse">
+                  <div class="evgroup__head" role="button" aria-expanded="true">
+                    <button class="evgroup__collapse" title="收起"><svg class="icon"><use href="#i-chevron"/></svg></button>
+                    <span class="evgroup__icon"><svg class="icon"><use href="#i-check"/></svg></span>
+                    <span class="evgroup__title">
+                      <code>PostToolUse</code>
+                      <span class="evgroup__desc">工具执行后 · 可把结果或建议回传给模型</span>
+                    </span>
+                    <span class="evgroup__count">2</span>
+                    <button class="evgroup__add" data-add-event="PostToolUse"><svg class="icon"><use href="#i-plus"/></svg>添加</button>
+                  </div>
+                  <div class="evgroup__body">
+                    <article class="hook" data-scope="project" data-enabled="true" data-event="PostToolUse" data-matcher="Edit|Write" data-command="node .claude/hooks/format-changed.mjs" data-timeout="20">
+                      <span class="hook__matcher"><code>Edit|Write</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">node .claude/hooks/format-changed.mjs</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--project">项目</span>
+                          <span>超时 20s</span>
+                          <span class="hook__last"><i></i>5 分钟前 · exit 0</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <button class="ghost-icon" data-act="test" title="试运行"><svg class="icon"><use href="#i-play"/></svg></button>
+                        <span class="switch switch--sm"><input type="checkbox" checked aria-label="启用" /></span>
+                        <button class="ghost-icon" data-act="edit" title="编辑"><svg class="icon"><use href="#i-pencil"/></svg></button>
+                        <button class="ghost-icon ghost-icon--danger" data-act="del" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                      </div>
+                    </article>
+
+                    <article class="hook is-readonly" data-scope="plugin" data-enabled="true" data-event="PostToolUse" data-matcher="Bash" data-command="node .claude/hooks/audit-command.mjs" data-timeout="10">
+                      <span class="hook__matcher"><code>Bash</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">node .claude/hooks/audit-command.mjs</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--plugin">插件 · team-tools</span>
+                          <span>超时 10s</span>
+                          <span class="hook__last"><i></i>1 小时前 · exit 0</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <span class="readonly-tag"><svg class="icon"><use href="#i-lock"/></svg>只读</span>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="evgroup" data-event="UserPromptSubmit">
+                  <div class="evgroup__head" role="button" aria-expanded="true">
+                    <button class="evgroup__collapse" title="收起"><svg class="icon"><use href="#i-chevron"/></svg></button>
+                    <span class="evgroup__icon"><svg class="icon"><use href="#i-terminal"/></svg></span>
+                    <span class="evgroup__title">
+                      <code>UserPromptSubmit</code>
+                      <span class="evgroup__desc">用户提交提示词后、模型开始前触发</span>
+                    </span>
+                    <span class="evgroup__count">1</span>
+                    <button class="evgroup__add" data-add-event="UserPromptSubmit"><svg class="icon"><use href="#i-plus"/></svg>添加</button>
+                  </div>
+                  <div class="evgroup__body">
+                    <article class="hook" data-scope="global" data-enabled="true" data-event="UserPromptSubmit" data-matcher="" data-command="node ~/.claude/hooks/inject-context.mjs" data-timeout="10">
+                      <span class="hook__matcher hook__matcher--all"><code>全部</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">node ~/.claude/hooks/inject-context.mjs</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--global">用户</span>
+                          <span>超时 10s</span>
+                          <span class="hook__last"><i></i>刚刚 · exit 0</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <button class="ghost-icon" data-act="test" title="试运行"><svg class="icon"><use href="#i-play"/></svg></button>
+                        <span class="switch switch--sm"><input type="checkbox" checked aria-label="启用" /></span>
+                        <button class="ghost-icon" data-act="edit" title="编辑"><svg class="icon"><use href="#i-pencil"/></svg></button>
+                        <button class="ghost-icon ghost-icon--danger" data-act="del" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="evgroup" data-event="Notification">
+                  <div class="evgroup__head" role="button" aria-expanded="true">
+                    <button class="evgroup__collapse" title="收起"><svg class="icon"><use href="#i-chevron"/></svg></button>
+                    <span class="evgroup__icon"><svg class="icon"><use href="#i-alert"/></svg></span>
+                    <span class="evgroup__title">
+                      <code>Notification</code>
+                      <span class="evgroup__desc">CLI 发出通知时触发，例如需要授权或空闲</span>
+                    </span>
+                    <span class="evgroup__count">1</span>
+                    <button class="evgroup__add" data-add-event="Notification"><svg class="icon"><use href="#i-plus"/></svg>添加</button>
+                  </div>
+                  <div class="evgroup__body">
+                    <article class="hook" data-scope="global" data-enabled="true" data-event="Notification" data-matcher="" data-command="powershell -NoProfile -File ~/.claude/hooks/toast.ps1" data-timeout="5">
+                      <span class="hook__matcher hook__matcher--all"><code>全部</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">powershell -NoProfile -File ~/.claude/hooks/toast.ps1</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--global">用户</span>
+                          <span>超时 5s</span>
+                          <span class="hook__last"><i></i>8 分钟前 · exit 0</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <button class="ghost-icon" data-act="test" title="试运行"><svg class="icon"><use href="#i-play"/></svg></button>
+                        <span class="switch switch--sm"><input type="checkbox" checked aria-label="启用" /></span>
+                        <button class="ghost-icon" data-act="edit" title="编辑"><svg class="icon"><use href="#i-pencil"/></svg></button>
+                        <button class="ghost-icon ghost-icon--danger" data-act="del" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="evgroup" data-event="Stop">
+                  <div class="evgroup__head" role="button" aria-expanded="true">
+                    <button class="evgroup__collapse" title="收起"><svg class="icon"><use href="#i-chevron"/></svg></button>
+                    <span class="evgroup__icon"><svg class="icon"><use href="#i-clock"/></svg></span>
+                    <span class="evgroup__title">
+                      <code>Stop</code>
+                      <span class="evgroup__desc">本轮回复结束时触发，适合完成提醒</span>
+                    </span>
+                    <span class="evgroup__count">1</span>
+                    <button class="evgroup__add" data-add-event="Stop"><svg class="icon"><use href="#i-plus"/></svg>添加</button>
+                  </div>
+                  <div class="evgroup__body">
+                    <article class="hook" data-scope="global" data-enabled="true" data-event="Stop" data-matcher="" data-command="node ~/.claude/hooks/notify-done.mjs" data-timeout="5">
+                      <span class="hook__matcher hook__matcher--all"><code>全部</code></span>
+                      <div class="hook__main">
+                        <code class="hook__cmd">node ~/.claude/hooks/notify-done.mjs</code>
+                        <div class="hook__meta">
+                          <span class="scope scope--global">用户</span>
+                          <span>超时 5s</span>
+                          <span class="hook__last"><i></i>刚刚 · exit 0</span>
+                        </div>
+                      </div>
+                      <div class="hook__actions">
+                        <button class="ghost-icon" data-act="test" title="试运行"><svg class="icon"><use href="#i-play"/></svg></button>
+                        <span class="switch switch--sm"><input type="checkbox" checked aria-label="启用" /></span>
+                        <button class="ghost-icon" data-act="edit" title="编辑"><svg class="icon"><use href="#i-pencil"/></svg></button>
+                        <button class="ghost-icon ghost-icon--danger" data-act="del" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <div class="hooks-empty" id="emptyState" hidden>
+                  <svg class="icon"><use href="#i-search"/></svg>
+                  <strong>没有匹配的 Hook</strong>
+                  <span>换个关键词或作用域，也可以直接新建一个。</span>
+                </div>
+              </div>
+
+              <footer class="pathbar">
+                <svg class="icon"><use href="#i-folder"/></svg>
+                <span>配置位置</span>
+                <code>~/.claude/settings.json</code>
+                <span class="sep">·</span>
+                <code>.claude/settings.json</code>
+                <span class="sep">·</span>
+                <code>.claude/settings.local.json</code>
+                <button class="pathbar__btn" id="openConfigBtn"><svg class="icon"><use href="#i-external"/></svg>打开目录</button>
+              </footer>
+            </section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ── 新建 / 编辑 Hook ─────────────────────────────────── -->
+  <div class="drawer-layer" id="drawerLayer" aria-hidden="true">
+    <div class="drawer-scrim" data-close-drawer></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+      <header class="drawer__head">
+        <div>
+          <p class="drawer__kicker" id="drawerKicker">Claude Code · 新建 Hook</p>
+          <h2 class="drawer__title" id="drawerTitle">新建 Hook</h2>
+        </div>
+        <button class="drawer__close" data-close-drawer title="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+      </header>
+
+      <div class="drawer__body">
+        <div class="drawer-context">
+          <span class="drawer-context__mark"><svg class="icon"><use href="#i-bolt"/></svg></span>
+          <span class="drawer-context__main">
+            <strong id="ctxTitle">PreToolUse · 工具执行前</strong>
+            <code id="ctxPath">用户 · ~/.claude/settings.json</code>
+          </span>
+          <span class="badge badge--hook" id="ctxBadge">用户</span>
+        </div>
+
+        <div class="form-field">
+          <span class="form-label">作用域</span>
+          <div class="segmented" id="scopeSeg">
+            <button data-scope="global" class="is-active">用户</button>
+            <button data-scope="project">项目</button>
+            <button data-scope="local">本地</button>
+          </div>
+          <p class="scope-hint">
+            <svg class="icon"><use href="#i-info"/></svg>
+            <span id="scopeHintText">所有工作区可用，写入当前用户的 <code>~/.claude/settings.json</code>。</span>
+          </p>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="eventSelect">触发事件 <span class="required">*</span></label>
+          <select class="form-select" id="eventSelect">
+            <optgroup label="工具">
+              <option value="PreToolUse">PreToolUse · 工具执行前</option>
+              <option value="PostToolUse">PostToolUse · 工具执行后</option>
+              <option value="PostToolUseFailure">PostToolUseFailure · 工具失败后</option>
+            </optgroup>
+            <optgroup label="会话">
+              <option value="SessionStart">SessionStart · 会话开始</option>
+              <option value="SessionEnd">SessionEnd · 会话结束</option>
+              <option value="UserPromptSubmit">UserPromptSubmit · 提交提示词</option>
+              <option value="Stop">Stop · 本轮结束</option>
+              <option value="SubagentStop">SubagentStop · 子代理结束</option>
+              <option value="PreCompact">PreCompact · 压缩前</option>
+            </optgroup>
+            <optgroup label="通知">
+              <option value="Notification">Notification · 通知</option>
+            </optgroup>
+          </select>
+          <p class="form-hint" id="eventHint">工具执行前触发；退出码 2 会阻止本次调用，其他非零只记录错误。</p>
+        </div>
+
+        <div class="form-field" id="matcherField">
+          <label class="form-label" for="matcherInput">匹配工具 <span class="optional">留空 = 全部</span></label>
+          <input class="form-input" id="matcherInput" value="Bash" placeholder="工具名或正则，例如 Bash、Edit|Write" autocomplete="off" spellcheck="false" />
+          <div class="chip-row" id="matcherChips">
+            <button class="chip" data-matcher="Bash">Bash</button>
+            <button class="chip" data-matcher="Edit|Write">Edit|Write</button>
+            <button class="chip" data-matcher="Read">Read</button>
+            <button class="chip" data-matcher="WebFetch">WebFetch</button>
+            <button class="chip" data-matcher="mcp__.*">mcp__.*</button>
+            <button class="chip" data-matcher="*">*</button>
+          </div>
+          <p class="form-hint">按工具名匹配，支持正则。MCP 工具以 <code>mcp__</code> 开头。</p>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="commandInput">命令 <span class="required">*</span></label>
+          <textarea class="form-textarea form-textarea--code" id="commandInput" spellcheck="false">node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.mjs"</textarea>
+          <div class="insert-row">
+            <span>插入</span>
+            <button class="chip" data-insert="$CLAUDE_PROJECT_DIR">$CLAUDE_PROJECT_DIR</button>
+            <span class="insert-note">事件 JSON 通过 stdin 传入</span>
+          </div>
+          <p class="form-hint">在项目目录执行；退出码 2 会阻断或反馈给模型，具体语义取决于事件。</p>
+        </div>
+
+        <div class="form-field">
+          <div class="inline-row">
+            <div class="timeout-box">
+              <label class="form-label" for="timeoutInput" style="margin:0">超时</label>
+              <input id="timeoutInput" type="number" min="1" max="600" value="10" />
+              <span>秒</span>
+            </div>
+            <label class="switch-row">
+              <span>保存后启用</span>
+              <span class="switch"><input type="checkbox" id="enabledInput" checked /></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="test-card">
+          <div class="test-card__head">
+            <span class="test-card__title"><svg class="icon"><use href="#i-play"/></svg>试运行</span>
+            <span class="test-card__meta" id="testMeta">上次运行 · 42ms</span>
+            <button class="btn btn--ghost btn--xs" id="testBtn" style="margin-left:auto">运行</button>
+          </div>
+          <p class="test-card__hint" id="testHint">用一条示例事件在当前工作区执行，不会改动配置文件。</p>
+          <div class="test-out is-open" id="testOut">
+            <div class="test-line"><span class="test-key">stdin</span><span class="test-val">{ "hook_event_name": "PreToolUse", "tool_name": "Bash" }</span></div>
+            <div class="test-line"><span class="test-key">stdout</span><span class="test-val">guard-bash: 拒绝执行 npm publish，请先确认版本号。</span></div>
+            <div class="test-line"><span class="test-key">exit</span><span class="test-val is-err">2</span><span class="test-time">42ms</span></div>
+          </div>
+        </div>
+
+        <details class="json-preview">
+          <summary>写入内容预览</summary>
+          <pre id="jsonPreview"></pre>
+        </details>
+      </div>
+
+      <footer class="drawer__foot">
+        <button class="btn btn--danger" id="deleteBtn" hidden>删除</button>
+        <span class="drawer__spacer"></span>
+        <button class="btn btn--ghost" data-close-drawer>取消</button>
+        <button class="btn btn--primary" id="saveBtn">创建 Hook</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- ── 删除确认 ────────────────────────────────────────── -->
+  <div class="modal-layer" id="confirmLayer" aria-hidden="true">
+    <div class="modal-scrim" data-close-confirm></div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal__head">
+        <span class="badge badge--bad">删除 Hook</span>
+        <h2 class="modal__title" id="confirmTitle">删除这个 Hook？</h2>
+      </div>
+      <p class="modal__body" id="confirmBody">
+        会从 <code>~/.claude/settings.json</code> 中移除这条规则，并立即写入磁盘。
+      </p>
+      <p class="modal__hint">保存前会自动备份原文件，可以通过「打开目录」找回。正在运行的会话不受影响，下一轮生效。</p>
+      <div class="modal__foot">
+        <button class="btn btn--ghost" data-close-confirm>取消</button>
+        <span class="modal__spacer"></span>
+        <button class="btn btn--danger" id="confirmDelete">删除 Hook</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"><svg class="icon"><use href="#i-check"/></svg><span id="toastText"></span></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var EVENTS = {
+    PreToolUse: { short: '工具执行前', desc: '工具执行前触发；退出码 2 会阻止本次调用，其他非零只记录错误。', matcher: true },
+    PostToolUse: { short: '工具执行后', desc: '工具执行后触发；可以把结果或建议回传给模型。', matcher: true },
+    PostToolUseFailure: { short: '工具失败后', desc: '工具执行失败后触发，适合记录错误或做补救。', matcher: true },
+    SessionStart: { short: '会话开始', desc: '会话启动或恢复时触发，适合加载上下文。', matcher: false },
+    SessionEnd: { short: '会话结束', desc: '会话结束时触发，适合清理或归档。', matcher: false },
+    UserPromptSubmit: { short: '提交提示词', desc: '用户提交提示词后、模型开始前触发，适合注入额外上下文。', matcher: false },
+    Stop: { short: '本轮结束', desc: '本轮回复结束时触发，适合完成提醒或汇总。', matcher: false },
+    SubagentStop: { short: '子代理结束', desc: '子代理完成时触发。', matcher: false },
+    PreCompact: { short: '压缩前', desc: '上下文压缩前触发，适合保存关键信息。', matcher: false },
+    Notification: { short: '通知', desc: 'CLI 发出通知时触发，例如需要授权或空闲。', matcher: false }
+  };
+
+  var SCOPES = {
+    global: {
+      label: '用户',
+      path: '~/.claude/settings.json',
+      hint: '所有工作区可用，写入当前用户的 <code>~/.claude/settings.json</code>。'
+    },
+    project: {
+      label: '项目',
+      path: '.claude/settings.json',
+      hint: '写入当前工作区的 <code>.claude/settings.json</code>，随仓库提交，团队成员拉取后也会执行。'
+    },
+    local: {
+      label: '本地',
+      path: '.claude/settings.local.json',
+      hint: '写入 <code>.claude/settings.local.json</code>，只在本机生效，通常不提交到仓库。'
+    }
+  };
+
+  var root = document.documentElement;
+  var qs = new URLSearchParams(location.search);
+  var variant = qs.get('v') || 'a';
+  if (variant.indexOf('light') !== -1) root.dataset.theme = 'light';
+
+  /* ── 主题 ─────────────────────────────────────────────── */
+  $('themeBtn').addEventListener('click', function () {
+    var light = root.dataset.theme === 'light';
+    root.dataset.theme = light ? 'dark' : 'light';
+    this.title = light ? '切换到浅色' : '切换到深色';
+  });
+
+  /* ── 筛选 ─────────────────────────────────────────────── */
+  var activeScope = 'all';
+  var search = $('hookSearch');
+  var searchBox = $('searchBox');
+  var onlyEnabled = $('onlyEnabled');
+
+  function applyFilters() {
+    var q = search.value.trim().toLowerCase();
+    var total = 0;
+
+    document.querySelectorAll('.evgroup').forEach(function (group) {
+      var n = 0;
+      group.querySelectorAll('.hook').forEach(function (row) {
+        var scopeOk = activeScope === 'all' || row.dataset.scope === activeScope;
+        var queryOk = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+        var enabledOk = !onlyEnabled.checked || row.dataset.enabled === 'true';
+        var show = scopeOk && queryOk && enabledOk;
+        row.hidden = !show;
+        if (show) n++;
+      });
+      group.hidden = n === 0;
+      group.querySelector('.evgroup__count').textContent = String(n);
+      total += n;
+    });
+
+    $('listTotal').textContent = String(total);
+    $('emptyState').hidden = total !== 0;
+    searchBox.classList.toggle('has-value', search.value.length > 0);
+  }
+
+  search.addEventListener('input', applyFilters);
+  $('clearSearch').addEventListener('click', function () {
+    search.value = '';
+    applyFilters();
+    search.focus();
+  });
+  onlyEnabled.addEventListener('change', applyFilters);
+  document.querySelectorAll('.scope-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      activeScope = tab.dataset.scope;
+      document.querySelectorAll('.scope-tab').forEach(function (b) {
+        b.classList.toggle('is-active', b === tab);
+      });
+      applyFilters();
+    });
+  });
+
+  /* ── 分组折叠 / 行内操作 ─────────────────────────────── */
+  function toggleGroup(group) {
+    group.classList.toggle('is-collapsed');
+    var head = group.querySelector('.evgroup__head');
+    head.setAttribute('aria-expanded', String(!group.classList.contains('is-collapsed')));
+  }
+
+  var allCollapsed = false;
+  $('collapseAll').addEventListener('click', function () {
+    allCollapsed = !allCollapsed;
+    document.querySelectorAll('.evgroup').forEach(function (g) {
+      g.classList.toggle('is-collapsed', allCollapsed);
+      g.querySelector('.evgroup__head').setAttribute('aria-expanded', String(!allCollapsed));
+    });
+    this.textContent = allCollapsed ? '全部展开' : '全部收起';
+  });
+
+  $('hooksScroll').addEventListener('click', function (event) {
+    var add = event.target.closest('.evgroup__add');
+    if (add) {
+      openDrawer({ mode: 'new', event: add.dataset.addEvent });
+      return;
+    }
+
+    var head = event.target.closest('.evgroup__head');
+    if (head) {
+      toggleGroup(head.closest('.evgroup'));
+      return;
+    }
+
+    var action = event.target.closest('[data-act]');
+    if (!action) return;
+    var row = action.closest('.hook');
+    if (!row) return;
+
+    if (action.dataset.act === 'edit') openDrawer({ mode: 'edit', row: row });
+    if (action.dataset.act === 'test') openDrawer({ mode: 'edit', row: row, test: true });
+    if (action.dataset.act === 'del') openConfirm(row);
+  });
+
+  document.querySelectorAll('.hook__actions .switch input').forEach(function (input) {
+    input.addEventListener('change', function () {
+      var row = input.closest('.hook');
+      row.dataset.enabled = input.checked ? 'true' : 'false';
+      row.classList.toggle('is-off', !input.checked);
+
+      var last = row.querySelector('.hook__last');
+      if (last) {
+        last.className = 'hook__last';
+        last.innerHTML = input.checked ? '<i></i>已启用 · 等待触发' : '已停用';
+      }
+
+      applyFilters();
+      updateStats();
+    });
+  });
+
+  function updateStats() {
+    var rows = document.querySelectorAll('.hook');
+    var enabled = document.querySelectorAll('.hook[data-enabled="true"]').length;
+    $('statTotal').textContent = rows.length + ' 个 Hook';
+    $('statEnabled').textContent = enabled + ' 个已启用';
+    $('listTotal').textContent = String(rows.length);
+  }
+
+  /* ── 抽屉 ─────────────────────────────────────────────── */
+  var editingRow = null;
+  var deletingRow = null;
+  var currentScope = 'global';
+
+  function setScope(scope) {
+    currentScope = scope;
+    document.querySelectorAll('#scopeSeg button').forEach(function (b) {
+      b.classList.toggle('is-active', b.dataset.scope === scope);
+    });
+    var meta = SCOPES[scope] || SCOPES.global;
+    $('ctxBadge').textContent = meta.label;
+    $('ctxBadge').className = 'badge badge--hook';
+    $('ctxPath').textContent = meta.label + ' · ' + meta.path;
+    $('scopeHintText').innerHTML = meta.hint;
+    syncForm();
+  }
+
+  function setEvent(event) {
+    var meta = EVENTS[event] || EVENTS.PreToolUse;
+    $('eventSelect').value = event;
+    $('ctxTitle').textContent = event + ' · ' + meta.short;
+    $('eventHint').textContent = meta.desc;
+    $('matcherField').style.display = meta.matcher ? '' : 'none';
+    syncForm();
+  }
+
+  function buildJson() {
+    var event = $('eventSelect').value;
+    var meta = EVENTS[event] || EVENTS.PreToolUse;
+    var matcher = meta.matcher ? $('matcherInput').value.trim() : '';
+    var command = $('commandInput').value.trim() || '<命令为空>';
+    var timeout = Math.max(1, Number($('timeoutInput').value) || 10);
+    var hook = { type: 'command', command: command, timeout: timeout };
+    var entry = matcher ? { matcher: matcher, hooks: [hook] } : { hooks: [hook] };
+    var doc = { hooks: {} };
+    doc.hooks[event] = [entry];
+    return JSON.stringify(doc, null, 2);
+  }
+
+  function syncForm() {
+    var event = $('eventSelect').value;
+    var meta = EVENTS[event] || EVENTS.PreToolUse;
+    $('jsonPreview').textContent = buildJson();
+    $('testHint').textContent = '用一条示例 ' + event + ' 事件在当前工作区执行，不会改动配置文件。';
+
+    var matcher = $('matcherInput').value.trim();
+    document.querySelectorAll('#matcherChips .chip').forEach(function (chip) {
+      chip.classList.toggle('is-active', chip.dataset.matcher === matcher);
+    });
+    $('commandInput').classList.remove('is-error');
+  }
+
+  function openDrawer(opts) {
+    var mode = opts.mode || 'new';
+    var isEdit = mode === 'edit';
+    editingRow = opts.row || null;
+
+    $('drawerLayer').classList.add('is-open');
+    $('drawerLayer').setAttribute('aria-hidden', 'false');
+    $('drawerTitle').textContent = isEdit ? '编辑 Hook' : '新建 Hook';
+    $('drawerKicker').textContent = isEdit ? 'Claude Code · 编辑 Hook' : 'Claude Code · 新建 Hook';
+    $('saveBtn').textContent = isEdit ? '保存修改' : '创建 Hook';
+    $('deleteBtn').hidden = !isEdit;
+    $('testMeta').textContent = isEdit ? '上次运行 · 42ms' : '未运行';
+    $('testBtn').textContent = '运行';
+    $('testOut').innerHTML = '';
+    $('testOut').classList.remove('is-open');
+
+    if (isEdit && editingRow) {
+      setScope(editingRow.dataset.scope);
+      setEvent(editingRow.dataset.event);
+      $('matcherInput').value = editingRow.dataset.matcher || '';
+      $('commandInput').value = editingRow.dataset.command || '';
+      $('timeoutInput').value = editingRow.dataset.timeout || '10';
+      $('enabledInput').checked = editingRow.dataset.enabled === 'true';
+      $('testOut').innerHTML = testHtml(editingRow.dataset.event, 42);
+      $('testOut').classList.add('is-open');
+    } else {
+      setScope('global');
+      setEvent(opts.event || 'PreToolUse');
+      $('matcherInput').value = 'Bash';
+      $('commandInput').value = 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.mjs"';
+      $('timeoutInput').value = '10';
+      $('enabledInput').checked = true;
+    }
+
+    syncForm();
+    if (opts.test) setTimeout(runTest, 180);
+  }
+
+  function closeDrawer() {
+    $('drawerLayer').classList.remove('is-open');
+    $('drawerLayer').setAttribute('aria-hidden', 'true');
+    editingRow = null;
+  }
+
+  document.querySelectorAll('[data-close-drawer]').forEach(function (el) {
+    el.addEventListener('click', closeDrawer);
+  });
+
+  document.querySelectorAll('#scopeSeg button').forEach(function (btn) {
+    btn.addEventListener('click', function () { setScope(btn.dataset.scope); });
+  });
+
+  $('eventSelect').addEventListener('change', function () {
+    setEvent(this.value);
+  });
+
+  $('matcherInput').addEventListener('input', syncForm);
+  $('commandInput').addEventListener('input', syncForm);
+  $('timeoutInput').addEventListener('input', syncForm);
+
+  document.querySelectorAll('#matcherChips .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      $('matcherInput').value = chip.dataset.matcher === '*' ? '' : chip.dataset.matcher;
+      syncForm();
+    });
+  });
+
+  document.querySelectorAll('[data-insert]').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var input = $('commandInput');
+      var insert = chip.dataset.insert;
+      var start = input.selectionStart || input.value.length;
+      var end = input.selectionEnd || start;
+      input.value = input.value.slice(0, start) + insert + input.value.slice(end);
+      input.focus();
+      input.selectionStart = input.selectionEnd = start + insert.length;
+      syncForm();
+    });
+  });
+
+  /* ── 试运行 ───────────────────────────────────────────── */
+  function testHtml(event, ms) {
+    var lines;
+    if (event === 'PreToolUse') {
+      lines = [
+        ['stdin', '{ "hook_event_name": "PreToolUse", "tool_name": "Bash" }', ''],
+        ['stdout', 'guard-bash: 拒绝执行 npm publish，请先确认版本号。', ''],
+        ['exit', '2', 'is-err', ms]
+      ];
+    } else if (event === 'PostToolUse') {
+      lines = [
+        ['stdin', '{ "hook_event_name": "PostToolUse", "tool_name": "Edit" }', ''],
+        ['stdout', 'format-changed: 已格式化 2 个文件。', ''],
+        ['exit', '0', 'is-ok', ms]
+      ];
+    } else if (event === 'UserPromptSubmit') {
+      lines = [
+        ['stdin', '{ "hook_event_name": "UserPromptSubmit", "prompt": "..." }', ''],
+        ['stdout', 'inject-context: 已注入 1.2 KB 项目上下文。', ''],
+        ['exit', '0', 'is-ok', ms]
+      ];
+    } else if (event === 'Stop') {
+      lines = [
+        ['stdin', '{ "hook_event_name": "Stop", "stop_hook_active": false }', ''],
+        ['stdout', 'notify-done: 已发送完成提醒。', ''],
+        ['exit', '0', 'is-ok', ms]
+      ];
+    } else {
+      lines = [
+        ['stdin', '{ "hook_event_name": "' + event + '" }', ''],
+        ['stdout', '命令执行完成。', ''],
+        ['exit', '0', 'is-ok', ms]
+      ];
+    }
+
+    return lines.map(function (line) {
+      var value = '<span class="test-val' + (line[2] ? ' ' + line[2] : '') + '">' + line[1] + '</span>';
+      var time = line[3] ? '<span class="test-time">' + line[3] + 'ms</span>' : '';
+      return '<div class="test-line"><span class="test-key">' + line[0] + '</span>' + value + time + '</div>';
+    }).join('');
+  }
+
+  var testing = false;
+  function runTest() {
+    if (testing) return;
+    testing = true;
+    var btn = $('testBtn');
+    btn.disabled = true;
+    btn.textContent = '运行中…';
+    var out = $('testOut');
+    out.classList.add('is-open');
+    out.innerHTML = '<div class="test-placeholder">正在启动命令…</div>';
+
+    setTimeout(function () {
+      var ms = 30 + Math.floor(Math.random() * 40);
+      out.innerHTML = testHtml($('eventSelect').value, ms);
+      $('testMeta').textContent = '刚刚运行 · ' + ms + 'ms';
+      btn.disabled = false;
+      btn.textContent = '重新运行';
+      testing = false;
+    }, 520);
+  }
+
+  $('testBtn').addEventListener('click', runTest);
+
+  /* ── 保存 / 删除 ──────────────────────────────────────── */
+  $('saveBtn').addEventListener('click', function () {
+    var command = $('commandInput').value.trim();
+    if (!command) {
+      $('commandInput').classList.add('is-error');
+      $('commandInput').focus();
+      return;
+    }
+    var isEdit = !!editingRow;
+    closeDrawer();
+    toast(isEdit ? 'Hook 已更新 · 已写入配置' : 'Hook 已创建 · 已写入配置');
+  });
+
+  function openConfirm(row) {
+    deletingRow = row;
+    var scope = row.dataset.scope;
+    var meta = SCOPES[scope] || SCOPES.global;
+    $('confirmBody').innerHTML =
+      '会从 <code>' + meta.path + '</code> 中移除这条规则，并立即写入磁盘。';
+    $('confirmLayer').classList.add('is-open');
+    $('confirmLayer').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeConfirm() {
+    $('confirmLayer').classList.remove('is-open');
+    $('confirmLayer').setAttribute('aria-hidden', 'true');
+    deletingRow = null;
+  }
+
+  document.querySelectorAll('[data-close-confirm]').forEach(function (el) {
+    el.addEventListener('click', closeConfirm);
+  });
+
+  $('confirmDelete').addEventListener('click', function () {
+    if (!deletingRow) return;
+    var group = deletingRow.closest('.evgroup');
+    deletingRow.remove();
+    if (!group.querySelector('.hook')) group.hidden = true;
+    closeConfirm();
+    closeDrawer();
+    applyFilters();
+    updateStats();
+    toast('Hook 已删除 · 原配置已备份');
+  });
+
+  $('deleteBtn').addEventListener('click', function () {
+    if (editingRow) openConfirm(editingRow);
+  });
+
+  /* ── Toast / 扫描 / 外部链接 ──────────────────────────── */
+  var toastTimer = null;
+  function toast(text) {
+    $('toastText').textContent = text;
+    $('toast').classList.add('is-open');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      $('toast').classList.remove('is-open');
+    }, 2200);
+  }
+
+  $('rescanBtn').addEventListener('click', function () {
+    var icon = $('rescanIcon');
+    icon.classList.add('spin');
+    setTimeout(function () {
+      icon.classList.remove('spin');
+      toast('已重新读取 3 个 settings 文件');
+    }, 700);
+  });
+
+  $('openConfigBtn').addEventListener('click', function () {
+    toast('演示：打开 ~/.claude 目录');
+  });
+
+  document.querySelectorAll('[data-action="docs"]').forEach(function (link) {
+    link.addEventListener('click', function (event) {
+      event.preventDefault();
+      toast('演示：打开 Hooks 文档');
+    });
+  });
+
+  /* ── Esc ──────────────────────────────────────────────── */
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    if ($('confirmLayer').classList.contains('is-open')) {
+      closeConfirm();
+      return;
+    }
+    if ($('drawerLayer').classList.contains('is-open')) closeDrawer();
+  });
+
+  /* ── 初始状态 ─────────────────────────────────────────── */
+  applyFilters();
+  syncForm();
+
+  if (variant.indexOf('b') !== -1) {
+    openDrawer({ mode: 'edit', row: document.querySelector('.hook[data-event="PreToolUse"]') });
+  } else if (variant.indexOf('c') !== -1) {
+    openDrawer({ mode: 'new', event: 'PreToolUse' });
+  }
+})();
+</script>
+</body>
+</html>

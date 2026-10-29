@@ -32,6 +32,14 @@ import type {
   SkillScope
 } from '../shared/skills'
 import type {
+  HookInput,
+  HookListResult,
+  HookMutationResult,
+  HookTestInput,
+  HookTestResult,
+  HookWritableScope
+} from '../shared/hooks'
+import type {
   PermissionDecision,
   QuestionAnswer,
   SessionEventPayload,
@@ -269,6 +277,30 @@ const api: WindowApi = {
       ipcRenderer.invoke(IPC.skillsOpenResource, cli, id, rel, cwd, dshHome),
     openBackups: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.skillsOpenBackups)
+  },
+
+  hooks: {
+    list: (cwd: string): Promise<HookListResult> =>
+      ipcRenderer.invoke(IPC.hooksList, cwd),
+    save: (input: HookInput, cwd: string): Promise<HookMutationResult> =>
+      ipcRenderer.invoke(IPC.hooksSave, input, cwd),
+    remove: (id: string, cwd: string): Promise<HookMutationResult> =>
+      ipcRenderer.invoke(IPC.hooksRemove, id, cwd),
+    setEnabled: (
+      id: string,
+      enabled: boolean,
+      cwd: string
+    ): Promise<HookMutationResult> =>
+      ipcRenderer.invoke(IPC.hooksSetEnabled, id, enabled, cwd),
+    test: (input: HookTestInput): Promise<HookTestResult> =>
+      ipcRenderer.invoke(IPC.hooksTest, input),
+    openConfig: (
+      scope: HookWritableScope,
+      cwd: string
+    ): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.hooksOpenConfig, scope, cwd),
+    openBackups: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.hooksOpenBackups)
   },
 
   codex: {

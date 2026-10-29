@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '../src/shared/events'
 import { DshWebSession } from '../src/main/providers/dsh/web/session'
-import { disposeAllDshWebHosts } from '../src/main/providers/dsh/web/host'
+import { disposeAllDshWebHosts, getDshWebHost } from '../src/main/providers/dsh/web/host'
 import { readDshTranscript } from '../src/main/providers/dsh/history'
 import { DshEventTranslator } from '../src/main/providers/dsh/events'
 import type { ProviderSessionOptions } from '../src/main/providers/types'
@@ -254,6 +254,39 @@ async function main(): Promise<void> {
   console.log('history events:', replayTypes.join(', '))
   if (!replayTypes.includes('session_started')) fail('历史回放缺少 session_started')
   if (!replayTypes.includes('user_message')) fail('历史回放缺少 user_message')
+
+  /*
+   * 断线重连：follow 断开期间 Host 提交的事件，必须在重连快照里补发。
+   * 这里用 onHostDisconnected / onHostConnected 模拟 socket 断开
+   *（真实路径也是「关 follow → 重连 → reopen follow」）。
+   * 少了这段补发，断线期间跑完的 turn/end 会丢，界面永远停在「运行中」。
+   */
+  const liveHost = getDshWebHost({
+    home,
+    channel: null,
+    cwd,
+    patchFile: join(home, 'profiles', 'acp', 'cordis.patch.yml')
+  })
+  session.onHostDisconnected()
+  const gapMark = events.length
+  await liveHost.call('session/prompt', {
+    request: {
+      requestId: `gap-${Date.now()}`,
+      sessionId: firstId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'committed while disconnected' }],
+      clientTimeZone: 'Asia/Shanghai'
+    }
+  })
+  // 没有 Key 时这一轮会快速报错并 turn/end；给它一点时间落盘
+  await new Promise((r) => setTimeout(r, 1_500))
+  session.onHostConnected()
+  await new Promise((r) => setTimeout(r, 2_500))
+  const gapTypes = events.slice(gapMark).map((e) => e.t)
+  if (!gapTypes.includes('turn_end')) {
+    fail(`重连后没有补发断线期间的 turn/end（收到：${gapTypes.join(',') || 'none'}）`)
+  }
+  console.log('reconnect replay: ok')
 
   // 第二个会话复用同一个 host，并且 resume 同一条 dsh 会话
   const events2: AgentEvent[] = []

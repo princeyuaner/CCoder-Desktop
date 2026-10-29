@@ -7,6 +7,7 @@ import type {
   Question,
   Usage
 } from '../../../../shared/events'
+import type { CommandAction } from '../../../../shared/commands'
 import type { LocalizedText } from '../../../../shared/i18n'
 import { canonicalModel } from '../../../../shared/model'
 import type {
@@ -272,9 +273,25 @@ export class DshWebSession implements ProviderSession, DshHostSession {
               const type = str(frame.type)
               if (type === 'snapshot') {
                 const snap = frame as unknown as DshFollowSnapshot
-                this.lastSeq = num(snap.cursor)
+                /*
+                 * 重连时 lastSeq 是本会话已经处理到的位置。快照里它之后
+                 * 已经落盘的记录必须补喂给 translator —— 否则断线期间跑完的
+                 * turn/end、工具结果和正文会永久丢失，界面会一直卡在「运行中」。
+                 * 首次 attach（lastSeq < 0）跳过：历史由磁盘回放负责，
+                 * 这里再放一遍会重复。
+                 */
+                const processed = this.lastSeq
+                const cursor = num(snap.cursor)
+                this.lastSeq = processed >= 0 ? Math.max(processed, cursor) : cursor
                 const values = obj(obj(snap.projections).values)
                 this.onProjections(values)
+                if (processed >= 0) {
+                  try {
+                    this.replayRecords(snap.records, processed)
+                  } catch {
+                    // 一条坏记录不能把 attach 卡死
+                  }
+                }
                 opened = true
                 resolve()
                 return
@@ -318,6 +335,23 @@ export class DshWebSession implements ProviderSession, DshHostSession {
         reject(e instanceof Error ? e : new Error(String(e)))
       }
     })
+  }
+
+  /**
+   * 补发快照里 `afterSeq` 之后、本会话还没处理过的持久事件。
+   *
+   * 只在重连（follow 被重开）时调用；快照的 cursor 已经是当前末尾，
+   * 这些记录就是断线窗口里丢掉的那一段。
+   */
+  private replayRecords(records: unknown[], afterSeq: number): void {
+    for (const record of records) {
+      const entry = obj(record)
+      if (str(entry.type) !== 'event') continue
+      const event = obj(entry.event) as unknown as DshWireEvent
+      const seq = num(event.seq)
+      if (seq > 0 && seq <= afterSeq) continue
+      this.translator.push(event)
+    }
   }
 
   private async reopenFollow(): Promise<void> {
@@ -473,11 +507,20 @@ export class DshWebSession implements ProviderSession, DshHostSession {
           if (!name) return null
           const input = obj(c.input)
           const hint = str(input.hint).trim()
+          /*
+           * 渲染层只认带 action 的 `run: 'app'` 条目；没有 action 就落到
+           * `default: break`，点了什么都不会发生。能映射到宿主 UI 的走
+           * 现成动作，其余（/goal、/export、/feedback…）交给
+           * ProviderSession.command → commands/execute 执行。
+           */
+          const action: CommandAction =
+            name === 'permission' ? 'permissions' : name === 'plan' ? 'plan' : 'provider'
           return {
             name,
             description: str(c.description),
             ...(hint ? { argumentHint: hint } : {}),
             run: 'app' as const,
+            action,
             group: 'command' as const
           }
         })
@@ -573,6 +616,17 @@ export class DshWebSession implements ProviderSession, DshHostSession {
           submittedAttachments: []
         })
       )
+      .then((res) => {
+        // RPC 成功不代表指令成功：处理器自己的失败放在 result.kind 里
+        const result = obj(obj(res).result)
+        if (str(result.kind) === 'error') {
+          this.note(
+            msg('dsh.web.commandFailed', {
+              detail: str(result.text) || 'error'
+            })
+          )
+        }
+      })
       .catch((e) => {
         this.note(
           msg('dsh.web.commandFailed', {

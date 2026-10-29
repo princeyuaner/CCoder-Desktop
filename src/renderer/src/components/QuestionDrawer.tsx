@@ -4,6 +4,7 @@ import type { MessageKey } from '@shared/i18n'
 import type { QuestionAnswer } from '@shared/session'
 import type { ChatItem } from '../useChat'
 import { useI18n } from '../i18n'
+import { IconChevronDown } from './Icons'
 
 type QuestionItem = Extract<ChatItem, { kind: 'question' }>
 
@@ -39,8 +40,14 @@ export function QuestionDrawer({
   const [active, setActive] = useState(0)
   /** 存 key 而不是文案：切换语言时已经显示出来的提示也要跟着变 */
   const [hint, setHint] = useState<MessageKey | null>(null)
+  /**
+   * 收起成一行。只是把正文折起来，不改变答题状态 —— 用户常常要回看上面的
+   * 讨论才能回答，而抽屉最高能吃掉半屏。
+   */
+  const [minimized, setMinimized] = useState(false)
 
   const rootRef = useRef<HTMLDivElement>(null)
+  const minRef = useRef<HTMLButtonElement>(null)
   const otherRef = useRef<HTMLInputElement>(null)
 
   const total = item.questions.length
@@ -59,12 +66,14 @@ export function QuestionDrawer({
     setOtherOpen({})
     setActive(0)
     setHint(null)
+    setMinimized(false)
   }, [item.id])
 
-  /** 打开时把焦点从输入框抢过来 —— 否则方向键和回车会被输入框接走 */
+  /** 展开时焦点回到抽屉，收起时落在收起条上 —— 键盘用户不会丢焦点 */
   useEffect(() => {
-    rootRef.current?.focus()
-  }, [item.id, index])
+    if (minimized) minRef.current?.focus()
+    else rootRef.current?.focus()
+  }, [minimized, item.id, index])
 
   /** 「其他」展开后把光标放进去 */
   useEffect(() => {
@@ -213,137 +222,177 @@ export function QuestionDrawer({
   }
 
   return (
-    <div
-      className="qdrawer"
-      ref={rootRef}
-      tabIndex={-1}
-      role="group"
-      aria-label={t('question.aria', { question: q.question })}
-      onKeyDown={onKeyDown}
-    >
-      <div className="qdrawer__h">
-        <span className="qdrawer__badge">{t('question.badge')}</span>
-        <span className="qdrawer__t">{t('question.title')}</span>
-        {pendingCount > 1 && (
-          <span className="qdrawer__queue">
-            {tn('question.queue', pendingCount - 1)}
+    <>
+      {/* 收起态：只留一行，把高度还给转写区；整条可点，回车/空格也能展开 */}
+      {minimized ? (
+        <button
+          type="button"
+          ref={minRef}
+          className="qdrawer qdrawer--min"
+          aria-expanded={false}
+          aria-label={t('question.minimized.aria', {
+            question: q.question,
+            index: index + 1,
+            total
+          })}
+          onClick={() => setMinimized(false)}
+        >
+          <span className="qdrawer--min__dot" aria-hidden="true" />
+          <span className="qdrawer__badge">{t('question.badge')}</span>
+          <span className="qdrawer__n">
+            {index + 1}/{total}
           </span>
-        )}
-        <span className="qdrawer__n">
-          {index + 1}/{total}
-        </span>
-      </div>
-
-      <div className="qdrawer__b">
-        <div className="qdrawer__meta">
           <span className="qdrawer__chip">{q.header}</span>
-          {q.multiSelect && <span className="qdrawer__multi">{t('question.multi')}</span>}
-          <span className="qdrawer__count">
-            {t('question.progress', { index: index + 1, total })}
+          <span className="qdrawer--min__q">{q.question}</span>
+          {pendingCount > 1 && (
+            <span className="qdrawer__queue">{tn('question.queue', pendingCount - 1)}</span>
+          )}
+          <span className="qdrawer--min__cta">
+            {t('question.expand')}
+            <IconChevronDown className="qdrawer--min__chev" />
           </span>
-        </div>
+        </button>
+      ) : (
+        <div
+          className="qdrawer"
+          ref={rootRef}
+          tabIndex={-1}
+          role="group"
+          aria-label={t('question.aria', { question: q.question })}
+          onKeyDown={onKeyDown}
+        >
+          <div className="qdrawer__h">
+            <span className="qdrawer__badge">{t('question.badge')}</span>
+            <span className="qdrawer__t">{t('question.title')}</span>
+            {pendingCount > 1 && (
+              <span className="qdrawer__queue">{tn('question.queue', pendingCount - 1)}</span>
+            )}
+            <span className="qdrawer__n">
+              {index + 1}/{total}
+            </span>
+            <button
+              type="button"
+              className="qdrawer__min"
+              title={t('question.minimize')}
+              onClick={() => setMinimized(true)}
+            >
+              {t('question.minimize')}
+              <IconChevronDown className="qdrawer__min-ic" />
+            </button>
+          </div>
 
-        <div className="qdrawer__q">{q.question}</div>
+          <div className="qdrawer__b">
+            <div className="qdrawer__meta">
+              <span className="qdrawer__chip">{q.header}</span>
+              {q.multiSelect && <span className="qdrawer__multi">{t('question.multi')}</span>}
+              <span className="qdrawer__count">
+                {t('question.progress', { index: index + 1, total })}
+              </span>
+            </div>
 
-        <div className="qdrawer__opts" role={q.multiSelect ? 'group' : 'radiogroup'}>
-          {q.options.map((o, i) => {
-            const on = pickedHere.includes(o.label)
-            return (
+            <div className="qdrawer__q">{q.question}</div>
+
+            <div className="qdrawer__opts" role={q.multiSelect ? 'group' : 'radiogroup'}>
+              {q.options.map((o, i) => {
+                const on = pickedHere.includes(o.label)
+                return (
+                  <div
+                    key={o.label}
+                    className={`qopt ${on ? 'is-on' : ''} ${q.multiSelect ? 'is-multi' : ''} ${
+                      active === i ? 'is-active' : ''
+                    }`}
+                    role={q.multiSelect ? 'checkbox' : 'radio'}
+                    aria-checked={on}
+                    onClick={() => {
+                      focusRoot()
+                      setActive(i)
+                      choose(index, o.label)
+                    }}
+                    onMouseEnter={() => setActive(i)}
+                  >
+                    <span className="qopt__m" />
+                    <span className="qopt__b">
+                      <span className="qopt__t">{o.label}</span>
+                      {o.description && <span className="qopt__d">{o.description}</span>}
+                    </span>
+                    <span className="qopt__k">{i + 1}</span>
+                  </div>
+                )
+              })}
+
+              {/* 「其他」：CLI 自己也会提供这个选项，这里用输入框承接自由答案 */}
               <div
-                key={o.label}
-                className={`qopt ${on ? 'is-on' : ''} ${q.multiSelect ? 'is-multi' : ''} ${
-                  active === i ? 'is-active' : ''
+                className={`qopt qopt--other ${q.multiSelect ? 'is-multi' : ''} ${
+                  otherIsOpen ? 'is-open' : ''
+                } ${active === q.options.length ? 'is-active' : ''} ${
+                  otherHere.trim() ? 'is-on' : ''
                 }`}
-                role={q.multiSelect ? 'checkbox' : 'radio'}
-                aria-checked={on}
+                role="radio"
+                aria-checked={otherHere.trim().length > 0}
                 onClick={() => {
                   focusRoot()
-                  setActive(i)
-                  choose(index, o.label)
+                  setActive(q.options.length)
+                  openOther(index)
                 }}
-                onMouseEnter={() => setActive(i)}
+                onMouseEnter={() => setActive(q.options.length)}
               >
                 <span className="qopt__m" />
                 <span className="qopt__b">
-                  <span className="qopt__t">{o.label}</span>
-                  {o.description && <span className="qopt__d">{o.description}</span>}
+                  {otherIsOpen ? (
+                    <input
+                      ref={otherRef}
+                      className="qopt__input"
+                      value={otherHere}
+                      placeholder={t('question.otherPlaceholder')}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setOther((prev) => ({ ...prev, [index]: v }))
+                        setHint(null)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span className="qopt__t qopt__t--other">{t('question.other')}</span>
+                  )}
                 </span>
-                <span className="qopt__k">{i + 1}</span>
               </div>
-            )
-          })}
+            </div>
 
-          {/* 「其他」：CLI 自己也会提供这个选项，这里用输入框承接自由答案 */}
-          <div
-            className={`qopt qopt--other ${q.multiSelect ? 'is-multi' : ''} ${
-              otherIsOpen ? 'is-open' : ''
-            } ${active === q.options.length ? 'is-active' : ''} ${
-              otherHere.trim() ? 'is-on' : ''
-            }`}
-            role="radio"
-            aria-checked={otherHere.trim().length > 0}
-            onClick={() => {
-              focusRoot()
-              setActive(q.options.length)
-              openOther(index)
-            }}
-            onMouseEnter={() => setActive(q.options.length)}
-          >
-            <span className="qopt__m" />
-            <span className="qopt__b">
-              {otherIsOpen ? (
-                <input
-                  ref={otherRef}
-                  className="qopt__input"
-                  value={otherHere}
-                  placeholder={t('question.otherPlaceholder')}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    setOther((prev) => ({ ...prev, [index]: v }))
-                    setHint(null)
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <span className="qopt__t qopt__t--other">{t('question.other')}</span>
-              )}
+            {hint && <div className="qdrawer__hint">{t(hint)}</div>}
+          </div>
+
+          <div className="qdrawer__f">
+            <span className="qdrawer__keys">
+              {[
+                t('question.key.updown'),
+                t('question.key.enter'),
+                q.multiSelect ? t('question.key.space') : '',
+                t('question.key.esc')
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </span>
+            {index > 0 && (
+              <button
+                className="qbtn"
+                onClick={() => {
+                  setHint(null)
+                  setIndex(index - 1)
+                }}
+              >
+                {t('question.prev')}
+              </button>
+            )}
+            <button className="qbtn" onClick={skip}>
+              {t('question.skip')}
+            </button>
+            <button className="qbtn qbtn--primary" disabled={!hasAnswer} onClick={advance}>
+              {isLast ? t('question.submit') : t('question.next')}
+              <span className="kbd">⏎</span>
+            </button>
           </div>
         </div>
-
-        {hint && <div className="qdrawer__hint">{t(hint)}</div>}
-      </div>
-
-      <div className="qdrawer__f">
-        <span className="qdrawer__keys">
-          {[
-            t('question.key.updown'),
-            t('question.key.enter'),
-            q.multiSelect ? t('question.key.space') : '',
-            t('question.key.esc')
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </span>
-        {index > 0 && (
-          <button
-            className="qbtn"
-            onClick={() => {
-              setHint(null)
-              setIndex(index - 1)
-            }}
-          >
-            {t('question.prev')}
-          </button>
-        )}
-        <button className="qbtn" onClick={skip}>
-          {t('question.skip')}
-        </button>
-        <button className="qbtn qbtn--primary" disabled={!hasAnswer} onClick={advance}>
-          {isLast ? t('question.submit') : t('question.next')}
-          <span className="kbd">⏎</span>
-        </button>
-      </div>
-    </div>
+      )}
+    </>
   )
 }
