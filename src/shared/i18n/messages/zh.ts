@@ -716,6 +716,9 @@ export const zh = {
   'settings.editor.minimap.on': '显示',
   'settings.editor.minimap.off': '隐藏',
   'settings.editor.minimapHint': '大文件会自动关闭缩略图以保证流畅度。',
+  'settings.editor.autoReveal': '在目录树中定位打开的文件',
+  'settings.editor.autoRevealHint':
+    '打开或切换文件时，资源管理器自动展开所在目录并选中该文件；关闭后目录树不会跟着滚动。',
   'settings.editor.autoSave': '自动保存',
   'editor.autoSave.off': '关闭',
   'editor.autoSave.afterDelay': '停止输入后保存',

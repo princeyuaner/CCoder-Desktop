@@ -520,6 +520,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const discardDraftsRef = useRef(false)
   /** 最近关闭的标签（Ctrl+Shift+T 重新打开）；只在内存里，不跨窗口 */
   const closedTabsRef = useRef<Tab[]>([])
+  /** 标签栏本身：页签溢出时要靠它把当前页签滚进视野 */
+  const tabsBarRef = useRef<HTMLDivElement>(null)
   const vcs = useVcsStatus(cwd)
   const sync = useSync(cwd)
   const [syncLogOpen, setSyncLogOpen] = useState(false)
@@ -528,6 +530,41 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const syncAnnounced = useRef<number | null>(null)
   const syncReady = useRef(false)
   const activeTab = tabs.find((t) => t.key === activeKey) ?? null
+
+  /*
+   * 标签栏横向滚动且隐藏了滚动条：页签多到溢出时，新打开的页签会排在可视
+   * 区之外——编辑区明明换了文件，却看不到对应页签。activeKey 变化（或页签
+   * 增减、拖动排序）后把当前页签滚进视野。
+   */
+  useEffect(() => {
+    const bar = tabsBarRef.current
+    if (!bar || !activeKey) return
+    const el = Array.from(bar.children).find(
+      (node) => (node as HTMLElement).dataset.tabKey === activeKey
+    ) as HTMLElement | undefined
+    if (!el) return
+    const barRect = bar.getBoundingClientRect()
+    const tabRect = el.getBoundingClientRect()
+    if (tabRect.left < barRect.left) {
+      bar.scrollLeft -= barRect.left - tabRect.left
+    } else if (tabRect.right > barRect.right) {
+      bar.scrollLeft += tabRect.right - barRect.right
+    }
+  }, [activeKey, tabs])
+
+  /*
+   * 「在目录树中定位打开的文件」：打开或切换页签时，资源管理器展开所在
+   * 目录并选中该文件。diff 页签在树里没有对应文件，跳过；设置关掉后就
+   * 完全不动目录树。只在当前页签变化时触发，收起 / 展开侧栏不会重置树。
+   */
+  useEffect(() => {
+    if (!editorPrefs.autoRevealInExplorer) return
+    if (view !== 'files' || !sidebarOpen) return
+    if (!activeTab || activeTab.kind === 'diff' || !activeTab.rel) return
+    const rel = activeTab.rel
+    setTreeTarget({ rel, kind: 'file' })
+    setReveal((prev) => ({ rel, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [activeKey, editorPrefs.autoRevealInExplorer])
 
   /* ── 语言服务器 ───────────────────────────────────────── */
   const {
@@ -2806,10 +2843,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
         <div className="ide-workbench">
         <section className="ide-editor">
-          <div className="ide-tabs">
+          <div className="ide-tabs" ref={tabsBarRef}>
             {tabs.map((tab) => (
               <div
                 key={tab.key}
+                data-tab-key={tab.key}
                 className={`ide-tab ${tab.key === activeKey ? 'on' : ''}${
                   tab.pinned ? ' is-pinned' : ''
                 }${dragTabKey === tab.key ? ' is-dragging' : ''}${

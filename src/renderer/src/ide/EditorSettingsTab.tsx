@@ -122,6 +122,19 @@ export function EditorSettingsTab({
                 onChange={(on) => patchEditor({ minimap: on })}
               />
             </Field>
+
+            <Field
+              label={t('settings.editor.autoReveal')}
+              hint={t('settings.editor.autoRevealHint')}
+            >
+              <Toggle
+                on={editor.autoRevealInExplorer}
+                label={
+                  editor.autoRevealInExplorer ? t('common.enabled') : t('common.disabled')
+                }
+                onChange={(on) => patchEditor({ autoRevealInExplorer: on })}
+              />
+            </Field>
           </div>
         </section>
 

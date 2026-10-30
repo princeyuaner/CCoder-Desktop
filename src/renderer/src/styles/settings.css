@@ -164,6 +164,10 @@
   font-size: 12.5px;
   color: var(--text-faint);
 }
+/* 安装 / 登录状态跟在「启用 + 更新」后面，和「立即检查」那一行拉开距离 */
+.clistatus {
+  margin-top: 26px;
+}
 .clipane__todo {
   margin: 0 0 20px;
   padding: 9px 12px;

@@ -285,6 +285,8 @@ export interface EditorSettings {
   autoSaveDelayMs: number
   /** 保存时去掉行尾空白 */
   trimTrailingWhitespace: boolean
+  /** 打开 / 切换文件时在资源管理器里自动展开并定位 */
+  autoRevealInExplorer: boolean
 }
 
 export const EDITOR_FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const
@@ -299,7 +301,8 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   minimap: true,
   autoSave: 'off',
   autoSaveDelayMs: 1000,
-  trimTrailingWhitespace: false
+  trimTrailingWhitespace: false,
+  autoRevealInExplorer: true
 }
 
 export function clampEditorFontSize(v: unknown): number {
@@ -348,7 +351,8 @@ export function normalizeEditorSettings(raw: Partial<EditorSettings> | null | un
     minimap: src.minimap !== false,
     autoSave: isEditorAutoSave(src.autoSave) ? src.autoSave : DEFAULT_EDITOR_SETTINGS.autoSave,
     autoSaveDelayMs: clampAutoSaveDelay(src.autoSaveDelayMs),
-    trimTrailingWhitespace: src.trimTrailingWhitespace === true
+    trimTrailingWhitespace: src.trimTrailingWhitespace === true,
+    autoRevealInExplorer: src.autoRevealInExplorer !== false
   }
 }
 

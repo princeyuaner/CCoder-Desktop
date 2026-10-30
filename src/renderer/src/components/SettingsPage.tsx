@@ -401,41 +401,6 @@ export function SettingsPage({
         <div className={`settings__content${page.kind === 'mcp' || page.kind === 'skills' || page.kind === 'hooks' ? ' settings__content--wide' : ''}`}>
           {page.kind === 'cli' && cfg && (
             <>
-              {page.id === 'codex' && (
-                <CodexStatusPanel
-                  status={codexStatus.status}
-                  loading={codexStatus.loading}
-                  error={codexStatus.error}
-                  onRefresh={() => void codexStatus.refresh()}
-                  hasChannelKey={!!activeCfgChannel?.authToken.trim()}
-                />
-              )}
-
-              {page.id === 'claude' && (
-                <ClaudeAuthPanel
-                  auth={claudeAuth}
-                  authMode={cfg.authMode}
-                  officialModel={cfg.officialModel}
-                  runningSessions={runningSessions}
-                  onAuthMode={(m) => patchCli('claude', { authMode: m })}
-                  onOfficialModel={(v) => patchCli('claude', { officialModel: v })}
-                />
-              )}
-
-              {page.id === 'dsh' && (
-                <DshStatusPanel
-                  status={dshStatus.status}
-                  loading={dshStatus.loading}
-                  error={dshStatus.error}
-                  onRefresh={() => void dshStatus.refresh()}
-                  authMode={cfg.authMode}
-                  onAuthMode={(m) => patchCli('dsh', { authMode: m })}
-                  officialModel={cfg.officialModel}
-                  onOfficialModel={(v) => patchCli('dsh', { officialModel: v })}
-                  hasChannelKey={!!activeCfgChannel?.authToken.trim()}
-                />
-              )}
-
               <div className="clipane">
                 <div className="clipane__main">
                   <h2 className="clipane__title">{cliDef(page.id).name}</h2>
@@ -479,6 +444,44 @@ export function SettingsPage({
                   onCancel={cliUpdate.cancel}
                 />
               )}
+
+              {/* 安装 / 登录状态放在启用与更新之后：进页面先看到「开没开、版本新不新」 */}
+              <div className="clistatus">
+                {page.id === 'codex' && (
+                  <CodexStatusPanel
+                    status={codexStatus.status}
+                    loading={codexStatus.loading}
+                    error={codexStatus.error}
+                    onRefresh={() => void codexStatus.refresh()}
+                    hasChannelKey={!!activeCfgChannel?.authToken.trim()}
+                  />
+                )}
+
+                {page.id === 'claude' && (
+                  <ClaudeAuthPanel
+                    auth={claudeAuth}
+                    authMode={cfg.authMode}
+                    officialModel={cfg.officialModel}
+                    runningSessions={runningSessions}
+                    onAuthMode={(m) => patchCli('claude', { authMode: m })}
+                    onOfficialModel={(v) => patchCli('claude', { officialModel: v })}
+                  />
+                )}
+
+                {page.id === 'dsh' && (
+                  <DshStatusPanel
+                    status={dshStatus.status}
+                    loading={dshStatus.loading}
+                    error={dshStatus.error}
+                    onRefresh={() => void dshStatus.refresh()}
+                    authMode={cfg.authMode}
+                    onAuthMode={(m) => patchCli('dsh', { authMode: m })}
+                    officialModel={cfg.officialModel}
+                    onOfficialModel={(v) => patchCli('dsh', { officialModel: v })}
+                    hasChannelKey={!!activeCfgChannel?.authToken.trim()}
+                  />
+                )}
+              </div>
 
               {(page.id === 'claude' || page.id === 'dsh') && cfg.authMode === 'official' ? (
                 <p className="section-lead">

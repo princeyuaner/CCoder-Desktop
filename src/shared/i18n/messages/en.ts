@@ -736,6 +736,9 @@ export const en = {
   'settings.editor.minimap.on': 'Show',
   'settings.editor.minimap.off': 'Hide',
   'settings.editor.minimapHint': 'Large files disable the minimap automatically to stay responsive.',
+  'settings.editor.autoReveal': 'Reveal opened files in the explorer',
+  'settings.editor.autoRevealHint':
+    'Expands the containing folders and selects the file in the explorer when you open or switch files. When off, the tree stays where it is.',
   'settings.editor.autoSave': 'Auto-save',
   'editor.autoSave.off': 'Off',
   'editor.autoSave.afterDelay': 'After typing stops',
