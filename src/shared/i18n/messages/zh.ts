@@ -672,11 +672,13 @@ export const zh = {
   'settings.uiFontPlaceholder':
     'CSS font-family，例如：My Font, Microsoft YaHei, sans-serif',
   'settings.uiFontHint':
-    '选「自定义」可以直接填字体名或多个字体；没装的字体会自动回落到后面的备选。',
-  'settings.monoFont': '等宽字体',
+    '整个界面的文字（侧栏、按钮、菜单、对话框、对话正文）。选「自定义」可以直接填字体名或多个字体；没装的字体会自动回落到后面的备选。',
+  'settings.monoFont': '代码字体',
   'settings.monoFontPlaceholder':
     'CSS font-family，例如：Fira Code, Consolas, monospace',
-  'settings.monoFontHint': '代码块、路径、工具输出用的字体。',
+  'settings.monoFontHint': '代码块、内置编辑器、终端、diff、路径和工具输出所用的等宽字体。',
+  'settings.systemFonts': '本机字体',
+  'settings.systemMonoFonts': '本机等宽字体',
   'settings.chat': '对话',
   'settings.showTimestamps': '显示消息时间',
   'settings.showTimestamps.on': '显示',

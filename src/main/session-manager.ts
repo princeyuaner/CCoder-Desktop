@@ -121,6 +121,28 @@ interface Live {
 }
 
 /**
+ * 只会在「模型正在干活」时出现的事件。
+ *
+ * 用来认领那些不是宿主动手、但确实已经开始的新一轮（CLI 处理完后台任务
+ * 通知后自己接着跑）。后台任务的 task_* 事件不算 —— 它们在上一轮结束后
+ * 仍会不断到达，而模型未必在跑。
+ */
+function isTurnActivity(e: AgentEvent): boolean {
+  switch (e.t) {
+    case 'text_delta':
+    case 'thinking_delta':
+    case 'tool_started':
+    case 'tool_call':
+    case 'tool_result':
+    case 'permission_request':
+    case 'question_request':
+      return true
+    default:
+      return false
+  }
+}
+
+/**
  * 会话生命周期。
  *
  * 与 M1 最大的不同：一个会话对应**一个长驻的 CLI 进程**，而不是每轮拉一个。
@@ -268,19 +290,7 @@ export class SessionManager {
       return { ok: true }
     }
 
-    s.busy = true
-    s.interrupted = false
-    s.lastEventWasError = false
-    s.toolCount = 0
-    // 拍快照必须在把消息交给 CLI 之前 —— 然后才轮到模型动文件
-    s.claimSeq = this.fileSeq
-    s.diskBefore = this.snapshotForTurn(s)
-    this.emitEvent({ sessionId: s.id, event: { t: 'turn_started' } })
-    this.emitStatus({
-      sessionId: s.id,
-      status: spawning ? 'starting' : 'running',
-      providerSessionId: s.providerSessionId
-    })
+    this.beginTurn(s, spawning)
     s.session?.send(input)
     return { ok: true }
   }
@@ -686,7 +696,43 @@ export class SessionManager {
     }
   }
 
+  /**
+   * 标记一轮开始：清本轮计数、拍磁盘快照、通知界面。
+   *
+   * 用户发送、排队消息出队、以及 CLI 自己接着跑的新一轮都走这里 ——
+   * 三种来源在界面上必须是同一套「轮开始」状态。`starting` 表示 CLI
+   * 进程刚拉起来、还在连接中（用户主动发送时会出现）。
+   */
+  private beginTurn(s: Live, starting: boolean): void {
+    s.busy = true
+    s.interrupted = false
+    s.lastEventWasError = false
+    s.toolCount = 0
+    // 拍快照必须在模型动文件之前 —— 然后才轮到模型写盘
+    s.claimSeq = this.fileSeq
+    s.diskBefore = this.snapshotForTurn(s)
+    this.emitEvent({ sessionId: s.id, event: { t: 'turn_started' } })
+    this.emitStatus({
+      sessionId: s.id,
+      status: starting ? 'starting' : 'running',
+      providerSessionId: s.providerSessionId
+    })
+  }
+
   private onEvent(s: Live, e: AgentEvent): void {
+    /*
+     * CLI 自己开的新一轮。
+     *
+     * 后台任务跑完时，CLI 会把一条 task-notification 注入对话并**接着**跑
+     * 模型 —— 这一轮不是用户发的，宿主没有调用 send()，`busy` 还是 false。
+     * 不在这里补一个轮开始，界面会一直停在上一轮的「已成功」，而模型其实
+     * 正在生成，侧栏也不会显示运行中。
+     *
+     * 只认模型活动事件：task_started / task_progress / task_notification
+     * 在上一轮结束后还会继续到达，那时模型不一定在跑，不能拿它们当依据。
+     */
+    if (!s.busy && isTurnActivity(e)) this.beginTurn(s, false)
+
     /*
      * 记下这个文件刚被哪条会话写过。轮末的磁盘对比要靠它排掉别的会话在
      * 本会话这一轮里写的路径 —— 见 fileWriters。
@@ -824,18 +870,7 @@ export class SessionManager {
       })
       return
     }
-    s.busy = true
-    s.interrupted = false
-    s.lastEventWasError = false
-    s.toolCount = 0
-    s.claimSeq = this.fileSeq
-    s.diskBefore = this.snapshotForTurn(s)
-    this.emitEvent({ sessionId: s.id, event: { t: 'turn_started' } })
-    this.emitStatus({
-      sessionId: s.id,
-      status: spawning ? 'starting' : 'running',
-      providerSessionId: s.providerSessionId
-    })
+    this.beginTurn(s, spawning)
     s.session?.send(next)
   }
 

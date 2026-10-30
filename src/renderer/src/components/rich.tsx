@@ -12,6 +12,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
 import { notify } from '../notice'
+import { codeNodes } from './code-highlight'
 
 /* ── 行内 ───────────────────────────────────────────────── */
 
@@ -248,94 +249,15 @@ function parseBlocks(src: string): Block[] {
   return out
 }
 
-/* ── 代码着色 ───────────────────────────────────────────── */
-
-/**
- * 刻意保守：只认注释、字符串、数字、关键字。
- * 不做函数名/属性名，也不追求完备 —— 颜色够区分结构就行，
- * 猜错的代价（把普通标识符染成关键字）比少染要高。
- */
-const KEYWORDS: Record<string, string[]> = {
-  ts: 'const let var function return if else for while do class extends new import from export default async await try catch finally throw typeof instanceof interface type enum implements public private protected readonly static void null undefined true false this super yield in of as satisfies break continue switch case'.split(
-    ' '
-  ),
-  py: 'import from def class return if elif else for while try except finally raise with as lambda yield pass break continue and or not in is None True False self async await global nonlocal assert del match case'.split(
-    ' '
-  ),
-  sh: 'if then else elif fi for while do done case esac function return export local echo cd set unset source exit'.split(
-    ' '
-  ),
-  json: ['true', 'false', 'null'],
-  text: []
-}
-
-const LANG_ALIAS: Record<string, string> = {
-  js: 'ts',
-  jsx: 'ts',
-  javascript: 'ts',
-  ts: 'ts',
-  tsx: 'ts',
-  typescript: 'ts',
-  py: 'py',
-  python: 'py',
-  sh: 'sh',
-  bash: 'sh',
-  shell: 'sh',
-  zsh: 'sh',
-  console: 'sh',
-  json: 'json',
-  jsonc: 'json'
-}
-
-/** 缓存的是**源串**，每次返回新建的 RegExp —— 共享带 g 的正则迟早被 lastIndex 坑到 */
-const SRC_CACHE = new Map<string, string>()
-
-function tokenRe(key: string): RegExp {
-  let src = SRC_CACHE.get(key)
-  if (src === undefined) {
-    const kws = KEYWORDS[key] ?? []
-    const kw = kws.length ? `|\\b(${kws.join('|')})\\b` : ''
-    // 顺序有讲究：注释和字符串先吃掉，否则字符串里的关键字会被单独染色
-    src =
-      '(\\/\\/[^\\n]*|#[^\\n]*)' +
-      '|("""[\\s\\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'|"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\')' +
-      '|\\b(0x[\\da-fA-F]+|\\d+(?:\\.\\d+)?)\\b' +
-      kw
-    SRC_CACHE.set(key, src)
-  }
-  return new RegExp(src, 'g')
-}
-
-export function codeNodes(code: string, lang: string): ReactNode[] {
-  const key = LANG_ALIAS[lang.toLowerCase()] ?? 'text'
-  if (key === 'text') return [code]
-
-  const re = tokenRe(key)
-  re.lastIndex = 0
-  const out: ReactNode[] = []
-  let last = 0
-  let n = 0
-  let m: RegExpExecArray | null
-
-  while ((m = re.exec(code))) {
-    if (m.index > last) out.push(code.slice(last, m.index))
-    const cls = m[1] ? 'tok-c' : m[2] ? 'tok-s' : m[3] ? 'tok-n' : 'tok-k'
-    out.push(
-      <span key={`t${n++}`} className={cls}>
-        {m[0]}
-      </span>
-    )
-    last = m.index + m[0].length
-  }
-  if (last < code.length) out.push(code.slice(last))
-  return out
-}
-
 /* ── 渲染 ───────────────────────────────────────────────── */
 
 export function CodeCard({ lang, code }: { lang: string; code: string }): JSX.Element {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
+
+  // 流式输出时每个 delta 都会重渲染；codeNodes 内部还有 LRU 缓存，这里
+  // 只是把同一段代码的查表也省掉。
+  const nodes = useMemo(() => codeNodes(code, lang), [code, lang])
 
   const copy = (): void => {
     void navigator.clipboard
@@ -353,7 +275,7 @@ export function CodeCard({ lang, code }: { lang: string; code: string }): JSX.El
       <button className="codebox__cp" onClick={copy}>
         {copied ? t('common.copied') : t('common.copy')}
       </button>
-      <pre className="code">{codeNodes(code, lang)}</pre>
+      <pre className="code">{nodes}</pre>
     </div>
   )
 }

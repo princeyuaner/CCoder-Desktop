@@ -180,6 +180,10 @@ const api: WindowApi = {
     }
   },
 
+  fonts: {
+    list: (): Promise<string[]> => ipcRenderer.invoke(IPC.fontsList)
+  },
+
   mcp: {
     list: (cli: CliId, cwd: string, dshHome?: string): Promise<McpListResult> =>
       ipcRenderer.invoke(IPC.mcpList, cli, cwd, dshHome),

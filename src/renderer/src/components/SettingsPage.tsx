@@ -50,6 +50,32 @@ import { SkillsManagerPage } from './SkillsManagerPage'
 import { HooksManagerPage } from './HooksManagerPage'
 import { IconPlus, IconX } from './Icons'
 
+/** 字体族名 → 可直接落盘的 CSS font-family；末尾跟一个通用兜底。 */
+function fontStack(name: string, kind: 'ui' | 'mono'): string {
+  const escaped = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  return kind === 'mono' ? `'${escaped}', monospace` : `'${escaped}', system-ui, sans-serif`
+}
+
+/**
+ * 从系统字体里挑出等宽字体：用 Canvas 量 'i' / 'W' / '0' 的宽度，一样宽才算。
+ *
+ * 字体不存在时 measureText 会回落到默认字体，三个字符宽度不同，自然落选 ——
+ * 所以不用先验证字体是否存在。只建一个 canvas，几百个字体逐个换 font 即可。
+ */
+function monoFamiliesOf(families: string[]): string[] {
+  const ctx = document.createElement('canvas').getContext('2d')
+  if (!ctx) return []
+  const quote = (name: string): string =>
+    `"${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  return families.filter((name) => {
+    ctx.font = `16px ${quote(name)}`
+    const narrow = ctx.measureText('i').width
+    const wide = ctx.measureText('W').width
+    const digit = ctx.measureText('0').width
+    return narrow > 0 && Math.abs(narrow - wide) < 0.5 && Math.abs(narrow - digit) < 0.5
+  })
+}
+
 /** 设置页的几类页面：某个 CLI 的渠道配置、与 CLI 无关的系统设置，或关于/更新 */
 type Page =
   | { kind: 'cli'; id: CliId }
@@ -118,6 +144,9 @@ export function SettingsPage({
   /** 字体下拉是否切到了「自定义」——当前值不在预设里时也会算自定义 */
   const [uiFontCustom, setUiFontCustom] = useState(false)
   const [monoFontCustom, setMonoFontCustom] = useState(false)
+  /** 主进程枚举出的本机字体；空数组表示枚举失败，下拉退回内置预设 */
+  const [systemFonts, setSystemFonts] = useState<string[]>([])
+  const [systemMonoFonts, setSystemMonoFonts] = useState<string[]>([])
   /** 弹窗本体：打开时接住焦点，关闭后还给原来的按钮 */
   const dlgRef = useRef<HTMLElement>(null)
 
@@ -126,6 +155,27 @@ export function SettingsPage({
     dlgRef.current?.focus()
     return () => {
       if (prev instanceof HTMLElement && prev.isConnected) prev.focus()
+    }
+  }, [])
+
+  // 本机字体只在打开设置页时问一次；主进程会缓存，重复打开不会重新枚举
+  useEffect(() => {
+    const api = window.api?.fonts
+    if (!api) return
+    let alive = true
+    void api
+      .list()
+      .then((fonts) => {
+        if (!alive) return
+        const names = fonts.filter((f) => typeof f === 'string' && f.trim())
+        setSystemFonts(names)
+        setSystemMonoFonts(monoFamiliesOf(names))
+      })
+      .catch(() => {
+        // 枚举失败就保持空列表，内置预设照常可用
+      })
+    return () => {
+      alive = false
     }
   }, [])
 
@@ -303,11 +353,15 @@ export function SettingsPage({
     )
   }
 
-  /** 当前字体是不是预设之一；不是就展开自定义输入框 */
+  /** 当前字体是不是预设 / 本机字体之一；都不是就展开自定义输入框 */
   const uiFontIsCustom =
-    uiFontCustom || !UI_FONT_PRESETS.some((p) => p.value === draft.uiFont)
+    uiFontCustom ||
+    (!UI_FONT_PRESETS.some((p) => p.value === draft.uiFont) &&
+      !systemFonts.some((name) => fontStack(name, 'ui') === draft.uiFont))
   const monoFontIsCustom =
-    monoFontCustom || !MONO_FONT_PRESETS.some((p) => p.value === draft.monoFont)
+    monoFontCustom ||
+    (!MONO_FONT_PRESETS.some((p) => p.value === draft.monoFont) &&
+      !systemMonoFonts.some((name) => fontStack(name, 'mono') === draft.monoFont))
 
   const patch = (p: Partial<Settings>): void => setDraft({ ...draft, ...p })
 
@@ -841,6 +895,15 @@ export function SettingsPage({
                             {t(p.labelKey)}
                           </option>
                         ))}
+                        {systemFonts.length > 0 && (
+                          <optgroup label={t('settings.systemFonts')}>
+                            {systemFonts.map((name) => (
+                              <option key={name} value={fontStack(name, 'ui')}>
+                                {name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                         <option value="__custom__">{t('settings.custom')}</option>
                       </select>
                       {uiFontIsCustom && (
@@ -880,6 +943,15 @@ export function SettingsPage({
                             {t(p.labelKey)}
                           </option>
                         ))}
+                        {systemMonoFonts.length > 0 && (
+                          <optgroup label={t('settings.systemMonoFonts')}>
+                            {systemMonoFonts.map((name) => (
+                              <option key={name} value={fontStack(name, 'mono')}>
+                                {name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                         <option value="__custom__">{t('settings.custom')}</option>
                       </select>
                       {monoFontIsCustom && (

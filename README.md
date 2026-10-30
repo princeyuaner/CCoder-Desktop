@@ -151,16 +151,20 @@ npm run verify:changed-review  # 本轮改动 → IDE diff 的路径换算（纯
 ### 打包
 
 ```bash
-npm run package
+npm run package        # = package:win
+npm run package:linux  # 需在 Linux / WSL 里执行
+npm run package:mac    # 需在 macOS 里执行
 ```
 
-产物在 `release/`：
+Windows 产物在 `release/`：
 
 - `CCoder-Setup-<version>-x64.exe`：NSIS 安装版
 - `CCoder-Portable-<version>-x64.exe`：便携版
 - `latest.yml` / `*.blockmap`：自动更新清单
 
-打包使用 `node_modules/electron/dist` 里已装好的 Electron，不会临时去 GitHub 拉包；`files` 只包含 `out/` 和 `package.json`，主进程 / preload / 渲染层都已被 electron-vite 打成独立 bundle，因此运行时不依赖 `node_modules`。
+Linux 产物：`CCoder-<version>.AppImage`、`ccoder-desktop_<version>_amd64.deb`、`latest-linux.yml`。AppImage 需要 Linux 的 `mksquashfs`、deb 需要 `fpm`，所以不能在 Windows 原生构建（可用 WSL，或交给 CI）。macOS 产物：`CCoder-<version>-arm64.dmg`、`.zip`、`latest-mac.yml`，只能在 macOS / macOS runner 上构建。
+
+Windows 打包使用 `node_modules/electron/dist` 里已装好的 Electron（由 `package:win` 通过 `--config.electronDist` 传入），不会临时去 GitHub 拉包；Linux / macOS 目标由 electron-builder 自行下载对应平台的 Electron。`files` 只包含 `out/` 和 `package.json`，主进程 / preload / 渲染层都已被 electron-vite 打成独立 bundle，因此运行时不依赖 `node_modules`。
 
 > 不需要 `npm install` 之后额外执行 `electron-rebuild`；本项目没有原生模块。
 
@@ -219,19 +223,19 @@ publish:
 
 发版流程：
 
-1. 修改 `package.json` 的 `version`（例如 `1.0.3`）。
-2. 执行 `npm run package`。
-3. 在 GitHub 创建一个正式 Release（不是草稿），上传：
-   - `CCoder-Setup-<version>-x64.exe`
-   - `CCoder-Setup-<version>-x64.exe.blockmap`
-   - `latest.yml`
-4. 已安装的客户端会在启动 8 秒后检查一次，之后每 4 小时检查一次；用户点「下载」后才下载，下载完成后点「重启并安装」。
+1. 修改 `package.json` 的 `version`，提交并推送。
+2. 推一个与版本号一致的 tag（例如 `v1.2.12`）。
+3. GitHub Actions 的 **Build desktop packages** 会在 Windows / Linux / macOS 三个 runner 上并行构建。全部成功后，`release` job 会创建同名正式 Release，并上传三端的安装包、`latest.yml` / `latest-linux.yml` / `latest-mac.yml`。
+4. 手动触发这个 workflow（`workflow_dispatch`）只构建并保存 Actions artifact，不创建 Release。
 
 注意：
 
-- 只有 NSIS **安装版**支持自动更新；便携版和开发模式会显示「不支持自动更新」。
-- 版本号不升，客户端不会认为有新版本。
-- 源码仓库的推送与 Release 资产是两件事：更新器只读 Release 里的 `latest.yml` 和安装包。
+- 已安装的客户端启动 8 秒后检查一次更新，之后每 4 小时一次；用户点「下载」后才下载，下载完成后点「重启并安装」。
+- 只有 NSIS **安装版**支持 Windows 自动更新；便携版和开发模式会显示「不支持自动更新」。
+- 版本号不升，客户端不会认为有新版本；tag 建议与 `package.json` 保持一致。
+- macOS 目前是未签名 dmg。Gatekeeper 会拦截首次启动；macOS 自动更新还要求签名（target 里已同时产出 zip）。
+- Linux 的 AppImage 支持自动更新；deb 不走 electron-updater。
+- 源码仓库的推送与 Release 资产是两件事：更新器只读 Release 里的 `latest*.yml` 和安装包。
 
 ---
 
@@ -513,16 +517,20 @@ npm run verify:changed-review  # turn-changes → IDE diff path mapping (pure fu
 ### Packaging
 
 ```bash
-npm run package
+npm run package        # = package:win
+npm run package:linux  # run on Linux / WSL
+npm run package:mac    # run on macOS
 ```
 
-Artifacts land in `release/`:
+Windows artifacts land in `release/`:
 
 - `CCoder-Setup-<version>-x64.exe`: NSIS installer
 - `CCoder-Portable-<version>-x64.exe`: portable build
 - `latest.yml` / `*.blockmap`: auto-update metadata
 
-Packaging uses the Electron already installed in `node_modules/electron/dist` and never downloads it. `files` only ships `out/` and `package.json`; main / preload / renderer are bundled by electron-vite, so `node_modules` is not needed at runtime.
+Linux artifacts: `CCoder-<version>.AppImage`, `ccoder-desktop_<version>_amd64.deb`, `latest-linux.yml`. AppImage needs Linux `mksquashfs` and deb needs `fpm`, so they cannot be built natively on Windows (use WSL or CI). macOS artifacts: `CCoder-<version>-arm64.dmg`, `.zip`, `latest-mac.yml`; only buildable on macOS / a macOS runner.
+
+Windows packaging uses the Electron already installed in `node_modules/electron/dist` (passed by `package:win` via `--config.electronDist`) and never downloads it. Linux / macOS targets let electron-builder fetch the matching Electron. `files` only ships `out/` and `package.json`; main / preload / renderer are bundled by electron-vite, so `node_modules` is not needed at runtime.
 
 > No extra `electron-rebuild` step is required; the project has no native modules.
 
@@ -580,19 +588,18 @@ publish:
 
 Release flow:
 
-1. Bump `version` in `package.json` (for example `1.0.3`).
-2. Run `npm run package`.
-3. Create a non-draft GitHub Release and upload:
-   - `CCoder-Setup-<version>-x64.exe`
-   - `CCoder-Setup-<version>-x64.exe.blockmap`
-   - `latest.yml`
-4. Installed clients check 8 seconds after launch and every 4 hours afterwards; they download only after the user clicks Download, and install after Restart & Install.
+1. Bump `version` in `package.json`, commit, and push.
+2. Push a matching tag (for example `v1.2.12`).
+3. The **Build desktop packages** workflow builds on Windows / Linux / macOS runners in parallel. Once all three succeed, the `release` job creates a non-draft Release for the tag and uploads every platform's installer plus `latest.yml` / `latest-linux.yml` / `latest-mac.yml`.
+4. Manually running the workflow (`workflow_dispatch`) only builds and stores Actions artifacts; it does not create a Release.
 
 Notes:
 
-- Only the NSIS **installer** supports auto-update; portable and development builds report that updates are unsupported.
-- The version must change, or clients will not see an update.
-- Pushing source and publishing Release assets are separate: the updater only reads `latest.yml` and the installer from the Release.
+- Only the NSIS **installer** supports Windows auto-update; portable and development builds report that updates are unsupported.
+- The version must change, or clients will not see an update; keep the tag in sync with `package.json`.
+- macOS builds are unsigned today. Gatekeeper will block the first launch, and macOS auto-update also requires signing (the zip target is already produced).
+- Linux AppImage supports auto-update; deb does not go through electron-updater.
+- Pushing source and publishing Release assets are separate: the updater only reads `latest*.yml` and the installer from the Release.
 
 ---
 

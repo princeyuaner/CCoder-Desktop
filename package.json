@@ -1,9 +1,14 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.11",
+  "version": "1.2.12",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
+  "homepage": "https://github.com/princeyuaner/CCoder-Desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/princeyuaner/CCoder-Desktop.git"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -32,7 +37,10 @@
     "verify:changed-review": "npx esbuild src/shared/path.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/path.cjs && npx esbuild src/shared/ide.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/ide.cjs && node tools/verify-changed-review.cjs",
     "verify:add-dirs": "npx esbuild src/shared/add-dirs.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/add-dirs.cjs && npx esbuild src/main/session-dirs.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/session-dirs.cjs && npx esbuild src/main/session-meta-store.ts --bundle --platform=node --format=cjs --external:electron --alias:electron=./tools/electron-stub-adddirs.cjs --outfile=.tmp-build/session-meta-store.cjs && node tools/verify-add-dirs.cjs",
     "verify:changed-review:ui": "node node_modules/electron/cli.js tools/verify-changed-review-ui.cjs",
-    "package": "node tools/stage-rg.cjs && electron-vite build && electron-builder --win --publish never"
+    "package": "npm run package:win",
+    "package:win": "node tools/stage-rg.cjs --platform win32 --arch x64 && electron-vite build && electron-builder --win --x64 --publish never --config.electronDist=node_modules/electron/dist",
+    "package:linux": "node tools/stage-rg.cjs --platform linux --arch x64 && electron-vite build && electron-builder --linux --x64 --publish never",
+    "package:mac": "node tools/stage-rg.cjs && electron-vite build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -42,6 +50,7 @@
     "iconv-lite": "^0.6.3",
     "jsonc-parser": "^3.3.1",
     "katex": "^0.19.1",
+    "lowlight": "^3.3.0",
     "micromatch": "^4.0.8",
     "monaco-editor": "^0.57.0",
     "react": "^18.3.1",

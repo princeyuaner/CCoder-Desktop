@@ -1048,6 +1048,67 @@
   font-style: italic;
 }
 
+/*
+ * 代码块着色来自 highlight.js（经 lowlight 转成 React 元素），类名是
+ * hljs-*。只作用于 .md，IDE 的 token 类（.tok-*）不受影响。
+ */
+.md .hljs-keyword,
+.md .hljs-literal,
+.md .hljs-selector-tag,
+.md .hljs-doctag {
+  color: #c792ea;
+}
+.md .hljs-string,
+.md .hljs-regexp,
+.md .hljs-addition,
+.md .hljs-template-tag {
+  color: #c3e88d;
+}
+.md .hljs-number,
+.md .hljs-symbol,
+.md .hljs-bullet,
+.md .hljs-link {
+  color: #ffcb6b;
+}
+.md .hljs-comment,
+.md .hljs-quote {
+  color: #5a5a68;
+  font-style: italic;
+}
+.md .hljs-title,
+.md .hljs-title.function_,
+.md .hljs-section,
+.md .hljs-name {
+  color: #82aaff;
+}
+.md .hljs-built_in,
+.md .hljs-type,
+.md .hljs-class .hljs-title,
+.md .hljs-tag {
+  color: #f78c6c;
+}
+.md .hljs-attr,
+.md .hljs-attribute,
+.md .hljs-property,
+.md .hljs-variable,
+.md .hljs-template-variable,
+.md .hljs-params,
+.md .hljs-subst {
+  color: #89ddff;
+}
+.md .hljs-meta {
+  color: #8a8a9c;
+}
+.md .hljs-deletion {
+  color: #ff5370;
+}
+.md .hljs-emphasis {
+  font-style: italic;
+}
+.md .hljs-strong {
+  font-weight: 600;
+}
+
 /* 表格：再浅一档，只有行间细线 */
 .md .tblwrap {
   padding: 10px 14px;

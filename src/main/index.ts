@@ -16,6 +16,7 @@ import type {
   SessionStartOptions
 } from '../shared/session'
 import { loadSettings, saveSettings } from './settings-store'
+import { listSystemFonts } from './system-fonts'
 import {
   coerceMcpInput,
   isMcpScope,
@@ -366,6 +367,9 @@ function registerSettingsIpc(sessions: SessionManager): void {
 
   // 系统语言只由主进程解析；渲染层启动时拿一次，之后本地用同一个函数解析
   ipcMain.handle(IPC.localeInfo, () => mainLocaleInfo())
+
+  // 字体列表只在主进程枚举（按平台读系统信息），渲染层只负责展示
+  ipcMain.handle(IPC.fontsList, () => listSystemFonts())
 
   ipcMain.handle(IPC.settingsSave, (_e, incoming: Settings): Settings => {
     const before = loadSettings()

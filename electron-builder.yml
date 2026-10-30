@@ -6,14 +6,13 @@ directories:
   output: release
   buildResources: build
 
-# 主进程/preload/renderer 都已被 electron-vite 打成独立 bundle，
-# 运行时不需要 node_modules —— 只带 out/ 和 package.json。
+# 主进程 / preload / renderer 都已经 bundle，运行时不需要 node_modules ——
+# 只带 out/ 和 package.json。
 files:
   - out/**/*
   - package.json
   - "!**/*.map"
-  # 主进程 / preload / renderer 都已经 bundle，运行时不需要 node_modules；
-  # 不排掉的话 electron-builder 会把 Monaco 源码整包塞进 app.asar。
+  # 不排掉 node_modules 的话，electron-builder 会把 Monaco 源码整包塞进 app.asar。
   - "!node_modules/**/*"
 
 asar: true
@@ -25,11 +24,9 @@ extraResources:
   - from: build/rg
     to: bin
 
-# 直接用 node_modules 里已装好的 Electron（版本与 devDependencies 一致），
-# 免得每次打包都去 GitHub 拉 100+MB 的 zip。
-# 注意：这个 dist 是 win32-x64 的；将来加 macOS 目标时要按平台换掉。
-electronDist: node_modules/electron/dist
-
+# Windows 用 node_modules 里已装好的 Electron（win32-x64），避免每次打包都
+# 去 GitHub 拉 100+MB 的 zip。这个路径由 package:win 通过 --config.electronDist
+# 传入，不写死在这里 —— 否则 Linux / macOS 目标会拿到 Windows 的 Electron。
 # 自动更新源：GitHub Releases。
 # 构建时 electron-builder 会把 provider / owner / repo 写进
 # resources/app-update.yml，客户端据此找 latest.yml 和安装包 ——
@@ -62,3 +59,24 @@ nsis:
 
 portable:
   artifactName: ${productName}-Portable-${version}-${arch}.${ext}
+
+linux:
+  icon: build/icon.png
+  category: Development
+  executableName: ccoder
+  # deb 包必须带维护者邮箱；沿用 package.json 里的作者身份
+  maintainer: 'CCoder <594954848@qq.com>'
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+
+mac:
+  icon: build/icon.png
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+    # zip 是 macOS 自动更新的载体；签名配置好后 electron-updater 才能用
+    - target: zip
+

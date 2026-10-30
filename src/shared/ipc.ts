@@ -118,6 +118,8 @@ export const IPC = {
 
   settingsGet: 'settings:get',
   settingsSave: 'settings:save',
+  /** 本机已安装的字体族（设置页的字体下拉用） */
+  fontsList: 'fonts:list',
   /** 启动时取系统语言和 system 解析后的实际语言 */
   localeInfo: 'locale:info',
   channelTest: 'channel:test',
@@ -381,6 +383,14 @@ export interface WindowApi {
     /** 用给定渠道跑一发真实请求，回报成功或端点给的原话 */
     test(channel: Channel): Promise<ChannelTestResult>
     onChanged(cb: (settings: Settings) => void): () => void
+  }
+
+  /**
+   * 本机已安装的字体族名。主进程按平台枚举并缓存；
+   * 拿不到时返回空数组，设置页退回内置预设。
+   */
+  fonts: {
+    list(): Promise<string[]>
   }
 
   /**

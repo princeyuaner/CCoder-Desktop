@@ -692,11 +692,14 @@ export const en = {
   'settings.uiFontPlaceholder':
     'CSS font-family, e.g. My Font, Microsoft YaHei, sans-serif',
   'settings.uiFontHint':
-    'Choose "Custom" to enter one or more fonts; missing fonts fall back to the next one.',
-  'settings.monoFont': 'Monospace font',
+    'Text across the whole interface (sidebar, buttons, menus, dialogs, chat). Choose "Custom" to enter one or more fonts; missing fonts fall back to the next one.',
+  'settings.monoFont': 'Code font',
   'settings.monoFontPlaceholder':
     'CSS font-family, e.g. Fira Code, Consolas, monospace',
-  'settings.monoFontHint': 'Font used for code blocks, paths and tool output.',
+  'settings.monoFontHint':
+    'Monospace font for code blocks, the built-in editor, terminal, diffs, paths and tool output.',
+  'settings.systemFonts': 'Installed fonts',
+  'settings.systemMonoFonts': 'Installed monospace fonts',
   'settings.chat': 'Chat',
   'settings.showTimestamps': 'Show message timestamps',
   'settings.showTimestamps.on': 'Show',

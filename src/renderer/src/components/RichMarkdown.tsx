@@ -18,7 +18,7 @@ import { useMemo } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { CodeCard, codeNodes, openLinkedTarget } from './rich'
+import { CodeCard, openLinkedTarget } from './rich'
 import mathGuard from './remark-math-guard'
 import rehypeMathToTag, { MATH_TAG } from './rehype-math-to-tag'
 import { KatexMath, type MathProps } from './KatexMath'
@@ -168,7 +168,3 @@ export function RichMarkdown({ text, cwd = '' }: { text: string; cwd?: string })
     </div>
   )
 }
-
-/* codeNodes 目前在 RichMarkdown 里用不到（CodeCard 内部自己调），
- * 导出是为了保留类型引用，避免打包器把 rich.tsx 的着色逻辑判成死代码。 */
-void codeNodes

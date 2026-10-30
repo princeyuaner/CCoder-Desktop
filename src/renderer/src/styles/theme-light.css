@@ -266,6 +266,56 @@ html[data-scheme='light'] .tok-c {
   color: #8a8a92;
 }
 
+html[data-scheme='light'] .md .hljs-keyword,
+html[data-scheme='light'] .md .hljs-literal,
+html[data-scheme='light'] .md .hljs-selector-tag,
+html[data-scheme='light'] .md .hljs-doctag {
+  color: #8b3fb8;
+}
+html[data-scheme='light'] .md .hljs-string,
+html[data-scheme='light'] .md .hljs-regexp,
+html[data-scheme='light'] .md .hljs-addition,
+html[data-scheme='light'] .md .hljs-template-tag {
+  color: #2e7d32;
+}
+html[data-scheme='light'] .md .hljs-number,
+html[data-scheme='light'] .md .hljs-symbol,
+html[data-scheme='light'] .md .hljs-bullet,
+html[data-scheme='light'] .md .hljs-link {
+  color: #a05a00;
+}
+html[data-scheme='light'] .md .hljs-comment,
+html[data-scheme='light'] .md .hljs-quote {
+  color: #8a8a92;
+}
+html[data-scheme='light'] .md .hljs-title,
+html[data-scheme='light'] .md .hljs-title.function_,
+html[data-scheme='light'] .md .hljs-section,
+html[data-scheme='light'] .md .hljs-name {
+  color: #2f5f9e;
+}
+html[data-scheme='light'] .md .hljs-built_in,
+html[data-scheme='light'] .md .hljs-type,
+html[data-scheme='light'] .md .hljs-class .hljs-title,
+html[data-scheme='light'] .md .hljs-tag {
+  color: #9a3412;
+}
+html[data-scheme='light'] .md .hljs-attr,
+html[data-scheme='light'] .md .hljs-attribute,
+html[data-scheme='light'] .md .hljs-property,
+html[data-scheme='light'] .md .hljs-variable,
+html[data-scheme='light'] .md .hljs-template-variable,
+html[data-scheme='light'] .md .hljs-params,
+html[data-scheme='light'] .md .hljs-subst {
+  color: #0e7490;
+}
+html[data-scheme='light'] .md .hljs-meta {
+  color: #6b7280;
+}
+html[data-scheme='light'] .md .hljs-deletion {
+  color: #b91c1c;
+}
+
 html[data-scheme='light'] .md .tblwrap {
   background: color-mix(in srgb, var(--text) 4%, var(--bg-raised));
 }

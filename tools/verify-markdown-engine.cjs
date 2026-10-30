@@ -138,6 +138,25 @@ const CASES = [
     absent: []
   },
   {
+    name: 'Lua 代码块着色',
+    md: '```lua\nlocal skynet = require "skynet" -- 注释\nskynet.start(function() end)\n```',
+    expect: (h) =>
+      h.includes('hljs-keyword') && h.includes('hljs-string') && h.includes('hljs-comment'),
+    absent: []
+  },
+  {
+    name: 'Go 代码块着色',
+    md: '```go\nfunc main() {\n  fmt.Println("hi")\n}\n```',
+    expect: (h) => h.includes('hljs-keyword') && h.includes('hljs-string'),
+    absent: []
+  },
+  {
+    name: '未知语言不着色',
+    md: '```not-a-language\nconst a = 1\n```',
+    expect: (h) => h.includes('codebox') && !h.includes('hljs-'),
+    absent: ['hljs-']
+  },
+  {
     name: '链接不用真 href',
     md: '看 [这里](https://example.com) 的说明。',
     expect: (h) => h.includes('class="lnk"') && !h.includes('href='),
@@ -225,6 +244,20 @@ const showcase = [
   'const euler = (i: number) => Math.exp(i * Math.PI) + 1',
   '```',
   '',
+  '```lua',
+  'local skynet = require "skynet"',
+  'local socket = require "skynet.socket"',
+  '',
+  'local function handle_client(fd, addr)',
+  '  socket.start(fd) -- 新连接必须 start 后才能读写',
+  '  while true do',
+  '    local line = socket.readline(fd, "\\n")',
+  '    if not line then break end',
+  '    socket.write(fd, "echo: " .. line .. "\\n")',
+  '  end',
+  'end',
+  '```',
+  '',
   '链接走主进程：[项目地址](https://example.com)'
 ].join('\n')
 
@@ -280,6 +313,16 @@ code, pre { font-family:'Cascadia Mono',Consolas,monospace; }
 .md .md-quote > * + * { margin-top:10px; }
 .tok-k { color:#c792ea; } .tok-s { color:#c3e88d; }
 .tok-n { color:#ffcb6b; } .tok-c { color:#5a5a68; font-style:italic; }
+.md .hljs-keyword, .md .hljs-literal, .md .hljs-selector-tag, .md .hljs-doctag { color:#c792ea; }
+.md .hljs-string, .md .hljs-regexp, .md .hljs-addition, .md .hljs-template-tag { color:#c3e88d; }
+.md .hljs-number, .md .hljs-symbol, .md .hljs-bullet, .md .hljs-link { color:#ffcb6b; }
+.md .hljs-comment, .md .hljs-quote { color:#5a5a68; font-style:italic; }
+.md .hljs-title, .md .hljs-title.function_, .md .hljs-section, .md .hljs-name { color:#82aaff; }
+.md .hljs-built_in, .md .hljs-type, .md .hljs-class .hljs-title, .md .hljs-tag { color:#f78c6c; }
+.md .hljs-attr, .md .hljs-attribute, .md .hljs-property, .md .hljs-variable,
+.md .hljs-template-variable, .md .hljs-params, .md .hljs-subst { color:#89ddff; }
+.md .hljs-meta { color:#8a8a9c; }
+.md .hljs-deletion { color:#ff5370; }
 </style></head>
 <body>
 <div class="cols">
