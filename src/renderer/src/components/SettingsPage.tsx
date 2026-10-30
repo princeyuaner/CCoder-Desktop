@@ -48,7 +48,7 @@ import { DshStatusPanel } from './DshStatusPanel'
 import { McpManagerPage } from './McpManagerPage'
 import { SkillsManagerPage } from './SkillsManagerPage'
 import { HooksManagerPage } from './HooksManagerPage'
-import { IconChevronLeft, IconPlus } from './Icons'
+import { IconPlus, IconX } from './Icons'
 
 /** 设置页的几类页面：某个 CLI 的渠道配置、与 CLI 无关的系统设置，或关于/更新 */
 type Page =
@@ -118,6 +118,33 @@ export function SettingsPage({
   /** 字体下拉是否切到了「自定义」——当前值不在预设里时也会算自定义 */
   const [uiFontCustom, setUiFontCustom] = useState(false)
   const [monoFontCustom, setMonoFontCustom] = useState(false)
+  /** 弹窗本体：打开时接住焦点，关闭后还给原来的按钮 */
+  const dlgRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const prev = document.activeElement
+    dlgRef.current?.focus()
+    return () => {
+      if (prev instanceof HTMLElement && prev.isConnected) prev.focus()
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      // 内层的确认弹窗 / 抽屉自己会处理 Esc，别顺手把设置一起关了
+      if (
+        document.querySelector(
+          '.modal, .mcp-drawer-layer, .hooks-drawer-layer, .drawer-layer.is-open'
+        )
+      ) {
+        return
+      }
+      onBack()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onBack])
 
   useEffect(() => {
     if (loading || draft !== null) return
@@ -242,7 +269,39 @@ export function SettingsPage({
     setResult(null)
   }, [cliId, selectedId])
 
-  if (!draft) return <main className="mainpane settings">{t('settings.loading')}</main>
+  if (!draft) {
+    return (
+      <div className="settings-overlay">
+        <div className="settings-overlay__scrim" onClick={onBack} />
+        <section
+          className="settings settings--dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('settings.title')}
+          ref={dlgRef}
+          tabIndex={-1}
+        >
+          <header className="settings__head">
+            <h1 className="settings__title">{t('settings.title')}</h1>
+            <div className="settings__head-right">
+              <kbd className="settings__esc">Esc</kbd>
+              <button
+                className="settings__close"
+                onClick={onBack}
+                title={t('common.close')}
+                aria-label={t('common.close')}
+              >
+                <IconX width={14} height={14} />
+              </button>
+            </div>
+          </header>
+          <div className="settings__content">
+            <p className="settings__loading">{t('settings.loading')}</p>
+          </div>
+        </section>
+      </div>
+    )
+  }
 
   /** 当前字体是不是预设之一；不是就展开自定义输入框 */
   const uiFontIsCustom =
@@ -313,626 +372,658 @@ export function SettingsPage({
   }
 
   return (
-    <main className="mainpane settings">
-      <header className="settings__head">
-        <button className="btn btn--ghost" onClick={onBack}>
-          <IconChevronLeft width={14} height={14} />
-          {t('common.back')}
-        </button>
-        <h1 className="settings__title">{t('settings.title')}</h1>
-        <div className="settings__head-right">
-          {page.kind === 'mcp' || page.kind === 'skills' || page.kind === 'hooks' ? (
-            <span className="saved-flash is-busy">
-              {t(
-                page.kind === 'mcp'
-                  ? 'mcp.saveHint'
-                  : page.kind === 'skills'
-                    ? 'skill.saveHint'
-                    : 'hook.list.sub'
-              )}
-            </span>
-          ) : saveState === 'error' ? (
-            <>
-              <span className="saved-flash saved-flash--error">{t('settings.save.failed')}</span>
-              <button className="btn btn--ghost" onClick={() => void doAutoSave(draft)}>
-                {t('common.retry')}
-              </button>
-            </>
-          ) : (
-            <span className={`saved-flash ${saveState === 'saved' ? '' : 'is-busy'}`}>
-              {saveState === 'saving'
-                ? t('settings.save.saving')
-                : saveState === 'saved'
-                  ? t('settings.save.saved')
-                  : t('settings.save.auto')}
-            </span>
-          )}
-        </div>
-      </header>
-
-      <div className="settings__body">
-        <nav className="settings__nav">
-          <div className="settings__navgroup">{t('settings.nav.system')}</div>
-          <NavItem active={page.kind === 'general'} onClick={() => setPage({ kind: 'general' })}>
-            {t('settings.nav.general')}
-          </NavItem>
-          <NavItem active={page.kind === 'permissions'} onClick={() => setPage({ kind: 'permissions' })}>
-            {t('settings.nav.permissions')}
-          </NavItem>
-
-          <div className="settings__navgroup">{t('settings.nav.capability')}</div>
-          <NavItem active={page.kind === 'mcp'} onClick={() => setPage({ kind: 'mcp' })}>
-            {t('settings.nav.mcp')}
-          </NavItem>
-          <NavItem active={page.kind === 'hooks'} onClick={() => setPage({ kind: 'hooks' })}>
-            {t('settings.nav.hooks')}
-          </NavItem>
-          <NavItem active={page.kind === 'skills'} onClick={() => setPage({ kind: 'skills' })}>
-            {t('settings.nav.skills')}
-          </NavItem>
-
-          <div className="settings__navgroup">{t('settings.nav.cli')}</div>
-          {CLIS.map((d) => (
-            <NavItem
-              key={d.id}
-              active={page.kind === 'cli' && page.id === d.id}
-              onClick={() => setPage({ kind: 'cli', id: d.id })}
+    <div className="settings-overlay">
+      <div className="settings-overlay__scrim" onClick={onBack} />
+      <section
+        className="settings settings--dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        ref={dlgRef}
+        tabIndex={-1}
+      >
+        <header className="settings__head">
+          <h1 className="settings__title" id="settings-title">
+            {t('settings.title')}
+          </h1>
+          <span className="settings__hint">{t('settings.autoSaveHint')}</span>
+          <div className="settings__head-right">
+            {page.kind === 'mcp' || page.kind === 'skills' || page.kind === 'hooks' ? (
+              <span className="saved-flash is-busy">
+                {t(
+                  page.kind === 'mcp'
+                    ? 'mcp.saveHint'
+                    : page.kind === 'skills'
+                      ? 'skill.saveHint'
+                      : 'hook.list.sub'
+                )}
+              </span>
+            ) : saveState === 'error' ? (
+              <>
+                <span className="saved-flash saved-flash--error">{t('settings.save.failed')}</span>
+                <button className="btn btn--ghost" onClick={() => void doAutoSave(draft)}>
+                  {t('common.retry')}
+                </button>
+              </>
+            ) : (
+              <span className={`saved-flash ${saveState === 'saved' ? '' : 'is-busy'}`}>
+                {saveState === 'saving'
+                  ? t('settings.save.saving')
+                  : saveState === 'saved'
+                    ? t('settings.save.saved')
+                    : t('settings.save.auto')}
+              </span>
+            )}
+            <kbd className="settings__esc">Esc</kbd>
+            <button
+              className="settings__close"
+              onClick={onBack}
+              title={t('common.close')}
+              aria-label={t('common.close')}
             >
-              {d.name}
-              {!d.ready ? (
-                <span className="settings__navtag">{t('settings.nav.notReady')}</span>
-              ) : (
-                draft.cliUpdate.tagInNav &&
-                cliUpdate.states?.[d.id]?.phase === 'available' && (
-                  <span className="settings__navtag settings__navtag--warn">
-                    {t('cliUpdate.navTag')}
-                  </span>
-                )
-              )}
-            </NavItem>
-          ))}
+              <IconX width={14} height={14} />
+            </button>
+          </div>
+        </header>
 
-          <div className="settings__navgroup">{t('settings.nav.other')}</div>
-          <NavItem active={page.kind === 'about'} onClick={() => setPage({ kind: 'about' })}>
-            {t('settings.nav.about')}
-          </NavItem>
-        </nav>
-
-        <div className={`settings__content${page.kind === 'mcp' || page.kind === 'skills' || page.kind === 'hooks' ? ' settings__content--wide' : ''}`}>
-          {page.kind === 'cli' && cfg && (
-            <>
-              <div className="clipane">
-                <div className="clipane__main">
-                  <h2 className="clipane__title">{cliDef(page.id).name}</h2>
-                  <p className="clipane__hint">
-                    {t('settings.cli.endpoint', { protocol: t(PROTOCOL_LABEL_KEY[cliDef(page.id).protocol]) })}
-                  </p>
-                </div>
-                <label className="switch">
-                  <input
-                    type="checkbox"
-                    checked={cfg.enabled}
-                    onChange={(e) => patchCli(page.id, { enabled: e.target.checked })}
-                  />
-                  <span>{cfg.enabled ? t('common.enabled') : t('common.disabled')}</span>
-                </label>
-              </div>
-
-              {!cliDef(page.id).ready && (
-                <p className="clipane__todo">{t('settings.cli.notReadyBody')}</p>
-              )}
-
-              {page.id === 'codex' && (
-                <p className="section-lead">{t('settings.codex.lead')}</p>
-              )}
-
-              {(!updateState || updateState.installed) && (
-                <CliUpdatePanel
-                  cli={page.id}
-                  name={cliDef(page.id).name}
-                  state={updateState}
-                  autoCheck={draft.cliUpdate.autoCheck}
-                  tagInNav={draft.cliUpdate.tagInNav}
-                  runningSessions={runningSessions}
-                  onAutoCheck={(v) =>
-                    patch({ cliUpdate: { ...draft.cliUpdate, autoCheck: v } })
-                  }
-                  onTagInNav={(v) => patch({ cliUpdate: { ...draft.cliUpdate, tagInNav: v } })}
-                  onCheck={(force) => cliUpdate.check(page.id, force)}
-                  onRun={() => cliUpdate.run(page.id)}
-                  onRunElevated={() => cliUpdate.runElevated(page.id)}
-                  onCancel={cliUpdate.cancel}
-                />
-              )}
-
-              {/* 安装 / 登录状态放在启用与更新之后：进页面先看到「开没开、版本新不新」 */}
-              <div className="clistatus">
-                {page.id === 'codex' && (
-                  <CodexStatusPanel
-                    status={codexStatus.status}
-                    loading={codexStatus.loading}
-                    error={codexStatus.error}
-                    onRefresh={() => void codexStatus.refresh()}
-                    hasChannelKey={!!activeCfgChannel?.authToken.trim()}
-                  />
-                )}
-
-                {page.id === 'claude' && (
-                  <ClaudeAuthPanel
-                    auth={claudeAuth}
-                    authMode={cfg.authMode}
-                    officialModel={cfg.officialModel}
-                    runningSessions={runningSessions}
-                    onAuthMode={(m) => patchCli('claude', { authMode: m })}
-                    onOfficialModel={(v) => patchCli('claude', { officialModel: v })}
-                  />
-                )}
-
-                {page.id === 'dsh' && (
-                  <DshStatusPanel
-                    status={dshStatus.status}
-                    loading={dshStatus.loading}
-                    error={dshStatus.error}
-                    onRefresh={() => void dshStatus.refresh()}
-                    authMode={cfg.authMode}
-                    onAuthMode={(m) => patchCli('dsh', { authMode: m })}
-                    officialModel={cfg.officialModel}
-                    onOfficialModel={(v) => patchCli('dsh', { officialModel: v })}
-                    hasChannelKey={!!activeCfgChannel?.authToken.trim()}
-                  />
-                )}
-              </div>
-
-              {(page.id === 'claude' || page.id === 'dsh') && cfg.authMode === 'official' ? (
-                <p className="section-lead">
-                  {page.id === 'dsh'
-                    ? t('settings.dsh.officialLead')
-                    : t('settings.claude.officialLead')}
-                </p>
-              ) : (
-                <>
-              <section className="chlist">
-                <div className="chlist__head">
-                  <span>{t('settings.channels')}</span>
-                  <button className="btn btn--ghost" onClick={addChannel}>
-                    <IconPlus width={13} height={13} />
-                    {t('settings.channel.new')}
-                  </button>
-                </div>
-
-                {cfg.channels.length === 0 && (
-                  <p className="empty">
-                    {t('settings.channel.empty')}
-                    {page.id === 'claude'
-                      ? t('settings.channel.emptyClaude')
-                      : page.id === 'dsh'
-                        ? t('settings.channel.emptyDsh')
-                        : '.'}
-                  </p>
-                )}
-
-                {cfg.channels.map((c) => (
-                  <div
-                    key={c.id}
-                    className={`chlist__item ${c.id === selectedId ? 'is-active' : ''}`}
-                  >
-                    <button className="chlist__main" onClick={() => setPicked(c.id)}>
-                      <span className="chlist__name">{c.name || t('settings.channel.unnamed')}</span>
-                      <span className="chlist__meta">{c.baseUrl || t('settings.channel.noBaseUrl')}</span>
-                    </button>
-                    {c.id === cfg.activeChannelId && cfg.authMode === 'channel' ? (
-                      <span className="badge badge--ok">{t('settings.channel.inUse')}</span>
-                    ) : (
-                      <button
-                        className="btn btn--ghost btn--xs"
-                        onClick={() => activateChannel(c.id)}
-                      >
-                        {t('settings.channel.activate')}
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </section>
-
-              {selected && (
-                <ChannelForm
-                  cli={page.id}
-                  channel={selected}
-                  active={
-                    selected.id === cfg.activeChannelId &&
-                    ((page.id !== 'claude' && page.id !== 'dsh') ||
-                      cfg.authMode === 'channel')
-                  }
-                  testing={testing}
-                  result={result}
-                  onChange={updateChannel}
-                  onTest={() => void runTest()}
-                  onDelete={() => deleteChannel(selected.id)}
-                  onSetActive={() => activateChannel(selected.id)}
-                />
-              )}
-                </>
-              )}
-
-              {/* 加条分隔线：上面紧挨着渠道表单的「测试连接 / 删除渠道」按钮行，
-                  不隔一下会被当成那排按钮的一部分 */}
-              <section className="chform chform--sep">
-                <h2 className="chform__title">{t('settings.cli.effortTitle')}</h2>
-                <div className="field">
-                  <label className="field__label">{t('settings.cli.effortDefault')}</label>
-                  <div className="field__body">
-                    <div className="effpick">
-                      {effortLevelsFor(page.id).map((l) => (
-                        <button
-                          key={l}
-                          className={`effpick__it ${l === cfg.effort ? 'is-on' : ''}`}
-                          onClick={() => patchCli(page.id, { effort: l })}
-                        >
-                          <span className="effpick__n">{t(EFFORT_LABEL_KEY[l])}</span>
-                          <span className="effpick__e">{l}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <p className="field__hint">
-                      {t(EFFORT_HINT_KEY[cfg.effort])}
-                      {page.id === 'codex'
-                        ? t('settings.cli.effortCodex')
-                        : page.id === 'dsh'
-                          ? t('settings.cli.effortDsh')
-                          : t('settings.cli.effortClaude')}
-                      {t('settings.cli.effortNote')}
-                    </p>
-                  </div>
-                </div>
-              </section>
-            </>
-          )}
-
-          {page.kind === 'mcp' && (
-            <McpManagerPage
-              cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
-              openedCwds={draft.openedCwds}
-              dshAuthMode={storedDshCfg?.authMode}
-              dshChannelId={dshChannelId}
+        <div className="settings__body">
+          <nav className="settings__nav">
+            <div className="settings__navgroup">{t('settings.nav.system')}</div>
+            <NavItem
+              active={page.kind === 'general'}
+              onClick={() => setPage({ kind: 'general' })}
+              label={t('settings.nav.general')}
             />
-          )}
-
-          {page.kind === 'skills' && (
-            <SkillsManagerPage
-              cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
-              openedCwds={draft.openedCwds}
+            <NavItem
+              active={page.kind === 'permissions'}
+              onClick={() => setPage({ kind: 'permissions' })}
+              label={t('settings.nav.permissions')}
             />
-          )}
 
-          {page.kind === 'hooks' && (
-            <HooksManagerPage
-              cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
-              openedCwds={draft.openedCwds}
+            <div className="settings__navgroup">{t('settings.nav.capability')}</div>
+            <NavItem
+              active={page.kind === 'mcp'}
+              onClick={() => setPage({ kind: 'mcp' })}
+              label={t('settings.nav.mcp')}
             />
-          )}
+            <NavItem
+              active={page.kind === 'hooks'}
+              onClick={() => setPage({ kind: 'hooks' })}
+              label={t('settings.nav.hooks')}
+            />
+            <NavItem
+              active={page.kind === 'skills'}
+              onClick={() => setPage({ kind: 'skills' })}
+              label={t('settings.nav.skills')}
+            />
 
-          {page.kind === 'general' && (
-            <>
-              <section className="chform">
-                <h2 className="chform__title">{t('settings.language.section')}</h2>
-                <div className="field">
-                  <label className="field__label">{t('settings.language.label')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.language}
-                      onChange={(e) =>
-                        patch({ language: e.target.value as LanguageSetting })
-                      }
-                    >
-                      {LANGUAGES.map((l) => (
-                        <option key={l} value={l}>
-                          {t(LANGUAGE_LABEL_KEY[l])}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="field__hint">
-                      {draft.language === 'system'
-                        ? t('language.systemCurrent', {
-                            language: t(
-                              LANGUAGE_LABEL_KEY[
-                                resolveLanguage(draft.language, getSystemLocale())
-                              ]
-                            )
-                          })
-                        : t('settings.language.hint')}
-                    </p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="chform chform--sep">
-                <h2 className="chform__title">{t('settings.workspace')}</h2>
-                <div className="field">
-                  <label className="field__label">{t('settings.general.defaultCwd')}</label>
-                  <div className="field__body">
-                    <input
-                      className="input"
-                      placeholder={t('settings.general.defaultCwdPlaceholder')}
-                      value={draft.defaultCwd}
-                      onChange={(e) => patch({ defaultCwd: e.target.value })}
-                    />
-                    <p className="field__hint">
-                      {t('settings.general.defaultCwdHint')}
-                    </p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="chform chform--sep">
-                <h2 className="chform__title">{t('settings.appearance')}</h2>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.theme.label')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.theme}
-                      onChange={(e) => patch({ theme: e.target.value as ThemeMode })}
-                    >
-                      {THEME_GROUPS.map((g) => (
-                        <optgroup key={g.labelKey} label={t(g.labelKey)}>
-                          {g.themes.map((theme) => (
-                            <option key={theme} value={theme}>
-                              {t(THEME_LABEL_KEY[theme])}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                    <p className="field__hint">
-                      {t('settings.theme.hint')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.zoom')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.uiZoom}
-                      onChange={(e) => patch({ uiZoom: Number(e.target.value) })}
-                    >
-                      {UI_ZOOM_LEVELS.map((z) => (
-                        <option key={z} value={z}>
-                          {Math.round(z * 100)}%
-                        </option>
-                      ))}
-                    </select>
-                    <p className="field__hint">
-                      {t('settings.zoomHint')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.chatFontSize')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.chatFontSize}
-                      onChange={(e) => patch({ chatFontSize: Number(e.target.value) })}
-                    >
-                      {CHAT_FONT_SIZES.map((n) => (
-                        <option key={n} value={n}>
-                          {n}px
-                        </option>
-                      ))}
-                    </select>
-                    <p className="field__hint">
-                      {t('settings.chatFontSizeHint')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.uiFont')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={uiFontIsCustom ? '__custom__' : draft.uiFont}
-                      onChange={(e) => {
-                        if (e.target.value === '__custom__') {
-                          setUiFontCustom(true)
-                          return
-                        }
-                        setUiFontCustom(false)
-                        patch({ uiFont: e.target.value })
-                      }}
-                    >
-                      {UI_FONT_PRESETS.map((p) => (
-                        <option key={p.value} value={p.value}>
-                          {t(p.labelKey)}
-                        </option>
-                      ))}
-                      <option value="__custom__">{t('settings.custom')}</option>
-                    </select>
-                    {uiFontIsCustom && (
-                      <input
-                        className="input field__sub"
-                        value={draft.uiFont}
-                        placeholder={t('settings.uiFontPlaceholder')}
-                        onChange={(e) => patch({ uiFont: e.target.value })}
-                        onBlur={() => {
-                          if (!draft.uiFont.trim()) patch({ uiFont: DEFAULT_UI_FONT })
-                        }}
-                      />
-                    )}
-                    <p className="field__hint">
-                      {t('settings.uiFontHint')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.monoFont')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={monoFontIsCustom ? '__custom__' : draft.monoFont}
-                      onChange={(e) => {
-                        if (e.target.value === '__custom__') {
-                          setMonoFontCustom(true)
-                          return
-                        }
-                        setMonoFontCustom(false)
-                        patch({ monoFont: e.target.value })
-                      }}
-                    >
-                      {MONO_FONT_PRESETS.map((p) => (
-                        <option key={p.value} value={p.value}>
-                          {t(p.labelKey)}
-                        </option>
-                      ))}
-                      <option value="__custom__">{t('settings.custom')}</option>
-                    </select>
-                    {monoFontIsCustom && (
-                      <input
-                        className="input field__sub"
-                        value={draft.monoFont}
-                        placeholder={t('settings.monoFontPlaceholder')}
-                        onChange={(e) => patch({ monoFont: e.target.value })}
-                        onBlur={() => {
-                          if (!draft.monoFont.trim()) patch({ monoFont: DEFAULT_MONO_FONT })
-                        }}
-                      />
-                    )}
-                    <p className="field__hint">{t('settings.monoFontHint')}</p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="chform chform--sep">
-                <h2 className="chform__title">{t('settings.chat')}</h2>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.showTimestamps')}</label>
-                  <div className="field__body">
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={draft.showTimestamps}
-                        onChange={(e) => patch({ showTimestamps: e.target.checked })}
-                      />
-                      <span>{draft.showTimestamps ? t('settings.showTimestamps.on') : t('settings.showTimestamps.off')}</span>
-                    </label>
-                    <p className="field__hint">{t('settings.showTimestampsHint')}</p>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.notify')}</label>
-                  <div className="field__body">
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={draft.notifyOnDone}
-                        onChange={(e) => patch({ notifyOnDone: e.target.checked })}
-                      />
-                      <span>
-                        {draft.notifyOnDone ? t('settings.notify.on') : t('settings.notify.off')}
+            <div className="settings__navgroup">{t('settings.nav.cli')}</div>
+            {CLIS.map((d) => (
+              <NavItem
+                key={d.id}
+                active={page.kind === 'cli' && page.id === d.id}
+                onClick={() => setPage({ kind: 'cli', id: d.id })}
+                label={d.name}
+                tag={
+                  !d.ready ? (
+                    <span className="settings__navtag">{t('settings.nav.notReady')}</span>
+                  ) : (
+                    draft.cliUpdate.tagInNav &&
+                    cliUpdate.states?.[d.id]?.phase === 'available' && (
+                      <span className="settings__navtag settings__navtag--warn">
+                        <i />
+                        {t('cliUpdate.navTag')}
                       </span>
-                    </label>
-                    <p className="field__hint">{t('settings.notifyHint')}</p>
+                    )
+                  )
+                }
+              />
+            ))}
+
+            <div className="settings__navgroup">{t('settings.nav.other')}</div>
+            <NavItem
+              active={page.kind === 'about'}
+              onClick={() => setPage({ kind: 'about' })}
+              label={t('settings.nav.about')}
+            />
+          </nav>
+
+          <div className={`settings__content${page.kind === 'mcp' || page.kind === 'skills' || page.kind === 'hooks' ? ' settings__content--wide' : ''}`}>
+            {page.kind === 'cli' && cfg && (
+              <>
+                <div className="clipane">
+                  <div className="clipane__main">
+                    <h2 className="clipane__title">{cliDef(page.id).name}</h2>
+                    <p className="clipane__hint">
+                      {t('settings.cli.endpoint', { protocol: t(PROTOCOL_LABEL_KEY[cliDef(page.id).protocol]) })}
+                    </p>
                   </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={cfg.enabled}
+                      onChange={(e) => patchCli(page.id, { enabled: e.target.checked })}
+                    />
+                    <span>{cfg.enabled ? t('common.enabled') : t('common.disabled')}</span>
+                  </label>
                 </div>
 
-                <div className="field">
-                  <label className="field__label">{t('settings.thinking')}</label>
-                  <div className="field__body">
-                    <label className="switch">
+                {!cliDef(page.id).ready && (
+                  <p className="clipane__todo">{t('settings.cli.notReadyBody')}</p>
+                )}
+
+                {page.id === 'codex' && (
+                  <p className="section-lead">{t('settings.codex.lead')}</p>
+                )}
+
+                {(!updateState || updateState.installed) && (
+                  <CliUpdatePanel
+                    cli={page.id}
+                    name={cliDef(page.id).name}
+                    state={updateState}
+                    autoCheck={draft.cliUpdate.autoCheck}
+                    tagInNav={draft.cliUpdate.tagInNav}
+                    runningSessions={runningSessions}
+                    onAutoCheck={(v) =>
+                      patch({ cliUpdate: { ...draft.cliUpdate, autoCheck: v } })
+                    }
+                    onTagInNav={(v) => patch({ cliUpdate: { ...draft.cliUpdate, tagInNav: v } })}
+                    onCheck={(force) => cliUpdate.check(page.id, force)}
+                    onRun={() => cliUpdate.run(page.id)}
+                    onRunElevated={() => cliUpdate.runElevated(page.id)}
+                    onCancel={cliUpdate.cancel}
+                  />
+                )}
+
+                {/* 安装 / 登录状态放在启用与更新之后：进页面先看到「开没开、版本新不新」 */}
+                <div className="clistatus">
+                  {page.id === 'codex' && (
+                    <CodexStatusPanel
+                      status={codexStatus.status}
+                      loading={codexStatus.loading}
+                      error={codexStatus.error}
+                      onRefresh={() => void codexStatus.refresh()}
+                      hasChannelKey={!!activeCfgChannel?.authToken.trim()}
+                    />
+                  )}
+
+                  {page.id === 'claude' && (
+                    <ClaudeAuthPanel
+                      auth={claudeAuth}
+                      authMode={cfg.authMode}
+                      officialModel={cfg.officialModel}
+                      runningSessions={runningSessions}
+                      onAuthMode={(m) => patchCli('claude', { authMode: m })}
+                      onOfficialModel={(v) => patchCli('claude', { officialModel: v })}
+                    />
+                  )}
+
+                  {page.id === 'dsh' && (
+                    <DshStatusPanel
+                      status={dshStatus.status}
+                      loading={dshStatus.loading}
+                      error={dshStatus.error}
+                      onRefresh={() => void dshStatus.refresh()}
+                      authMode={cfg.authMode}
+                      onAuthMode={(m) => patchCli('dsh', { authMode: m })}
+                      officialModel={cfg.officialModel}
+                      onOfficialModel={(v) => patchCli('dsh', { officialModel: v })}
+                      hasChannelKey={!!activeCfgChannel?.authToken.trim()}
+                    />
+                  )}
+                </div>
+
+                {(page.id === 'claude' || page.id === 'dsh') && cfg.authMode === 'official' ? (
+                  <p className="section-lead">
+                    {page.id === 'dsh'
+                      ? t('settings.dsh.officialLead')
+                      : t('settings.claude.officialLead')}
+                  </p>
+                ) : (
+                  <>
+                <section className="chlist">
+                  <div className="chlist__head">
+                    <span>{t('settings.channels')}</span>
+                    <button className="btn btn--ghost" onClick={addChannel}>
+                      <IconPlus width={13} height={13} />
+                      {t('settings.channel.new')}
+                    </button>
+                  </div>
+
+                  {cfg.channels.length === 0 && (
+                    <p className="empty">
+                      {t('settings.channel.empty')}
+                      {page.id === 'claude'
+                        ? t('settings.channel.emptyClaude')
+                        : page.id === 'dsh'
+                          ? t('settings.channel.emptyDsh')
+                          : '.'}
+                    </p>
+                  )}
+
+                  {cfg.channels.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`chlist__item ${c.id === selectedId ? 'is-active' : ''}`}
+                    >
+                      <button className="chlist__main" onClick={() => setPicked(c.id)}>
+                        <span className="chlist__name">{c.name || t('settings.channel.unnamed')}</span>
+                        <span className="chlist__meta">{c.baseUrl || t('settings.channel.noBaseUrl')}</span>
+                      </button>
+                      {c.id === cfg.activeChannelId && cfg.authMode === 'channel' ? (
+                        <span className="badge badge--ok">{t('settings.channel.inUse')}</span>
+                      ) : (
+                        <button
+                          className="btn btn--ghost btn--xs"
+                          onClick={() => activateChannel(c.id)}
+                        >
+                          {t('settings.channel.activate')}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </section>
+
+                {selected && (
+                  <ChannelForm
+                    cli={page.id}
+                    channel={selected}
+                    active={
+                      selected.id === cfg.activeChannelId &&
+                      ((page.id !== 'claude' && page.id !== 'dsh') ||
+                        cfg.authMode === 'channel')
+                    }
+                    testing={testing}
+                    result={result}
+                    onChange={updateChannel}
+                    onTest={() => void runTest()}
+                    onDelete={() => deleteChannel(selected.id)}
+                    onSetActive={() => activateChannel(selected.id)}
+                  />
+                )}
+                  </>
+                )}
+
+                {/* 加条分隔线：上面紧挨着渠道表单的「测试连接 / 删除渠道」按钮行，
+                    不隔一下会被当成那排按钮的一部分 */}
+                <section className="chform chform--sep">
+                  <h2 className="chform__title">{t('settings.cli.effortTitle')}</h2>
+                  <div className="field">
+                    <label className="field__label">{t('settings.cli.effortDefault')}</label>
+                    <div className="field__body">
+                      <div className="effpick">
+                        {effortLevelsFor(page.id).map((l) => (
+                          <button
+                            key={l}
+                            className={`effpick__it ${l === cfg.effort ? 'is-on' : ''}`}
+                            onClick={() => patchCli(page.id, { effort: l })}
+                          >
+                            <span className="effpick__n">{t(EFFORT_LABEL_KEY[l])}</span>
+                            <span className="effpick__e">{l}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="field__hint">
+                        {t(EFFORT_HINT_KEY[cfg.effort])}
+                        {page.id === 'codex'
+                          ? t('settings.cli.effortCodex')
+                          : page.id === 'dsh'
+                            ? t('settings.cli.effortDsh')
+                            : t('settings.cli.effortClaude')}
+                        {t('settings.cli.effortNote')}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {page.kind === 'mcp' && (
+              <McpManagerPage
+                cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+                openedCwds={draft.openedCwds}
+                dshAuthMode={storedDshCfg?.authMode}
+                dshChannelId={dshChannelId}
+              />
+            )}
+
+            {page.kind === 'skills' && (
+              <SkillsManagerPage
+                cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+                openedCwds={draft.openedCwds}
+              />
+            )}
+
+            {page.kind === 'hooks' && (
+              <HooksManagerPage
+                cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+                openedCwds={draft.openedCwds}
+              />
+            )}
+
+            {page.kind === 'general' && (
+              <>
+                <section className="chform">
+                  <h2 className="chform__title">{t('settings.language.section')}</h2>
+                  <div className="field">
+                    <label className="field__label">{t('settings.language.label')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={draft.language}
+                        onChange={(e) =>
+                          patch({ language: e.target.value as LanguageSetting })
+                        }
+                      >
+                        {LANGUAGES.map((l) => (
+                          <option key={l} value={l}>
+                            {t(LANGUAGE_LABEL_KEY[l])}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="field__hint">
+                        {draft.language === 'system'
+                          ? t('language.systemCurrent', {
+                              language: t(
+                                LANGUAGE_LABEL_KEY[
+                                  resolveLanguage(draft.language, getSystemLocale())
+                                ]
+                              )
+                            })
+                          : t('settings.language.hint')}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="chform chform--sep">
+                  <h2 className="chform__title">{t('settings.workspace')}</h2>
+                  <div className="field">
+                    <label className="field__label">{t('settings.general.defaultCwd')}</label>
+                    <div className="field__body">
                       <input
-                        type="checkbox"
-                        checked={draft.thinkingOpen}
-                        onChange={(e) => patch({ thinkingOpen: e.target.checked })}
+                        className="input"
+                        placeholder={t('settings.general.defaultCwdPlaceholder')}
+                        value={draft.defaultCwd}
+                        onChange={(e) => patch({ defaultCwd: e.target.value })}
                       />
-                      <span>{draft.thinkingOpen ? t('settings.thinking.expand') : t('settings.thinking.collapse')}</span>
-                    </label>
-                    <p className="field__hint">
-                      {t('settings.thinkingHint')}
-                    </p>
+                      <p className="field__hint">
+                        {t('settings.general.defaultCwdHint')}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                </section>
 
+                <section className="chform chform--sep">
+                  <h2 className="chform__title">{t('settings.appearance')}</h2>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.theme.label')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={draft.theme}
+                        onChange={(e) => patch({ theme: e.target.value as ThemeMode })}
+                      >
+                        {THEME_GROUPS.map((g) => (
+                          <optgroup key={g.labelKey} label={t(g.labelKey)}>
+                            {g.themes.map((theme) => (
+                              <option key={theme} value={theme}>
+                                {t(THEME_LABEL_KEY[theme])}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      <p className="field__hint">
+                        {t('settings.theme.hint')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.zoom')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={draft.uiZoom}
+                        onChange={(e) => patch({ uiZoom: Number(e.target.value) })}
+                      >
+                        {UI_ZOOM_LEVELS.map((z) => (
+                          <option key={z} value={z}>
+                            {Math.round(z * 100)}%
+                          </option>
+                        ))}
+                      </select>
+                      <p className="field__hint">
+                        {t('settings.zoomHint')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.chatFontSize')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={draft.chatFontSize}
+                        onChange={(e) => patch({ chatFontSize: Number(e.target.value) })}
+                      >
+                        {CHAT_FONT_SIZES.map((n) => (
+                          <option key={n} value={n}>
+                            {n}px
+                          </option>
+                        ))}
+                      </select>
+                      <p className="field__hint">
+                        {t('settings.chatFontSizeHint')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.uiFont')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={uiFontIsCustom ? '__custom__' : draft.uiFont}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setUiFontCustom(true)
+                            return
+                          }
+                          setUiFontCustom(false)
+                          patch({ uiFont: e.target.value })
+                        }}
+                      >
+                        {UI_FONT_PRESETS.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {t(p.labelKey)}
+                          </option>
+                        ))}
+                        <option value="__custom__">{t('settings.custom')}</option>
+                      </select>
+                      {uiFontIsCustom && (
+                        <input
+                          className="input field__sub"
+                          value={draft.uiFont}
+                          placeholder={t('settings.uiFontPlaceholder')}
+                          onChange={(e) => patch({ uiFont: e.target.value })}
+                          onBlur={() => {
+                            if (!draft.uiFont.trim()) patch({ uiFont: DEFAULT_UI_FONT })
+                          }}
+                        />
+                      )}
+                      <p className="field__hint">
+                        {t('settings.uiFontHint')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.monoFont')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={monoFontIsCustom ? '__custom__' : draft.monoFont}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setMonoFontCustom(true)
+                            return
+                          }
+                          setMonoFontCustom(false)
+                          patch({ monoFont: e.target.value })
+                        }}
+                      >
+                        {MONO_FONT_PRESETS.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {t(p.labelKey)}
+                          </option>
+                        ))}
+                        <option value="__custom__">{t('settings.custom')}</option>
+                      </select>
+                      {monoFontIsCustom && (
+                        <input
+                          className="input field__sub"
+                          value={draft.monoFont}
+                          placeholder={t('settings.monoFontPlaceholder')}
+                          onChange={(e) => patch({ monoFont: e.target.value })}
+                          onBlur={() => {
+                            if (!draft.monoFont.trim()) patch({ monoFont: DEFAULT_MONO_FONT })
+                          }}
+                        />
+                      )}
+                      <p className="field__hint">{t('settings.monoFontHint')}</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="chform chform--sep">
+                  <h2 className="chform__title">{t('settings.chat')}</h2>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.showTimestamps')}</label>
+                    <div className="field__body">
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          checked={draft.showTimestamps}
+                          onChange={(e) => patch({ showTimestamps: e.target.checked })}
+                        />
+                        <span>{draft.showTimestamps ? t('settings.showTimestamps.on') : t('settings.showTimestamps.off')}</span>
+                      </label>
+                      <p className="field__hint">{t('settings.showTimestampsHint')}</p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.notify')}</label>
+                    <div className="field__body">
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          checked={draft.notifyOnDone}
+                          onChange={(e) => patch({ notifyOnDone: e.target.checked })}
+                        />
+                        <span>
+                          {draft.notifyOnDone ? t('settings.notify.on') : t('settings.notify.off')}
+                        </span>
+                      </label>
+                      <p className="field__hint">{t('settings.notifyHint')}</p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.thinking')}</label>
+                    <div className="field__body">
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          checked={draft.thinkingOpen}
+                          onChange={(e) => patch({ thinkingOpen: e.target.checked })}
+                        />
+                        <span>{draft.thinkingOpen ? t('settings.thinking.expand') : t('settings.thinking.collapse')}</span>
+                      </label>
+                      <p className="field__hint">
+                        {t('settings.thinkingHint')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.toolDetail')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={draft.toolDetail}
+                        onChange={(e) => patch({ toolDetail: e.target.value as ToolDetail })}
+                      >
+                        {(Object.keys(TOOL_DETAIL_LABEL_KEY) as ToolDetail[]).map((d) => (
+                          <option key={d} value={d}>
+                            {t(TOOL_DETAIL_LABEL_KEY[d])}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="field__hint">
+                        {t('settings.toolDetailHint')}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="chform chform--sep">
+                  <h2 className="chform__title">{t('settings.input')}</h2>
+
+                  <div className="field">
+                    <label className="field__label">{t('settings.sendKey')}</label>
+                    <div className="field__body">
+                      <select
+                        className="input"
+                        value={draft.sendKey}
+                        onChange={(e) => patch({ sendKey: e.target.value as SendKey })}
+                      >
+                        {(Object.keys(SEND_KEY_LABEL_KEY) as SendKey[]).map((k) => (
+                          <option key={k} value={k}>
+                            {t(SEND_KEY_LABEL_KEY[k])}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="field__hint">
+                        {t('settings.sendKeyHint')}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {page.kind === 'permissions' && (
+              <section className="chform">
+                <h2 className="chform__title">{t('settings.permissions')}</h2>
                 <div className="field">
-                  <label className="field__label">{t('settings.toolDetail')}</label>
+                  <label className="field__label">{t('settings.permissionDefault')}</label>
                   <div className="field__body">
                     <select
                       className="input"
-                      value={draft.toolDetail}
-                      onChange={(e) => patch({ toolDetail: e.target.value as ToolDetail })}
+                      value={draft.permissionMode}
+                      onChange={(e) => patch({ permissionMode: e.target.value as PermissionMode })}
                     >
-                      {(Object.keys(TOOL_DETAIL_LABEL_KEY) as ToolDetail[]).map((d) => (
-                        <option key={d} value={d}>
-                          {t(TOOL_DETAIL_LABEL_KEY[d])}
+                      {PERMISSION_MODES.map((m) => (
+                        <option key={m} value={m}>
+                          {t(MODE_LABEL_KEY[m])} —— {t(MODE_HINT_KEY[m])}
                         </option>
                       ))}
                     </select>
-                    <p className="field__hint">
-                      {t('settings.toolDetailHint')}
-                    </p>
                   </div>
                 </div>
               </section>
+            )}
 
-              <section className="chform chform--sep">
-                <h2 className="chform__title">{t('settings.input')}</h2>
-
-                <div className="field">
-                  <label className="field__label">{t('settings.sendKey')}</label>
-                  <div className="field__body">
-                    <select
-                      className="input"
-                      value={draft.sendKey}
-                      onChange={(e) => patch({ sendKey: e.target.value as SendKey })}
-                    >
-                      {(Object.keys(SEND_KEY_LABEL_KEY) as SendKey[]).map((k) => (
-                        <option key={k} value={k}>
-                          {t(SEND_KEY_LABEL_KEY[k])}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="field__hint">
-                      {t('settings.sendKeyHint')}
-                    </p>
-                  </div>
-                </div>
-              </section>
-            </>
-          )}
-
-          {page.kind === 'permissions' && (
-            <section className="chform">
-              <h2 className="chform__title">{t('settings.permissions')}</h2>
-              <div className="field">
-                <label className="field__label">{t('settings.permissionDefault')}</label>
-                <div className="field__body">
-                  <select
-                    className="input"
-                    value={draft.permissionMode}
-                    onChange={(e) => patch({ permissionMode: e.target.value as PermissionMode })}
-                  >
-                    {PERMISSION_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {t(MODE_LABEL_KEY[m])} —— {t(MODE_HINT_KEY[m])}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {page.kind === 'about' && <AboutPanel updater={updater} />}
+            {page.kind === 'about' && <AboutPanel updater={updater} />}
+          </div>
         </div>
-      </div>
-    </main>
+      </section>
+    </div>
   )
 }
 
@@ -948,15 +1039,22 @@ function resolveSelection(cfg: CliConfig, picked: string | null): string | null 
 function NavItem({
   active,
   onClick,
-  children
+  label,
+  tag
 }: {
   active: boolean
   onClick: () => void
-  children: ReactNode
+  label: string
+  tag?: ReactNode
 }): JSX.Element {
   return (
-    <button className={`settings__navitem ${active ? 'is-active' : ''}`} onClick={onClick}>
-      {children}
+    <button
+      className={`settings__navitem ${active ? 'is-active' : ''}`}
+      onClick={onClick}
+      title={label}
+    >
+      <span className="settings__navitem-label">{label}</span>
+      {tag}
     </button>
   )
 }

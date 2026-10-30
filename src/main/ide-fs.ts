@@ -101,6 +101,7 @@ const LANGUAGE: Record<string, string> = {
   '.md': 'Markdown',
   '.mdx': 'Markdown',
   '.py': 'Python',
+  '.lua': 'Lua',
   '.rs': 'Rust',
   '.go': 'Go',
   '.java': 'Java',

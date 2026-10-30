@@ -283,4 +283,188 @@
   --warn: #a06b0b;
   --danger: #b8442f;
   --running: #b05f36;
+  --br-accent: #5f7b88;
+  --br-text: #46626f;
+  --br-bg: rgba(95, 123, 136, 0.09);
+  --br-border: rgba(95, 123, 136, 0.26);
+}
+
+/* 纯白：纯白底 + 深蓝强调，强光环境 / 可读性优先（浅色 scheme） */
+:root[data-theme='paper'] {
+  color-scheme: light;
+
+  --bg-app: #ffffff;
+  --bg-sidebar: #f4f4f5;
+  --bg-raised: #ffffff;
+  --bg-hover: #ededee;
+  --bg-active: #e2e2e4;
+
+  --border: #c9c9cd;
+  --border-soft: #e3e3e6;
+
+  --text: #0a0a0b;
+  --text-dim: #38383d;
+  --text-muted: #5b5b62;
+  --text-faint: #86868e;
+
+  --accent: #0b57d0;
+  --accent-fg: #ffffff;
+  --ok: #1a7f37;
+  --warn: #8a6100;
+  --danger: #cf222e;
+  --running: #b04a28;
+  --br-accent: #2f6f9d;
+  --br-text: #1f5f8a;
+  --br-bg: rgba(47, 111, 157, 0.08);
+  --br-border: rgba(47, 111, 157, 0.26);
+}
+
+/* 霜蓝：冷灰蓝底 + 钢蓝强调（浅色 scheme） */
+:root[data-theme='frost'] {
+  color-scheme: light;
+
+  --bg-app: #f3f6fa;
+  --bg-sidebar: #ebf0f6;
+  --bg-raised: #ffffff;
+  --bg-hover: #e8eef5;
+  --bg-active: #dee6f0;
+
+  --border: #d3dce7;
+  --border-soft: #e2e8f1;
+
+  --text: #1a2230;
+  --text-dim: #485568;
+  --text-muted: #6a7688;
+  --text-faint: #98a3b3;
+
+  --accent: #2f6b9e;
+  --accent-fg: #ffffff;
+  --ok: #2e7a4d;
+  --warn: #9a6d0b;
+  --danger: #c0392f;
+  --running: #a94f2c;
+  --br-accent: #3d6f9f;
+  --br-text: #2e5f8a;
+  --br-bg: rgba(61, 111, 159, 0.08);
+  --br-border: rgba(61, 111, 159, 0.26);
+}
+
+/* 薄荷：淡绿灰底 + 森林绿强调（浅色 scheme） */
+:root[data-theme='mint'] {
+  color-scheme: light;
+
+  --bg-app: #f2f7f4;
+  --bg-sidebar: #e8f1eb;
+  --bg-raised: #ffffff;
+  --bg-hover: #e4efe8;
+  --bg-active: #d9e9df;
+
+  --border: #cddfd4;
+  --border-soft: #dfebe4;
+
+  --text: #17251d;
+  --text-dim: #43594b;
+  --text-muted: #64796b;
+  --text-faint: #92a699;
+
+  --accent: #23704a;
+  --accent-fg: #ffffff;
+  --ok: #1f7a45;
+  --warn: #97700c;
+  --danger: #bf3b31;
+  --running: #a2512f;
+  --br-accent: #3a7186;
+  --br-text: #2c6075;
+  --br-bg: rgba(58, 113, 134, 0.08);
+  --br-border: rgba(58, 113, 134, 0.26);
+}
+
+/* 玫瑰：暖白带粉 + 莓红强调（浅色 scheme） */
+:root[data-theme='rose'] {
+  color-scheme: light;
+
+  --bg-app: #faf5f6;
+  --bg-sidebar: #f3eaec;
+  --bg-raised: #fffdfd;
+  --bg-hover: #f2e7ea;
+  --bg-active: #ebdce0;
+
+  --border: #e3d1d7;
+  --border-soft: #efe2e6;
+
+  --text: #2b1c20;
+  --text-dim: #5d454a;
+  --text-muted: #82686d;
+  --text-faint: #ab9298;
+
+  --accent: #a5445e;
+  --accent-fg: #ffffff;
+  --ok: #3a7d4e;
+  --warn: #9c6c0b;
+  --danger: #b8322a;
+  --running: #a35432;
+  --br-accent: #8a6a8f;
+  --br-text: #6f5375;
+  --br-bg: rgba(138, 106, 143, 0.09);
+  --br-border: rgba(138, 106, 143, 0.26);
+}
+
+/* 薰衣草：极淡紫灰底 + 紫罗兰强调（浅色 scheme） */
+:root[data-theme='lavender'] {
+  color-scheme: light;
+
+  --bg-app: #f7f5fb;
+  --bg-sidebar: #efeaf7;
+  --bg-raised: #ffffff;
+  --bg-hover: #efeaf8;
+  --bg-active: #e4ddf0;
+
+  --border: #dbd2e9;
+  --border-soft: #eae3f3;
+
+  --text: #241d33;
+  --text-dim: #504663;
+  --text-muted: #766a8b;
+  --text-faint: #9f96b0;
+
+  --accent: #6a4fa3;
+  --accent-fg: #ffffff;
+  --ok: #35794f;
+  --warn: #946a0b;
+  --danger: #bd352f;
+  --running: #a24f30;
+  --br-accent: #566f9e;
+  --br-text: #405a8a;
+  --br-bg: rgba(86, 111, 158, 0.08);
+  --br-border: rgba(86, 111, 158, 0.26);
+}
+
+/* 沙岩：暖灰米底 + 陶土橙强调（浅色 scheme） */
+:root[data-theme='sandstone'] {
+  color-scheme: light;
+
+  --bg-app: #f6f3ee;
+  --bg-sidebar: #efebe3;
+  --bg-raised: #fffdf9;
+  --bg-hover: #efeae1;
+  --bg-active: #e5dfd4;
+
+  --border: #dbd2c4;
+  --border-soft: #e8e1d6;
+
+  --text: #2a241c;
+  --text-dim: #575045;
+  --text-muted: #7b7163;
+  --text-faint: #a29889;
+
+  --accent: #a2572f;
+  --accent-fg: #ffffff;
+  --ok: #3d7c4a;
+  --warn: #9c6a0a;
+  --danger: #b5402e;
+  --running: #a9562f;
+  --br-accent: #5f7b88;
+  --br-text: #46626f;
+  --br-bg: rgba(95, 123, 136, 0.09);
+  --br-border: rgba(95, 123, 136, 0.26);
 }

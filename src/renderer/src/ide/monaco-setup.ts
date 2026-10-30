@@ -13,6 +13,7 @@ import 'monaco-editor/languages/definitions/typescript/register'
 import 'monaco-editor/languages/definitions/javascript/register'
 import 'monaco-editor/languages/definitions/markdown/register'
 import 'monaco-editor/languages/definitions/python/register'
+import 'monaco-editor/languages/definitions/lua/register'
 import 'monaco-editor/languages/definitions/rust/register'
 import 'monaco-editor/languages/definitions/go/register'
 import 'monaco-editor/languages/definitions/java/register'
@@ -323,6 +324,7 @@ const LANGUAGE: Record<string, string> = {
   HTML: 'html',
   Markdown: 'markdown',
   Python: 'python',
+  Lua: 'lua',
   Rust: 'rust',
   Go: 'go',
   Java: 'java',
@@ -362,6 +364,7 @@ const BY_EXT: Record<string, string> = {
   md: 'markdown',
   mdx: 'markdown',
   py: 'python',
+  lua: 'lua',
   rs: 'rust',
   go: 'go',
   java: 'java',

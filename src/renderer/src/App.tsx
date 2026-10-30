@@ -695,76 +695,78 @@ export function App(): JSX.Element {
           archivedCount={archivedCount}
           onToggleArchived={() => setShowArchived((v) => !v)}
         />
-        {view === 'settings' ? (
-          <SettingsPage
-            initialPage={openMcpSettings ? 'mcp' : undefined}
-            onBack={() => {
-              setView('chat')
-              setOpenMcpSettings(false)
-            }}
-          />
-        ) : (
-          <MainPane
-            active={active}
-            // 重命名只存在于本地元数据里；标题栏优先用它，清空后回落到 CLI 原标题
-            titleOverride={
-              active.kind === 'stored'
-                ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.title ?? null)
-                : null
-            }
-            // 这条会话自己记下的模型。和标题一样，只有已有会话才有
-            initialModel={
-              active.kind === 'stored'
-                ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.model ?? '')
-                : ''
-            }
-            // 渠道 / 来源同样按会话取：别的对话切了渠道不该带过来
-            initialAuthMode={
-              active.kind === 'stored'
-                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.authMode
-                : undefined
-            }
-            initialChannelId={
-              active.kind === 'stored'
-                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.channelId
-                : undefined
-            }
-            initialAddDirs={
-              active.kind === 'stored'
-                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.addDirs
-                : undefined
-            }
-            onPersistModel={persistSessionModel}
-            onPersistAuth={persistSessionAuth}
-            onPersistAddDirs={persistSessionAddDirs}
-            recentAddDirs={recentAddDirs}
-            // 默认工作目录留空时的兜底。会话列表没读完就建会话会用到空 cwd，
-            // 所以 MainPane 要等 loading 落了才动手
-            fallbackCwd={lastCwd}
-            cwdReady={!loading}
-            metaReady={!metaLoading}
-            onNewSession={newSession}
-            onActiveInfo={reportActive}
-            incomingRefs={incomingRefs}
-            onIncomingConsumed={() => setIncomingRefs(null)}
-            /**
-             * 标题栏「•••」用的当前会话元数据。新会话还没有身份，
-             * 重命名 / 置顶 / 归档 / 删除都不会出现在菜单里。
-             */
-            sessionMeta={
-              active.kind === 'stored'
-                ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]
-                : undefined
-            }
-            onUpdateMeta={(patch) => {
-              if (active.kind === 'stored') void updateSessionMeta(active, patch)
-            }}
-            onDeleteActive={() => {
-              if (active.kind === 'stored') setPendingDelete(active)
-            }}
-          />
-        )}
+        {/* 设置是弹窗，对话留在下面不卸载，关闭后滚动位置不变 */}
+        <MainPane
+          active={active}
+          // 重命名只存在于本地元数据里；标题栏优先用它，清空后回落到 CLI 原标题
+          titleOverride={
+            active.kind === 'stored'
+              ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.title ?? null)
+              : null
+          }
+          // 这条会话自己记下的模型。和标题一样，只有已有会话才有
+          initialModel={
+            active.kind === 'stored'
+              ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.model ?? '')
+              : ''
+          }
+          // 渠道 / 来源同样按会话取：别的对话切了渠道不该带过来
+          initialAuthMode={
+            active.kind === 'stored'
+              ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.authMode
+              : undefined
+          }
+          initialChannelId={
+            active.kind === 'stored'
+              ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.channelId
+              : undefined
+          }
+          initialAddDirs={
+            active.kind === 'stored'
+              ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.addDirs
+              : undefined
+          }
+          onPersistModel={persistSessionModel}
+          onPersistAuth={persistSessionAuth}
+          onPersistAddDirs={persistSessionAddDirs}
+          recentAddDirs={recentAddDirs}
+          // 默认工作目录留空时的兜底。会话列表没读完就建会话会用到空 cwd，
+          // 所以 MainPane 要等 loading 落了才动手
+          fallbackCwd={lastCwd}
+          cwdReady={!loading}
+          metaReady={!metaLoading}
+          onNewSession={newSession}
+          onActiveInfo={reportActive}
+          incomingRefs={incomingRefs}
+          onIncomingConsumed={() => setIncomingRefs(null)}
+          /**
+           * 标题栏「•••」用的当前会话元数据。新会话还没有身份，
+           * 重命名 / 置顶 / 归档 / 删除都不会出现在菜单里。
+           */
+          sessionMeta={
+            active.kind === 'stored'
+              ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]
+              : undefined
+          }
+          onUpdateMeta={(patch) => {
+            if (active.kind === 'stored') void updateSessionMeta(active, patch)
+          }}
+          onDeleteActive={() => {
+            if (active.kind === 'stored') setPendingDelete(active)
+          }}
+        />
       </div>
+
+      {/* 设置弹窗：盖住侧栏和主区，但不卸载当前对话 */}
+      {view === 'settings' && (
+        <SettingsPage
+          initialPage={openMcpSettings ? 'mcp' : undefined}
+          onBack={() => {
+            setView('chat')
+            setOpenMcpSettings(false)
+          }}
+        />
+      )}
 
       {notice && (
         <div className="notice notice--float">

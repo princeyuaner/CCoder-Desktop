@@ -131,6 +131,12 @@ export type ThemeMode =
   | 'moss'
   | 'contrast'
   | 'light'
+  | 'paper'
+  | 'frost'
+  | 'mint'
+  | 'lavender'
+  | 'rose'
+  | 'sandstone'
   | 'sepia'
   | 'system'
 
@@ -146,6 +152,12 @@ export const THEME_SCHEME: Record<Exclude<ThemeMode, 'system'>, ThemeScheme> = {
   moss: 'dark',
   contrast: 'dark',
   light: 'light',
+  paper: 'light',
+  frost: 'light',
+  mint: 'light',
+  lavender: 'light',
+  rose: 'light',
+  sandstone: 'light',
   sepia: 'light'
 }
 
@@ -158,6 +170,12 @@ export const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
   moss: 'theme.moss',
   contrast: 'theme.contrast',
   light: 'theme.light',
+  paper: 'theme.paper',
+  frost: 'theme.frost',
+  mint: 'theme.mint',
+  lavender: 'theme.lavender',
+  rose: 'theme.rose',
+  sandstone: 'theme.sandstone',
   sepia: 'theme.sepia',
   system: 'theme.system'
 }
@@ -171,7 +189,7 @@ export const THEME_GROUPS: { labelKey: MessageKey; themes: ThemeMode[] }[] = [
     labelKey: 'theme.group.dark',
     themes: ['dark', 'midnight', 'forest', 'mist', 'coffee', 'moss', 'contrast']
   },
-  { labelKey: 'theme.group.light', themes: ['light', 'sepia'] },
+  { labelKey: 'theme.group.light', themes: ['light', 'paper', 'frost', 'mint', 'lavender', 'rose', 'sandstone', 'sepia'] },
   { labelKey: 'theme.group.other', themes: ['system'] }
 ]
 
@@ -185,6 +203,12 @@ export const THEME_MODES: ThemeMode[] = [
   'moss',
   'contrast',
   'light',
+  'paper',
+  'frost',
+  'mint',
+  'lavender',
+  'rose',
+  'sandstone',
   'sepia',
   'system'
 ]
@@ -219,6 +243,12 @@ export const THEME_BG: Record<Exclude<ThemeMode, 'system'>, string> = {
   moss: '#171a19',
   contrast: '#000000',
   light: '#f6f6f7',
+  paper: '#ffffff',
+  frost: '#f3f6fa',
+  mint: '#f2f7f4',
+  lavender: '#f7f5fb',
+  rose: '#faf5f6',
+  sandstone: '#f6f3ee',
   sepia: '#f3eee3'
 }
 

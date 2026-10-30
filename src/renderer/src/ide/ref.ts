@@ -18,6 +18,7 @@ const FENCE: Record<string, string> = {
   HTML: 'html',
   Markdown: 'md',
   Python: 'py',
+  Lua: 'lua',
   Rust: 'rs',
   Go: 'go',
   Java: 'java',

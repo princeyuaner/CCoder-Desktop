@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>设置改为弹窗 · 效果图</title>
+<style>
+/* ══════════════════════════════════════════════════════════
+   1. Design tokens（照抄 src/renderer/src/styles/tokens.css）
+   ══════════════════════════════════════════════════════════ */
+:root{
+  color-scheme: dark;
+  --bg-app:#191919; --bg-sidebar:#141414; --bg-raised:#232323;
+  --bg-hover:#1f1f1f; --bg-active:#2a2a2a;
+  --border:#2c2c2c; --border-soft:#242424;
+  --text:#e8e8e8; --text-dim:#a8a8a8; --text-muted:#8a8a8a; --text-faint:#6b6b6b;
+  --accent:#e8e8e8; --accent-fg:#191919;
+  --ok:#4b9e5f; --warn:#c9a227; --danger:#e5534b; --running:#d97757;
+  --br-accent:#7aa2c8; --br-text:#a9c6e2; --br-bg:rgba(122,162,200,.1); --br-border:rgba(122,162,200,.24);
+  --radius-card:12px; --radius-chip:8px; --radius-sm:6px; --radius-pill:999px;
+  --font-ui:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;
+  --font-mono:'JetBrains Mono','Cascadia Mono',Consolas,monospace;
+  --titlebar-h:36px;
+  /* 原型专用 */
+  --page:#0e0e0f; --page-2:#171719;
+  --scrim:rgba(0,0,0,.58);
+  --modal-shadow:0 36px 100px rgba(0,0,0,.62), 0 0 0 1px rgba(255,255,255,.035) inset;
+  --badge-ok-bg:#16241a; --badge-ok-border:#2c4a34;
+}
+:root[data-theme='light']{
+  color-scheme: light;
+  --bg-app:#f6f6f7; --bg-sidebar:#efeff1; --bg-raised:#ffffff;
+  --bg-hover:#e9e9ec; --bg-active:#e2e2e6;
+  --border:#d7d7dc; --border-soft:#e5e5e8;
+  --text:#1d1d1f; --text-dim:#4c4c53; --text-muted:#6c6c75; --text-faint:#95959e;
+  --accent:#1d1d1f; --accent-fg:#ffffff;
+  --ok:#2f8a45; --warn:#a97b0b; --danger:#c83b32; --running:#b04a28;
+  --br-accent:#3f6f9d; --br-text:#2f5f8a; --br-bg:rgba(63,111,157,.08); --br-border:rgba(63,111,157,.28);
+  --page:#e9e9ec; --page-2:#dfdfe3;
+  --scrim:rgba(28,28,34,.34);
+  --modal-shadow:0 30px 80px rgba(0,0,0,.16), 0 0 0 1px rgba(255,255,255,.6) inset;
+  --badge-ok-bg:#e8f4ea; --badge-ok-border:#bfdec5;
+}
+
+*,*::before,*::after{box-sizing:border-box;}
+html,body{margin:0;min-height:100%;}
+body{
+  background:
+    radial-gradient(1100px 560px at 18% -8%, color-mix(in srgb, var(--page-2) 82%, transparent), transparent 62%),
+    var(--page);
+  color:var(--text);
+  font-family:var(--font-ui);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  padding:26px 26px 56px;
+}
+button,input{font:inherit;color:inherit;}
+button{background:none;border:0;padding:0;cursor:pointer;}
+kbd{font-family:var(--font-mono);}
+svg{display:block;flex:none;}
+
+/* ══════════════════════════════════════════════════════════
+   2. 原型顶栏（与产品界面无关）
+   ══════════════════════════════════════════════════════════ */
+.mockbar{
+  width:1180px;max-width:100%;margin:0 auto 14px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+}
+.mockbar__dot{width:9px;height:9px;border-radius:50%;background:var(--warn);flex:none;}
+.mockbar__title{margin:0;font-size:14px;font-weight:600;letter-spacing:.2px;}
+.mockbar__sub{font-size:12px;color:var(--text-faint);}
+.mockbar__right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.seg{display:inline-flex;padding:2px;gap:2px;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-pill);}
+.seg button{padding:4px 12px;font-size:12px;color:var(--text-muted);border-radius:var(--radius-pill);transition:background .12s,color .12s;}
+.seg button:hover{color:var(--text);}
+.seg button.is-on{background:var(--bg-active);color:var(--text);}
+.seg--theme button.is-on{background:var(--accent);color:var(--accent-fg);}
+
+/* ══════════════════════════════════════════════════════════
+   3. 舞台：被遮罩的宿主窗口
+   ══════════════════════════════════════════════════════════ */
+.stage{
+  position:relative;
+  width:1180px;height:800px;
+  max-width:100%;margin:0 auto;
+  overflow:hidden;
+  background:var(--bg-app);
+  border:1px solid var(--border);
+  border-radius:12px;
+  box-shadow:0 28px 80px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.02) inset;
+}
+:root[data-theme='light'] .stage{box-shadow:0 24px 64px rgba(0,0,0,.14);}
+
+.app{position:absolute;inset:0;display:grid;grid-template-rows:var(--titlebar-h) 1fr;background:var(--bg-app);}
+.app__titlebar{
+  display:flex;align-items:center;gap:10px;padding:0 10px 0 14px;
+  border-bottom:1px solid var(--border);background:var(--bg-app);
+  font-size:12px;color:var(--text-dim);
+}
+.app__logo{width:18px;height:18px;border-radius:50%;background:var(--text);color:var(--bg-app);display:grid;place-items:center;font-size:10px;font-weight:800;}
+.app__brand{font-weight:600;color:var(--text);}
+.app__ws{color:var(--text-faint);}
+.app__wctl{margin-left:auto;display:flex;gap:2px;color:var(--text-muted);}
+.app__wc{width:34px;height:26px;display:grid;place-items:center;border-radius:4px;}
+.app__wc:hover{background:var(--bg-hover);}
+
+.app__body{display:grid;grid-template-columns:280px 1fr;min-height:0;}
+.app__side{
+  display:flex;flex-direction:column;gap:12px;
+  padding:12px 10px;background:var(--bg-sidebar);border-right:1px solid var(--border);
+  min-height:0;
+}
+.side-new{
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  height:34px;font-size:13px;font-weight:500;color:var(--text);
+  background:var(--bg-raised);border:1px solid var(--border);border-radius:8px;
+}
+.side-label{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 0;font-size:11.5px;color:var(--text-faint);letter-spacing:.04em;}
+.side-list{display:flex;flex-direction:column;gap:2px;}
+.side-row{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:6px;font-size:12.5px;color:var(--text-dim);}
+.side-row.is-on{background:var(--bg-active);color:var(--text);}
+.side-row i{width:5px;height:5px;border-radius:50%;background:var(--text-faint);flex:none;}
+.side-row.is-on i{background:var(--running);}
+.side-row span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.side-row em{margin-left:auto;font-style:normal;font-size:11px;color:var(--text-faint);}
+.side-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:6px;font-size:12.5px;color:var(--text-dim);border-top:1px solid var(--border-soft);padding-top:12px;}
+.side-foot svg{color:var(--text-muted);}
+.side-foot .kbd-hint{margin-left:auto;font:10px var(--font-mono);color:var(--text-faint);border:1px solid var(--border);border-radius:4px;padding:0 4px;}
+
+.chat{display:grid;grid-template-rows:auto 1fr auto;min-width:0;min-height:0;}
+.chat__head{display:flex;align-items:center;gap:10px;padding:11px 22px;border-bottom:1px solid var(--border-soft);}
+.chat__title{font-size:13.5px;font-weight:600;}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;font-size:11px;color:var(--text-muted);border:1px solid var(--border);border-radius:var(--radius-pill);}
+.chip--br{color:var(--br-text);background:var(--br-bg);border-color:var(--br-border);}
+.chat__body{overflow:hidden;padding:22px 30px;}
+.msg{max-width:640px;margin:0 auto 18px;font-size:13.5px;line-height:1.7;color:var(--text-dim);}
+.msg--user{margin-right:0;width:max-content;max-width:520px;padding:9px 13px;color:var(--text);background:var(--bg-raised);border:1px solid var(--border);border-radius:12px 12px 4px 12px;}
+.msg--ai{color:var(--text-dim);}
+.msg--ai b{color:var(--text);font-weight:600;}
+.msg__tools{display:flex;gap:6px;margin:10px 0 0;font:11px var(--font-mono);color:var(--text-faint);}
+.chat__composer{margin:0 24px 18px;min-height:58px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-raised);display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text-faint);}
+.chat__send{margin-left:auto;width:26px;height:26px;border-radius:6px;background:var(--bg-active);display:grid;place-items:center;color:var(--text-muted);}
+
+/* ══════════════════════════════════════════════════════════
+   4. 遮罩 + 弹窗骨架
+   ══════════════════════════════════════════════════════════ */
+.scrim{
+  position:absolute;inset:0;z-index:5;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--scrim);
+  -webkit-backdrop-filter:blur(4px) saturate(.85);
+  backdrop-filter:blur(4px) saturate(.85);
+  animation:fadeIn .16s ease-out;
+}
+.scrim--drawer{justify-content:flex-end;align-items:stretch;}
+
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes popIn{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes slideIn{from{opacity:.4;transform:translateX(22px)}to{opacity:1;transform:none}}
+
+.modal{
+  position:relative;
+  display:grid;grid-template-rows:52px 1fr;
+  min-height:0;overflow:hidden;
+  background:var(--bg-app);
+  border:1px solid var(--border);
+  border-radius:14px;
+  box-shadow:var(--modal-shadow);
+  animation:popIn .18s cubic-bezier(.2,.8,.3,1);
+}
+.modal--center{width:980px;height:700px;}
+.modal--tabs{width:1000px;height:700px;grid-template-rows:52px auto 1fr;}
+.modal--drawer{
+  width:900px;height:100%;
+  border-radius:14px 0 0 14px;
+  border-right:0;
+  animation:slideIn .22s cubic-bezier(.2,.8,.3,1);
+}
+
+/* ── 弹窗顶栏 ───────────────────────────────────────────── */
+.mhead{
+  display:flex;align-items:center;gap:12px;
+  padding:0 14px 0 20px;
+  border-bottom:1px solid var(--border-soft);
+}
+.mtitle{margin:0;font-size:15px;font-weight:600;letter-spacing:.2px;}
+.mhead__hint{font-size:11.5px;color:var(--text-faint);}
+.mhead__right{margin-left:auto;display:flex;align-items:center;gap:12px;}
+.savestate{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--ok);opacity:.92;}
+.savestate svg{opacity:.9;}
+.esc{font-size:10px;color:var(--text-faint);border:1px solid var(--border);border-radius:4px;padding:1px 5px;line-height:1.4;}
+.mclose{
+  width:30px;height:30px;display:grid;place-items:center;
+  color:var(--text-muted);border-radius:7px;transition:background .12s,color .12s;
+}
+.mclose:hover{background:var(--bg-hover);color:var(--text);}
+.mclose:active{background:var(--bg-active);}
+
+/* ── 侧边导航 ───────────────────────────────────────────── */
+.mbody{display:grid;grid-template-columns:232px 1fr;min-height:0;}
+.mnav{
+  padding:10px 10px 18px;overflow-y:auto;
+  background:color-mix(in srgb, var(--bg-sidebar) 58%, transparent);
+  border-right:1px solid var(--border-soft);
+}
+.navgroup{
+  padding:14px 10px 6px;
+  font-size:11px;font-weight:600;letter-spacing:.06em;
+  color:var(--text-faint);
+}
+.navgroup:first-child{padding-top:4px;}
+.navitem{
+  width:100%;display:flex;align-items:center;gap:8px;
+  padding:7px 10px;border-radius:7px;
+  font-size:13.5px;color:var(--text-dim);text-align:left;
+  transition:background .12s,color .12s;
+}
+.navitem:hover{background:var(--bg-hover);color:var(--text);}
+.navitem.is-active{background:var(--bg-active);color:var(--text);font-weight:500;}
+.navitem__name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* 「可更新」标签：flex:none，名称再长也只压缩名称本身 */
+.navtag{
+  flex:none;display:inline-flex;align-items:center;gap:4px;
+  padding:1px 7px;font-size:10.5px;font-weight:500;line-height:16px;
+  color:var(--warn);white-space:nowrap;
+  background:color-mix(in srgb, var(--warn) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--warn) 36%, var(--border));
+  border-radius:var(--radius-pill);
+}
+.navtag i{width:5px;height:5px;border-radius:50%;background:var(--warn);flex:none;}
+.navitem .navtag{margin-left:auto;}
+.tab .navtag{margin-left:1px;}
+
+/* ── 顶部页签（方案 C） ─────────────────────────────────── */
+.tabs{
+  display:flex;flex-direction:column;gap:5px;
+  padding:10px 22px 11px;
+  border-bottom:1px solid var(--border-soft);
+  background:color-mix(in srgb, var(--bg-sidebar) 42%, transparent);
+}
+.tabs__row{display:flex;align-items:center;gap:3px;flex-wrap:wrap;min-height:30px;}
+.tabs__label{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--text-faint);margin-right:6px;}
+.tab{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 11px;border-radius:var(--radius-pill);
+  font-size:12.5px;color:var(--text-dim);border:1px solid transparent;
+  transition:background .12s,color .12s,border-color .12s;
+}
+.tab:hover{background:var(--bg-hover);color:var(--text);}
+.tab.is-active{background:var(--bg-active);color:var(--text);border-color:var(--border);font-weight:500;}
+.tabsep{width:1px;height:15px;background:var(--border);margin:0 7px;flex:none;}
+
+/* ── 内容区 ─────────────────────────────────────────────── */
+.mcontent{
+  min-width:0;overflow-y:auto;padding:22px 28px 44px;
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),rgba(0,0,0,.08));
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),rgba(0,0,0,.08));
+}
+.mcontent__inner{max-width:684px;}
+.modal--tabs .mcontent{padding:24px 32px 46px;}
+.modal--tabs .mcontent__inner{max-width:820px;margin:0 auto;}
+.mcontent::-webkit-scrollbar{width:10px;}
+.mcontent::-webkit-scrollbar-thumb{background:color-mix(in srgb, var(--text) 16%, transparent);border:3px solid transparent;background-clip:content-box;border-radius:6px;}
+.mcontent::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb, var(--text) 26%, transparent);background-clip:content-box;}
+
+/* ── CLI 页标题 ─────────────────────────────────────────── */
+.clipane{display:flex;align-items:center;gap:16px;margin-bottom:14px;}
+.clipane__main{flex:1;min-width:0;}
+.clipane__title{margin:0;font-size:17px;font-weight:600;letter-spacing:.2px;}
+.clipane__hint{margin:3px 0 0;font-size:12.5px;color:var(--text-faint);}
+
+/* ── 状态卡 ─────────────────────────────────────────────── */
+.statuscard{
+  display:flex;align-items:flex-start;gap:11px;
+  padding:11px 12px;margin-bottom:8px;
+  background:var(--bg-raised);
+  border:1px solid var(--border);
+  border-radius:var(--radius-chip);
+}
+.statuscard__icon{
+  display:grid;place-items:center;flex:none;
+  width:30px;height:30px;font-size:14px;font-weight:600;
+  color:var(--text-dim);background:var(--bg-app);
+  border:1px solid var(--border);border-radius:8px;
+}
+.statuscard__icon--ok{color:var(--ok);background:var(--badge-ok-bg);border-color:var(--badge-ok-border);}
+.statuscard__icon--warn{
+  color:var(--warn);
+  background:color-mix(in srgb, var(--warn) 12%, var(--bg-app));
+  border-color:color-mix(in srgb, var(--warn) 32%, var(--border));
+}
+.statuscard__main{flex:1;min-width:0;}
+.statuscard__title{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:500;flex-wrap:wrap;}
+.statuscard__title b{font-weight:600;}
+.statuscard__meta{margin-top:3px;font-size:12px;line-height:1.6;color:var(--text-faint);overflow-wrap:anywhere;}
+.statuscard__meta code{font-family:var(--font-mono);color:var(--text-muted);}
+.statuscard__path{font-family:var(--font-mono);color:var(--text-muted);}
+.statuscard__actions{display:flex;flex:none;gap:6px;align-items:center;padding-top:1px;}
+
+.badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:0 8px;font-size:11px;line-height:18px;font-weight:500;
+  color:var(--text-muted);background:var(--bg-app);
+  border:1px solid var(--border);border-radius:var(--radius-pill);
+}
+.badge--ok{color:var(--ok);background:var(--badge-ok-bg);border-color:var(--badge-ok-border);}
+.badge--warn{
+  color:var(--warn);
+  background:color-mix(in srgb, var(--warn) 12%, transparent);
+  border-color:color-mix(in srgb, var(--warn) 36%, var(--border));
+}
+.badge i{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none;}
+
+/* ── 按钮 ───────────────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:6px 12px;font-size:13px;font-weight:500;
+  border:1px solid transparent;border-radius:var(--radius-chip);
+  white-space:nowrap;transition:background .12s,color .12s,border-color .12s;
+}
+.btn--ghost{color:var(--text-dim);border-color:var(--border);}
+.btn--ghost:hover{background:var(--bg-hover);color:var(--text);}
+.btn--primary{color:var(--accent-fg);background:var(--accent);}
+.btn--primary:hover{filter:brightness(1.05);}
+.btn--xs{padding:3px 9px;font-size:12px;border-radius:6px;}
+.btn--sm{padding:5px 11px;font-size:12.5px;}
+
+/* ── 分组标题 ───────────────────────────────────────────── */
+.secthead{
+  display:flex;align-items:center;gap:8px;
+  margin:22px 0 9px;
+  font-size:12.5px;font-weight:600;letter-spacing:.4px;color:var(--text-muted);
+}
+.secthead__sp{margin-left:auto;font-size:11.5px;font-weight:400;letter-spacing:0;color:var(--text-faint);}
+
+/* ── 更新命令 / 偏好行 ──────────────────────────────────── */
+.updcmd{
+  display:flex;align-items:center;gap:8px;
+  margin:0 0 8px;padding:7px 10px;
+  font-size:11.5px;color:var(--text-faint);
+  background:color-mix(in srgb, var(--bg-raised) 60%, transparent);
+  border:1px dashed var(--border);border-radius:var(--radius-chip);
+}
+.updcmd code{
+  flex:1;min-width:0;overflow:hidden;
+  font-family:var(--font-mono);color:var(--text-muted);
+  text-overflow:ellipsis;white-space:nowrap;
+}
+.updcmd button{display:inline-flex;align-items:center;gap:4px;flex:none;font-size:11.5px;color:var(--text-faint);}
+.updcmd button:hover{color:var(--text);}
+
+.prefrow{
+  display:flex;align-items:center;gap:16px;
+  padding:10px 12px;margin-bottom:8px;
+  border:1px solid var(--border-soft);border-radius:var(--radius-chip);
+  background:color-mix(in srgb, var(--bg-raised) 42%, transparent);
+}
+.prefrow__main{flex:1;min-width:0;}
+.prefrow__t{font-size:13px;color:var(--text);}
+.prefrow__h{margin-top:2px;font-size:11.5px;color:var(--text-faint);}
+
+/* ── 开关 ───────────────────────────────────────────────── */
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim);cursor:pointer;flex:none;}
+.switch input{appearance:none;position:relative;width:34px;height:20px;margin:0;background:color-mix(in srgb, var(--text) 22%, transparent);border-radius:var(--radius-pill);cursor:pointer;transition:background .12s;}
+.switch input::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:color-mix(in srgb, var(--text) 55%, var(--bg-app));transition:transform .12s,background .12s;}
+.switch input:checked{background:var(--accent);}
+.switch input:checked::after{transform:translateX(14px);background:var(--bg-app);}
+:root[data-theme='light'] .switch input:checked::after{background:#fff;}
+
+/* ── 渠道 ───────────────────────────────────────────────── */
+.chrow{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;margin-bottom:6px;
+  background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--radius-chip);
+  transition:border-color .12s;
+}
+.chrow:hover{border-color:color-mix(in srgb, var(--text) 22%, var(--border));}
+.chrow__name{flex:none;width:112px;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.chrow__url{flex:1;min-width:0;font:11.5px var(--font-mono);color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.chrow__end{flex:none;display:flex;align-items:center;gap:8px;}
+
+/* ══════════════════════════════════════════════════════════
+   5. 图例
+   ══════════════════════════════════════════════════════════ */
+.meta{
+  width:1180px;max-width:100%;margin:16px auto 0;
+  display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;
+}
+.meta__card{
+  padding:11px 14px;border:1px solid var(--border);border-radius:10px;
+  background:color-mix(in srgb, var(--bg-raised) 55%, transparent);
+}
+.meta__t{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--text);}
+.meta__t i{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none;}
+.meta__d{margin-top:4px;font-size:12px;line-height:1.65;color:var(--text-faint);}
+.meta__d code{font-family:var(--font-mono);color:var(--text-muted);}
+.meta__k{display:inline-block;margin-right:6px;padding:0 6px;font:10.5px var(--font-mono);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;}
+
+@media (max-width:1240px){
+  .mockbar,.stage,.meta{width:100%;}
+}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <span class="mockbar__dot"></span>
+  <h1 class="mockbar__title">设置改为弹窗</h1>
+  <span class="mockbar__sub">效果图 · 可切换方案与主题</span>
+  <div class="mockbar__right">
+    <div class="seg" id="variantSeg">
+      <button data-v="A" class="is-on">方案 A · 居中</button>
+      <button data-v="B">方案 B · 右侧抽屉</button>
+      <button data-v="C">方案 C · 顶部页签</button>
+    </div>
+    <div class="seg seg--theme" id="themeSeg">
+      <button data-theme="dark" class="is-on">深色</button>
+      <button data-theme="light">浅色</button>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <!-- 宿主窗口：弹窗打开时被遮罩压暗 -->
+  <div class="app" aria-hidden="true">
+    <div class="app__titlebar">
+      <span class="app__logo">C</span>
+      <span class="app__brand">CCoder</span>
+      <span class="app__ws">› CCoder-Desktop</span>
+      <div class="app__wctl">
+        <span class="app__wc"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></span>
+        <span class="app__wc"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9"/></svg></span>
+        <span class="app__wc"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></span>
+      </div>
+    </div>
+    <div class="app__body">
+      <aside class="app__side">
+        <div class="side-new">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+          新会话
+        </div>
+        <div>
+          <div class="side-label">
+            <span>工作区</span>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 3v3h-3"/></svg>
+          </div>
+          <div class="side-list" style="margin-top:4px">
+            <div class="side-row is-on"><i></i><span>Single Digit Input</span><em>1天</em></div>
+            <div class="side-row"><i></i><span>询问项目是什么</span><em>1天</em></div>
+            <div class="side-row"><i></i><span>Mongo 连接池</span><em>3天</em></div>
+            <div class="side-row"><i></i><span>为什么会话无 1M 上下文</span><em>5天</em></div>
+          </div>
+        </div>
+        <div class="side-foot">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          <span>设置</span>
+          <span class="kbd-hint">Ctrl ,</span>
+        </div>
+      </aside>
+      <main class="chat">
+        <div class="chat__head">
+          <span class="chat__title">Single Digit Input</span>
+          <span class="chip">Claude Code</span>
+          <span class="chip chip--br">main</span>
+        </div>
+        <div class="chat__body">
+          <div class="msg msg--user">把设置页改成弹窗吧，注意「可更新」标签不要被裁掉。</div>
+          <div class="msg msg--ai">
+            <b>好，先出效果图。</b><br/>
+            弹窗加宽后，CLI 导航有 232px 可用宽度：名称过长时只省略名称本身，标签固定不压缩，三个 CLI 的「可更新」都能完整显示。
+            <div class="msg__tools"><span>SettingsPage.tsx</span><span>settings.css</span></div>
+          </div>
+        </div>
+        <div class="chat__composer">
+          <span>给 Claude Code 发消息…</span>
+          <span class="chat__send"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M4 7l4-4 4 4"/></svg></span>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="overlay"></div>
+</div>
+
+<div class="meta">
+  <div class="meta__card">
+    <div class="meta__t"><i></i>标签不再被挡住</div>
+    <div class="meta__d">
+      导航 <code>168px → 232px</code>；名称 <code>flex: 0 1 auto</code> 单独省略，标签 <code>flex: none</code> 永不压缩。DeepSeek Harness 这类长名字也放得下。
+    </div>
+  </div>
+  <div class="meta__card">
+    <div class="meta__t"><i></i>弹窗交互</div>
+    <div class="meta__d">
+      <span class="meta__k">Esc</span>关闭 · 点击遮罩关闭 · 右上角关闭。自动保存逻辑不变，顶栏继续显示保存状态，不需要「保存」按钮。
+    </div>
+  </div>
+  <div class="meta__card">
+    <div class="meta__t"><i></i>方案 A · 居中弹窗（推荐）</div>
+    <div class="meta__d"><code>980 × 700</code>，四角圆角、遮罩模糊。最接近成熟桌面应用的设置中心，侧栏会话仍可隐约看见。</div>
+  </div>
+  <div class="meta__card">
+    <div class="meta__t"><i></i>方案 B / C</div>
+    <div class="meta__d">
+      <b>B</b> 右侧抽屉 <code>900px</code>，切换设置时不打断当前视图；<b>C</b> 顶部分组页签，导航横向展开，长名字 + 标签同样不会挤。
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var overlay = document.getElementById('overlay');
+  var state = { variant: 'A', theme: 'dark' };
+
+  function tag(){ return '<span class="navtag"><i></i>可更新</span>'; }
+
+  function sideNav(){
+    return '' +
+      '<div class="navgroup">系统</div>' +
+      '<button class="navitem"><span class="navitem__name">通用</span></button>' +
+      '<button class="navitem"><span class="navitem__name">权限</span></button>' +
+      '<div class="navgroup">能力</div>' +
+      '<button class="navitem"><span class="navitem__name">MCP 服务器</span></button>' +
+      '<button class="navitem"><span class="navitem__name">Hooks 钩子</span></button>' +
+      '<button class="navitem"><span class="navitem__name">技能</span></button>' +
+      '<div class="navgroup">CLI</div>' +
+      '<button class="navitem is-active"><span class="navitem__name">Claude Code</span>' + tag() + '</button>' +
+      '<button class="navitem"><span class="navitem__name">Codex CLI</span>' + tag() + '</button>' +
+      '<button class="navitem"><span class="navitem__name">DeepSeek Harness</span>' + tag() + '</button>' +
+      '<div class="navgroup">其他</div>' +
+      '<button class="navitem"><span class="navitem__name">关于</span></button>';
+  }
+
+  function tabsNav(){
+    return '' +
+      '<div class="tabs">' +
+        '<div class="tabs__row">' +
+          '<button class="tab">通用</button>' +
+          '<button class="tab">权限</button>' +
+          '<span class="tabsep"></span>' +
+          '<button class="tab">MCP 服务器</button>' +
+          '<button class="tab">Hooks 钩子</button>' +
+          '<button class="tab">技能</button>' +
+          '<span class="tabsep"></span>' +
+          '<button class="tab">关于</button>' +
+        '</div>' +
+        '<div class="tabs__row">' +
+          '<span class="tabs__label">CLI</span>' +
+          '<button class="tab is-active">Claude Code ' + tag() + '</button>' +
+          '<button class="tab">Codex CLI ' + tag() + '</button>' +
+          '<button class="tab">DeepSeek Harness ' + tag() + '</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function pageCli(){
+    return '' +
+      '<div class="clipane">' +
+        '<div class="clipane__main">' +
+          '<h2 class="clipane__title">Claude Code</h2>' +
+          '<p class="clipane__hint">Anthropic 兼容端点 · 官方登录</p>' +
+        '</div>' +
+        '<label class="switch"><input type="checkbox" checked /><span>已启用</span></label>' +
+      '</div>' +
+
+      '<div class="statuscard">' +
+        '<div class="statuscard__icon statuscard__icon--ok">✓</div>' +
+        '<div class="statuscard__main">' +
+          '<div class="statuscard__title">Claude Code <span class="badge badge--ok">已安装</span></div>' +
+          '<div class="statuscard__meta"><code>2.0.31</code> · <span class="statuscard__path">C:\\Users\\CY\\AppData\\Roaming\\npm\\claude.cmd</span></div>' +
+        '</div>' +
+        '<div class="statuscard__actions"><button class="btn btn--ghost btn--xs">重新检测</button></div>' +
+      '</div>' +
+
+      '<div class="secthead">更新<span class="secthead__sp">每 6 小时自动检查</span></div>' +
+      '<div class="statuscard">' +
+        '<div class="statuscard__icon statuscard__icon--warn">↑</div>' +
+        '<div class="statuscard__main">' +
+          '<div class="statuscard__title">发现新版本 <b>2.1.0</b> <span class="badge badge--warn"><i></i>可更新</span></div>' +
+          '<div class="statuscard__meta">当前 <code>2.0.31</code> → 最新 <code>2.1.0</code> · 发布于 3 天前 · 安装方式 <code>npm 全局</code></div>' +
+          '<div class="statuscard__meta">上次检查：今天 12:04</div>' +
+        '</div>' +
+        '<div class="statuscard__actions">' +
+          '<button class="btn btn--ghost btn--xs">更新说明</button>' +
+          '<button class="btn btn--primary btn--xs">' +
+            '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9M4 7l4-3.5L12 7"/></svg>' +
+            '更新到 2.1.0' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="updcmd">' +
+        '<span>将执行</span>' +
+        '<code>npm install -g @anthropic-ai/claude-code@2.1.0</code>' +
+        '<button>' +
+          '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="8" height="8" rx="1.4"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>' +
+          '复制' +
+        '</button>' +
+      '</div>' +
+      '<div class="prefrow">' +
+        '<div class="prefrow__main">' +
+          '<div class="prefrow__t">在侧栏标记可更新</div>' +
+          '<div class="prefrow__h">有新版本时，在设置导航的 CLI 名称旁显示「可更新」。</div>' +
+        '</div>' +
+        '<label class="switch"><input type="checkbox" checked /></label>' +
+      '</div>' +
+
+      '<div class="secthead">渠道<span class="secthead__sp">每个 CLI 可配置多个端点</span></div>' +
+      '<div class="chrow">' +
+        '<span class="chrow__name">DeepSeek 中转</span>' +
+        '<span class="chrow__url">https://api.deepseek.com/anthropic</span>' +
+        '<span class="chrow__end"><span class="badge badge--ok">使用中</span></span>' +
+      '</div>' +
+      '<div class="chrow">' +
+        '<span class="chrow__name">公司网关</span>' +
+        '<span class="chrow__url">https://gw.corp.internal/anthropic</span>' +
+        '<span class="chrow__end"></span>' +
+      '</div>' +
+      '<button class="btn btn--ghost btn--sm" style="margin-top:2px">' +
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>' +
+        '新建渠道' +
+      '</button>' +
+      '<div class="secthead">本机配置<span class="secthead__sp">只读</span></div>' +
+      '<div class="statuscard">' +
+        '<div class="statuscard__icon">⌘</div>' +
+        '<div class="statuscard__main">' +
+          '<div class="statuscard__title">配置文件</div>' +
+          '<div class="statuscard__meta"><span class="statuscard__path">C:\\Users\\CY\\.claude\\settings.json</span></div>' +
+        '</div>' +
+        '<div class="statuscard__actions"><button class="btn btn--ghost btn--xs">打开</button></div>' +
+      '</div>';
+  }
+
+  function head(){
+    return '' +
+      '<header class="mhead">' +
+        '<h1 class="mtitle">设置</h1>' +
+        '<span class="mhead__hint">所有改动自动保存</span>' +
+        '<div class="mhead__right">' +
+          '<span class="savestate">' +
+            '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>' +
+            '已自动保存' +
+          '</span>' +
+          '<kbd class="esc">Esc</kbd>' +
+          '<button class="mclose" title="关闭">' +
+            '<svg width="13" height="13" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</header>';
+  }
+
+  function render(){
+    if (state.variant === 'B') {
+      overlay.innerHTML =
+        '<div class="scrim scrim--drawer">' +
+          '<section class="modal modal--drawer" role="dialog" aria-modal="true" aria-label="设置">' +
+            head() +
+            '<div class="mbody">' +
+              '<nav class="mnav">' + sideNav() + '</nav>' +
+              '<div class="mcontent"><div class="mcontent__inner">' + pageCli() + '</div></div>' +
+            '</div>' +
+          '</section>' +
+        '</div>';
+    } else if (state.variant === 'C') {
+      overlay.innerHTML =
+        '<div class="scrim">' +
+          '<section class="modal modal--tabs" role="dialog" aria-modal="true" aria-label="设置">' +
+            head() +
+            tabsNav() +
+            '<div class="mcontent"><div class="mcontent__inner">' + pageCli() + '</div></div>' +
+          '</section>' +
+        '</div>';
+    } else {
+      overlay.innerHTML =
+        '<div class="scrim">' +
+          '<section class="modal modal--center" role="dialog" aria-modal="true" aria-label="设置">' +
+            head() +
+            '<div class="mbody">' +
+              '<nav class="mnav">' + sideNav() + '</nav>' +
+              '<div class="mcontent"><div class="mcontent__inner">' + pageCli() + '</div></div>' +
+            '</div>' +
+          '</section>' +
+        '</div>';
+    }
+  }
+
+  document.getElementById('variantSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-v]');
+    if (!b) return;
+    state.variant = b.dataset.v;
+    this.querySelectorAll('button').forEach(function(x){ x.classList.toggle('is-on', x === b); });
+    render();
+  });
+
+  document.getElementById('themeSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-theme]');
+    if (!b) return;
+    state.theme = b.dataset.theme;
+    document.documentElement.setAttribute('data-theme', state.theme);
+    this.querySelectorAll('button').forEach(function(x){ x.classList.toggle('is-on', x === b); });
+  });
+
+  // 截图脚本用 ?v=A|B|C&theme=light 指定初始状态
+  var params = new URLSearchParams(location.search);
+  var qv = (params.get('v') || '').toUpperCase();
+  if (qv === 'A' || qv === 'B' || qv === 'C') {
+    state.variant = qv;
+    document.querySelectorAll('#variantSeg button').forEach(function(x){
+      x.classList.toggle('is-on', x.dataset.v === qv);
+    });
+  }
+  var qt = params.get('theme');
+  if (qt === 'light' || qt === 'dark') {
+    state.theme = qt;
+    document.documentElement.setAttribute('data-theme', qt);
+    document.querySelectorAll('#themeSeg button').forEach(function(x){
+      x.classList.toggle('is-on', x.dataset.theme === qt);
+    });
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

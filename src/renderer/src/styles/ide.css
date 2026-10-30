@@ -1647,17 +1647,17 @@
 [data-scheme='light'] .ide-toolbar,
 [data-scheme='light'] .ide-tabs,
 [data-scheme='light'] .ide-status {
-  background: #f0f0f2;
+  background: var(--bg-sidebar);
   border-color: var(--border-soft);
 }
 [data-scheme='light'] .ide-side {
-  background: #f4f4f6;
+  background: var(--bg-app);
 }
 [data-scheme='light'] .ide-activity {
-  background: #ececef;
+  background: var(--bg-sidebar);
 }
 [data-scheme='light'] .ide-act.on {
-  background: #e4e4e8;
+  background: var(--bg-active);
 }
 [data-scheme='light'] .ide-editor,
 [data-scheme='light'] .ide-textwrap {
@@ -1704,25 +1704,25 @@
   color: #b03a32;
 }
 [data-scheme='light'] .ide-tab.on {
-  background: #ffffff;
+  background: var(--bg-raised);
 }
 [data-scheme='light'] .ide-quickbtn,
 [data-scheme='light'] .ide-searchbox {
-  background: #ffffff;
+  background: var(--bg-raised);
   border-color: var(--border);
 }
 [data-scheme='light'] .ide-trow:hover,
 [data-scheme='light'] .ide-smatch:hover,
 [data-scheme='light'] .ide-chrow:hover {
-  background: #ececf0;
+  background: var(--bg-hover);
 }
 [data-scheme='light'] .ide-src {
-  color: #2a2a30;
+  color: var(--text);
 }
 [data-scheme='light'] .ide-ln,
 [data-scheme='light'] .ide-dln,
 [data-scheme='light'] .ide-sline {
-  color: #a8a8b0;
+  color: var(--text-faint);
 }
 /* 浅色下琥珀底要压淡、正文翻深，否则浅字打在浅黄上看不清 */
 [data-scheme='light'] .ide-dcell.is-add { background: rgba(233, 168, 45, .26); box-shadow: inset 2px 0 0 #d99e2b; }
@@ -1733,11 +1733,13 @@
 [data-scheme='light'] .ide-dcell.is-del .ide-dln { color: #8a6a2a; background: rgba(233, 168, 45, .1); }
 [data-scheme='light'] .ide-dcell.is-del .ide-dmk { color: #b03a32; }
 [data-scheme='light'] .ide-dcell.is-del .ide-dtext { color: #4a4234; }
-[data-scheme='light'] .ide-dcell.is-empty { background: #efeff2; }
+[data-scheme='light'] .ide-dcell.is-empty {
+  background: color-mix(in srgb, var(--text) 5%, var(--bg-raised));
+}
 [data-scheme='light'] .ide-dcell.is-del mark { color: #8c1d16; background: rgba(224, 90, 80, .26); }
 [data-scheme='light'] .ide-dcell.is-add mark { color: #0f5c22; background: rgba(60, 160, 80, .26); }
 [data-scheme='light'] .ide-sglob input {
-  background: #ffffff;
+  background: var(--bg-raised);
   border-color: var(--border);
 }
 [data-scheme='light'] .ide-sopt.is-on {
@@ -1763,16 +1765,16 @@
   color: #8f6a09;
 }
 [data-scheme='light'] .ide-canvas {
-  background-color: #f4f4f6;
+  background-color: var(--bg-app);
   background-image:
-    linear-gradient(45deg, #e8e8ec 25%, transparent 25%, transparent 75%, #e8e8ec 75%),
-    linear-gradient(45deg, #e8e8ec 25%, transparent 25%, transparent 75%, #e8e8ec 75%);
+    linear-gradient(45deg, var(--border-soft) 25%, transparent 25%, transparent 75%, var(--border-soft) 75%),
+    linear-gradient(45deg, var(--border-soft) 25%, transparent 25%, transparent 75%, var(--border-soft) 75%);
 }
 [data-scheme='light'] .ide-overlay {
-  background: rgba(240, 240, 245, .55);
+  background: color-mix(in srgb, var(--bg-app) 55%, transparent);
 }
 [data-scheme='light'] .ide-qo {
-  background: #ffffff;
+  background: var(--bg-raised);
   border-color: var(--border);
 }
 [data-scheme='light'] .ide-qo-row.on {
@@ -1874,6 +1876,128 @@
   background: #f5f5f7;
   border-color: #e4e4e8;
 }
+
+/* ── 浅色下的前景对比 ──────────────────────────────────
+ * 文件树、页签、面包屑、状态栏、搜索结果在深色补丁里写的是浅灰
+ * （#b4b4b8 / #8c8c94 / #9a9a9a …），直接放在白底上只有 2–3:1。
+ * 这里统一换回浅色 scheme 的 token，旧灰值只保留给深色。
+ * ─────────────────────────────────────────────────────── */
+
+[data-scheme='light'] .ide-divider {
+  background: var(--border);
+}
+[data-scheme='light'] .ide-detach {
+  color: var(--br-accent);
+  background: var(--br-bg);
+  border-color: var(--br-border);
+}
+[data-scheme='light'] .ide-wc {
+  color: var(--text-muted);
+}
+[data-scheme='light'] .ide-wc:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+[data-scheme='light'] .ide-wc--close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+[data-scheme='light'] .ide-trow,
+[data-scheme='light'] .ide-chrow,
+[data-scheme='light'] .ide-smatch {
+  color: var(--text-dim);
+}
+[data-scheme='light'] .ide-trow.is-dir,
+[data-scheme='light'] .ide-trow.is-sel,
+[data-scheme='light'] .ide-sfhead {
+  color: var(--text);
+}
+[data-scheme='light'] .ide-chev,
+[data-scheme='light'] .ide-folder,
+[data-scheme='light'] .ide-ico,
+[data-scheme='light'] .ide-act,
+[data-scheme='light'] .ide-crumbbar,
+[data-scheme='light'] .ide-status,
+[data-scheme='light'] .ide-status-rel,
+[data-scheme='light'] .ide-status-changes,
+[data-scheme='light'] .ide-status-btn,
+[data-scheme='light'] .ide-status-btn em,
+[data-scheme='light'] .ide-status-encoding,
+[data-scheme='light'] .ide-changes,
+[data-scheme='light'] .ide-readonly,
+[data-scheme='light'] .ide-tab,
+[data-scheme='light'] .ide-tab-x,
+[data-scheme='light'] .ide-quickbtn,
+[data-scheme='light'] .ide-quickbtn kbd,
+[data-scheme='light'] .ide-imagetools,
+[data-scheme='light'] .ide-imagemeta,
+[data-scheme='light'] .ide-searchsum,
+[data-scheme='light'] .ide-searchbox {
+  color: var(--text-muted);
+}
+[data-scheme='light'] .ide-tab:hover,
+[data-scheme='light'] .ide-tab-x:hover,
+[data-scheme='light'] .ide-zbtn:hover {
+  color: var(--text);
+}
+/* 上面按元素分组时权重和激活态相同，激活态要单独再压一次 */
+[data-scheme='light'] .ide-tab.on,
+[data-scheme='light'] .ide-status-btn:hover,
+[data-scheme='light'] .ide-status-btn.on,
+[data-scheme='light'] .ide-act.on {
+  color: var(--text);
+}
+[data-scheme='light'] .ide-crumb-path b {
+  color: var(--text-dim);
+}
+[data-scheme='light'] .ide-crumb-path i,
+[data-scheme='light'] .ide-sline {
+  color: var(--text-faint);
+}
+[data-scheme='light'] .ide-crumbbar,
+[data-scheme='light'] .ide-imagetools,
+[data-scheme='light'] .ide-imagemeta {
+  border-color: var(--border-soft);
+}
+[data-scheme='light'] .ide-quickbtn:hover {
+  border-color: var(--text-faint);
+}
+[data-scheme='light'] .ide-snip mark {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+[data-scheme='light'] .ide-searchbox input::placeholder,
+[data-scheme='light'] .ide-createpath input::placeholder,
+[data-scheme='light'] .ide-qo-input input::placeholder {
+  color: color-mix(in srgb, var(--text) 52%, var(--bg-app));
+}
+
+/* Git 状态：深色下的琥珀 / 亮绿 / 浅红在白底上偏淡 */
+[data-scheme='light'] .ide-gitst.is-m { color: var(--warn); }
+[data-scheme='light'] .ide-gitst.is-a { color: var(--ok); }
+[data-scheme='light'] .ide-gitst.is-d { color: var(--danger); }
+[data-scheme='light'] .ide-gitst.is-r,
+[data-scheme='light'] .ide-gitst.is-c,
+[data-scheme='light'] .ide-gitst.is-u { color: var(--br-accent); }
+[data-scheme='light'] .ide-add { color: var(--ok); }
+[data-scheme='light'] .ide-del { color: var(--danger); }
+[data-scheme='light'] .ide-tab-dirty { background: var(--warn); }
+[data-scheme='light'] .ide-dirtyhint { color: var(--warn); }
+
+/* 状态栏 / 诊断 */
+[data-scheme='light'] .ide-status-btn em.is-error { color: var(--danger); }
+[data-scheme='light'] .ide-status-btn em.is-warning { color: var(--warn); }
+[data-scheme='light'] .ide-status-lsp.is-ready { color: var(--ok); }
+[data-scheme='light'] .ide-status-lsp.is-error { color: var(--danger); }
+
+/* 高亮预览里的语法色：沿用浅色 markdown 的那一组深色 */
+[data-scheme='light'] .tok-k { color: #8b3fb8; }
+[data-scheme='light'] .tok-fn { color: #8a5a00; }
+[data-scheme='light'] .tok-ty { color: #2c62a8; }
+[data-scheme='light'] .tok-str { color: #2e7d32; }
+[data-scheme='light'] .tok-num { color: #a05a00; }
+[data-scheme='light'] .tok-cm { color: #8a8a92; }
 
 /* 暖纸：浅色补丁里的中性白灰会跟米黄底打架，换成暖色 token */
 [data-theme='sepia'] .ide-titlebar,
