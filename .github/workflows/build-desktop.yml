@@ -60,6 +60,9 @@ jobs:
       # 没有签名证书时别让 electron-builder 去找钥匙串；出的是未签名 dmg，
       # 需要签名 / 公证时再在仓库 Secrets 里配 CSC_LINK、APPLE_ID 等。
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # macos-14 runner 内存比 Windows/Linux 少，electron-vite 打 11MB 的
+      # renderer bundle 时会撞到默认 ~4GB 堆上限（exit 134）。抬到 5GB。
+      NODE_OPTIONS: '--max-old-space-size=5120'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
