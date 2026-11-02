@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, parse, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgentEvent } from '../shared/events'
+import { IO_CONCURRENCY, mapLimit } from './concurrency'
 
 const run = promisify(execFile)
 
@@ -127,32 +128,6 @@ async function statOrNull(path: string): Promise<Stats | null> {
   }
 }
 
-/**
- * 限制并发的 map。
- *
- * 脏文件 / 工作树条目可能上千，一次性 `Promise.all` 会把文件描述符和
- * 磁盘队列打满；16 路已经足够把串行 `stat` 的往返延迟吃掉。
- */
-const IO_CONCURRENCY = 16
-
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  if (items.length === 0) return []
-  const out = new Array<R>(items.length)
-  let next = 0
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (;;) {
-      const i = next++
-      if (i >= items.length) return
-      out[i] = await fn(items[i])
-    }
-  })
-  await Promise.all(workers)
-  return out
-}
 
 async function countLines(path: string): Promise<number> {
   try {

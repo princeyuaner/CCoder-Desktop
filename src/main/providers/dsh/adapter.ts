@@ -166,9 +166,12 @@ class DshRpc {
     private o: DshRpcOptions
   ) {
     this.child.stdin?.on('error', () => undefined)
-    this.child.stdout?.on('data', (d: Buffer) => this.onStdout(d.toString()))
-    this.child.stderr?.on('data', (d: Buffer) => {
-      this.stderr += d.toString()
+    // 流级 UTF-8 解码：多字节字符跨块时逐块 toString() 会出现 �
+    this.child.stdout?.setEncoding('utf8')
+    this.child.stderr?.setEncoding('utf8')
+    this.child.stdout?.on('data', (d: string) => this.onStdout(d))
+    this.child.stderr?.on('data', (d: string) => {
+      this.stderr += d
       if (this.stderr.length > 16_000) this.stderr = this.stderr.slice(-16_000)
     })
     this.child.on('error', (err) => {

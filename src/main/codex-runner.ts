@@ -317,9 +317,12 @@ export class CodexRpc {
     // 会直接结束主进程。收尾交给 close 事件。
     this.child.stdin?.on('error', () => undefined)
 
-    this.child.stdout?.on('data', (d: Buffer) => this.onStdout(d.toString()))
-    this.child.stderr?.on('data', (d: Buffer) => {
-      this.stderr += d.toString()
+    // 交给流自己解码 UTF-8：逐块 Buffer.toString() 会在多字节字符跨块时产生 �
+    this.child.stdout?.setEncoding('utf8')
+    this.child.stderr?.setEncoding('utf8')
+    this.child.stdout?.on('data', (d: string) => this.onStdout(d))
+    this.child.stderr?.on('data', (d: string) => {
+      this.stderr += d
       if (this.stderr.length > 16_000) this.stderr = this.stderr.slice(-16_000)
     })
     this.child.on('error', (err) => {

@@ -432,7 +432,18 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [baseText, setBaseText] = useState<Record<string, string>>({})
   const [loadingKey, setLoadingKey] = useState<string | null>(null)
   const [savingRel, setSavingRel] = useState<string | null>(null)
-  const [treeVersion, setTreeVersion] = useState(0)
+  /**
+   * 文件树刷新信号。
+   *
+   * 以前只有一个全局 version：任何文件变化都会让**所有展开的目录**重新
+   * listDir。Agent 连续写文件时（每 250ms 一批），展开 20 个目录就是
+   * 每秒几十次 IPC。现在带上受影响的目录集合，只有命中的子树刷新。
+   */
+  const [treeDirty, setTreeDirty] = useState<{
+    version: number
+    all: boolean
+    dirs: Set<string>
+  }>({ version: 0, all: false, dirs: new Set() })
   const [notice, setNotice] = useState<string | null>(null)
   const [quickOpen, setQuickOpen] = useState(false)
   /** 快速打开面板的初始查询；'#' 进入工作区符号模式（Ctrl+T） */
@@ -718,7 +729,29 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const applyFsBatch = useCallback(
     (batch: IdeFsChanged): void => {
       if (!batch || !Array.isArray(batch.rels)) return
-      setTreeVersion((v) => v + 1)
+      /*
+       * 只把受影响的目录标脏：一条路径会改变它自己的父目录列表
+       * （新建 / 删除 / 重命名），也可能意味着它本身是一个目录。
+       * 逐级往上加祖先，保证深层文件变化时父目录能立刻看到新条目。
+       */
+      const all = batch.generic || batch.truncated
+      const dirs = new Set<string>()
+      if (!all) {
+        for (const rel of batch.rels) {
+          let cur = rel
+          for (;;) {
+            const slash = cur.lastIndexOf('/')
+            const parent = slash < 0 ? '' : cur.slice(0, slash)
+            // Windows 大小写不敏感：和 extKey 用同一套折叠
+            dirs.add(extKey(parent))
+            dirs.add(extKey(cur))
+            if (parent === cur) break
+            cur = parent
+          }
+        }
+      }
+      setTreeDirty((prev) => ({ version: prev.version + 1, all, dirs }))
+
       // git status 比列目录贵；连续写入时合并成一次
       if (vcsRefreshTimer.current) window.clearTimeout(vcsRefreshTimer.current)
       vcsRefreshTimer.current = window.setTimeout(() => {
@@ -732,7 +765,6 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         void refreshImportedModels(cwd, batch.rels, api.ide.readFile, openRels)
       }
 
-      const all = batch.generic || batch.truncated
       const changed = batch.rels.map(extKey)
       const touches = (rel: string): boolean => {
         if (all) return true
@@ -769,7 +801,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       const now = Date.now()
       if (now - last < 2000) return
       last = now
-      setTreeVersion((v) => v + 1)
+      // 回到窗口时无法判断期间改了什么，所有展开目录都刷新一次
+      setTreeDirty((prev) => ({ version: prev.version + 1, all: true, dirs: prev.dirs }))
       void vcs.refresh()
     }
     window.addEventListener('focus', onFocus)
@@ -816,7 +849,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       setExternal((m) =>
         Object.fromEntries(Object.entries(m).filter(([key]) => keepExternal.has(key)))
       )
-      setTreeVersion((v) => v + 1)
+      // 全部替换可能动了任意多个目录，直接全量刷新
+      setTreeDirty((prev) => ({ version: prev.version + 1, all: true, dirs: prev.dirs }))
       void vcs.refresh()
       showFlash(
         t('ide.replaceDone', {
@@ -1386,7 +1420,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   /* ── 保存 / 脏状态 ───────────────────────────────────── */
 
   const refresh = useCallback((): void => {
-    setTreeVersion((v) => v + 1)
+    // 无法定位具体路径（手动刷新 / VCS 操作），所有展开目录都重新列一次
+    setTreeDirty((prev) => ({ version: prev.version + 1, all: true, dirs: prev.dirs }))
     void vcs.refresh()
   }, [vcs])
 
@@ -2811,7 +2846,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   rel=""
                   name={baseName(cwd)}
                   depth={0}
-                  version={treeVersion}
+                  version={treeDirty.version}
+                  dirtyAll={treeDirty.all}
+                  dirtyDirs={treeDirty.dirs}
                   defaultOpen
                   git={gitMap}
                   selectedRel={treeTarget.rel}
@@ -3092,7 +3129,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               setExternal((m) =>
                 Object.fromEntries(Object.entries(m).filter(([key]) => keepExternal.has(key)))
               )
-              setTreeVersion((v) => v + 1)
+              // VCS 操作波及范围未知，全量刷新目录
+              setTreeDirty((prev) => ({
+                version: prev.version + 1,
+                all: true,
+                dirs: prev.dirs
+              }))
             }}
             onNotice={showFlash}
             onOpenFile={(rel) => openFile(rel)}
@@ -3344,6 +3386,8 @@ function TreeDir({
   name,
   depth,
   version,
+  dirtyAll,
+  dirtyDirs,
   defaultOpen = false,
   git,
   selectedRel,
@@ -3358,6 +3402,10 @@ function TreeDir({
   name: string
   depth: number
   version: number
+  /** true = 这一批变化无法定位路径，所有展开目录都刷新 */
+  dirtyAll: boolean
+  /** 受影响的目录 rel 集合；只有命中的目录才重新 listDir */
+  dirtyDirs: Set<string>
   defaultOpen?: boolean
   git: Record<string, VcsChange>
   selectedRel: string
@@ -3383,8 +3431,23 @@ function TreeDir({
     if (revealOpen) setOpen(true)
   }, [revealOpen, revealSeq])
 
+  /** 收起期间目录内容可能变了，重新展开时必须无条件列一次 */
+  const wasOpen = useRef(false)
+  const dirty = dirtyAll || dirtyDirs.has(extKey(rel))
+
   useEffect(() => {
-    if (!open || loadedVersion === version) return
+    if (!open) {
+      wasOpen.current = false
+      return
+    }
+    const reopened = !wasOpen.current
+    wasOpen.current = true
+    if (!reopened) {
+      if (loadedVersion === version) return
+      // 这一批变化不涉及本目录：不列目录，等真正命中时再刷
+      if (loadedVersion !== -1 && !dirty) return
+    }
+
     let cancelled = false
     setFailed(false)
     const pending = window.api?.ide?.listDir(cwd, rel)
@@ -3405,7 +3468,7 @@ function TreeDir({
     return () => {
       cancelled = true
     }
-  }, [open, version, loadedVersion, cwd, rel])
+  }, [open, version, loadedVersion, cwd, rel, dirty])
 
   return (
     <div className="ide-tnode">
@@ -3454,6 +3517,8 @@ function TreeDir({
                 name={e.name}
                 depth={depth + 1}
                 version={version}
+                dirtyAll={dirtyAll}
+                dirtyDirs={dirtyDirs}
                 git={git}
                 selectedRel={selectedRel}
                 revealRel={revealRel}

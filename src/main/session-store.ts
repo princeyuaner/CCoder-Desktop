@@ -15,6 +15,7 @@ import {
 } from './providers/codex/history'
 import { listDshSessionFiles, readDshTranscript } from './providers/dsh/history'
 import { t } from './i18n'
+import { IO_CONCURRENCY, mapLimit } from './concurrency'
 
 /**
  * 读 CLI 自己的会话存储。
@@ -44,6 +45,14 @@ const TAIL_BYTES = 256 * 1024
 
 /** 单份会话最多回放这么多条记录，防一份异常大的文件把界面拖死 */
 const MAX_RECORDS = 20_000
+
+/**
+ * 列表扫描时同时处理的文件数。
+ *
+ * 每个文件可能要读 32KB~8MB 的头，16 路并发在图片多的目录里会同时
+ * 放太多 Buffer 在内存里；8 路足够把 400 次 stat/read 的往返延迟摊开。
+ */
+const SCAN_FILE_CONCURRENCY = 8
 
 const obj = (v: unknown): Record<string, unknown> | undefined =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
@@ -245,52 +254,67 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
     projects = []
   }
 
-  for (const p of projects) {
+  /*
+   * Codex / dsh 的扫描和 Claude 的目录扫描互不依赖，先启动、最后再合并。
+   * 三个 CLI 各有几百个文件时，串行扫描的墙钟时间就是三者之和。
+   */
+  const codexScan = listCodexSessionFiles().catch(() => [])
+  const dshScan = listDshSessionFiles().catch(() => [])
+
+  // 先并发列出所有项目目录，再按文件并发解析
+  const projectDirs = await mapLimit(projects, IO_CONCURRENCY, async (p) => {
     const dir = join(ROOT(), p)
-    let files: string[]
     try {
-      files = await fsp.readdir(dir)
+      return { dir, files: await fsp.readdir(dir) }
     } catch {
-      continue
+      return null
     }
+  })
+  const fileEntries = projectDirs
+    .filter((d): d is { dir: string; files: string[] } => d !== null)
+    .flatMap(({ dir, files }) =>
+      files
+        .filter((f) => f.endsWith('.jsonl'))
+        .map((f) => ({ dir, f }))
+    )
 
-    for (const f of files) {
-      if (!f.endsWith('.jsonl')) continue
-      const full = join(dir, f)
-      seen.add(full)
-      try {
-        const st = await fsp.stat(full)
-        if (!st.isFile()) continue
+  const scanned = await mapLimit(fileEntries, SCAN_FILE_CONCURRENCY, async ({ dir, f }) => {
+    const full = join(dir, f)
+    seen.add(full)
+    try {
+      const st = await fsp.stat(full)
+      if (!st.isFile()) return null
 
-        // mtime 和大小都没变 → 上次解析出来的 cwd/标题/创建时间照样成立
-        const hit = headCache.get(full)
-        let head: { cwd: string; title: string; createdAt: number }
-        if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
-          head = hit
-        } else {
-          const parsed = await parseHeadExpanding(full, st.size)
-          head = parsed.head
-          // 首行超过 8MB（连发多张大图）：cwd 从文件尾兜底，标题退成「图片消息」
-          if (!head.cwd) {
-            const cwd = await readTailCwd(full, st.size)
-            if (cwd) {
-              head = {
-                cwd,
-                title: head.title || (parsed.text.includes('"type":"image"') ? t('chat.title.imageMessage') : ''),
-                createdAt: head.createdAt
-              }
+      // mtime 和大小都没变 → 上次解析出来的 cwd/标题/创建时间照样成立
+      const hit = headCache.get(full)
+      let head: { cwd: string; title: string; createdAt: number }
+      if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+        head = hit
+      } else {
+        const parsed = await parseHeadExpanding(full, st.size)
+        head = parsed.head
+        // 首行超过 8MB（连发多张大图）：cwd 从文件尾兜底，标题退成「图片消息」
+        if (!head.cwd) {
+          const cwd = await readTailCwd(full, st.size)
+          if (cwd) {
+            head = {
+              cwd,
+              title:
+                head.title ||
+                (parsed.text.includes('"type":"image"') ? t('chat.title.imageMessage') : ''),
+              createdAt: head.createdAt
             }
           }
-          headCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, ...head })
         }
+        headCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, ...head })
+      }
 
-        const { cwd, title, createdAt } = head
-        if (!cwd) continue // 连 cwd 都读不到的文件，列表里没意义
-        const id = f.slice(0, -'.jsonl'.length)
-        const k = keyOf(cwd, id)
-        if (pathById.has(k)) continue // 同一份不该出现两次
-        pathById.set(k, { file: full, cli: 'claude', id })
-        out.push({
+      const { cwd, title, createdAt } = head
+      if (!cwd) return null // 连 cwd 都读不到的文件，列表里没意义
+      const id = f.slice(0, -'.jsonl'.length)
+      return {
+        file: full,
+        session: {
           id,
           cwd,
           title: title || t('codexHistory.untitled'),
@@ -299,12 +323,23 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
           updatedAt: st.mtimeMs,
           // 这里只扫 ~/.claude/projects，所以必然是 claude。
           // 接 Codex 时它会有自己的一份扫描，把各自的 cli 填进来即可。
-          cli: 'claude'
-        })
-      } catch {
-        // 单个文件坏了不该让整份列表崩掉
+          cli: 'claude' as const
+        }
       }
+    } catch {
+      // 单个文件坏了不该让整份列表崩掉
+      return null
     }
+  })
+
+  // 并发结果按输入顺序返回，合并顺序和原来的串行遍历一致
+  for (const entry of scanned) {
+    if (!entry) continue
+    const { cwd, id } = entry.session
+    const k = keyOf(cwd, id)
+    if (pathById.has(k)) continue // 同一份不该出现两次
+    pathById.set(k, { file: entry.file, cli: 'claude', id })
+    out.push(entry.session)
   }
 
   // 清掉已经不存在的文件，否则缓存会随着删会话一直涨
@@ -317,7 +352,7 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
    * 两边都可能出现同一个 cwd，但 id 空间不同，按 (cwd,id) 合并即可；
    * 真撞了也以后者为准 —— 这种概率比文件损坏还低。
    */
-  for (const { file, session } of await listCodexSessionFiles()) {
+  for (const { file, session } of await codexScan) {
     const k = keyOf(session.cwd, session.id)
     if (pathById.has(k)) continue
     pathById.set(k, { file, cli: 'codex', id: session.id })
@@ -327,14 +362,9 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
   /*
    * DeepSeek Harness 的会话是 $DSH_HOME/sessions 下的目录，cwd 从投影缓存
    * 或会话头里读（不反解目录名）。子代理会话和空白会话由扫描器过滤掉。
+   * dsh home 不可读（权限 / 磁盘）已在启动扫描时吞掉，不影响另外两个 CLI。
    */
-  let dshFiles: Awaited<ReturnType<typeof listDshSessionFiles>> = []
-  try {
-    dshFiles = await listDshSessionFiles()
-  } catch {
-    // dsh home 不可读（权限 / 磁盘）不该把另外两个 CLI 的列表一起带崩
-  }
-  for (const entry of dshFiles) {
+  for (const entry of await dshScan) {
     const { session } = entry
     const k = keyOf(session.cwd, session.id)
     if (pathById.has(k)) continue
@@ -418,6 +448,14 @@ const TRANSCRIPT_CACHE_BYTES = 48 * 1024 * 1024
  */
 const TRANSCRIPT_TAIL_BYTES = 4 * 1024 * 1024
 const TRANSCRIPT_TAIL_GROW = 8
+/**
+ * 尾部最多往前扩到这里。
+ *
+ * 图片多的会话是「字节多、记录少」：4MB 够不到 20000 条就会 4MB→32MB→256MB
+ * 一路读下去，几百 MB 的字符串 + 同步 JSON.parse 会把主进程卡死。
+ * 到上限就只回放已经读到的记录 —— 宁可少几条，也不要把内存打爆。
+ */
+const TRANSCRIPT_TAIL_MAX_BYTES = 32 * 1024 * 1024
 
 interface TranscriptCacheEntry {
   file: string
@@ -489,13 +527,27 @@ async function readClaudeRecords(
     if (start === 0) return records.slice(-MAX_RECORDS)
     if (records.length >= MAX_RECORDS) return records.slice(-MAX_RECORDS)
     const next = Math.min(size, bytes * TRANSCRIPT_TAIL_GROW)
-    if (next === bytes) return records.slice(-MAX_RECORDS)
+    if (next === bytes || next > TRANSCRIPT_TAIL_MAX_BYTES) {
+      return records.slice(-MAX_RECORDS)
+    }
     bytes = next
   }
 }
 
 /** 读一份会话并把记录回放成事件流。cwd 必须一起给：身份是 (cwd, id)。 */
-export async function readTranscript(cwd: string, id: string): Promise<AgentEvent[]> {
+export interface ReadTranscriptOptions {
+  /**
+   * 只回放搜索需要的对话正文：跳过图片 base64、工具回执和系统事件。
+   * 搜索路径专用 —— 事件不再完整，不能拿去渲染转写区。
+   */
+  textOnly?: boolean
+}
+
+export async function readTranscript(
+  cwd: string,
+  id: string,
+  opts: ReadTranscriptOptions = {}
+): Promise<AgentEvent[]> {
   const found = await findFile(cwd, id)
   if (!found) return []
 
@@ -506,25 +558,35 @@ export async function readTranscript(cwd: string, id: string): Promise<AgentEven
     return []
   }
 
+  const textOnly = opts.textOnly === true
   const key = keyOf(cwd, id)
-  const hit = transcriptCache.get(key)
-  if (hit && hit.file === found.file && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
-    // LRU：命中后挪到队尾
-    transcriptCache.delete(key)
-    transcriptCache.set(key, hit)
-    return hit.events
+  /*
+   * textOnly 的事件形状和真实回放不同（无图片、无工具输出），
+   * 既不读也不写回放缓存 —— 否则搜索会把用户正开着的会话挤出去，
+   * 还可能把残缺事件当成完整回放返回。
+   */
+  if (!textOnly) {
+    const hit = transcriptCache.get(key)
+    if (hit && hit.file === found.file && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+      // LRU：命中后挪到队尾
+      transcriptCache.delete(key)
+      transcriptCache.set(key, hit)
+      return hit.events
+    }
   }
 
   let events: AgentEvent[]
   try {
     if (found.cli === 'codex') events = await readCodexTranscript(found.file, cwd, id)
     else if (found.cli === 'dsh') events = await readDshTranscript(found.file, cwd, id)
-    else events = replayRecords(await readClaudeRecords(found.file, st.size))
+    else events = replayRecords(await readClaudeRecords(found.file, st.size), opts)
   } catch {
     return []
   }
 
-  cacheTranscript(key, { file: found.file, mtimeMs: st.mtimeMs, size: st.size, events })
+  if (!textOnly) {
+    cacheTranscript(key, { file: found.file, mtimeMs: st.mtimeMs, size: st.size, events })
+  }
   return events
 }
 
@@ -630,7 +692,9 @@ async function searchTextOf(
 
   let text: string
   try {
-    text = extractSearchText(await readTranscript(session.cwd, session.id))
+    text = extractSearchText(
+      await readTranscript(session.cwd, session.id, { textOnly: true })
+    )
   } catch {
     // 单份记录坏了（截断、zstd 损坏）只跳过它，不打断整次搜索
     return { text: '', oversized: false }

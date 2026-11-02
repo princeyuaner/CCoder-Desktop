@@ -1,10 +1,11 @@
-import { promises as fsp } from 'node:fs'
+import { existsSync, promises as fsp } from 'node:fs'
 import { join, normalize } from 'node:path'
-import { decompress } from 'fzstd'
+import { Worker } from 'node:worker_threads'
 import type { AgentEvent } from '../../../shared/events'
 import type { StoredSession } from '../../../shared/session'
 import { t } from '../../i18n'
 import { DshEventTranslator } from './events'
+import { decodeZstd, readDshRecords } from './history-read'
 import { listDshHomes } from './runner'
 
 /**
@@ -26,8 +27,6 @@ import { listDshHomes } from './runner'
  * 几百 KB 的压缩文件。
  */
 
-const ZSTD_MAGIC = 0xfd2fb528
-
 /** 优先取版本号最大的那份；老版本只有无后缀的 session.jsonl.zstd */
 const TRANSCRIPT_NAMES = [
   'session.v4.jsonl.zstd',
@@ -48,74 +47,6 @@ function cleanTitle(s: string): string {
 
 function clip(s: string, max = 20_000): string {
   return s.length > max ? `${s.slice(0, max)}\n…（输出已截断）` : s
-}
-
-/* ── zstd ─────────────────────────────────────────────────── */
-
-/**
- * 一个 zstd 帧的字节长度；数据不够（文件正在追加）返回 -1。
- *
- * 只需要走完帧头和每个 block 的 3 字节头 —— block 负载直接按长度跳过，
- * 不用真的读它。这样从文件头就能确定第一帧的边界。
- */
-function frameLength(buf: Buffer, start: number): number {
-  if (buf.length - start < 8) return -1
-  if (buf.readUInt32LE(start) !== ZSTD_MAGIC) return -1
-
-  let p = start + 4
-  const desc = buf[p++]
-  const fcsFlag = desc >> 6
-  const singleSegment = (desc >> 5) & 1
-  const checksum = (desc >> 2) & 1
-  const dictFlag = desc & 3
-
-  if (!singleSegment) {
-    if (p >= buf.length) return -1
-    p += 1 // Window_Descriptor
-  }
-  p += [0, 1, 2, 4][dictFlag]
-  p += fcsFlag === 0 ? (singleSegment ? 1 : 0) : 1 << fcsFlag
-  if (p > buf.length) return -1
-
-  for (;;) {
-    if (p + 3 > buf.length) return -1
-    const header = buf.readUIntLE(p, 3)
-    p += 3
-    const last = header & 1
-    const type = (header >> 1) & 3
-    const size = header >>> 3
-    if (type === 3) return -1 // reserved
-    p += type === 1 ? 1 : size // RLE 只存 1 字节
-    if (p > buf.length) return -1
-    if (last) break
-  }
-  if (checksum) p += 4
-  return p > buf.length ? -1 : p - start
-}
-
-/** 解压整份文件；尾部帧不完整时只回放已经写完的部分 */
-function decodeZstd(buf: Buffer): string {
-  if (buf.length === 0) return ''
-  try {
-    return Buffer.from(decompress(buf)).toString('utf8')
-  } catch {
-    // 正在写入：跳过最后一个不完整的帧
-  }
-
-  const parts: Buffer[] = []
-  let p = 0
-  while (p < buf.length) {
-    const n = frameLength(buf, p)
-    if (n <= 0) break
-    parts.push(buf.subarray(p, p + n))
-    p += n
-  }
-  if (parts.length === 0) return ''
-  try {
-    return Buffer.from(decompress(Buffer.concat(parts))).toString('utf8')
-  } catch {
-    return ''
-  }
 }
 
 async function readPrefix(file: string, size: number, maxBytes: number): Promise<string> {
@@ -385,6 +316,120 @@ export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
 /* ── 历史回放 ─────────────────────────────────────────────── */
 
 /**
+ * 把整份解压/解析放到 worker。
+ *
+ * fzstd 是同步整份解压，几 MB 的会话就够卡住主进程的 IPC 和流式事件。
+ * worker 代码由构建产物提供；拿不到（例如构建配置没带上）时退回主线程，
+ * 功能不受影响，只是大会话会慢一拍。
+ */
+const WORKER_TIMEOUT_MS = 30_000
+
+interface WorkerReply {
+  id: number
+  ok: boolean
+  records?: Record<string, unknown>[]
+  error?: string
+}
+
+interface WorkerPending {
+  resolve: (records: Record<string, unknown>[]) => void
+  reject: (error: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+let historyWorker: Worker | null = null
+let historyWorkerSeq = 0
+const historyWorkerPending = new Map<number, WorkerPending>()
+
+function failHistoryWorker(error: Error): void {
+  const worker = historyWorker
+  historyWorker = null
+  for (const pending of historyWorkerPending.values()) {
+    clearTimeout(pending.timer)
+    pending.reject(error)
+  }
+  historyWorkerPending.clear()
+  if (worker) {
+    try {
+      worker.terminate()
+    } catch {
+      // 已经退出
+    }
+  }
+}
+
+/**
+ * worker 文件的真实路径。
+ *
+ * 打包后 worker 及它的共享 chunk 被复制到 `resources/worker/`（asar 外），
+ * 避免 worker_threads 直接从 asar 内加载模块的兼容性问题；开发态则用
+ * 构建输出目录里的那份。
+ */
+function historyWorkerPath(): string {
+  const packaged = process.resourcesPath
+    ? join(process.resourcesPath, 'worker', 'dsh-history-worker.js')
+    : ''
+  if (packaged && existsSync(packaged)) return packaged
+  return join(__dirname, 'dsh-history-worker.js')
+}
+
+function ensureHistoryWorker(): Worker | null {
+  if (historyWorker) return historyWorker
+  try {
+    const workerPath = historyWorkerPath()
+    // 构建产物缺失（例如未按 electron.vite.config 的多入口构建）：退回主线程
+    if (!existsSync(workerPath)) return null
+    const worker = new Worker(workerPath, {
+      // 会话异常大时让 worker 自己 OOM，不要拖垮主进程
+      resourceLimits: { maxOldGenerationSizeMb: 1024 }
+    })
+    worker.on('message', (msg: WorkerReply) => {
+      const pending = historyWorkerPending.get(msg.id)
+      if (!pending) return
+      historyWorkerPending.delete(msg.id)
+      clearTimeout(pending.timer)
+      if (msg.ok && Array.isArray(msg.records)) pending.resolve(msg.records)
+      else pending.reject(new Error(msg.error || 'dsh history worker failed'))
+    })
+    worker.on('error', (err) => {
+      if (historyWorker === worker) failHistoryWorker(err)
+    })
+    worker.on('exit', (code) => {
+      if (historyWorker === worker) {
+        failHistoryWorker(new Error(`dsh history worker exited (${code})`))
+      }
+    })
+    // 待处理的 worker 不该阻止应用退出
+    worker.unref?.()
+    historyWorker = worker
+    return worker
+  } catch {
+    return null
+  }
+}
+
+function readDshRecordsOffThread(file: string): Promise<Record<string, unknown>[]> {
+  const worker = ensureHistoryWorker()
+  // worker 不可用：退回主线程，至少功能还在
+  if (!worker) return readDshRecords(file)
+
+  return new Promise<Record<string, unknown>[]>((resolve, reject) => {
+    const id = ++historyWorkerSeq
+    const timer = setTimeout(() => {
+      failHistoryWorker(new Error('dsh history worker timeout'))
+    }, WORKER_TIMEOUT_MS)
+    historyWorkerPending.set(id, { resolve, reject, timer })
+    try {
+      worker.postMessage({ id, file })
+    } catch (e) {
+      historyWorkerPending.delete(id)
+      clearTimeout(timer)
+      failHistoryWorker(e instanceof Error ? e : new Error(String(e)))
+    }
+  })
+}
+
+/**
  * 把一份 dsh 会话回放成 AgentEvent。
  *
  * 只认**终态记录**（assistant/message、tool/call、tool/result），忽略
@@ -396,24 +441,12 @@ export async function readDshTranscript(
   cwd: string,
   sessionId = ''
 ): Promise<AgentEvent[]> {
-  let raw: Buffer
+  let records: Record<string, unknown>[]
   try {
-    raw = await fsp.readFile(file)
+    records = await readDshRecordsOffThread(file)
   } catch {
+    // 解压失败 / 文件过大 / worker 挂了：当作空会话，不拖垮列表
     return []
-  }
-  const text = decodeZstd(raw)
-  if (!text) return []
-
-  const records: Record<string, unknown>[] = []
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('{')) continue
-    try {
-      const rec = obj(JSON.parse(line))
-      if (rec) records.push(rec)
-    } catch {
-      // 损坏 / 截断的行跳过
-    }
   }
   if (records.length === 0) return []
 

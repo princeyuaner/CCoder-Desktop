@@ -243,10 +243,16 @@ class ClaudeSession implements ProviderSession {
      * 退出本身由下面的 close 事件收尾，这里只需吞掉这条竞态错误。
      */
     this.child.stdin?.on('error', () => undefined)
+    /*
+     * 让流自己做 UTF-8 解码。逐块 `Buffer.toString()` 时，一个中文/emoji
+     * 正好跨 64KB 块边界会被解码成 �，长会话里迟早会遇到。
+     */
+    this.child.stdout?.setEncoding('utf8')
+    this.child.stderr?.setEncoding('utf8')
 
-    this.child.stdout?.on('data', (d: Buffer) => {
+    this.child.stdout?.on('data', (d: string) => {
       try {
-        this.onStdout(d.toString())
+        this.onStdout(d)
       } catch (e) {
         // CLI 输出不可信；解析失败最多丢一条事件，不能让它杀掉主进程
         if (this.done) return
@@ -259,8 +265,8 @@ class ClaudeSession implements ProviderSession {
         })
       }
     })
-    this.child.stderr?.on('data', (d: Buffer) => {
-      this.stderr += d.toString()
+    this.child.stderr?.on('data', (d: string) => {
+      this.stderr += d
       if (this.stderr.length > 8000) this.stderr = this.stderr.slice(-8000)
     })
 

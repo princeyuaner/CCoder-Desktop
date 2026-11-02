@@ -109,8 +109,10 @@ function execClaude(args: string[], timeoutMs: number): Promise<ExecResult> {
       killProcessTree(child)
     }, timeoutMs)
 
-    child.stdout?.on('data', (d: Buffer) => (stdout += d.toString()))
-    child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()))
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
+    child.stdout?.on('data', (d: string) => (stdout += d))
+    child.stderr?.on('data', (d: string) => (stderr += d))
     child.stdin?.on('error', () => undefined)
     // auth 子命令都不读 stdin；关掉，免得 CLI 以为还有输入
     try {

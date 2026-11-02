@@ -5,21 +5,46 @@
  * "这是合法消息"的区别。这里只负责切分，合法性交给 parseLine。
  */
 export class NdjsonDecoder {
-  private buffer = ''
+  /**
+   * 未完成行的片段。
+   *
+   * 不能直接把整个 buffer 拼成字符串再 split：一条几 MB 的 tool_result
+   * 会按 64KB 分块到达，每次都重拼 + 重扫整个 buffer 是 O(n²)。
+   * 这里只在 chunk 内找换行；跨块的行攒片段，闭合时 join 一次。
+   */
+  private parts: string[] = []
 
   /** 投入一个数据块，返回其中所有**完整**的行（不含换行符） */
   push(chunk: string): string[] {
-    this.buffer += chunk
-    const lines = this.buffer.split('\n')
-    this.buffer = lines.pop() ?? ''
-    // `\r` 要等确认后面是不是 `\n` 才能决定去留；CRLF 落在块边界时整行留待下一块
-    return lines.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
+    const out: string[] = []
+    let start = 0
+    for (;;) {
+      const nl = chunk.indexOf('\n', start)
+      if (nl < 0) {
+        if (start < chunk.length) this.parts.push(chunk.slice(start))
+        break
+      }
+
+      let line: string
+      if (this.parts.length > 0) {
+        this.parts.push(chunk.slice(start, nl))
+        line = this.parts.join('')
+        this.parts = []
+      } else {
+        line = chunk.slice(start, nl)
+      }
+      // `\r` 只有确认后面是 `\n` 时才剥掉；CRLF 落在块边界时整行留待下一块
+      out.push(line.endsWith('\r') ? line.slice(0, -1) : line)
+      start = nl + 1
+    }
+    return out
   }
 
   /** 流结束时吐出残留 */
   flush(): string[] {
-    const rest = this.buffer
-    this.buffer = ''
+    if (this.parts.length === 0) return []
+    const rest = this.parts.join('')
+    this.parts = []
     if (!rest) return []
     return [rest.endsWith('\r') ? rest.slice(0, -1) : rest]
   }

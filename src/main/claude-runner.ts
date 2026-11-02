@@ -212,8 +212,10 @@ export function runClaudeOnce(o: RunOptions): Promise<RunResult> {
   child.stdin?.on('error', () => undefined) // 子进程早退时的 EPIPE，忽略
   child.stdin?.end(o.prompt)
 
-  child.stdout?.on('data', (d: Buffer) => (stdout += d.toString()))
-  child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()))
+  child.stdout?.setEncoding('utf8')
+  child.stderr?.setEncoding('utf8')
+  child.stdout?.on('data', (d: string) => (stdout += d))
+  child.stderr?.on('data', (d: string) => (stderr += d))
 
   return new Promise((resolve) => {
     child.on('error', (err) => {

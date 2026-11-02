@@ -23,6 +23,14 @@ npmRebuild: false
 extraResources:
   - from: build/rg
     to: bin
+  # dsh 会话解析 worker 放在 asar 外：worker_threads 直接加载 asar 内模块在
+  # 部分 Electron 版本上不可靠，而且它按相对路径 require 自己的共享 chunk，
+  # 需要保持 out/main 下的目录结构。
+  - from: out/main
+    to: worker
+    filter:
+      - dsh-history-worker.js
+      - chunks/**/*
 
 # Windows 用 node_modules 里已装好的 Electron（win32-x64），避免每次打包都
 # 去 GitHub 拉 100+MB 的 zip。这个路径由 package:win 通过 --config.electronDist

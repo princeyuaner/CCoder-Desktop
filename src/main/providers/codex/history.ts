@@ -486,6 +486,8 @@ const emptyUsage = (): Usage => ({
 /** 大文件先读尾部的起步大小；不够 `MAX_RECORDS` 条再成倍往前扩 */
 const TAIL_START_BYTES = 4 * 1024 * 1024
 const TAIL_GROW = 8
+/** 上限和 Claude 侧一致：到这儿就只回放已读到的记录，别把主进程内存打爆 */
+const TAIL_MAX_BYTES = 32 * 1024 * 1024
 
 function parseRecordLines(text: string): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = []
@@ -536,7 +538,7 @@ async function readTailRecords(file: string): Promise<Record<string, unknown>[]>
       return records.slice(-MAX_RECORDS)
     }
     const next = Math.min(size, bytes * TAIL_GROW)
-    if (next === bytes) return records.slice(-MAX_RECORDS)
+    if (next === bytes || next > TAIL_MAX_BYTES) return records.slice(-MAX_RECORDS)
     bytes = next
   }
 }

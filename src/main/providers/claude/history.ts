@@ -101,7 +101,21 @@ function userImages(message: unknown): ImageAttachment[] {
  * 每个 assistant 记录都往**当前这一轮**里追加，轮末才发 turn_end ——
  * 这样界面上是"一轮一个气泡"，而不是每条 assistant 消息一个。
  */
-export function replayRecords(records: Record<string, unknown>[]): AgentEvent[] {
+export interface ReplayOptions {
+  /**
+   * 只保留搜索需要的对话文本。
+   *
+   * 内容搜索只要 user / assistant 的正文；工具回执、图片 base64、系统事件
+   * 都不会被 `extractSearchText` 采用。跳过它们能省掉大量解析和内存分配。
+   */
+  textOnly?: boolean
+}
+
+export function replayRecords(
+  records: Record<string, unknown>[],
+  opts: ReplayOptions = {}
+): AgentEvent[] {
+  const textOnly = opts.textOnly === true
   const out: AgentEvent[] = []
   let open = false
   /** 当前这一轮最后一条 assistant 消息占用的上下文 token */
@@ -236,6 +250,9 @@ export function replayRecords(records: Record<string, unknown>[]): AgentEvent[] 
     const sidechain =
       rec.isSidechain === true || rec.parent_tool_use_id != null || rec.parentToolUseId != null
 
+    // 搜索只关心对话正文：工具 / 系统 / 通知记录一律不解析
+    if (textOnly && rec.type !== 'user' && rec.type !== 'assistant') continue
+
     // CLI 的 task_* system 事件（后台代理进度/完成）
     if (rec.type === 'system') {
       if (sidechain) continue
@@ -266,15 +283,15 @@ export function replayRecords(records: Record<string, unknown>[]): AgentEvent[] 
     if (rec.type === 'user') {
       // 子代理的 user 记录只有工具回执；抽 file_change 就够
       if (sidechain) {
-        emitToolResults(rec, true)
+        if (!textOnly) emitToolResults(rec, true)
         continue
       }
 
       const prompt = userPromptText(rec.message)
-      const images = userImages(rec.message)
+      const images = textOnly ? [] : userImages(rec.message)
       // 某些版本把 task-notification 记成 user 记录 —— 它不是用户说的话
       if (prompt.trimStart().startsWith('<task-notification>')) {
-        emitNotification(prompt)
+        if (!textOnly) emitNotification(prompt)
         continue
       }
       // 图片-only 消息也要算一条用户输入
@@ -292,7 +309,7 @@ export function replayRecords(records: Record<string, unknown>[]): AgentEvent[] 
         continue
       }
       // 不是用户输入，就是工具结果
-      emitToolResults(rec, false)
+      if (!textOnly) emitToolResults(rec, false)
       continue
     }
 
@@ -334,6 +351,7 @@ export function replayRecords(records: Record<string, unknown>[]): AgentEvent[] 
           const text = str(b.thinking)
           if (text) out.push({ t: 'thinking_delta', text })
         } else if (b.type === 'tool_use') {
+          if (textOnly) continue
           const name = str(b.name)
           const id = str(b.id)
           if (isFileEditTool(name)) {

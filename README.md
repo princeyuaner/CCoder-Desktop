@@ -224,12 +224,15 @@ publish:
 
 发版流程：
 
-1. 修改 `package.json` 的 `version`，提交并推送。
-2. 推一个与版本号一致的 tag（例如 `v1.2.12`）。
-3. GitHub Actions 的 **Build desktop packages** 会先跑 Verify（类型检查 + 回归脚本），再在 Windows / Linux / macOS 三个 runner 上并行构建。全部成功后，`release` job 会创建同名正式 Release，并上传三端的安装包、`latest.yml` / `latest-linux.yml` / `latest-mac.yml`。
-4. 手动触发这个 workflow（`workflow_dispatch`）只构建并保存 Actions artifact，不创建 Release。
+1. 在 `src/shared/whats-new.ts` 的 `WHATS_NEW_RELEASES` 最前面补一条本版本说明：`version` 必须和 `package.json` 一致，重点和条目都要写中英文。更新公告按版本号精确匹配，漏写时客户端会静默不弹。
+2. 修改 `package.json` 的 `version`，提交并推送。
+3. 推一个与版本号一致的 tag（例如 `v1.2.12`）。
+4. GitHub Actions 的 **Build desktop packages** 会先跑 Verify（类型检查 + 回归脚本），再在 Windows / Linux / macOS 三个 runner 上并行构建。全部成功后，`release` job 会创建同名正式 Release，并上传三端的安装包、`latest.yml` / `latest-linux.yml` / `latest-mac.yml`。
+5. 手动触发这个 workflow（`workflow_dispatch`）只构建并保存 Actions artifact，不创建 Release。
 
 注意：
+
+- Verify 会跑 `verify:whats-new`：`package.json` 的版本在 `WHATS_NEW_RELEASES` 里找不到对应说明时构建直接失败。
 
 - 已安装的客户端启动 8 秒后检查一次更新，之后每 4 小时一次；用户点「下载」后才下载，下载完成后点「重启并安装」。
 - 只有 NSIS **安装版**支持 Windows 自动更新；便携版和开发模式会显示「不支持自动更新」。

@@ -28,7 +28,20 @@ export default defineConfig({
       })
     ],
     build: {
-      rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } }
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          /*
+           * dsh 会话解压是同步、整份进行的，放在主线程会卡住所有窗口。
+           * 独立入口构建到 out/main/dsh-history-worker.js，由 history.ts
+           * 用 worker_threads 启动。
+           */
+          'dsh-history-worker': resolve(
+            __dirname,
+            'src/main/providers/dsh/history-worker.ts'
+          )
+        }
+      }
     }
   },
   preload: {
