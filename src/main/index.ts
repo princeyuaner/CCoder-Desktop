@@ -103,7 +103,8 @@ import {
   deleteStoredSession,
   listStoredSessions,
   readTranscript,
-  searchStoredSessions
+  searchStoredSessions,
+  storedSessionExists
 } from './session-store'
 import {
   forgetSessionMeta,
@@ -398,6 +399,13 @@ function registerSettingsIpc(sessions: SessionManager): void {
 
   // 会话存储归 CLI 所有：我们只读它写的，唯一的写操作是"删掉一整条"
   ipcMain.handle(IPC.sessionsList, () => listStoredSessions())
+  ipcMain.handle(IPC.sessionsExists, (_e, cli: unknown, cwd: unknown, id: unknown) =>
+    storedSessionExists(
+      typeof cli === 'string' ? cli : '',
+      typeof cwd === 'string' ? cwd : '',
+      typeof id === 'string' ? id : ''
+    )
+  )
   ipcMain.handle(IPC.sessionsTranscript, (_e, cwd: string, id: string) =>
     readTranscript(cwd, id)
   )

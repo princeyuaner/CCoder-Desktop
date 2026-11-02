@@ -12,6 +12,8 @@ files:
   - out/**/*
   - package.json
   - "!**/*.map"
+  # out/shots 是截图工具的产物，不是运行时资源（约 700KB）
+  - "!out/shots/**"
   # 不排掉 node_modules 的话，electron-builder 会把 Monaco 源码整包塞进 app.asar。
   - "!node_modules/**/*"
 

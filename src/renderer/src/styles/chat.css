@@ -2525,6 +2525,12 @@
   gap: 10px;
   padding: 10px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  /*
+   * 轨迹页没有对话页的分块窗口化；长会话一次要建几百上千行。屏幕外的行
+   * 直接跳过排版，行高估算 = 10px×2 padding + 约 21px 内容。
+   */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 41px;
 }
 .trace__dot {
   flex: none;

@@ -212,6 +212,8 @@ export const IPC = {
   sessionRunning: 'session:running',
 
   sessionsList: 'sessions:list',
+  /** 单条会话是否已经落盘（只 stat 目标文件，不解析记录） */
+  sessionsExists: 'sessions:exists',
   sessionsTranscript: 'sessions:transcript',
   sessionsDelete: 'sessions:delete',
   /** 应用本地的会话元数据（重命名 / 置顶 / 归档） */
@@ -622,6 +624,13 @@ export interface WindowApi {
   /** 读 CLI 自己写的会话存储（~/.claude/projects） */
   sessions: {
     list(): Promise<StoredSession[]>
+    /**
+     * 这条会话的记录文件是否已经落盘。
+     *
+     * 新建会话后 CLI 是异步写盘的；界面用它做「出现了就停」的轻量轮询，
+     * 不必每次重拉整份会话列表。
+     */
+    exists(cli: string, cwd: string, id: string): Promise<boolean>
     /** 把一份已有会话回放成事件流，供界面重建转写。会话身份是 (cwd, id)。 */
     transcript(cwd: string, id: string): Promise<AgentEvent[]>
     /**

@@ -20,9 +20,12 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccoder-store-'))
 process.env.USERPROFILE = home
 process.env.HOME = home
 
-const { listStoredSessions, readTranscript, searchStoredSessions } = require(
-  '../.tmp-build/session-store-probe.cjs'
-)
+const {
+  listStoredSessions,
+  readTranscript,
+  searchStoredSessions,
+  storedSessionExists
+} = require('../.tmp-build/session-store-probe.cjs')
 
 let failed = 0
 let passed = 0
@@ -111,6 +114,56 @@ const record = (i, text, pad = 0) =>
     '搜索命中并带出片段',
     search.hits.some((h) => h.id === smallId),
     search.hits.map((h) => h.id)
+  )
+
+  /* 7. 单条存在性查询：列表之后新落盘的文件也要能找到 */
+  const lateId = '33333333-3333-3333-3333-333333333333'
+  fs.writeFileSync(
+    path.join(projectDir, `${lateId}.jsonl`),
+    record(0, 'late session') + '\n'
+  )
+  check(
+    'exists 能发现列表之后新落盘的文件',
+    (await storedSessionExists('claude', cwd, lateId)) === true
+  )
+  check(
+    'exists 不命中不存在的 id',
+    (await storedSessionExists(
+      'claude',
+      cwd,
+      '44444444-4444-4444-4444-444444444444'
+    )) === false
+  )
+  check(
+    'exists 拒绝路径片段',
+    (await storedSessionExists('claude', cwd, '../../etc/passwd')) === false
+  )
+
+  /* 8. Codex 列表并发扫描：一个都不能丢 */
+  process.env.CODEX_HOME = path.join(home, '.codex')
+  const codexDir = path.join(home, '.codex', 'sessions', '2025', '01', '01')
+  fs.mkdirSync(codexDir, { recursive: true })
+  const codexIds = []
+  for (let i = 0; i < 40; i++) {
+    const id = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`
+    codexIds.push(id)
+    fs.writeFileSync(
+      path.join(codexDir, `rollout-2025-01-01T00-00-${String(i).padStart(2, '0')}-${id}.jsonl`),
+      JSON.stringify({
+        type: 'session_meta',
+        timestamp: new Date(1_700_000_000_000 + i * 1000).toISOString(),
+        payload: { id, cwd, timestamp: new Date(1_700_000_000_000 + i * 1000).toISOString() }
+      }) + '\n'
+    )
+  }
+  const withCodex = await listStoredSessions()
+  const found = new Set(withCodex.filter((s) => s.cli === 'codex').map((s) => s.id))
+  check('Codex 并发扫描返回全部 40 条', codexIds.every((id) => found.has(id)), [...found])
+  check('Codex 并发扫描没有重复', found.size === codexIds.length, found.size)
+  check(
+    'Codex 会话的 cwd 解析正确',
+    withCodex.find((s) => s.cli === 'codex')?.cwd === cwd,
+    withCodex.find((s) => s.cli === 'codex')?.cwd
   )
 
   fs.rmSync(home, { recursive: true, force: true })

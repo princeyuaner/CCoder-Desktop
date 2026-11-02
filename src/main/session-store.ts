@@ -3,6 +3,7 @@ import type { Stats } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '../shared/events'
+import { sameCwd } from '../shared/settings'
 import type {
   SessionSearchHit,
   SessionSearchResult,
@@ -391,6 +392,59 @@ async function findFile(cwd: string, id: string): Promise<SessionFile | null> {
   // 缓存没命中（比如列表还没拉过），退化成扫一遍
   await listStoredSessions()
   return pathById.get(keyOf(cwd, id)) ?? null
+}
+
+/**
+ * 一条会话是否已经落盘。
+ *
+ * 新建会话后，渲染层要盯到它出现在侧栏为止。之前每一轮重试都调用
+ * `listStoredSessions()` —— 几百份记录全部 stat + 解析，只为确认一个 id。
+ *
+ * Claude 的目录布局允许按文件名定向查：`<projects>/<任意编码cwd>/<id>.jsonl`，
+ * 不需要反解目录名，也不需要读文件内容 —— 每个项目目录一次 stat 即可。
+ * Codex / dsh 的布局不同，定向查找会复制它们的扫描逻辑；这两种 CLI 仍复用
+ * 完整列表（本来就有缓存），保证行为和侧栏一致。
+ */
+export async function storedSessionExists(
+  cli: string,
+  cwd: string,
+  id: string
+): Promise<boolean> {
+  // id 来自渲染层 / CLI 记录：不能当路径片段用
+  if (
+    !id ||
+    id === '.' ||
+    id === '..' ||
+    id.includes('/') ||
+    id.includes('\\') ||
+    id.includes('\0')
+  ) {
+    return false
+  }
+  if (cli !== 'claude' && cli !== 'codex' && cli !== 'dsh') return false
+  if (pathById.has(keyOf(cwd, id))) return true
+
+  if (cli === 'claude') {
+    let projects: string[]
+    try {
+      projects = await fsp.readdir(ROOT())
+    } catch {
+      return false
+    }
+    const file = `${id}.jsonl`
+    const hits = await mapLimit(projects, IO_CONCURRENCY, async (p) => {
+      try {
+        const st = await fsp.stat(join(ROOT(), p, file))
+        return st.isFile()
+      } catch {
+        return false
+      }
+    })
+    return hits.some(Boolean)
+  }
+
+  const all = await listStoredSessions()
+  return all.some((s) => s.id === id && (!cwd || sameCwd(s.cwd, cwd)))
 }
 
 /**

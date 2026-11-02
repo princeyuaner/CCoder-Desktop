@@ -152,19 +152,32 @@ export function useSessions(activeId: string | null): {
    * CLI 的 jsonl 是异步写的：session_started 到来时文件可能还没创建，
    * turn_end 时也可能刚好差半拍。按 350ms → 900ms → 2s → 4s 重试几次，
    * 命中就停 —— 新会话通常几百毫秒内就会出现在侧栏，不用等用户手动刷新。
+   *
+   * 每次重试只问「这个 id 落盘了吗」（主进程定向 stat），不再重拉整份
+   * 会话列表；确认出现后再刷一次侧栏，省掉最多 5 次全量扫描。
    */
   const watchUntilListed = useCallback(
-    (id: string, attempt = 0): void => {
+    (id: string, cli: string, cwd: string, attempt = 0): void => {
       if (!id) return
       if (attempt === 0) {
         if (watching.current.has(id)) return
         watching.current.add(id)
       }
       const delays = [350, 900, 2000, 4000]
-      void refresh().then((list) => {
+      const api = window.api?.sessions
+      const check = api?.exists
+        ? api.exists(cli, cwd, id).catch(() => false)
+        : refresh().then(
+            (list) => list.some((s) => s.id === id),
+            () => false
+          )
+      void check.then((found) => {
         if (!watching.current.has(id)) return
-        if (list.some((s) => s.id === id)) {
+        if (found) {
           watching.current.delete(id)
+          // 文件已经在了：只刷这一次，把这一行真正读进侧栏。
+          // 这里不走节流 —— 前面已经用定向查询省掉了其余几次全量扫描。
+          void refresh()
           return
         }
         if (attempt >= delays.length) {
@@ -172,7 +185,10 @@ export function useSessions(activeId: string | null): {
           return
         }
         watchTimers.current.push(
-          window.setTimeout(() => watchUntilListed(id, attempt + 1), delays[attempt])
+          window.setTimeout(
+            () => watchUntilListed(id, cli, cwd, attempt + 1),
+            delays[attempt]
+          )
         )
       })
     },
@@ -202,7 +218,7 @@ export function useSessions(activeId: string | null): {
   useEffect(() => {
     const off = window.api?.session.onEvent((p) => {
       if (p.event.t === 'session_started' && p.event.sessionId) {
-        watchUntilListed(p.event.sessionId)
+        watchUntilListed(p.event.sessionId, p.event.provider, p.event.cwd)
       } else if (p.event.t === 'turn_end') {
         refreshSoon()
       }

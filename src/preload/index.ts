@@ -390,6 +390,8 @@ const api: WindowApi = {
 
   sessions: {
     list: (): Promise<StoredSession[]> => ipcRenderer.invoke(IPC.sessionsList),
+    exists: (cli: string, cwd: string, id: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.sessionsExists, cli, cwd, id),
     transcript: (cwd: string, id: string): Promise<AgentEvent[]> =>
       ipcRenderer.invoke(IPC.sessionsTranscript, cwd, id),
     delete: (cwd: string, id: string): Promise<{ ok: boolean; message?: string }> =>

@@ -27,7 +27,14 @@ export default defineConfig({
         ]
       })
     ],
+    /*
+     * electron-vite 默认不压缩主进程 / preload。主进程 bundle 约 2.5MB，
+     * 启动时整份解析；esbuild 压完约 1.9MB，冷启动少一段解析时间。
+     * keepNames 多约 3%，但崩溃日志里的函数名还能对上源码。
+     */
+    esbuild: { keepNames: true },
     build: {
+      minify: 'esbuild',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
@@ -46,7 +53,9 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    esbuild: { keepNames: true },
     build: {
+      minify: 'esbuild',
       rollupOptions: { input: { index: resolve(__dirname, 'src/preload/index.ts') } }
     }
   },

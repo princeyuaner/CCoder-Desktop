@@ -53,6 +53,83 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.16',
+    date: '2026-11-02',
+    highlight: {
+      icon: 'sparkle',
+      title: {
+        zh: '启动更快，长会话更轻',
+        en: 'Faster startup, lighter long sessions'
+      },
+      desc: {
+        zh: '主进程与 preload 首次压缩打包，安装包更小、启动解析更省；Codex / dsh 会话列表改为并发扫描，新会话用定向查询确认落盘；长会话的查找、轨迹页和轮末磁盘核对也减少了重复计算。',
+        en: 'The main process and preload bundles are now minified for a smaller installer and less startup parsing. Codex and dsh session lists scan in parallel, new sessions are confirmed with a targeted lookup, and long sessions avoid repeated work in find, the trace tab and end-of-turn disk checks.'
+      }
+    },
+    sections: [
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'batch',
+            title: {
+              zh: '会话列表扫描进一步并发化',
+              en: 'Session list scans get more parallelism'
+            },
+            desc: {
+              zh: 'Codex 的 rollout 文件与 dsh 的会话目录改为 16 路并发处理，侧栏在 turn_end / 窗口聚焦后的刷新明显更快。',
+              en: 'Codex rollout files and dsh session folders are processed 16 at a time, so the sidebar refreshes noticeably faster after a turn ends or the window regains focus.'
+            }
+          },
+          {
+            icon: 'search',
+            title: {
+              zh: '新会话更快出现在侧栏',
+              en: 'New sessions show up sooner'
+            },
+            desc: {
+              zh: '新增单条会话存在性查询：只定向检查记录文件是否落盘，确认后再刷新一次列表。原先最多 5 次全量扫描，现在只需 1 次。',
+              en: 'A new existence check only looks for the session file and refreshes the list once it is there. What used to take up to five full scans now takes one.'
+            }
+          },
+          {
+            icon: 'sparkle',
+            title: {
+              zh: '主进程体积更小',
+              en: 'Smaller main-process bundle'
+            },
+            desc: {
+              zh: '主进程与 preload 开启压缩：主进程产物约 2.5MB → 1.5MB，preload 约 28KB → 18KB；截图产物也不再打进安装包。',
+              en: 'The main process and preload are minified: the main bundle drops from about 2.5MB to 1.5MB and preload from about 28KB to 18KB. Screenshot artifacts are no longer bundled either.'
+            }
+          },
+          {
+            icon: 'rich-text',
+            title: {
+              zh: '查找与轨迹页更省 CPU',
+              en: 'Find and the trace tab use less CPU'
+            },
+            desc: {
+              zh: '会话内查找只在查找条打开时计算内容签名，不再为每个流式增量拼接整段工具输出；轨迹页屏幕外的行跳过排版。',
+              en: 'In-conversation find now computes its content signature only while the find bar is open and no longer joins full tool output for every streaming delta. Off-screen trace rows skip layout as well.'
+            }
+          },
+          {
+            icon: 'collapse',
+            title: {
+              zh: '轮末磁盘核对更快',
+              en: 'Faster end-of-turn disk checks'
+            },
+            desc: {
+              zh: '未跟踪文件的行数按 mtime / size 缓存，轮前轮后两次快照不再重复读同一批没变的文件；结束的会话也会清掉文件写入者索引。',
+              en: 'Line counts for untracked files are cached by mtime and size, so the two snapshots per turn stop re-reading unchanged files. Finished sessions also drop their file-writer index.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.15',
     date: '2026-11-02',
     highlight: {

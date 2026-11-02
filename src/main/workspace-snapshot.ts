@@ -129,12 +129,43 @@ async function statOrNull(path: string): Promise<Stats | null> {
 }
 
 
-async function countLines(path: string): Promise<number> {
+/**
+ * 未跟踪文件行数缓存。
+ *
+ * 每轮要拍轮前 / 轮后两次快照，同一批 `??` 文件会被完整读两遍；而它们
+ * 大多数时候根本没变。按 (mtime, size) 复用上次数出来的行数，只对真正
+ * 变化的文件重读。
+ */
+const lineCountCache = new Map<string, { mtimeMs: number; size: number; lines: number }>()
+/** 缓存条数上限：只服务当前两三次快照，没必要跟着仓库规模无限涨 */
+const LINE_COUNT_CACHE_MAX = 4096
+
+async function countLines(
+  path: string,
+  known?: { mtimeMs: number; size: number } | null
+): Promise<number> {
   try {
-    if ((await stat(path)).size > COUNT_LINES_MAX_BYTES) return 0
+    const st = known ?? (await stat(path))
+    if (st.size > COUNT_LINES_MAX_BYTES) return 0
+
+    const hit = lineCountCache.get(path)
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+      // LRU：命中的挪到队尾，超限时淘汰最久没用的
+      lineCountCache.delete(path)
+      lineCountCache.set(path, hit)
+      return hit.lines
+    }
+
     const text = await readFile(path, 'utf8')
-    if (!text) return 0
-    return text.replace(/\n$/, '').split('\n').length
+    const lines = text ? text.replace(/\n$/, '').split('\n').length : 0
+    lineCountCache.delete(path)
+    lineCountCache.set(path, { mtimeMs: st.mtimeMs, size: st.size, lines })
+    while (lineCountCache.size > LINE_COUNT_CACHE_MAX) {
+      const oldest = lineCountCache.keys().next().value
+      if (oldest === undefined) break
+      lineCountCache.delete(oldest)
+    }
+    return lines
   } catch {
     return 0
   }
@@ -219,8 +250,8 @@ async function gitSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
     const created = xy === '??'
     const st = deleted ? null : await statOrNull(abs)
     const exact = stats.get(rel)
-    // untracked 不在 numstat 里，按内容行数算
-    const added = created ? await countLines(abs) : (exact?.added ?? 0)
+    // untracked 不在 numstat 里，按内容行数算（复用上一轮数过的结果）
+    const added = created ? await countLines(abs, st) : (exact?.added ?? 0)
     const removed = created ? 0 : (exact?.removed ?? 0)
     return {
       abs,
@@ -381,7 +412,7 @@ export async function diffWorkspace(
       ? { added: st.added, removed: st.removed }
       : created
         ? // 目录树快照不存内容，新建文件的行数在这里补算
-          { added: await countLines(path), removed: 0 }
+          { added: await countLines(path, st), removed: 0 }
         : {}
 
     out.push({

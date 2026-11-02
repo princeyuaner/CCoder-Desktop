@@ -569,6 +569,14 @@ export class SessionManager {
     s.diskBefore = null
     s.sessionEpoch += 1
     s.session?.dispose()
+    /*
+     * 写入者索引只服务于「本轮有没有别的会话写过这个文件」。会话一旦
+     * 结束，它留下的条目不会再被任何轮次的 claimSeq 命中；留着只会随着
+     * 用户开过的仓库/文件数一直涨。
+     */
+    for (const [path, writer] of this.fileWriters) {
+      if (writer.sessionId === s.id) this.fileWriters.delete(path)
+    }
     this.live.delete(sessionId)
     this.emitStatus({ sessionId, status: 'exited', providerSessionId: s.providerSessionId })
   }

@@ -7,6 +7,7 @@ import { t } from '../../i18n'
 import { DshEventTranslator } from './events'
 import { decodeZstd, readDshRecords } from './history-read'
 import { listDshHomes } from './runner'
+import { IO_CONCURRENCY, mapLimit } from '../../concurrency'
 
 /**
  * DeepSeek Harness 的会话历史。
@@ -216,21 +217,25 @@ async function titleFromTranscript(file: string, size: number): Promise<string> 
 }
 
 export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
-  const out: DshSessionFile[] = []
   const seenFiles = new Set<string>()
   const seenProj = new Set<string>()
 
   /*
-   * 每个渠道一个 home，另外还有共享的 `~/.dsh`（official 模式 / 旧会话）。
-   * 全部扫一遍，侧栏才不会因为换了渠道就"丢历史"。
+   * 先只收候选会话目录（readdir 很便宜），再把「列目录 + stat + 读头 +
+   * 读投影缓存 + 必要时解压取标题」按并发上限一起跑。
+   *
+   * 原来三层循环全部串行：home → 编码目录 → 会话目录，每个文件还要
+   * `await stat` / `await readHeader`。侧栏每次刷新都走这里，会话一多，
+   * 刷新延迟就是单文件 IO 的线性累加。
    */
-  const scan = async (home: string): Promise<void> => {
+  const candidates: Array<{ home: string; id: string; dir: string }> = []
+  for (const home of listDshHomes()) {
     const root = join(home, 'sessions')
     let encodings: string[]
     try {
       encodings = await fsp.readdir(root)
     } catch {
-      return // 这个 home 还没跑过 dsh
+      continue // 这个 home 还没跑过 dsh
     }
 
     for (const encoded of encodings) {
@@ -241,70 +246,73 @@ export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
       } catch {
         continue
       }
-
-      for (const id of ids) {
-        const dir = join(encDir, id)
-        let files: string[]
-        try {
-          files = await fsp.readdir(dir)
-        } catch {
-          continue
-        }
-
-        const name = TRANSCRIPT_NAMES.find((n) => files.includes(n))
-        if (!name) continue
-
-        const file = join(dir, name)
-        let st
-        try {
-          st = await fsp.stat(file)
-        } catch {
-          continue
-        }
-        if (!st.isFile()) continue
-        seenFiles.add(file)
-
-        const header = await readHeader(file, st.size, st.mtimeMs)
-        if (!header) continue
-        // 子代理会话不是用户开的，混进侧栏只会让列表变脏
-        if (header.origin === 'subagent' || header.delegationDepth > 0) continue
-
-        const projFile = join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`)
-        seenProj.add(projFile)
-        const proj = await readProjCache(projFile)
-
-        // 新建但一句话都没说的会话：dsh 自己的 session/list 也不列它
-        if (proj?.blank) continue
-
-        // dsh 自己写的 cwd 可能是 `C:/Users/...`，也可能是 `C:\Users\...`
-        // （TUI 和 ACP 两条路径不一样）。统一成系统分隔符，否则同一个工作区
-        // 会被拆成两组，其中一组在侧栏里根本点不到。
-        const cwd = normalize(proj?.cwd || header.cwd)
-        if (!cwd) continue
-
-        const title =
-          cleanTitle(proj?.title ?? '') ||
-          (await titleFromTranscript(file, st.size)) ||
-          t('codexHistory.untitled')
-
-        out.push({
-          file,
-          dir,
-          session: {
-            id: header.id || id,
-            cwd,
-            title,
-            // 记录里没有创建时间就退回文件创建时间，再退 mtime
-            createdAt: proj?.createdAt || header.createdAt || st.birthtimeMs || st.mtimeMs,
-            updatedAt: st.mtimeMs,
-            cli: 'dsh'
-          }
-        })
-      }
+      for (const id of ids) candidates.push({ home, id, dir: join(encDir, id) })
     }
   }
 
-  for (const home of listDshHomes()) await scan(home)
+  const rows = await mapLimit(candidates, IO_CONCURRENCY, async ({ home, id, dir }) => {
+    let files: string[]
+    try {
+      files = await fsp.readdir(dir)
+    } catch {
+      return null
+    }
+
+    const name = TRANSCRIPT_NAMES.find((n) => files.includes(n))
+    if (!name) return null
+
+    const file = join(dir, name)
+    let st
+    try {
+      st = await fsp.stat(file)
+    } catch {
+      return null
+    }
+    if (!st.isFile()) return null
+    seenFiles.add(file)
+
+    const header = await readHeader(file, st.size, st.mtimeMs)
+    if (!header) return null
+    // 子代理会话不是用户开的，混进侧栏只会让列表变脏
+    if (header.origin === 'subagent' || header.delegationDepth > 0) return null
+
+    const projFile = join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`)
+    seenProj.add(projFile)
+    const proj = await readProjCache(projFile)
+
+    // 新建但一句话都没说的会话：dsh 自己的 session/list 也不列它
+    if (proj?.blank) return null
+
+    // dsh 自己写的 cwd 可能是 `C:/Users/...`，也可能是 `C:\Users\...`
+    // （TUI 和 ACP 两条路径不一样）。统一成系统分隔符，否则同一个工作区
+    // 会被拆成两组，其中一组在侧栏里根本点不到。
+    const cwd = normalize(proj?.cwd || header.cwd)
+    if (!cwd) return null
+
+    const title =
+      cleanTitle(proj?.title ?? '') ||
+      (await titleFromTranscript(file, st.size)) ||
+      t('codexHistory.untitled')
+
+    const row: DshSessionFile = {
+      file,
+      dir,
+      session: {
+        id: header.id || id,
+        cwd,
+        title,
+        // 记录里没有创建时间就退回文件创建时间，再退 mtime
+        createdAt: proj?.createdAt || header.createdAt || st.birthtimeMs || st.mtimeMs,
+        updatedAt: st.mtimeMs,
+        cli: 'dsh'
+      }
+    }
+    return row
+  })
+
+  // mapLimit 保持候选顺序；最终排序由 session-store 统一做
+  const out: DshSessionFile[] = []
+  for (const row of rows) if (row) out.push(row)
 
   // 已经删掉的会话别在缓存里留一辈子
   for (const k of headerCache.keys()) if (!seenFiles.has(k)) headerCache.delete(k)

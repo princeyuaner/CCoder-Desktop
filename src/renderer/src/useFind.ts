@@ -60,22 +60,35 @@ export interface FindApi {
  * 刻意只取"看得到的字"。工具输出、思考块、引用代码都算 —— 用户搜报错原文
  * 时正是在这些地方找。图片没有文本，自然落空。
  */
-function itemText(it: ChatItem): string {
+function itemTextLength(it: ChatItem): number {
+  const joined = (parts: Array<string | undefined>): number => {
+    let length = 0
+    let count = 0
+    for (const part of parts) {
+      if (!part) continue
+      length += part.length
+      count++
+    }
+    return length + Math.max(0, count - 1)
+  }
+
   switch (it.kind) {
     case 'user':
     case 'text':
     case 'thinking':
-      return it.text
+      return it.text.length
     case 'tool':
-      return [it.command, it.subject, it.summary, it.content].filter(Boolean).join('\n')
+      // 不能 unfold 成 itemText(...).length：工具输出可达 20k 字符，
+      // 每个流式增量都把整份内容拼一遍会白烧主线程。
+      return joined([it.command, it.subject, it.summary, it.content])
     case 'permission':
-      return [it.tool, it.summary].filter(Boolean).join(' ')
+      return joined([it.tool, it.summary])
     case 'question':
-      return it.questions.map((q) => [q.header, q.question].filter(Boolean).join(' ')).join('\n')
+      return joined(it.questions.flatMap((q) => [q.header, q.question]))
     case 'error':
-      return typeof it.message === 'string' ? it.message : ''
+      return typeof it.message === 'string' ? it.message.length : 0
     default:
-      return ''
+      return 0
   }
 }
 
@@ -206,10 +219,18 @@ export function useFindInConversation(
   const seqRef = useRef(0)
   const timerRef = useRef<number | null>(null)
 
-  /** 内容签名：id + 文本长度。够挡住"流式 delta 只追加"的重复扫描 */
+  /**
+   * 内容签名：id + 文本长度。够挡住"流式 delta 只追加"的重复扫描。
+   *
+   * 只在查找条打开时计算 —— 它挂在转写区的每次渲染上，关闭时算出来的
+   * 字符串没人用；打开后也只累加长度，不复制工具输出正文。
+   */
   const sig = useMemo(
-    () => `${revision}\u0000${items.map((i) => `${i.id}:${itemText(i).length}`).join('|')}`,
-    [items, revision]
+    () =>
+      open
+        ? `${revision}\u0000${items.map((i) => `${i.id}:${itemTextLength(i)}`).join('|')}`
+        : revision,
+    [items, revision, open]
   )
 
   const apply = useCallback(

@@ -5,6 +5,7 @@ import { basename, isAbsolute, join } from 'node:path'
 import type { AgentEvent, Usage } from '../../../shared/events'
 import type { StoredSession } from '../../../shared/session'
 import { t } from '../../i18n'
+import { IO_CONCURRENCY, mapLimit } from '../../concurrency'
 
 /**
  * 读 Codex 自己的 rollout 记录。
@@ -239,15 +240,19 @@ export interface CodexSessionFile {
 export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
   const files: string[] = []
   await walk(codexSessionsRoot(), files)
-  const out: CodexSessionFile[] = []
   const seen = new Set<string>()
 
-  for (const file of files) {
+  /*
+   * 每个文件独立 stat / 读头，按并发上限一起跑。原来是逐个 await，
+   * 几百条 rollout 时整趟扫描的墙钟时间≈单条延迟 × 文件数；侧栏每次
+   * turn_end / focus 都会重扫一遍，串行代价很直观。
+   */
+  const parsed = await mapLimit(files, IO_CONCURRENCY, async (file) => {
     let st
     try {
       st = await fsp.stat(file)
     } catch {
-      continue
+      return null
     }
     seen.add(file)
 
@@ -279,13 +284,13 @@ export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
       headCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, head })
     }
 
-    if (!head.cwd) continue
+    if (!head.cwd) return null
     const fallbackId = basename(file).match(
       /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
     )?.[1]
     const id = head.id || fallbackId || basename(file, '.jsonl')
 
-    out.push({
+    const entry: CodexSessionFile = {
       file,
       session: {
         id,
@@ -295,8 +300,13 @@ export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
         updatedAt: st.mtimeMs,
         cli: 'codex'
       }
-    })
-  }
+    }
+    return entry
+  })
+
+  // mapLimit 保持输入顺序，侧栏看到的顺序和之前一致
+  const out: CodexSessionFile[] = []
+  for (const entry of parsed) if (entry) out.push(entry)
 
   for (const key of headCache.keys()) {
     if (!seen.has(key)) headCache.delete(key)

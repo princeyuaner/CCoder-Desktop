@@ -1,5 +1,6 @@
 export {
   listStoredSessions,
   readTranscript,
-  searchStoredSessions
+  searchStoredSessions,
+  storedSessionExists
 } from '../src/main/session-store'
