@@ -53,6 +53,50 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.18',
+    date: '2026-11-02',
+    highlight: {
+      icon: 'sparkle',
+      title: {
+        zh: '侧栏只扫变动的，长会话一次成型',
+        en: 'Sidebar scans only what changed; long sessions build in one pass'
+      },
+      desc: {
+        zh: 'Claude 会话列表改为监听文件变化、只重扫改动过的记录，没变的文件连 stat 都省掉；打开旧会话时的历史回放合并成一次遍历并原地构建，大会话不再为每条事件整表拷贝。',
+        en: 'The Claude session list now watches for file changes and rescans only what changed — unchanged files are not even stat-ed. Opening an old session replays its history in one pass that builds the list in place, instead of copying it for every event.'
+      }
+    },
+    sections: [
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'batch',
+            title: {
+              zh: '会话列表增量扫描',
+              en: 'Incremental session-list scans'
+            },
+            desc: {
+              zh: '监听 ~/.claude/projects 的写入，只重扫被改动过的 .jsonl；其余记录直接复用上次的解析结果，连 stat 都不做，Windows 上几百份文件的每趟 IO 尖刺随之消失。监听不可用时自动退回全量扫描，并每 60 秒兜底校验一次，避免漏掉事件。',
+              en: 'Writes under ~/.claude/projects are watched, so only changed .jsonl files are rescanned. Everything else reuses its last parse without even a stat, removing the per-refresh IO spike from hundreds of files on Windows. If watching is unavailable it falls back to a full scan, with a 60-second revalidation to catch missed events.'
+            }
+          },
+          {
+            icon: 'sparkle',
+            title: {
+              zh: '长会话回放只遍历一次',
+              en: 'Large-session replay in a single pass'
+            },
+            desc: {
+              zh: '打开旧会话时，卡片、轮数、步数、用量、输入历史和「本轮修改」合并成一次遍历；回放期间直接原地构建列表，不再每来一条事件浅拷贝整张表，大会话首屏开销从 O(n²) 降到 O(n)。',
+              en: 'Cards, turn count, steps, usage, input history and "changed this turn" are now derived in a single pass when opening an old session. Replay builds the list in place instead of shallow-copying it per event, taking large-session first paint from O(n²) to O(n).'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.17',
     date: '2026-11-02',
     highlight: {

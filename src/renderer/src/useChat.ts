@@ -16,7 +16,7 @@ import { stripAnsi } from '@shared/ansi'
 import { sanitizeAddDirs, sameAddDirs } from '@shared/add-dirs'
 import { ltext, type LocalizedText } from '@shared/i18n'
 import { cwdKey } from '@shared/path'
-import { applyFileChange, filesAfterLastTurn, type ChangedFile } from './changedFiles'
+import { applyFileChange, reduceFiles, type ChangedFile } from './changedFiles'
 import { parseIdeRefs } from './ideRef'
 import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
@@ -367,15 +367,48 @@ function toolStartLine(name: string, input: unknown): number | undefined {
 }
 
 /** 把还开着口的那张卡封口 —— 有新东西要上来了 */
-function closeOpen(items: ChatItem[]): ChatItem[] {
+function closeOpen(items: ChatItem[], mutate = false): ChatItem[] {
   const last = items[items.length - 1]
   if (!last) return items
   if ((last.kind === 'text' || last.kind === 'thinking') && last.streaming) {
+    if (mutate) {
+      last.streaming = false
+      return items
+    }
     const copy = items.slice()
     copy[copy.length - 1] = { ...last, streaming: false }
     return copy
   }
   return items
+}
+
+/**
+ * 往尾部追加一张卡。`mutate` 只给历史回放用：那时没有别的订阅者持有中间
+ * 数组，原地 push 省掉每来一条事件就整表浅拷贝一次（大会话是 O(n²)）。
+ */
+function appendItem(items: ChatItem[], item: ChatItem, mutate: boolean): ChatItem[] {
+  const next = closeOpen(items, mutate)
+  if (mutate) {
+    next.push(item)
+    return next
+  }
+  return [...next, item]
+}
+
+/** 原地替换第 idx 张卡；语义同 appendItem 的 mutate 分支 */
+function replaceItem(
+  items: ChatItem[],
+  idx: number,
+  item: ChatItem,
+  mutate: boolean
+): ChatItem[] {
+  if (mutate) {
+    items[idx] = item
+    return items
+  }
+  const copy = items.slice()
+  copy[idx] = item
+  return copy
 }
 
 /**
@@ -396,17 +429,26 @@ function lastToolIndex(items: ChatItem[], id: string): number {
 function appendDelta(
   items: ChatItem[],
   kind: 'text' | 'thinking',
-  text: string
+  text: string,
+  mutate = false
 ): ChatItem[] {
   const last = items[items.length - 1]
   if (last?.kind === kind && last.streaming) {
+    if (mutate) {
+      last.text += text
+      return items
+    }
     const copy = items.slice()
     copy[copy.length - 1] = { ...last, text: last.text + text }
     return copy
   }
   // 换类了（思考 → 正文）要把上一张封口。不然那张卡永远停在 streaming，
   // 药丸会一直显示"思考中…"，连回合结束了都不消。
-  return [...closeOpen(items), { kind, id: uid(), at: atIso(), text, streaming: true }]
+  return appendItem(
+    items,
+    { kind, id: uid(), at: atIso(), text, streaming: true },
+    mutate
+  )
 }
 
 /**
@@ -438,25 +480,37 @@ function pushSystem(items: ChatItem[], change: SystemChange): ChatItem[] {
 }
 
 /**
- * 事件 → 卡片。**纯函数**，所以历史回放能走同一条路径：
- * 一次性 `events.reduce(reduce, [])`，而不是逐条 setState（那是 O(n²)）。
+ * 事件 → 卡片。历史回放和实时流共用同一条归约路径，而不是各写一套。
+ *
+ * 默认返回新数组（实时流靠引用比较触发重渲染）；`mutate=true` 时原地修改，
+ * 只给一次性回放用 —— 没有别的订阅者持有中间结果，省掉逐事件整表拷贝。
  *
  * `live=false` 是历史回放。只影响工具耗时：回放是一次性归约，
  * 用 Date.now() 相减永远是 0，不如干脆不算，界面上就不显示。
  */
-function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
+function reduce(
+  items: ChatItem[],
+  e: AgentEvent,
+  live = true,
+  /**
+   * 历史回放专用：允许原地修改累加数组。实时流必须保持不可变（React 靠
+   * 引用比较决定重渲染），所以只有 loadHistory 会传 true。
+   */
+  mutate = false
+): ChatItem[] {
   switch (e.t) {
     case 'user_message':
-      return [
-        ...closeOpen(items),
-        { kind: 'user', id: uid(), text: e.text, at: atIso(e.at), images: e.images }
-      ]
+      return appendItem(
+        items,
+        { kind: 'user', id: uid(), text: e.text, at: atIso(e.at), images: e.images },
+        mutate
+      )
 
     case 'text_delta':
-      return appendDelta(items, 'text', e.text)
+      return appendDelta(items, 'text', e.text, mutate)
 
     case 'thinking_delta':
-      return appendDelta(items, 'thinking', e.text)
+      return appendDelta(items, 'thinking', e.text, mutate)
 
     case 'tool_started': {
       // 转写区不画的工具（任务清单/子代理/提问），连占位卡也不用出
@@ -468,19 +522,22 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
         const prev = items[idx] as Extract<ChatItem, { kind: 'tool' }>
         if (prev.path === e.path) return items
         const d = toolDisplay(e.name, { file_path: e.path })
-        const copy = items.slice()
-        copy[idx] = {
-          ...prev,
-          subject: d.subject,
-          fallback: d.fallback,
-          dir: d.dir,
-          path: d.path
-        }
-        return copy
+        return replaceItem(
+          items,
+          idx,
+          {
+            ...prev,
+            subject: d.subject,
+            fallback: d.fallback,
+            dir: d.dir,
+            path: d.path
+          },
+          mutate
+        )
       }
       const d = toolDisplay(e.name, e.path ? { file_path: e.path } : {})
-      return [
-        ...closeOpen(items),
+      return appendItem(
+        items,
         {
           kind: 'tool',
           id: e.id,
@@ -493,15 +550,18 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
           path: d.path,
           status: 'running',
           startedAt: live ? Date.now() : 0
-        }
-      ]
+        },
+        mutate
+      )
     }
 
     case 'tool_call': {
       // 任务清单/子代理由执行台负责，转写区不重复记；
       // 但要先把正在流式的正文封口，别让光标一直挂在那儿
       // AskUserQuestion 由提问卡片/抽屉负责，工具卡不重复画。
-      if (RUN_META_TOOLS.has(e.name) || e.name === 'AskUserQuestion') return closeOpen(items)
+      if (RUN_META_TOOLS.has(e.name) || e.name === 'AskUserQuestion') {
+        return closeOpen(items, mutate)
+      }
       const d = toolDisplay(e.name, e.input)
       const next = {
         kind: 'tool' as const,
@@ -524,11 +584,14 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
       const idx = lastToolIndex(items, e.id)
       if (idx >= 0) {
         const prev = items[idx] as Extract<ChatItem, { kind: 'tool' }>
-        const copy = items.slice()
-        copy[idx] = { ...prev, ...next, at: prev.at, startedAt: prev.startedAt }
-        return copy
+        return replaceItem(
+          items,
+          idx,
+          { ...prev, ...next, at: prev.at, startedAt: prev.startedAt },
+          mutate
+        )
       }
-      return [...closeOpen(items), next]
+      return appendItem(items, next, mutate)
     }
 
     case 'tool_result': {
@@ -536,25 +599,28 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
       const idx = lastToolIndex(items, e.id)
       if (idx < 0) return items
       const prev = items[idx] as Extract<ChatItem, { kind: 'tool' }>
-      const copy = items.slice()
-      copy[idx] = {
-        ...prev,
-        status: e.status,
-        // 工具输出带终端颜色码（类型检查 / 构建日志最多），
-        // 直接进 <pre> 会显示成 [2m、[39m 之类的乱码
-        content: stripAnsi(e.content),
-        // patch 里的精确值覆盖 tool_call 时用 input 估的那版 ——
-        // replace_all 的真实次数只有它知道
-        ...(e.stat ? { stat: e.stat } : {}),
-        ...(e.created ? { created: true } : {}),
-        ms: prev.startedAt ? Date.now() - prev.startedAt : undefined
-      }
-      return copy
+      return replaceItem(
+        items,
+        idx,
+        {
+          ...prev,
+          status: e.status,
+          // 工具输出带终端颜色码（类型检查 / 构建日志最多），
+          // 直接进 <pre> 会显示成 [2m、[39m 之类的乱码
+          content: stripAnsi(e.content),
+          // patch 里的精确值覆盖 tool_call 时用 input 估的那版 ——
+          // replace_all 的真实次数只有它知道
+          ...(e.stat ? { stat: e.stat } : {}),
+          ...(e.created ? { created: true } : {}),
+          ms: prev.startedAt ? Date.now() - prev.startedAt : undefined
+        },
+        mutate
+      )
     }
 
     case 'permission_request':
-      return [
-        ...closeOpen(items),
+      return appendItem(
+        items,
         {
           kind: 'permission',
           id: e.id,
@@ -566,14 +632,15 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
           options: e.options,
           state: 'pending',
           remembered: false
-        }
-      ]
+        },
+        mutate
+      )
 
     case 'question_request': {
       // 历史回放会把答案一起带过来；实时流要等 answerQuestion 落状态
       const answered = e.answers && Object.keys(e.answers).length > 0
-      return [
-        ...closeOpen(items),
+      return appendItem(
+        items,
         {
           kind: 'question',
           id: e.id,
@@ -581,13 +648,14 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
           questions: e.questions,
           state: answered ? 'answered' : e.skipped ? 'skipped' : 'pending',
           ...(answered ? { answers: e.answers } : {})
-        }
-      ]
+        },
+        mutate
+      )
     }
 
     case 'turn_end':
-      return [
-        ...closeOpen(items),
+      return appendItem(
+        items,
         {
           kind: 'turn',
           id: uid(),
@@ -595,11 +663,16 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
           durationMs: e.durationMs,
           steps: e.steps,
           usage: e.usage
-        }
-      ]
+        },
+        mutate
+      )
 
     case 'error':
-      return [...closeOpen(items), { kind: 'error', id: uid(), at: atIso(), message: e.message }]
+      return appendItem(
+        items,
+        { kind: 'error', id: uid(), at: atIso(), message: e.message },
+        mutate
+      )
 
     // session_started 不改转写内容，由调用方单独处理
     default:
@@ -1093,35 +1166,52 @@ class ChatController {
       const history = await api.sessions.transcript(this.init.cwd, resumeId)
       if (this.disposed) return
 
-      const items = history.reduce((acc, e) => reduce(acc, e, false), [] as ChatItem[])
-      const run = history.reduce((acc, e) => reduceRun(acc, e, false), emptyRunState())
-      const turns = history.filter((h) => h.t === 'user_message').length
-      const ends = history.filter((h) => h.t === 'turn_end')
-      const steps = ends.reduce((n, h) => n + (h.t === 'turn_end' ? h.steps : 0), 0)
-      const last = ends[ends.length - 1]
+      /*
+       * 一遍扫完所有派生状态。
+       *
+       * 原来是 items / run 各 reduce 一次、turns 和 turn_end 各 filter 一次、
+       * 输入历史再遍历一次、修改清单再来一次 —— 大会话（上限 2 万条）打开时
+       * 这些遍历和中间数组都是首屏延迟的一部分。合并成一次遍历，语义不变。
+       */
+      let items: ChatItem[] = []
+      let run = emptyRunState()
+      let turns = 0
+      let steps = 0
       let usage: Usage | undefined
-      if (last && last.t === 'turn_end') usage = last.usage
-
-      // 历史里的 steps 已经是权威累计值，待校准的实时计数清零
-      this.pendingSteps = 0
+      // 修改清单只回放最后一轮 —— 和实时行为一致
+      let files: ChangedFile[] = []
       /*
        * 老会话在这次功能上线前发过的话不在 localStorage 里。用转写里的
        * user_message 兜底（剥掉 IDE 引用块），↑ 一打开就有东西可翻。
        */
       const prompts: string[] = []
+
       for (const h of history) {
-        if (h.t !== 'user_message') continue
-        const prompt = parseIdeRefs(h.text).text.trim()
-        if (prompt) prompts.push(prompt)
+        // mutate=true：回放期间没有别的订阅者，原地修改避免每条事件整表拷贝
+        items = reduce(items, h, false, true)
+        run = reduceRun(run, h, false)
+        files = reduceFiles(files, h)
+
+        if (h.t === 'user_message') {
+          turns++
+          const prompt = parseIdeRefs(h.text).text.trim()
+          if (prompt) prompts.push(prompt)
+        } else if (h.t === 'turn_end') {
+          steps += h.steps
+          usage = h.usage
+        }
       }
-      // 修改清单只回放最后一轮 —— 和实时行为一致
+
+      // 历史里的 steps 已经是权威累计值，待校准的实时计数清零
+      this.pendingSteps = 0
+
       this.patch({
         items,
         run,
         turns,
         steps,
         usage,
-        files: filesAfterLastTurn(history),
+        files,
         inputHistory: this.withTranscriptHistory(prompts)
       })
     } catch {

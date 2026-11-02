@@ -110,15 +110,13 @@ export function applyFileChange(
 }
 
 /**
- * 历史回放：只保留**最后一条用户消息之后**的改动。
+ * 「本轮修改」的逐事件归约。
  *
- * 打开旧会话时「本轮修改」应该显示最后一次提问那一轮，而不是整个会话。
+ * 一轮 = 最后一条用户消息之后：遇到新的用户消息或轮开始就清空，文件改动
+ * 合并进来，其它事件原样返回。历史回放和实时流共用同一条规则，这样打开
+ * 旧会话时看到的也是最后一次提问那一轮，而不是整个会话的改动。
  */
-export function filesAfterLastTurn(events: AgentEvent[]): ChangedFile[] {
-  let files: ChangedFile[] = []
-  for (const e of events) {
-    if (e.t === 'user_message' || e.t === 'turn_started') files = []
-    else if (e.t === 'file_change') files = applyFileChange(files, e)
-  }
-  return files
+export function reduceFiles(files: ChangedFile[], e: AgentEvent): ChangedFile[] {
+  if (e.t === 'user_message' || e.t === 'turn_started') return []
+  return e.t === 'file_change' ? applyFileChange(files, e) : files
 }

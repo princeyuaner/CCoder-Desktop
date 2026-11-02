@@ -1,7 +1,6 @@
-import { promises as fsp } from 'node:fs'
-import type { Stats } from 'node:fs'
+import { promises as fsp, watch, type FSWatcher, type Stats } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { AgentEvent } from '../shared/events'
 import { sameCwd } from '../shared/settings'
 import type {
@@ -89,6 +88,85 @@ const headCache = new Map<
   string,
   { mtimeMs: number; size: number; cwd: string; title: string; createdAt: number }
 >()
+
+/*
+ * ~/.claude/projects 的增量失效。
+ *
+ * 列表每轮跑完 / 窗口获得焦点都会重拉，而 headCache 只省掉了「读文件头」，
+ * 省不掉对 400+ 份文件逐个 stat —— Windows 上每趟仍是几十毫秒的 IO 尖刺。
+ *
+ * 这里用一个递归 watch 只做「哪些文件变了」的标记，扫描时没被标记的文件
+ * 直接复用上一次的解析结果，连 stat 都不做。watch 不可用（旧 Node / 权限）
+ * 时保持原来的全量 stat 行为，不牺牲正确性。
+ *
+ * 事件可能丢失或被合并，所以每隔一段时间仍然全量校验一次；watch 建立后
+ * 也强制下一趟全量，覆盖 attach 之前发生的改动。
+ */
+const dirtyClaudeFiles = new Set<string>()
+let claudeWatch: FSWatcher | null = null
+/** watch 创建失败后的重试时间 —— ROOT 可能还没被 CLI 创建 */
+let claudeWatchRetryAt = 0
+/** 无法定位到具体文件（filename 为 null / 非递归降级）时，下一趟只能全扫 */
+let claudeRescanAll = true
+let lastClaudeFullScan = 0
+
+/** 定期全量校验的间隔：兜住 watch 丢事件 / 合并事件的极端情况 */
+const CLAUDE_FULL_REVALIDATE_MS = 60_000
+/** watch 建不起来时，隔多久再试一次（目录可能尚未创建） */
+const CLAUDE_WATCH_RETRY_MS = 10_000
+
+function markClaudeChanged(filename: string | Buffer | null): void {
+  if (filename === null) {
+    claudeRescanAll = true
+    return
+  }
+  const raw = filename.toString()
+  if (!raw || raw.includes('\0')) {
+    claudeRescanAll = true
+    return
+  }
+  const full = resolve(ROOT(), raw)
+  if (full.endsWith('.jsonl')) dirtyClaudeFiles.add(full)
+}
+
+/** 幂等：第一次扫描时挂上监听；失败后按重试间隔再试 */
+function ensureClaudeWatch(): void {
+  if (claudeWatch) return
+  const now = Date.now()
+  if (now < claudeWatchRetryAt) return
+  claudeWatchRetryAt = now + CLAUDE_WATCH_RETRY_MS
+
+  const attach = (recursive: boolean): FSWatcher | null => {
+    try {
+      const watcher = watch(ROOT(), { recursive }, (_event, filename) => {
+        // 非递归降级只能看到根目录条目，无法判断子树里改了什么
+        if (!recursive) claudeRescanAll = true
+        else markClaudeChanged(filename)
+      })
+      watcher.on('error', () => {
+        if (claudeWatch !== watcher) return
+        try {
+          watcher.close()
+        } catch {
+          // 已经坏了
+        }
+        claudeWatch = null
+        claudeRescanAll = true
+        claudeWatchRetryAt = Date.now() + CLAUDE_WATCH_RETRY_MS
+      })
+      // 监听不该阻止应用退出
+      watcher.unref?.()
+      return watcher
+    } catch {
+      return null
+    }
+  }
+
+  // 递归不可用（旧 Node / inotify 配额）时退回根目录监听；正确性由定期全量
+  // 校验兜底，代价是这类平台上拿不到增量收益。
+  claudeWatch = attach(true) ?? attach(false)
+  if (claudeWatch) claudeRescanAll = true
+}
 
 /** 从文件头里抠出 cwd、标题和创建时间 */
 function parseHead(head: string): { cwd: string; title: string; createdAt: number } {
@@ -233,6 +311,22 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
   /** 这一趟见过的文件，用来把缓存里已经删掉的那些清出去 */
   const seen = new Set<string>()
 
+  ensureClaudeWatch()
+  /*
+   * 先把当前脏集合取走再清空：扫描期间新到的事件会落进新的集合，下一趟
+   * 继续处理。宁可多扫一次，也不能把扫描过程中发生的改动吞掉。
+   */
+  const fullClaudeScan =
+    claudeRescanAll ||
+    claudeWatch === null ||
+    Date.now() - lastClaudeFullScan >= CLAUDE_FULL_REVALIDATE_MS
+  const dirty = new Set(dirtyClaudeFiles)
+  dirtyClaudeFiles.clear()
+  if (fullClaudeScan) {
+    claudeRescanAll = false
+    lastClaudeFullScan = Date.now()
+  }
+
   let projects: string[]
   try {
     projects = await fsp.readdir(ROOT())
@@ -269,6 +363,32 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
   const scanned = await mapLimit(fileEntries, SCAN_FILE_CONCURRENCY, async ({ dir, f }) => {
     const full = join(dir, f)
     seen.add(full)
+    const id = f.slice(0, -'.jsonl'.length)
+
+    /*
+     * 增量快路径：这个文件上次解析过，且 watch 没有报告它变过 —— 连 stat
+     * 都省掉，直接用缓存的字段。首条记录是追加写之前就固定下来的，所以
+     * cwd / 标题 / 创建时间本来就不会变；唯一会变的是 updatedAt。
+     */
+    if (!fullClaudeScan && !dirty.has(full)) {
+      const hit = headCache.get(full)
+      if (hit) {
+        if (!hit.cwd) return null // 上次也读不到 cwd，和全量扫描结果一致
+        return {
+          file: full,
+          session: {
+            id,
+            cwd: hit.cwd,
+            title: hit.title || t('codexHistory.untitled'),
+            createdAt: hit.createdAt,
+            updatedAt: hit.mtimeMs,
+            cli: 'claude' as const
+          }
+        }
+      }
+      // 没有缓存（进程刚起来 / 新文件）：落到下面走完整读取
+    }
+
     try {
       const st = await fsp.stat(full)
       if (!st.isFile()) return null
@@ -294,12 +414,17 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
             }
           }
         }
+        // createdAt 在缓存里存**已经解析好的值**：增量快路径拿不到 birthtime，
+        // 不能把 0 留到下一次扫描。
+        head = {
+          ...head,
+          createdAt: head.createdAt || st.birthtimeMs || st.mtimeMs
+        }
         headCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, ...head })
       }
 
       const { cwd, title, createdAt } = head
       if (!cwd) return null // 连 cwd 都读不到的文件，列表里没意义
-      const id = f.slice(0, -'.jsonl'.length)
       return {
         file: full,
         session: {

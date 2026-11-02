@@ -26,16 +26,32 @@ const transcript = [
       'hello\n<ide_reference path="a.ts" lines="1-1" lang="ts">\n```ts\nx\n```\n</ide_reference>\nworld',
     at: '2026-01-01T00:00:01Z'
   },
+  { t: 'thinking_delta', text: 'think ' },
+  { t: 'text_delta', text: 'part one ' },
+  {
+    t: 'tool_call',
+    id: 'tool-1',
+    name: 'Read',
+    input: { file_path: 'C:/test/src/a.ts' }
+  },
+  { t: 'tool_result', id: 'tool-1', status: 'ok', content: 'file body' },
   {
     t: 'turn_end',
     durationMs: 0,
-    steps: 0,
+    steps: 3,
     usage: {
-      inputTokens: 0,
-      outputTokens: 0,
+      inputTokens: 11,
+      outputTokens: 7,
       cacheReadTokens: 0,
       cacheCreationTokens: 0
     }
+  },
+  {
+    t: 'file_change',
+    path: 'C:/test/src/a.ts',
+    added: 3,
+    removed: 1,
+    source: 'agent'
   }
 ]
 ;(globalThis as unknown as { window: unknown }).window = {
@@ -167,6 +183,38 @@ void seeded
       '转写里的 IDE 引用块被剥掉',
       seeded.snapshot.inputHistory.some((v) => v.includes('hello') && !v.includes('ide_reference')),
       seeded.snapshot.inputHistory
+    )
+    /* 单遍归约的产物：轮数 / 步数 / usage / 本轮修改 / 卡片 */
+    check('历史回放的轮数正确', seeded.snapshot.turns === 2, seeded.snapshot.turns)
+    check('历史回放的步数正确', seeded.snapshot.steps === 3, seeded.snapshot.steps)
+    check(
+      '历史回放的 usage 正确',
+      seeded.snapshot.usage?.inputTokens === 11 && seeded.snapshot.usage?.outputTokens === 7,
+      seeded.snapshot.usage
+    )
+    check(
+      '历史回放只保留最后一轮的修改',
+      seeded.snapshot.files.length === 1 &&
+        seeded.snapshot.files[0].path.endsWith('src/a.ts') &&
+        seeded.snapshot.files[0].added === 3,
+      seeded.snapshot.files
+    )
+    check(
+      '历史回放生成两条用户卡片',
+      seeded.snapshot.items.filter((i) => i.kind === 'user').length === 2,
+      seeded.snapshot.items.map((i) => i.kind)
+    )
+    check(
+      '回放把 delta 合并成一张正文卡',
+      seeded.snapshot.items.some((i) => i.kind === 'text' && i.text === 'part one '),
+      seeded.snapshot.items
+    )
+    check(
+      '回放的工具卡合上了回执',
+      seeded.snapshot.items.some(
+        (i) => i.kind === 'tool' && i.id === 'tool-1' && i.status === 'ok' && i.content === 'file body'
+      ),
+      seeded.snapshot.items
     )
     if (failed > 0) {
       console.log(`\n${failed} 项失败`)
