@@ -56,7 +56,7 @@ export function isChatMainSender(webContentsId: number): boolean {
  * 顺序就是 IDE 下拉框的顺序：当前活跃会话 → 同工作区最近会话 → 兜底新会话。
  * 只读 CLI 自己写的会话记录，不会凭空造一条。
  */
-export function listChatTargets(cwd: string): ChatTargetInfo[] {
+export async function listChatTargets(cwd: string): Promise<ChatTargetInfo[]> {
   const out: ChatTargetInfo[] = []
 
   if (active && active.cwd && sameCwd(active.cwd, cwd)) {
@@ -70,9 +70,9 @@ export function listChatTargets(cwd: string): ChatTargetInfo[] {
     })
   }
 
-  let stored: ReturnType<typeof listStoredSessions> = []
+  let stored: Awaited<ReturnType<typeof listStoredSessions>> = []
   try {
-    stored = listStoredSessions()
+    stored = await listStoredSessions()
   } catch {
     // 读不到会话目录不影响当前会话这个目标
   }
@@ -108,6 +108,18 @@ export function listChatTargets(cwd: string): ChatTargetInfo[] {
   }
 
   return out
+}
+
+/**
+ * 只发给聊天主窗口。
+ *
+ * 会话事件 / 状态只有主窗口的侧栏和转写区消费；IDE 窗口订阅的是另一套
+ * `sync.onStatus`。用 broadcast 会把每个 token 都跨进程序列化给所有 IDE
+ * 窗口，窗口开得越多越浪费。
+ */
+export function sendToChatMain(channel: string, payload: unknown): void {
+  if (!mainWin || mainWin.isDestroyed()) return
+  safeSend(mainWin, channel, payload)
 }
 
 /** 把引用投递给主窗口。是否切会话由主窗口渲染进程处理。 */

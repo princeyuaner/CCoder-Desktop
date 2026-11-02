@@ -1,13 +1,5 @@
-import {
-  closeSync,
-  openSync,
-  readFileSync,
-  readSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  unlinkSync
-} from 'node:fs'
+import { promises as fsp } from 'node:fs'
+import type { Stats } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '../shared/events'
@@ -57,15 +49,20 @@ const obj = (v: unknown): Record<string, unknown> | undefined =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
-function readHead(file: string, bytes = HEAD_BYTES): string {
-  const fd = openSync(file, 'r')
+async function readRange(file: string, start: number, bytes: number): Promise<string> {
+  if (bytes <= 0) return ''
+  const fh = await fsp.open(file, 'r')
   try {
     const buf = Buffer.alloc(bytes)
-    const n = readSync(fd, buf, 0, bytes, 0)
-    return buf.subarray(0, n).toString('utf8')
+    const { bytesRead } = await fh.read(buf, 0, bytes, start)
+    return buf.subarray(0, bytesRead).toString('utf8')
   } finally {
-    closeSync(fd)
+    await fh.close()
   }
+}
+
+async function readHead(file: string, bytes = HEAD_BYTES): Promise<string> {
+  return readRange(file, 0, bytes)
 }
 
 /**
@@ -88,8 +85,8 @@ function cleanTitle(s: string): string {
  * 文件头的解析缓存，键是绝对路径。
  *
  * 列表现在要**频繁重拉**（每轮跑完、每次窗口重新获得焦点），而每拉一次都要
- * 给 400+ 份文件各读 32KB 头 —— 实测 110ms，而且是同步读，期间主进程
- * 一个 IPC 都处理不了。文件没变就直接复用上次的解析结果，只剩 statSync。
+ * 给 400+ 份文件各读 32KB 头 —— 实测 110ms。文件没变就直接复用上次的解析
+ * 结果，只剩一次 stat；扫描本身也已经异步化，不再堵住主进程的 IPC。
  */
 const headCache = new Map<
   string,
@@ -168,16 +165,16 @@ function parseHead(head: string): { cwd: string; title: string; createdAt: numbe
  * 解析文件头；没拿到 cwd 就按 8 倍扩大重读（32KB → 256KB → 2MB → 8MB）。
  * 图片消息的 base64 把 cwd/标题推到了几百 KB 之外，一次读满 8MB 太浪费。
  */
-function parseHeadExpanding(
+async function parseHeadExpanding(
   file: string,
   size: number
-): { head: { cwd: string; title: string; createdAt: number }; text: string } {
+): Promise<{ head: { cwd: string; title: string; createdAt: number }; text: string }> {
   let bytes = Math.min(size, HEAD_BYTES)
-  let text = readHead(file, bytes)
+  let text = await readHead(file, bytes)
   let head = parseHead(text)
   while (!head.cwd && bytes < MAX_HEAD_BYTES && bytes < size) {
     bytes = Math.min(bytes * 8, MAX_HEAD_BYTES, size)
-    text = readHead(file, bytes)
+    text = await readHead(file, bytes)
     head = parseHead(text)
   }
   return { head, text }
@@ -187,25 +184,16 @@ function parseHeadExpanding(
  * 从文件尾找 cwd —— 首行大到 8MB 还装不下时（连发多张大图）的兜底。
  * cwd 排在每条记录的最后，所以文件最后 256KB 一定覆盖得到。
  */
-function readTailCwd(file: string, size: number): string {
+async function readTailCwd(file: string, size: number): Promise<string> {
   const bytes = Math.min(TAIL_BYTES, size)
   if (bytes <= 0) return ''
-  const fd = openSync(file, 'r')
+  const text = await readRange(file, size - bytes, bytes)
+  const m = text.match(/"cwd"\s*:\s*"((?:\\.|[^"\\])*)"/)
+  if (!m) return ''
   try {
-    const buf = Buffer.alloc(bytes)
-    const n = readSync(fd, buf, 0, bytes, size - bytes)
-    const m = buf
-      .subarray(0, n)
-      .toString('utf8')
-      .match(/"cwd"\s*:\s*"((?:\\.|[^"\\])*)"/)
-    if (!m) return ''
-    try {
-      return JSON.parse(`"${m[1]}"`) as string
-    } catch {
-      return m[1]
-    }
-  } finally {
-    closeSync(fd)
+    return JSON.parse(`"${m[1]}"`) as string
+  } catch {
+    return m[1]
   }
 }
 
@@ -225,7 +213,24 @@ interface SessionFile {
 const pathById = new Map<string, SessionFile>()
 const keyOf = (cwd: string, id: string): string => `${cwd}\u0000${id}`
 
-export function listStoredSessions(): StoredSession[] {
+/**
+ * 同一时刻只跑一趟扫描。
+ *
+ * 异步化之后，侧栏刷新和搜索可能同时到达；两边各自 `pathById.clear()` 再
+ * 交错填充，会把索引写乱。共用同一个 in-flight Promise：后来的调用直接
+ * 等这一趟的结果。
+ */
+let listInFlight: Promise<StoredSession[]> | null = null
+
+export function listStoredSessions(): Promise<StoredSession[]> {
+  if (listInFlight) return listInFlight
+  listInFlight = scanStoredSessions().finally(() => {
+    listInFlight = null
+  })
+  return listInFlight
+}
+
+async function scanStoredSessions(): Promise<StoredSession[]> {
   const out: StoredSession[] = []
   pathById.clear()
   /** 这一趟见过的文件，用来把缓存里已经删掉的那些清出去 */
@@ -233,7 +238,7 @@ export function listStoredSessions(): StoredSession[] {
 
   let projects: string[]
   try {
-    projects = readdirSync(ROOT())
+    projects = await fsp.readdir(ROOT())
   } catch {
     // 还没跑过 claude。**不能直接 return**：Codex / dsh 的会话跟这个目录无关，
     // 没装 Claude Code 的人也该在侧栏里看到自己的 dsh 历史。
@@ -244,7 +249,7 @@ export function listStoredSessions(): StoredSession[] {
     const dir = join(ROOT(), p)
     let files: string[]
     try {
-      files = readdirSync(dir)
+      files = await fsp.readdir(dir)
     } catch {
       continue
     }
@@ -254,7 +259,7 @@ export function listStoredSessions(): StoredSession[] {
       const full = join(dir, f)
       seen.add(full)
       try {
-        const st = statSync(full)
+        const st = await fsp.stat(full)
         if (!st.isFile()) continue
 
         // mtime 和大小都没变 → 上次解析出来的 cwd/标题/创建时间照样成立
@@ -263,11 +268,11 @@ export function listStoredSessions(): StoredSession[] {
         if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
           head = hit
         } else {
-          const parsed = parseHeadExpanding(full, st.size)
+          const parsed = await parseHeadExpanding(full, st.size)
           head = parsed.head
           // 首行超过 8MB（连发多张大图）：cwd 从文件尾兜底，标题退成「图片消息」
           if (!head.cwd) {
-            const cwd = readTailCwd(full, st.size)
+            const cwd = await readTailCwd(full, st.size)
             if (cwd) {
               head = {
                 cwd,
@@ -312,7 +317,7 @@ export function listStoredSessions(): StoredSession[] {
    * 两边都可能出现同一个 cwd，但 id 空间不同，按 (cwd,id) 合并即可；
    * 真撞了也以后者为准 —— 这种概率比文件损坏还低。
    */
-  for (const { file, session } of listCodexSessionFiles()) {
+  for (const { file, session } of await listCodexSessionFiles()) {
     const k = keyOf(session.cwd, session.id)
     if (pathById.has(k)) continue
     pathById.set(k, { file, cli: 'codex', id: session.id })
@@ -323,9 +328,9 @@ export function listStoredSessions(): StoredSession[] {
    * DeepSeek Harness 的会话是 $DSH_HOME/sessions 下的目录，cwd 从投影缓存
    * 或会话头里读（不反解目录名）。子代理会话和空白会话由扫描器过滤掉。
    */
-  let dshFiles: ReturnType<typeof listDshSessionFiles> = []
+  let dshFiles: Awaited<ReturnType<typeof listDshSessionFiles>> = []
   try {
-    dshFiles = listDshSessionFiles()
+    dshFiles = await listDshSessionFiles()
   } catch {
     // dsh home 不可读（权限 / 磁盘）不该把另外两个 CLI 的列表一起带崩
   }
@@ -350,11 +355,11 @@ export function listStoredSessions(): StoredSession[] {
   )
 }
 
-function findFile(cwd: string, id: string): SessionFile | null {
+async function findFile(cwd: string, id: string): Promise<SessionFile | null> {
   const cached = pathById.get(keyOf(cwd, id))
   if (cached) return cached
   // 缓存没命中（比如列表还没拉过），退化成扫一遍
-  listStoredSessions()
+  await listStoredSessions()
   return pathById.get(keyOf(cwd, id)) ?? null
 }
 
@@ -369,7 +374,7 @@ export async function deleteStoredSession(
   cwd: string,
   id: string
 ): Promise<{ ok: boolean; message?: string }> {
-  const found = findFile(cwd, id)
+  const found = await findFile(cwd, id)
   if (!found) return { ok: false, message: t('sessionStore.recordMissing') }
 
   const file = found.file
@@ -377,10 +382,11 @@ export async function deleteStoredSession(
   const dir = found.cli === 'dsh' ? found.dir : undefined
   for (let i = 0; i < 6; i++) {
     try {
-      if (dir) rmSync(dir, { recursive: true })
-      else unlinkSync(file)
+      if (dir) await fsp.rm(dir, { recursive: true })
+      else await fsp.unlink(file)
       pathById.delete(keyOf(cwd, id))
       headCache.delete(file)
+      invalidateTranscriptCache(cwd, id)
       return { ok: true }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
@@ -399,23 +405,63 @@ export async function deleteStoredSession(
   return { ok: false, message: t('sessionStore.fileBusy') }
 }
 
-/** 读一份会话并把记录回放成事件流。cwd 必须一起给：身份是 (cwd, id)。 */
-export function readTranscript(cwd: string, id: string): AgentEvent[] {
-  const found = findFile(cwd, id)
-  if (!found) return []
-  if (found.cli === 'codex') return readCodexTranscript(found.file, cwd, id)
-  if (found.cli === 'dsh') return readDshTranscript(found.file, cwd, id)
+/**
+ * 回放缓存：在两条会话之间来回切时，不必重新读盘和解析。
+ * 按**源文件大小**计预算 —— 解析后的事件只多不少，用文件大小兜个底。
+ */
+const TRANSCRIPT_CACHE_MAX = 4
+const TRANSCRIPT_CACHE_BYTES = 48 * 1024 * 1024
 
-  const file = found.file
-  let raw: string
-  try {
-    raw = readFileSync(file, 'utf8')
-  } catch {
-    return []
+/**
+ * 大文件先只读尾部：回放本来也只保留最后 `MAX_RECORDS` 条。
+ * 从 4MB 起步，条数不够再成倍往前扩，直到覆盖到文件头或攒够条数。
+ */
+const TRANSCRIPT_TAIL_BYTES = 4 * 1024 * 1024
+const TRANSCRIPT_TAIL_GROW = 8
+
+interface TranscriptCacheEntry {
+  file: string
+  mtimeMs: number
+  size: number
+  events: AgentEvent[]
+}
+
+const transcriptCache = new Map<string, TranscriptCacheEntry>()
+let transcriptCacheBytes = 0
+
+function invalidateTranscriptCache(cwd: string, id: string): void {
+  const key = keyOf(cwd, id)
+  const hit = transcriptCache.get(key)
+  if (!hit) return
+  transcriptCache.delete(key)
+  transcriptCacheBytes -= hit.size
+}
+
+function cacheTranscript(key: string, entry: TranscriptCacheEntry): void {
+  const prev = transcriptCache.get(key)
+  if (prev) {
+    transcriptCache.delete(key)
+    transcriptCacheBytes -= prev.size
   }
+  // 超大文件不缓存：一份就几十 MB，留着只会挤占内存
+  if (entry.size > TRANSCRIPT_CACHE_BYTES) return
+  transcriptCache.set(key, entry)
+  transcriptCacheBytes += entry.size
+  while (
+    transcriptCache.size > TRANSCRIPT_CACHE_MAX ||
+    transcriptCacheBytes > TRANSCRIPT_CACHE_BYTES
+  ) {
+    const oldest = transcriptCache.keys().next().value
+    if (oldest === undefined) break
+    const evicted = transcriptCache.get(oldest)
+    transcriptCache.delete(oldest)
+    if (evicted) transcriptCacheBytes -= evicted.size
+  }
+}
 
+function parseRecordLines(text: string): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = []
-  for (const line of raw.split('\n')) {
+  for (const line of text.split('\n')) {
     if (!line.trim().startsWith('{')) continue
     try {
       const v = JSON.parse(line) as unknown
@@ -425,9 +471,61 @@ export function readTranscript(cwd: string, id: string): AgentEvent[] {
       // 截断/损坏的行跳过
     }
   }
+  return records
+}
 
-  const trimmed = records.length > MAX_RECORDS ? records.slice(-MAX_RECORDS) : records
-  return replayRecords(trimmed)
+async function readClaudeRecords(
+  file: string,
+  size: number
+): Promise<Record<string, unknown>[]> {
+  let bytes = Math.min(size, TRANSCRIPT_TAIL_BYTES)
+  for (;;) {
+    const start = Math.max(0, size - bytes)
+    const text = await readRange(file, start, bytes)
+    // 从文件中间开始读，第一行很可能是半条记录 —— 丢掉它
+    const nl = text.indexOf('\n')
+    const body = start > 0 ? (nl >= 0 ? text.slice(nl + 1) : '') : text
+    const records = parseRecordLines(body)
+    if (start === 0) return records.slice(-MAX_RECORDS)
+    if (records.length >= MAX_RECORDS) return records.slice(-MAX_RECORDS)
+    const next = Math.min(size, bytes * TRANSCRIPT_TAIL_GROW)
+    if (next === bytes) return records.slice(-MAX_RECORDS)
+    bytes = next
+  }
+}
+
+/** 读一份会话并把记录回放成事件流。cwd 必须一起给：身份是 (cwd, id)。 */
+export async function readTranscript(cwd: string, id: string): Promise<AgentEvent[]> {
+  const found = await findFile(cwd, id)
+  if (!found) return []
+
+  let st: Stats
+  try {
+    st = await fsp.stat(found.file)
+  } catch {
+    return []
+  }
+
+  const key = keyOf(cwd, id)
+  const hit = transcriptCache.get(key)
+  if (hit && hit.file === found.file && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    // LRU：命中后挪到队尾
+    transcriptCache.delete(key)
+    transcriptCache.set(key, hit)
+    return hit.events
+  }
+
+  let events: AgentEvent[]
+  try {
+    if (found.cli === 'codex') events = await readCodexTranscript(found.file, cwd, id)
+    else if (found.cli === 'dsh') events = await readDshTranscript(found.file, cwd, id)
+    else events = replayRecords(await readClaudeRecords(found.file, st.size))
+  } catch {
+    return []
+  }
+
+  cacheTranscript(key, { file: found.file, mtimeMs: st.mtimeMs, size: st.size, events })
+  return events
 }
 
 /* ── 会话内容搜索 ─────────────────────────────────────────── */
@@ -449,8 +547,41 @@ const SEARCH_TEXT_MAX = 1_000_000
 const SNIPPET_PAD = 48
 /** 最多缓存多少条会话的文本；超出后按写入顺序淘汰 */
 const SEARCH_CACHE_MAX = 400
+/**
+ * 文本缓存的总字符预算。
+ *
+ * 只限条数不够：单条上限 100 万字符 × 400 条，最坏能吃掉近 800MB 内存。
+ * 超过预算时从现在最旧的那条开始淘汰。
+ */
+const SEARCH_CACHE_CHARS = 64 * 1024 * 1024
 
 const searchTextCache = new Map<string, { mtimeMs: number; size: number; text: string }>()
+let searchCacheChars = 0
+
+function rememberSearchText(
+  file: string,
+  entry: { mtimeMs: number; size: number; text: string }
+): void {
+  const prev = searchTextCache.get(file)
+  if (prev) {
+    searchTextCache.delete(file)
+    searchCacheChars -= prev.text.length
+  }
+  // 单条就超过整份预算：不缓存，避免一个巨型会话把其他条目全挤掉
+  if (entry.text.length > SEARCH_CACHE_CHARS) return
+  searchTextCache.set(file, entry)
+  searchCacheChars += entry.text.length
+  while (
+    searchTextCache.size > SEARCH_CACHE_MAX ||
+    searchCacheChars > SEARCH_CACHE_CHARS
+  ) {
+    const oldest = searchTextCache.keys().next().value
+    if (oldest === undefined) break
+    const evicted = searchTextCache.get(oldest)
+    searchTextCache.delete(oldest)
+    if (evicted) searchCacheChars -= evicted.text.length
+  }
+}
 
 /**
  * 只收用户和模型说的话（含思考）。
@@ -475,14 +606,16 @@ function extractSearchText(events: AgentEvent[]): string {
 }
 
 /** 读一条会话的搜索文本；oversized = 文件太大被跳过 */
-function searchTextOf(session: StoredSession): { text: string; oversized: boolean } {
+async function searchTextOf(
+  session: StoredSession
+): Promise<{ text: string; oversized: boolean }> {
   const sf = pathById.get(keyOf(session.cwd, session.id))
   if (!sf) return { text: '', oversized: false }
 
   let size: number
   let mtimeMs: number
   try {
-    const st = statSync(sf.file)
+    const st = await fsp.stat(sf.file)
     size = st.size
     mtimeMs = st.mtimeMs
   } catch {
@@ -497,17 +630,13 @@ function searchTextOf(session: StoredSession): { text: string; oversized: boolea
 
   let text: string
   try {
-    text = extractSearchText(readTranscript(session.cwd, session.id))
+    text = extractSearchText(await readTranscript(session.cwd, session.id))
   } catch {
     // 单份记录坏了（截断、zstd 损坏）只跳过它，不打断整次搜索
     return { text: '', oversized: false }
   }
 
-  if (searchTextCache.size >= SEARCH_CACHE_MAX) {
-    const oldest = searchTextCache.keys().next().value
-    if (oldest !== undefined) searchTextCache.delete(oldest)
-  }
-  searchTextCache.set(sf.file, { mtimeMs, size, text })
+  rememberSearchText(sf.file, { mtimeMs, size, text })
   return { text, oversized: false }
 }
 
@@ -561,7 +690,7 @@ export async function searchStoredSessions(
    */
   const now = Date.now()
   if (startAt === 0 || !searchSnapshot || now - searchSnapshot.at > SEARCH_SNAPSHOT_MS) {
-    const ordered = listStoredSessions()
+    const ordered = (await listStoredSessions())
       .slice()
       .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
     searchSnapshot = { at: now, ordered }
@@ -596,7 +725,7 @@ export async function searchStoredSessions(
 
     const s = ordered[i]
     scanned++
-    const { text, oversized } = searchTextOf(s)
+    const { text, oversized } = await searchTextOf(s)
     if (oversized) skippedLarge = true
     if (!text) continue
 

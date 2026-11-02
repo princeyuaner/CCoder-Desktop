@@ -1,8 +1,12 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import { existsSync, type Stats } from 'node:fs'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, parse, relative, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import type { AgentEvent } from '../shared/events'
+
+const run = promisify(execFile)
 
 /**
  * 轮末的磁盘快照。
@@ -85,19 +89,31 @@ const empty = (cwd: string, kind: 'git' | 'fs'): WorkspaceSnapshot => ({
   files: new Map()
 })
 
-function runGit(cwd: string, args: string[]): string {
-  return execFileSync('git', ['-C', cwd, ...args], {
+/*
+ * 全部走异步：git status / diff 在 monorepo 上可能几百毫秒到几秒，
+ * execFileSync 会把整个主进程的事件循环卡住（IPC、窗口、CLI 事件全停）。
+ */
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await run('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
     timeout: GIT_TIMEOUT,
-    maxBuffer: GIT_MAX_BUFFER,
-    stdio: ['ignore', 'pipe', 'ignore']
+    maxBuffer: GIT_MAX_BUFFER
   })
+  return stdout
 }
 
-function countLines(path: string): number {
+async function statOrNull(path: string): Promise<Stats | null> {
   try {
-    if (statSync(path).size > COUNT_LINES_MAX_BYTES) return 0
-    const text = readFileSync(path, 'utf8')
+    return await stat(path)
+  } catch {
+    return null
+  }
+}
+
+async function countLines(path: string): Promise<number> {
+  try {
+    if ((await stat(path)).size > COUNT_LINES_MAX_BYTES) return 0
+    const text = await readFile(path, 'utf8')
     if (!text) return 0
     return text.replace(/\n$/, '').split('\n').length
   } catch {
@@ -125,7 +141,7 @@ function parseNumstat(out: string, into: Map<string, { added: number; removed: n
   }
 }
 
-function gitSnapshot(cwd: string): WorkspaceSnapshot {
+async function gitSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
   const files = new Map<string, FileState>()
 
   /*
@@ -136,8 +152,8 @@ function gitSnapshot(cwd: string): WorkspaceSnapshot {
    *
    * --no-renames：重命名拆成「删 + 增」两条，和修改清单的粒度一致。
    */
-  const root = runGit(cwd, ['rev-parse', '--show-toplevel']).trim() || cwd
-  const status = runGit(cwd, [
+  const root = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).trim() || cwd
+  const status = await runGit(cwd, [
     '-c',
     'status.relativePaths=false',
     'status',
@@ -159,8 +175,11 @@ function gitSnapshot(cwd: string): WorkspaceSnapshot {
   }
 
   const stats = new Map<string, { added: number; removed: number }>()
-  parseNumstat(runGit(cwd, ['diff', '--numstat', '-z', '--no-renames']), stats)
-  parseNumstat(runGit(cwd, ['diff', '--cached', '--numstat', '-z', '--no-renames']), stats)
+  parseNumstat(await runGit(cwd, ['diff', '--numstat', '-z', '--no-renames']), stats)
+  parseNumstat(
+    await runGit(cwd, ['diff', '--cached', '--numstat', '-z', '--no-renames']),
+    stats
+  )
 
   for (const [rel, xy] of statuses) {
     const abs = resolve(root, rel)
@@ -169,10 +188,10 @@ function gitSnapshot(cwd: string): WorkspaceSnapshot {
     if (relToCwd.startsWith('..') || isAbsolute(relToCwd)) continue
     const deleted = xy.includes('D')
     const created = xy === '??'
-    const st = deleted ? null : existsSync(abs) ? statSync(abs) : null
+    const st = deleted ? null : await statOrNull(abs)
     const exact = stats.get(rel)
     // untracked 不在 numstat 里，按内容行数算
-    const added = created ? countLines(abs) : (exact?.added ?? 0)
+    const added = created ? await countLines(abs) : (exact?.added ?? 0)
     const removed = created ? 0 : (exact?.removed ?? 0)
 
     files.set(abs, {
@@ -188,7 +207,7 @@ function gitSnapshot(cwd: string): WorkspaceSnapshot {
   return { cwd, kind: 'git', complete: true, files }
 }
 
-function fsSnapshot(cwd: string): WorkspaceSnapshot {
+async function fsSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
   // 主目录 / 盘根不是工作区，递归扫会把整台机器拖死
   if (cwd === homedir() || resolve(cwd) === parse(resolve(cwd)).root) {
     return empty(cwd, 'fs')
@@ -208,11 +227,17 @@ function fsSnapshot(cwd: string): WorkspaceSnapshot {
     if (!dir) break
     let entries
     try {
-      entries = readdirSync(dir, { withFileTypes: true })
+      entries = await readdir(dir, { withFileTypes: true })
     } catch {
       continue
     }
     for (const e of entries) {
+      // 异步 stat 后单个大目录也可能拖过 deadline，循环里再兜一次
+      if (Date.now() - started > FS_DEADLINE_MS) {
+        complete = false
+        stack.length = 0
+        break
+      }
       const full = join(dir, e.name)
       if (e.isDirectory()) {
         if (!IGNORED_DIRS.has(e.name)) stack.push(full)
@@ -220,8 +245,8 @@ function fsSnapshot(cwd: string): WorkspaceSnapshot {
       }
       // 符号链接不跟 —— 目录环会让遍历停不下来
       if (!e.isFile()) continue
-      try {
-        const st = statSync(full)
+      const st = await statOrNull(full)
+      if (st) {
         files.set(full, {
           added: 0,
           removed: 0,
@@ -230,9 +255,8 @@ function fsSnapshot(cwd: string): WorkspaceSnapshot {
           created: false,
           deleted: false
         })
-      } catch {
-        // 扫描过程中被删掉的文件，忽略
       }
+      // 扫描过程中被删掉的文件，statOrNull 返回 null，忽略
       if (files.size > FS_MAX_FILES) {
         complete = false
         break
@@ -243,13 +267,13 @@ function fsSnapshot(cwd: string): WorkspaceSnapshot {
   return { cwd, kind: 'fs', complete, files }
 }
 
-export function snapshotWorkspace(cwd: string): WorkspaceSnapshot {
+export async function snapshotWorkspace(cwd: string): Promise<WorkspaceSnapshot> {
   if (!cwd || !existsSync(cwd)) return empty(cwd, 'fs')
   try {
-    // 不是仓库 / git 不可用 / 超时，rev-parse 会立刻抛错，直接落到目录树
-    return gitSnapshot(cwd)
+    // 不是仓库 / git 不可用 / 超时，rev-parse 会抛错，直接落到目录树
+    return await gitSnapshot(cwd)
   } catch {
-    return fsSnapshot(cwd)
+    return await fsSnapshot(cwd)
   }
 }
 
@@ -273,10 +297,10 @@ function sameState(a: FileState, b: FileState): boolean {
  *  - 轮前 dirty、轮后变回 clean → 是这一轮改回去了，没有净改动，跳过；
  *  - 目录树来源下，轮后消失的文件 = 本轮删除。
  */
-export function diffWorkspace(
+export async function diffWorkspace(
   before: WorkspaceSnapshot,
   after: WorkspaceSnapshot
-): FileChange[] {
+): Promise<FileChange[]> {
   if (
     !before.complete ||
     !after.complete ||
@@ -310,7 +334,7 @@ export function diffWorkspace(
       ? { added: st.added, removed: st.removed }
       : created
         ? // 目录树快照不存内容，新建文件的行数在这里补算
-          { added: countLines(path), removed: 0 }
+          { added: await countLines(path), removed: 0 }
         : {}
 
     out.push({

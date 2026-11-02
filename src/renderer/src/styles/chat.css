@@ -629,6 +629,21 @@
 .tl__chunk.is-tail {
   content-visibility: visible;
 }
+/* 窗口化后顶部的「加载更早」哨兵；同时是 IntersectionObserver 的观察目标 */
+.tl__earlier {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+  border-radius: 8px;
+}
+.tl__earlier:hover {
+  color: var(--text-dim);
+  background: var(--bg-hover);
+}
 .tl__row {
   margin-bottom: 12px;
 }

@@ -8,10 +8,19 @@ import './styles/tokens.css'
 import './styles/global.css'
 // KaTeX 的排版和字体是公式渲染的基础，必须全局引入一次
 import 'katex/dist/katex.min.css'
-import { App } from './App'
-import { IdeApp } from './ide/IdeApp'
 import { applyAppearance } from './appearance'
 import { initRendererI18n } from './i18n'
+
+/*
+ * 两个窗口共用一个入口，但彼此不需要对方的代码：
+ *   - 聊天窗口静态导入 IdeApp 会把 Monaco + 语言服务一并解析（主 chunk 11MB）；
+ *   - IDE 窗口也用不到整个聊天界面。
+ * 按 view 懒加载后，各自只下载/解析自己那份。
+ */
+const App = React.lazy(() => import('./App').then((m) => ({ default: m.App })))
+const IdeApp = React.lazy(() =>
+  import('./ide/IdeApp').then((m) => ({ default: m.IdeApp }))
+)
 
 const el = document.getElementById('root')
 if (!el) throw new Error('#root not found')
@@ -46,7 +55,9 @@ async function boot(): Promise<void> {
   const ideCwd = params.get('cwd') ?? ''
   createRoot(el!).render(
     <React.StrictMode>
-      {isIde ? <IdeApp cwd={ideCwd} /> : <App />}
+      <React.Suspense fallback={null}>
+        {isIde ? <IdeApp cwd={ideCwd} /> : <App />}
+      </React.Suspense>
     </React.StrictMode>
   )
 }

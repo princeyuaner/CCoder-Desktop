@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -56,6 +57,16 @@ const NEAR_BOTTOM = 48
  * 其余块的 memo 比较走的是"整块 item 引用全等"的快速路径。
  */
 const ROW_CHUNK = 40
+
+/**
+ * 初始挂载末尾多少块、每次向上滚再挂多少块。
+ *
+ * content-visibility 已经跳过了屏幕外的排版，但 5700 行的 DOM 节点本身
+ * 仍然要创建和持有。默认只挂最近 6 块（240 行），向上滚动时按需补更早的；
+ * 用户一旦离开底部就把窗口冻结，避免流式输出时把正在看的历史裁掉。
+ */
+const INITIAL_CHUNKS = 6
+const LOAD_CHUNKS = 6
 
 /** 工具族 → 图标方块里那个字形 */
 const FAMILY_GLYPH: Record<ToolFamily, string> = {
@@ -250,7 +261,7 @@ interface Props {
   onRetryTurn?: () => void
 }
 
-export function Transcript({
+function TranscriptImpl({
   items,
   tab,
   status,
@@ -292,6 +303,20 @@ export function Transcript({
    */
   const settleUntilRef = useRef(0)
   const [showJump, setShowJump] = useState(false)
+  /*
+   * 当前挂载窗口的起始块；null = 自动贴着尾部（只保留最近 INITIAL_CHUNKS 块）。
+   * 用户一旦往上翻就冻结成具体下标，流式内容继续增长时不会把历史裁掉。
+   */
+  const [windowFrom, setWindowFrom] = useState<number | null>(null)
+  const windowFromRef = useRef<number | null>(null)
+  windowFromRef.current = windowFrom
+  /** 当前实际挂载的起始块；滚动事件里读它，避免用到过期的 autoFrom */
+  const fromRef = useRef(0)
+  /** 顶部哨兵：滚动到它附近时补更早的块 */
+  const topSentinelRef = useRef<HTMLButtonElement | null>(null)
+  /** 补更早的块之前记下 scrollHeight，渲染后补 scrollTop，避免视口跳走 */
+  const prevHeightRef = useRef<number | null>(null)
+  const prevFromRef = useRef(0)
   /**
    * 滚动容器的 state 副本。
    *
@@ -316,6 +341,20 @@ export function Transcript({
   const findOpen = find.open
   const findFocus = find.focus
   const findClose = find.close
+  const findOpenRef = useRef(false)
+  findOpenRef.current = findOpen
+
+  /**
+   * 查找要扫整个转写区的 DOM，而窗口化只挂了尾部几块。打开查找前先把
+   * 所有块挂回来（只挂不卸，关闭查找后也保留），否则老消息搜不到。
+   */
+  const openFindAll = useCallback((): void => {
+    if (windowFromRef.current !== 0) {
+      prevHeightRef.current = scrollRef.current?.scrollHeight ?? null
+      setWindowFrom(0)
+    }
+    openFind()
+  }, [openFind])
 
   /**
    * Ctrl+F 打开会话内查找。
@@ -333,11 +372,11 @@ export function Transcript({
       e.preventDefault()
       // 已经开着就只是把焦点送回查找框 —— 这是 Ctrl+F 的第二下
       if (findOpen) findFocus()
-      else openFind()
+      else openFindAll()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [openFind, findOpen, findFocus])
+  }, [openFindAll, findOpen, findFocus])
 
   /**
    * 查找条开着时 Esc 关闭。
@@ -434,9 +473,14 @@ export function Transcript({
          * 不是用户往下翻，继续贴着底部。
          */
         const userMoved = Math.abs(el.scrollTop - autoTopRef.current) > 1
-        if (near) pinnedRef.current = true
-        else if (userMoved && performance.now() >= settleUntilRef.current) {
+        if (near) {
+          pinnedRef.current = true
+          // 回到底部就恢复自动窗口，把更早的块裁掉（查找时除外）
+          if (!findOpenRef.current) setWindowFrom(null)
+        } else if (userMoved && performance.now() >= settleUntilRef.current) {
+          // 离开底部：把当前窗口钉住，流式内容继续增长时不裁掉正在看的历史
           pinnedRef.current = false
+          setWindowFrom((w) => (w === null ? fromRef.current : w))
         }
         const jump = !pinnedRef.current
         setShowJump((prev) => (prev === jump ? prev : jump))
@@ -509,6 +553,58 @@ export function Transcript({
     return out
   }, [items])
 
+  /*
+   * 窗口化：默认只挂尾部 INITIAL_CHUNKS 块。
+   * windowFrom === null 表示自动跟随尾部；用户往上翻后变成冻结下标。
+   */
+  const autoFrom = Math.max(0, chunks.length - INITIAL_CHUNKS)
+  const from = windowFrom === null ? autoFrom : Math.min(windowFrom, autoFrom)
+  fromRef.current = from
+  const mountedChunks = from > 0 ? chunks.slice(from) : chunks
+
+  // 换会话：回到尾部自动窗口
+  useEffect(() => {
+    setWindowFrom(null)
+    prevHeightRef.current = null
+    prevFromRef.current = -1
+  }, [sessionKey])
+
+  /*
+   * 向上补块后把视口钉在原来的内容上。content-visibility 对屏幕外的块用
+   * 估算高度，这里只能保证大致不跳；新块真正进入视口后会自己校正。
+   */
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    if (from < prevFromRef.current && prevHeightRef.current !== null) {
+      el.scrollTop += el.scrollHeight - prevHeightRef.current
+      autoTopRef.current = el.scrollTop
+    } else if (from > prevFromRef.current && pinnedRef.current) {
+      // 自动窗口裁掉更早的块时还在底部：布局阶段就贴住，别等下一帧
+      el.scrollTop = el.scrollHeight
+      autoTopRef.current = el.scrollTop
+    }
+    prevFromRef.current = from
+    prevHeightRef.current = null
+  }, [from])
+
+  /* 顶部哨兵进入预加载范围 → 再挂 LOAD_CHUNKS 块 */
+  useEffect(() => {
+    const root = scrollRef.current
+    const sentinel = topSentinelRef.current
+    if (!root || !sentinel || from <= 0 || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return
+        prevHeightRef.current = root.scrollHeight
+        setWindowFrom(Math.max(0, fromRef.current - LOAD_CHUNKS))
+      },
+      { root, rootMargin: '800px 0px 0px 0px' }
+    )
+    io.observe(sentinel)
+    return () => io.disconnect()
+  }, [from])
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -551,10 +647,23 @@ export function Transcript({
              * 所以 useChat 那边吐什么，这里就画什么，一一对应。
              */
             <div className="tl">
-              {chunks.map((c, i) => (
+              {from > 0 && (
+                <button
+                  ref={topSentinelRef}
+                  type="button"
+                  className="tl__earlier"
+                  onClick={() => {
+                    prevHeightRef.current = scrollRef.current?.scrollHeight ?? null
+                    setWindowFrom(Math.max(0, fromRef.current - LOAD_CHUNKS))
+                  }}
+                >
+                  {t('transcript.loadEarlier')}
+                </button>
+              )}
+              {mountedChunks.map((c, i) => (
                 // 末尾两块不做 content-visibility 跳过：跳到底部时它们必须
                 // 按真实高度排版，否则会停在一片估算出来的空白上（见 CSS）
-                <RowChunk key={i} items={c} tail={i >= chunks.length - 2} />
+                <RowChunk key={from + i} items={c} tail={i >= mountedChunks.length - 2} />
               ))}
               {waiting && (
                 <PendingRow
@@ -829,7 +938,7 @@ function RowBody({ item }: { item: ChatItem }): JSX.Element | null {
       return (
         <div className="tl__row">
           <div className="tl__say">
-            <MarkdownText text={item.text} cwd={cwd} />
+            <MarkdownText text={item.text} cwd={cwd} streaming={item.streaming} />
             {item.streaming && <span className="cursor" />}
           </div>
         </div>
@@ -1483,3 +1592,6 @@ function TraceView({ items }: { items: ChatItem[] }): JSX.Element {
     </ol>
   )
 }
+
+/** 正文按 items 引用变化；其余状态（队列、速度等）引起的父级重渲染直接跳过 */
+export const Transcript = memo(TranscriptImpl)

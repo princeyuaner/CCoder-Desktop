@@ -76,7 +76,20 @@ const LANG_ALIAS: Record<string, string> = {
 const MAX_HIGHLIGHT = 60_000
 /** 结果缓存条数；流式输出时同一块的每个 delta 都是新 key，靠它兜住重挂载 */
 const CACHE_LIMIT = 160
+/** key 里带着整段代码：只限条数的话 160 × 60KB 能吃掉约 10MB 字符串 */
+const CACHE_CHAR_LIMIT = 2_000_000
 const cache = new Map<string, ReactNode[]>()
+let cacheChars = 0
+
+/** 按条数和总字符数双限淘汰，超限时从最久没用的开始删 */
+function evictCache(): void {
+  while (cache.size > 0 && (cache.size >= CACHE_LIMIT || cacheChars > CACHE_CHAR_LIMIT)) {
+    const first = cache.keys().next().value
+    if (first === undefined) break
+    cache.delete(first)
+    cacheChars -= first.length
+  }
+}
 
 function normalizeLang(raw: string): string {
   const lang = raw.trim().toLowerCase()
@@ -104,8 +117,13 @@ function renderNodes(nodes: Array<RootContent | ElementContent>): ReactNode[] {
 /**
  * 把一段代码切成带 hljs-* 类名的 React 节点。
  * 语言不认识、代码为空或过长时原样返回，不做任何包装。
+ *
+ * `plain` 用于流式中正在增长的那个代码块：它的内容每个 delta 都会变，
+ * 每次都全量跑一遍 highlight 是 O(n²)，还会阻塞渲染进程。先按纯文本显示，
+ * 等这一块稳定后再着色一次。半成品不写缓存，免得把 LRU 挤满。
  */
-export function codeNodes(code: string, lang: string): ReactNode[] {
+export function codeNodes(code: string, lang: string, plain = false): ReactNode[] {
+  if (plain) return [code]
   const language = normalizeLang(lang)
   if (!language || !code || code.length > MAX_HIGHLIGHT) return [code]
 
@@ -126,10 +144,8 @@ export function codeNodes(code: string, lang: string): ReactNode[] {
     nodes = [code]
   }
 
-  if (cache.size >= CACHE_LIMIT) {
-    const first = cache.keys().next().value
-    if (first !== undefined) cache.delete(first)
-  }
+  evictCache()
   cache.set(key, nodes)
+  cacheChars += key.length
   return nodes
 }

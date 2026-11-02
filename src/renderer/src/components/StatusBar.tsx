@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, memo } from 'react'
 import type { Usage } from '@shared/events'
 import { useI18n } from '../i18n'
 import { cacheHitRate, fmtTokens, totalTokens } from './format'
@@ -21,7 +21,7 @@ interface Props {
  * 右侧的 token / 缓存命中仍然来自 `turn_end`，一轮更新一次。上下文百分比
  * 已经合并进输入框的上下文胶囊（那边还能展开构成），这里不再重复。
  */
-export function StatusBar({ turns, steps, usage, live, liveRate }: Props): JSX.Element {
+function StatusBarImpl({ turns, steps, usage, live, liveRate }: Props): JSX.Element {
   const { t, tn } = useI18n()
   const hit = usage ? cacheHitRate(usage) : null
   // 工具执行期间没有输出增量，估算会掉到 0 —— 这时不显示，别留一个假速度
@@ -57,3 +57,6 @@ export function StatusBar({ turns, steps, usage, live, liveRate }: Props): JSX.E
     </div>
   )
 }
+
+/** 只随轮数 / 用量 / 速度变化，不跟着流式正文每 16ms 重算 */
+export const StatusBar = memo(StatusBarImpl)

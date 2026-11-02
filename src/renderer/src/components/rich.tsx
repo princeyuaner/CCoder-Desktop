@@ -251,13 +251,22 @@ function parseBlocks(src: string): Block[] {
 
 /* ── 渲染 ───────────────────────────────────────────────── */
 
-export function CodeCard({ lang, code }: { lang: string; code: string }): JSX.Element {
+export function CodeCard({
+  lang,
+  code,
+  streaming = false
+}: {
+  lang: string
+  code: string
+  /** 这一块还在流式增长，先不着色；结束后再补一次 */
+  streaming?: boolean
+}): JSX.Element {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
 
   // 流式输出时每个 delta 都会重渲染；codeNodes 内部还有 LRU 缓存，这里
-  // 只是把同一段代码的查表也省掉。
-  const nodes = useMemo(() => codeNodes(code, lang), [code, lang])
+  // 只是把同一段代码的查表也省掉。streaming 的块直接返回纯文本。
+  const nodes = useMemo(() => codeNodes(code, lang, streaming), [code, lang, streaming])
 
   const copy = (): void => {
     void navigator.clipboard
@@ -285,7 +294,17 @@ export function CodeCard({ lang, code }: { lang: string; code: string }): JSX.El
  * 层次全靠背景明度 —— 段落透明、代码深一档、表格浅一档。
  * 因此这里每个块直接是 `.md` 的子元素（没有 wrapper），块间节奏交给 `.md > * + *`。
  */
-function BlockView({ b, i, cwd }: { b: Block; i: number; cwd: string }): JSX.Element {
+function BlockView({
+  b,
+  i,
+  cwd,
+  streaming = false
+}: {
+  b: Block
+  i: number
+  cwd: string
+  streaming?: boolean
+}): JSX.Element {
   const k = `b${i}`
 
   switch (b.kind) {
@@ -312,7 +331,7 @@ function BlockView({ b, i, cwd }: { b: Block; i: number; cwd: string }): JSX.Ele
     }
 
     case 'code':
-      return <CodeCard lang={b.lang} code={b.code} />
+      return <CodeCard lang={b.lang} code={b.code} streaming={streaming} />
 
     case 'table':
       return (
@@ -343,14 +362,36 @@ function BlockView({ b, i, cwd }: { b: Block; i: number; cwd: string }): JSX.Ele
   }
 }
 
-export function RichText({ text, cwd = '' }: { text: string; cwd?: string }): JSX.Element {
+export function RichText({
+  text,
+  cwd = '',
+  streaming = false
+}: {
+  text: string
+  cwd?: string
+  streaming?: boolean
+}): JSX.Element {
   // 流式时每个 delta 都会重渲染，解析结果没变的话别重复做
   const blocks = useMemo(() => parseBlocks(text), [text])
+
+  /*
+   * 流式时只有最后一个代码块还在增长；前面的块内容不变，已着色结果由
+   * CodeCard 的 useMemo 兜住，不必再让它们退回纯文本。
+   */
+  let growing = -1
+  if (streaming) {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (blocks[i].kind === 'code') {
+        growing = i
+        break
+      }
+    }
+  }
 
   return (
     <div className="md selectable">
       {blocks.map((b, i) => (
-        <BlockView key={i} b={b} i={i} cwd={cwd} />
+        <BlockView key={i} b={b} i={i} cwd={cwd} streaming={i === growing} />
       ))}
     </div>
   )

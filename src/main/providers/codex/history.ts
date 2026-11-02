@@ -1,12 +1,5 @@
-import {
-  closeSync,
-  openSync,
-  readFileSync,
-  readSync,
-  readdirSync,
-  statSync,
-  type Dirent
-} from 'node:fs'
+import type { Dirent } from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
 import type { AgentEvent, Usage } from '../../../shared/events'
@@ -39,32 +32,32 @@ export function codexSessionsRoot(): string {
   return join(home, 'sessions')
 }
 
-function readHead(file: string, bytes: number): string {
+async function readHead(file: string, bytes: number): Promise<string> {
   try {
-    const fd = openSync(file, 'r')
+    const fh = await fsp.open(file, 'r')
     try {
       const buf = Buffer.alloc(bytes)
-      const n = readSync(fd, buf, 0, bytes, 0)
-      return buf.subarray(0, n).toString('utf8')
+      const { bytesRead } = await fh.read(buf, 0, bytes, 0)
+      return buf.subarray(0, bytesRead).toString('utf8')
     } finally {
-      closeSync(fd)
+      await fh.close()
     }
   } catch {
     return ''
   }
 }
 
-function readTail(file: string, size: number): string {
+async function readTail(file: string, size: number): Promise<string> {
   const bytes = Math.min(TAIL_BYTES, size)
   if (bytes <= 0) return ''
   try {
-    const fd = openSync(file, 'r')
+    const fh = await fsp.open(file, 'r')
     try {
       const buf = Buffer.alloc(bytes)
-      const n = readSync(fd, buf, 0, bytes, size - bytes)
-      return buf.subarray(0, n).toString('utf8')
+      const { bytesRead } = await fh.read(buf, 0, bytes, size - bytes)
+      return buf.subarray(0, bytesRead).toString('utf8')
     } finally {
-      closeSync(fd)
+      await fh.close()
     }
   } catch {
     return ''
@@ -223,17 +216,17 @@ const headCache = new Map<
 >()
 
 /** 递归找出所有 rollout 文件（结构是 年/月/日，不写死层数） */
-function walk(dir: string, out: string[], depth = 0): void {
+async function walk(dir: string, out: string[], depth = 0): Promise<void> {
   if (depth > 6) return
   let entries: Dirent[]
   try {
-    entries = readdirSync(dir, { withFileTypes: true })
+    entries = await fsp.readdir(dir, { withFileTypes: true })
   } catch {
     return
   }
   for (const e of entries) {
     const full = join(dir, e.name)
-    if (e.isDirectory()) walk(full, out, depth + 1)
+    if (e.isDirectory()) await walk(full, out, depth + 1)
     else if (e.isFile() && e.name.endsWith('.jsonl')) out.push(full)
   }
 }
@@ -243,16 +236,16 @@ export interface CodexSessionFile {
   session: StoredSession
 }
 
-export function listCodexSessionFiles(): CodexSessionFile[] {
+export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
   const files: string[] = []
-  walk(codexSessionsRoot(), files)
+  await walk(codexSessionsRoot(), files)
   const out: CodexSessionFile[] = []
   const seen = new Set<string>()
 
   for (const file of files) {
     let st
     try {
-      st = statSync(file)
+      st = await fsp.stat(file)
     } catch {
       continue
     }
@@ -264,16 +257,16 @@ export function listCodexSessionFiles(): CodexSessionFile[] {
       head = hit.head
     } else {
       let bytes = Math.min(st.size, HEAD_BYTES)
-      let text = readHead(file, bytes)
+      let text = await readHead(file, bytes)
       head = parseHead(text)
       // 标题可能同样被大图撑到 128KB 之外 —— 缺 cwd 或标题都要扩大重读
       while ((!head.cwd || !head.title) && bytes < MAX_HEAD_BYTES && bytes < st.size) {
         bytes = Math.min(bytes * 8, MAX_HEAD_BYTES, st.size)
-        text = readHead(file, bytes)
+        text = await readHead(file, bytes)
         head = parseHead(text)
       }
       if (!head.cwd) {
-        const tail = readTail(file, st.size)
+        const tail = await readTail(file, st.size)
         const m = tail.match(/"cwd"\s*:\s*"((?:\\.|[^"\\])*)"/)
         if (m) {
           try {
@@ -490,26 +483,13 @@ const emptyUsage = (): Usage => ({
   cacheCreationTokens: 0
 })
 
-/**
- * 把一份 rollout 回放成 UI 认识的 AgentEvent。
- *
- * rollout 里同一条助手消息可能同时出现在 response_item 和 event_msg 里；
- * 只认 response_item，避免历史里每条回复都重复两遍。
- */
-export function readCodexTranscript(
-  file: string,
-  cwd: string,
-  sessionId = ''
-): AgentEvent[] {
-  let raw: string
-  try {
-    raw = readFileSync(file, 'utf8')
-  } catch {
-    return []
-  }
+/** 大文件先读尾部的起步大小；不够 `MAX_RECORDS` 条再成倍往前扩 */
+const TAIL_START_BYTES = 4 * 1024 * 1024
+const TAIL_GROW = 8
 
+function parseRecordLines(text: string): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = []
-  for (const line of raw.split('\n')) {
+  for (const line of text.split('\n')) {
     if (!line.trim().startsWith('{')) continue
     try {
       const v = JSON.parse(line) as unknown
@@ -519,6 +499,60 @@ export function readCodexTranscript(
       // 损坏行跳过
     }
   }
+  return records
+}
+
+/**
+ * 只读文件尾也能还原最后 `MAX_RECORDS` 条 —— 回放本来也只保留这么多。
+ * 从 4MB 起步，条数不够再成倍往前扩，直到覆盖文件头或攒够条数。
+ */
+async function readTailRecords(file: string): Promise<Record<string, unknown>[]> {
+  let size: number
+  try {
+    size = (await fsp.stat(file)).size
+  } catch {
+    return []
+  }
+
+  let bytes = Math.min(size, TAIL_START_BYTES)
+  for (;;) {
+    const start = Math.max(0, size - bytes)
+    let text = ''
+    if (bytes > 0) {
+      const fh = await fsp.open(file, 'r')
+      try {
+        const buf = Buffer.alloc(bytes)
+        const { bytesRead } = await fh.read(buf, 0, bytes, start)
+        text = buf.subarray(0, bytesRead).toString('utf8')
+      } finally {
+        await fh.close()
+      }
+    }
+    // 从文件中间开始读，第一行很可能是半条记录 —— 丢掉它
+    const nl = text.indexOf('\n')
+    const body = start > 0 ? (nl >= 0 ? text.slice(nl + 1) : '') : text
+    const records = parseRecordLines(body)
+    if (start === 0 || records.length >= MAX_RECORDS) {
+      return records.slice(-MAX_RECORDS)
+    }
+    const next = Math.min(size, bytes * TAIL_GROW)
+    if (next === bytes) return records.slice(-MAX_RECORDS)
+    bytes = next
+  }
+}
+
+/**
+ * 把一份 rollout 回放成 UI 认识的 AgentEvent。
+ *
+ * rollout 里同一条助手消息可能同时出现在 response_item 和 event_msg 里；
+ * 只认 response_item，避免历史里每条回复都重复两遍。
+ */
+export async function readCodexTranscript(
+  file: string,
+  cwd: string,
+  sessionId = ''
+): Promise<AgentEvent[]> {
+  const records = await readTailRecords(file)
 
   const list = records.length > MAX_RECORDS ? records.slice(-MAX_RECORDS) : records
   const out: AgentEvent[] = []

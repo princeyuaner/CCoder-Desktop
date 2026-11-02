@@ -111,6 +111,7 @@ import {
   updateSessionMeta
 } from './session-meta-store'
 import { SessionManager } from './session-manager'
+import { SessionEventBatcher } from './session-event-batcher'
 import { validateSessionDir } from './session-dirs'
 import { searchWorkspaceFiles } from './workspace-search'
 import {
@@ -205,6 +206,7 @@ import {
   openSessionInChat,
   reportActiveChat,
   sendRefsToChat,
+  sendToChatMain,
   setChatMainWindow
 } from './chat-bridge'
 import type { ChatActiveInfo, IdeSendPayload } from '../shared/ide-chat'
@@ -1631,10 +1633,16 @@ app.whenReady().then(() => {
     logMain('child-process-gone', details)
   })
 
+  // 按 16ms 合并 token 级增量，减少 IPC 与渲染层整段 Markdown 重解析
+  const sessionEvents = new SessionEventBatcher((p) => sendToChatMain(IPC.sessionEvent, p))
   const sessions = new SessionManager(
     loadSettings,
-    (p) => broadcast(IPC.sessionEvent, p),
-    (p) => broadcast(IPC.sessionStatus, p)
+    (p) => sessionEvents.push(p),
+    (p) => {
+      // 先送完挂起的正文，再推 idle / exited，保证最后一个字不会晚到
+      sessionEvents.flush(p.sessionId)
+      sendToChatMain(IPC.sessionStatus, p)
+    }
   )
 
   // 登录状态机不直接碰 electron：事件出口和"打开浏览器"都从这里注入

@@ -88,9 +88,9 @@ const liveOf = (id) => manager.live.get(id)
 const start = (cwd) => manager.start({ cli: 'claude', cwd, permissionMode: 'standard' })
 
 /** 模拟轮开始：先取归属序号，再拍磁盘快照（与 SessionManager.send 同序） */
-function beginTurn(s) {
+async function beginTurn(s) {
   s.claimSeq = manager.fileSeq
-  s.diskBefore = manager.snapshotForTurn(s)
+  s.diskBefore = await manager.snapshotForTurn(s)
 }
 
 /** 模拟另一条会话用 Edit / Write 改了文件 */
@@ -116,17 +116,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
     mkdirSync(join(dir, 'docs'), { recursive: true })
 
     console.log('\n[1] 别的会话在 B 本轮里写的文件不进 B 的清单')
-    beginTurn(a)
+    await beginTurn(a)
     writeFileSync(mockup, 'v1\n')
     toolWrite(a, mockup, { created: true, wrote: true })
     await sleep(30)
 
-    beginTurn(b)
+    await beginTurn(b)
     await sleep(30)
     writeFileSync(mockup, 'v2\n')
     toolWrite(a, mockup, { source: 'subagent' })
 
-    const bFiles = manager.collectDiskChanges(b)
+    const bFiles = await manager.collectDiskChanges(b)
     check(
       'B 的轮末清单里没有 A 写的 mockup',
       !bFiles.some((c) => c.path === mockup),
@@ -134,7 +134,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
     )
 
     console.log('\n[2] A 自己报得出来')
-    const aFiles = manager.collectDiskChanges(a)
+    const aFiles = await manager.collectDiskChanges(a)
     const aHit = aFiles.find((c) => c.path === mockup)
     check('A 的清单里有 mockup', !!aHit, aFiles.map((c) => c.path))
     check('A 看到的是它自己创建的文件', aHit?.created === true, aHit)
@@ -144,13 +144,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
     writeFileSync(old, 'old\n')
     toolWrite(a, old)
     await sleep(30)
-    beginTurn(b)
+    await beginTurn(b)
     await sleep(30)
     // B 用 Bash 改的：没有工具事件，只能靠磁盘快照
     appendFileSync(old, 'bash edit\n')
     const fresh = join(dir, 'docs', 'fresh.html')
     writeFileSync(fresh, 'new\n')
-    const bFiles2 = manager.collectDiskChanges(b)
+    const bFiles2 = await manager.collectDiskChanges(b)
     const oldHit = bFiles2.find((c) => c.path === old)
     check('B 的清单里有 old.html', !!oldHit, bFiles2.map((c) => c.path))
     check('轮前已存在的未跟踪文件不算「新」', oldHit?.created !== true, oldHit)

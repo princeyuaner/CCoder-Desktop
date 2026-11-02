@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { IconBranch, IconMore, IconPanel } from './Icons'
 import { useI18n } from '../i18n'
 
@@ -24,7 +24,7 @@ interface Props {
   onCancelRename: () => void
 }
 
-export function ChatHeader({
+function ChatHeaderImpl({
   title,
   branch,
   modeLabel,
@@ -139,3 +139,6 @@ function TitleRename({
     />
   )
 }
+
+/** 标题 / 模式 / 面板状态变了才需要重渲染，流式正文与它无关 */
+export const ChatHeader = memo(ChatHeaderImpl)

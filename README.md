@@ -98,7 +98,7 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 
 - **界面语言**：中文 / English / 跟随系统，默认跟随系统；切换后立即生效，已打开的 IDE 窗口也会同步，无需重启。
 - 9 套配色（深色、午夜蓝、森林绿、雾紫、咖啡棕、苔原、高对比、浅色、暖纸）+ 跟随系统。
-- 界面缩放、聊天字号、UI / 等宽字体、发送键、时间戳、思考块默认展开、工具详情粒度。
+- 界面缩放、聊天字号、UI / 等宽字体（可搜索本机字体）、发送键、时间戳、思考块默认展开、工具详情粒度。
 - 无边框自绘标题栏；主窗口和 IDE 窗口共享主题与底色。
 
 ### 自动更新
@@ -146,6 +146,7 @@ npm run build
 npm run verify:dsh      # 不花钱的 ACP 协议自检（隔离的 DSH_HOME，不需要 API Key）
 npm run verify:dsh:web  # 不花钱的 Web 协议自检（启动真实 dsh web，验证会话/历史/审批事件形状）
 npm run verify:changed-review  # 本轮改动 → IDE diff 的路径换算（纯函数断言，不碰磁盘）
+npm run verify:session-store   # 会话记录异步读取：大文件只读尾部、缓存失效、列表扫描
 ```
 
 ### 打包
@@ -225,7 +226,7 @@ publish:
 
 1. 修改 `package.json` 的 `version`，提交并推送。
 2. 推一个与版本号一致的 tag（例如 `v1.2.12`）。
-3. GitHub Actions 的 **Build desktop packages** 会在 Windows / Linux / macOS 三个 runner 上并行构建。全部成功后，`release` job 会创建同名正式 Release，并上传三端的安装包、`latest.yml` / `latest-linux.yml` / `latest-mac.yml`。
+3. GitHub Actions 的 **Build desktop packages** 会先跑 Verify（类型检查 + 回归脚本），再在 Windows / Linux / macOS 三个 runner 上并行构建。全部成功后，`release` job 会创建同名正式 Release，并上传三端的安装包、`latest.yml` / `latest-linux.yml` / `latest-mac.yml`。
 4. 手动触发这个 workflow（`workflow_dispatch`）只构建并保存 Actions artifact，不创建 Release。
 
 注意：
@@ -233,7 +234,7 @@ publish:
 - 已安装的客户端启动 8 秒后检查一次更新，之后每 4 小时一次；用户点「下载」后才下载，下载完成后点「重启并安装」。
 - 只有 NSIS **安装版**支持 Windows 自动更新；便携版和开发模式会显示「不支持自动更新」。
 - 版本号不升，客户端不会认为有新版本；tag 建议与 `package.json` 保持一致。
-- macOS 目前是未签名 dmg。Gatekeeper 会拦截首次启动；macOS 自动更新还要求签名（target 里已同时产出 zip）。
+- macOS 默认出未签名 dmg，Gatekeeper 会拦截首次启动。在仓库 Secrets 里配好 `MAC_CSC_LINK` / `MAC_CSC_KEY_PASSWORD` 后 CI 会自动签名；不配也能正常出包。macOS 自动更新还要求签名（target 里已同时产出 zip），公证暂未接入。
 - Linux 的 AppImage 支持自动更新；deb 不走 electron-updater。
 - 源码仓库的推送与 Release 资产是两件事：更新器只读 Release 里的 `latest*.yml` 和安装包。
 
@@ -329,7 +330,7 @@ src/
 
 ## 已知限制
 
-- 当前只产出 **Windows x64** 安装包；`electronDist` 指向 `node_modules/electron/dist`，其他平台需要自行调整打包配置。
+- CI 产出 Windows x64、Linux x64 和 macOS arm64 安装包；本地打 Linux / macOS 包需在对应平台执行，`electronDist` 的 Windows 优化只对 `package:win` 生效。
 - 会话内查找依赖 **CSS Custom Highlight API**（Chrome 105+）。Electron 33 自带的 Chromium 支持它；如果将来降级到更老的运行时，高亮会静默失效（查找本身、计数和跳转仍然可用）。
 - 拖入的文本文件按 UTF-8 读取。GBK / Shift-JIS 等编码的文本会出现乱码 —— 内置 IDE 的编码选择器不适用于这条路径。
 - 跑完提醒是**应用级**开关，不区分 CLI 或工作区；也不提供「只在窗口最小化时提醒」这类细分条件。
@@ -464,7 +465,7 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 
 - **Interface language**: Chinese / English / follow system, defaulting to follow system. Changes apply immediately, including open IDE windows.
 - 9 themes (dark, midnight, forest, mist, coffee, moss, high contrast, light, warm paper) plus follow system.
-- UI zoom, chat font size, UI / mono fonts, send key, timestamps, expanded thinking by default, and tool-detail granularity.
+- UI zoom, chat font size, UI / mono fonts (searchable local font list), send key, timestamps, expanded thinking by default, and tool-detail granularity.
 - Custom frameless title bar; the main and IDE windows share the theme and background.
 
 ### Auto-update
@@ -512,6 +513,7 @@ npm run build
 npm run verify:dsh      # offline ACP self-check in an isolated DSH_HOME; no API key needed
 npm run verify:dsh:web  # offline Web self-check: real dsh web + sessions/history/approval shapes
 npm run verify:changed-review  # turn-changes → IDE diff path mapping (pure functions, no disk I/O)
+npm run verify:session-store   # async transcript reads: tail-only for big files, cache invalidation, listing
 ```
 
 ### Packaging
@@ -590,14 +592,14 @@ Release flow:
 
 1. Bump `version` in `package.json`, commit, and push.
 2. Push a matching tag (for example `v1.2.12`).
-3. The **Build desktop packages** workflow builds on Windows / Linux / macOS runners in parallel. Once all three succeed, the `release` job creates a non-draft Release for the tag and uploads every platform's installer plus `latest.yml` / `latest-linux.yml` / `latest-mac.yml`.
+3. The **Build desktop packages** workflow runs Verify first (typecheck + regression scripts), then builds on Windows / Linux / macOS runners in parallel. Once all three succeed, the `release` job creates a non-draft Release for the tag and uploads every platform's installer plus `latest.yml` / `latest-linux.yml` / `latest-mac.yml`.
 4. Manually running the workflow (`workflow_dispatch`) only builds and stores Actions artifacts; it does not create a Release.
 
 Notes:
 
 - Only the NSIS **installer** supports Windows auto-update; portable and development builds report that updates are unsupported.
 - The version must change, or clients will not see an update; keep the tag in sync with `package.json`.
-- macOS builds are unsigned today. Gatekeeper will block the first launch, and macOS auto-update also requires signing (the zip target is already produced).
+- macOS builds are unsigned by default, so Gatekeeper blocks the first launch. CI signs automatically when `MAC_CSC_LINK` / `MAC_CSC_KEY_PASSWORD` are set; without them the unsigned dmg is still produced. macOS auto-update requires signing (the zip target is already produced); notarization is not wired up yet.
 - Linux AppImage supports auto-update; deb does not go through electron-updater.
 - Pushing source and publishing Release assets are separate: the updater only reads `latest*.yml` and the installer from the Release.
 
@@ -693,7 +695,7 @@ src/
 
 ## Known limitations
 
-- Only **Windows x64** installers are produced for now; `electronDist` points at `node_modules/electron/dist`, so other platforms need their own packaging config.
+- CI produces Windows x64, Linux x64 and macOS arm64 packages. Building Linux / macOS locally requires the matching platform; the Windows `electronDist` optimization only applies to `package:win`.
 - Find in conversation relies on the **CSS Custom Highlight API** (Chrome 105+). Electron 33's Chromium supports it; on an older runtime highlights silently disappear while search, counts, and jumping still work.
 - Dropped text files are read as UTF-8. Files in GBK / Shift-JIS and similar encodings come out garbled — the IDE's encoding picker does not apply to this path.
 - The finish alert is an **application-wide** switch: it is not per CLI or per workspace, and there is no narrower condition such as "only when minimized".

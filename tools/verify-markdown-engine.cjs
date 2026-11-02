@@ -157,6 +157,16 @@ const CASES = [
     absent: ['hljs-']
   },
   {
+    name: '流式：尾部代码块暂不着色，前面的块保持高亮',
+    md: '```ts\nconst a = 1\n```\n\n```ts\nconst b = 2\n```',
+    render: 'streaming',
+    expect: (h) => {
+      const blocks = h.split('<div class="codebox">').slice(1)
+      return blocks.length === 2 && blocks[0].includes('hljs-keyword') && !blocks[1].includes('hljs-')
+    },
+    absent: []
+  },
+  {
     name: '链接不用真 href',
     md: '看 [这里](https://example.com) 的说明。',
     expect: (h) => h.includes('class="lnk"') && !h.includes('href='),
@@ -178,12 +188,16 @@ const CASES = [
 
 /* ── 跑 ────────────────────────────────────────────────── */
 
+;(async () => {
+/* KaTeX 走动态 import，先把 SSR 需要的排版器取回来 */
+await fixture.preloadKatex()
+
 console.log('══ react-markdown 版渲染检查 ══\n')
 
 const rendered = []
 
 for (const c of CASES) {
-  const html = fixture.render(c.md)
+  const html = c.render === 'streaming' ? fixture.renderStreaming(c.md) : fixture.render(c.md)
   rendered.push({ name: c.name, md: c.md, html })
 
   console.log(`── ${c.name}`)
@@ -341,3 +355,7 @@ fs.writeFileSync(outJson, JSON.stringify(rendered, null, 2))
 
 console.log(`\n${failed === 0 ? `全部通过 ✓ (${passed} 项)` : `${failed} 项失败 ✗ / ${passed} 项通过`}`)
 process.exit(failed === 0 ? 0 : 1)
+})().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

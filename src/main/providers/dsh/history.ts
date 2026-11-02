@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import { join, normalize } from 'node:path'
 import { decompress } from 'fzstd'
 import type { AgentEvent } from '../../../shared/events'
@@ -118,18 +118,20 @@ function decodeZstd(buf: Buffer): string {
   }
 }
 
-function readPrefix(file: string, size: number, maxBytes: number): string {
+async function readPrefix(file: string, size: number, maxBytes: number): Promise<string> {
   const bytes = Math.min(size, maxBytes)
   if (bytes <= 0) return ''
-  const fd = openSync(file, 'r')
   try {
-    const buf = Buffer.alloc(bytes)
-    const n = readSync(fd, buf, 0, bytes, 0)
-    return decodeZstd(buf.subarray(0, n))
+    const fh = await fsp.open(file, 'r')
+    try {
+      const buf = Buffer.alloc(bytes)
+      const { bytesRead } = await fh.read(buf, 0, bytes, 0)
+      return decodeZstd(buf.subarray(0, bytesRead))
+    } finally {
+      await fh.close()
+    }
   } catch {
     return ''
-  } finally {
-    closeSync(fd)
   }
 }
 
@@ -157,13 +159,17 @@ const headerCache = new Map<
 >()
 
 /** 会话头记录（第一帧）—— cwd / 创建时间 / 是否子代理 */
-function readHeader(file: string, size: number, mtimeMs: number): DshHeader | null {
+async function readHeader(
+  file: string,
+  size: number,
+  mtimeMs: number
+): Promise<DshHeader | null> {
   const hit = headerCache.get(file)
   if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.header
 
   // 头一帧只有几百字节；读 8KB 足够走完帧边界，真遇到异常版本再扩大
-  let text = readPrefix(file, size, 8 * 1024)
-  if (!text) text = readPrefix(file, size, 256 * 1024)
+  let text = await readPrefix(file, size, 8 * 1024)
+  if (!text) text = await readPrefix(file, size, 256 * 1024)
   const line = text.split('\n')[0]
   if (!line.startsWith('{')) return null
 
@@ -204,10 +210,10 @@ const projCache = new Map<
  * 字段是嵌套的：`record.identity` / `record.rows.*`，每行还套一层
  * `{ver, seq, val}` —— 直接按 val 取，版本号变了也还能用。
  */
-function readProjCache(file: string): DshProjCache | null {
+async function readProjCache(file: string): Promise<DshProjCache | null> {
   let st
   try {
-    st = statSync(file)
+    st = await fsp.stat(file)
   } catch {
     return null
   }
@@ -216,7 +222,7 @@ function readProjCache(file: string): DshProjCache | null {
 
   let raw: string
   try {
-    raw = readFileSync(file, 'utf8')
+    raw = await fsp.readFile(file, 'utf8')
   } catch {
     return null
   }
@@ -248,8 +254,8 @@ function readProjCache(file: string): DshProjCache | null {
 }
 
 /** 没有投影缓存时，从会话前几帧里找第一条真人消息当标题 */
-function titleFromTranscript(file: string, size: number): string {
-  const text = readPrefix(file, size, 256 * 1024)
+async function titleFromTranscript(file: string, size: number): Promise<string> {
+  const text = await readPrefix(file, size, 256 * 1024)
   if (!text) return ''
   for (const line of text.split('\n')) {
     if (!line.startsWith('{')) continue
@@ -278,7 +284,7 @@ function titleFromTranscript(file: string, size: number): string {
   return ''
 }
 
-export function listDshSessionFiles(): DshSessionFile[] {
+export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
   const out: DshSessionFile[] = []
   const seenFiles = new Set<string>()
   const seenProj = new Set<string>()
@@ -287,11 +293,11 @@ export function listDshSessionFiles(): DshSessionFile[] {
    * 每个渠道一个 home，另外还有共享的 `~/.dsh`（official 模式 / 旧会话）。
    * 全部扫一遍，侧栏才不会因为换了渠道就"丢历史"。
    */
-  const scan = (home: string): void => {
+  const scan = async (home: string): Promise<void> => {
     const root = join(home, 'sessions')
     let encodings: string[]
     try {
-      encodings = readdirSync(root)
+      encodings = await fsp.readdir(root)
     } catch {
       return // 这个 home 还没跑过 dsh
     }
@@ -300,7 +306,7 @@ export function listDshSessionFiles(): DshSessionFile[] {
       const encDir = join(root, encoded)
       let ids: string[]
       try {
-        ids = readdirSync(encDir)
+        ids = await fsp.readdir(encDir)
       } catch {
         continue
       }
@@ -309,7 +315,7 @@ export function listDshSessionFiles(): DshSessionFile[] {
         const dir = join(encDir, id)
         let files: string[]
         try {
-          files = readdirSync(dir)
+          files = await fsp.readdir(dir)
         } catch {
           continue
         }
@@ -320,21 +326,21 @@ export function listDshSessionFiles(): DshSessionFile[] {
         const file = join(dir, name)
         let st
         try {
-          st = statSync(file)
+          st = await fsp.stat(file)
         } catch {
           continue
         }
         if (!st.isFile()) continue
         seenFiles.add(file)
 
-        const header = readHeader(file, st.size, st.mtimeMs)
+        const header = await readHeader(file, st.size, st.mtimeMs)
         if (!header) continue
         // 子代理会话不是用户开的，混进侧栏只会让列表变脏
         if (header.origin === 'subagent' || header.delegationDepth > 0) continue
 
         const projFile = join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`)
         seenProj.add(projFile)
-        const proj = readProjCache(projFile)
+        const proj = await readProjCache(projFile)
 
         // 新建但一句话都没说的会话：dsh 自己的 session/list 也不列它
         if (proj?.blank) continue
@@ -347,7 +353,7 @@ export function listDshSessionFiles(): DshSessionFile[] {
 
         const title =
           cleanTitle(proj?.title ?? '') ||
-          titleFromTranscript(file, st.size) ||
+          (await titleFromTranscript(file, st.size)) ||
           t('codexHistory.untitled')
 
         out.push({
@@ -367,7 +373,7 @@ export function listDshSessionFiles(): DshSessionFile[] {
     }
   }
 
-  for (const home of listDshHomes()) scan(home)
+  for (const home of listDshHomes()) await scan(home)
 
   // 已经删掉的会话别在缓存里留一辈子
   for (const k of headerCache.keys()) if (!seenFiles.has(k)) headerCache.delete(k)
@@ -385,10 +391,14 @@ export function listDshSessionFiles(): DshSessionFile[] {
  * *-chunks：后者是逐 token 的流式增量，回放它们既慢又会把界面撑爆，
  * 而 assistant/message 已经带着这一轮的完整内容。
  */
-export function readDshTranscript(file: string, cwd: string, sessionId = ''): AgentEvent[] {
+export async function readDshTranscript(
+  file: string,
+  cwd: string,
+  sessionId = ''
+): Promise<AgentEvent[]> {
   let raw: Buffer
   try {
-    raw = readFileSync(file)
+    raw = await fsp.readFile(file)
   } catch {
     return []
   }

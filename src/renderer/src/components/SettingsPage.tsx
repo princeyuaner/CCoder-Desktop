@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react'
 import type { PermissionMode } from '@shared/events'
 import {
   CHAT_FONT_SIZES,
@@ -45,10 +54,21 @@ import { ClaudeAuthPanel } from './ClaudeAuthPanel'
 import { CliUpdatePanel } from './CliUpdatePanel'
 import { CodexStatusPanel } from './CodexStatusPanel'
 import { DshStatusPanel } from './DshStatusPanel'
-import { McpManagerPage } from './McpManagerPage'
-import { SkillsManagerPage } from './SkillsManagerPage'
-import { HooksManagerPage } from './HooksManagerPage'
+/*
+ * 三个管理器各自带着自己的 IPC / 表单 / 列表逻辑，只有切到对应页签才需要。
+ * 静态导入会把它们一起塞进设置页 chunk —— 打开设置却只看「通用」也照付解析成本。
+ */
+const McpManagerPage = lazy(() =>
+  import('./McpManagerPage').then((m) => ({ default: m.McpManagerPage }))
+)
+const SkillsManagerPage = lazy(() =>
+  import('./SkillsManagerPage').then((m) => ({ default: m.SkillsManagerPage }))
+)
+const HooksManagerPage = lazy(() =>
+  import('./HooksManagerPage').then((m) => ({ default: m.HooksManagerPage }))
+)
 import { IconPlus, IconX } from './Icons'
+import { FontPicker } from './FontPicker'
 
 /** 字体族名 → 可直接落盘的 CSS font-family；末尾跟一个通用兜底。 */
 function fontStack(name: string, kind: 'ui' | 'mono'): string {
@@ -62,18 +82,28 @@ function fontStack(name: string, kind: 'ui' | 'mono'): string {
  * 字体不存在时 measureText 会回落到默认字体，三个字符宽度不同，自然落选 ——
  * 所以不用先验证字体是否存在。只建一个 canvas，几百个字体逐个换 font 即可。
  */
+let monoCacheKey = ''
+let monoCache: string[] = []
+
 function monoFamiliesOf(families: string[]): string[] {
+  // 设置页反复打开时列表内容不变，别重复量几千次字宽
+  const key = families.join('\u0000')
+  if (key === monoCacheKey) return monoCache
+
   const ctx = document.createElement('canvas').getContext('2d')
   if (!ctx) return []
   const quote = (name: string): string =>
     `"${name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-  return families.filter((name) => {
+  const out = families.filter((name) => {
     ctx.font = `16px ${quote(name)}`
     const narrow = ctx.measureText('i').width
     const wide = ctx.measureText('W').width
     const digit = ctx.measureText('0').width
     return narrow > 0 && Math.abs(narrow - wide) < 0.5 && Math.abs(narrow - digit) < 0.5
   })
+  monoCacheKey = key
+  monoCache = out
+  return out
 }
 
 /** 设置页的几类页面：某个 CLI 的渠道配置、与 CLI 无关的系统设置，或关于/更新 */
@@ -163,21 +193,63 @@ export function SettingsPage({
     const api = window.api?.fonts
     if (!api) return
     let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
     void api
       .list()
       .then((fonts) => {
         if (!alive) return
         const names = fonts.filter((f) => typeof f === 'string' && f.trim())
         setSystemFonts(names)
-        setSystemMonoFonts(monoFamiliesOf(names))
+
+        // 量字宽是同步的：字体多的机器上会卡几十毫秒，挪到空闲时段再做
+        const measure = (): void => {
+          if (!alive) return
+          setSystemMonoFonts(monoFamiliesOf(names))
+        }
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(measure, { timeout: 600 })
+        } else {
+          timer = setTimeout(measure, 0)
+        }
       })
       .catch(() => {
         // 枚举失败就保持空列表，内置预设照常可用
       })
     return () => {
       alive = false
+      if (timer) clearTimeout(timer)
     }
   }, [])
+
+  /*
+   * 选项列表和查找集合都按字体列表缓存：每次 render 都对上千个字体做
+   * fontStack()（两次 replace）并重建 <option>，设置页会明显掉帧。
+   */
+  const systemUiOptions = useMemo(
+    () => systemFonts.map((name) => ({ name, value: fontStack(name, 'ui') })),
+    [systemFonts]
+  )
+  const systemMonoOptions = useMemo(
+    () => systemMonoFonts.map((name) => ({ name, value: fontStack(name, 'mono') })),
+    [systemMonoFonts]
+  )
+  const systemUiValues = useMemo(
+    () => new Set(systemUiOptions.map((o) => o.value)),
+    [systemUiOptions]
+  )
+  const systemMonoValues = useMemo(
+    () => new Set(systemMonoOptions.map((o) => o.value)),
+    [systemMonoOptions]
+  )
+  /* 预设列表也保持引用稳定，FontPicker 内部按引用做的 memo 才有效 */
+  const uiPresetOptions = useMemo(
+    () => UI_FONT_PRESETS.map((p) => ({ name: t(p.labelKey), value: p.value })),
+    [t]
+  )
+  const monoPresetOptions = useMemo(
+    () => MONO_FONT_PRESETS.map((p) => ({ name: t(p.labelKey), value: p.value })),
+    [t]
+  )
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -357,11 +429,11 @@ export function SettingsPage({
   const uiFontIsCustom =
     uiFontCustom ||
     (!UI_FONT_PRESETS.some((p) => p.value === draft.uiFont) &&
-      !systemFonts.some((name) => fontStack(name, 'ui') === draft.uiFont))
+      !systemUiValues.has(draft.uiFont))
   const monoFontIsCustom =
     monoFontCustom ||
     (!MONO_FONT_PRESETS.some((p) => p.value === draft.monoFont) &&
-      !systemMonoFonts.some((name) => fontStack(name, 'mono') === draft.monoFont))
+      !systemMonoValues.has(draft.monoFont))
 
   const patch = (p: Partial<Settings>): void => setDraft({ ...draft, ...p })
 
@@ -733,26 +805,32 @@ export function SettingsPage({
             )}
 
             {page.kind === 'mcp' && (
-              <McpManagerPage
-                cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
-                openedCwds={draft.openedCwds}
-                dshAuthMode={storedDshCfg?.authMode}
-                dshChannelId={dshChannelId}
-              />
+              <Suspense fallback={null}>
+                <McpManagerPage
+                  cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+                  openedCwds={draft.openedCwds}
+                  dshAuthMode={storedDshCfg?.authMode}
+                  dshChannelId={dshChannelId}
+                />
+              </Suspense>
             )}
 
             {page.kind === 'skills' && (
-              <SkillsManagerPage
-                cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
-                openedCwds={draft.openedCwds}
-              />
+              <Suspense fallback={null}>
+                <SkillsManagerPage
+                  cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+                  openedCwds={draft.openedCwds}
+                />
+              </Suspense>
             )}
 
             {page.kind === 'hooks' && (
-              <HooksManagerPage
-                cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
-                openedCwds={draft.openedCwds}
-              />
+              <Suspense fallback={null}>
+                <HooksManagerPage
+                  cwd={draft.defaultCwd.trim() || draft.openedCwds[0] || ''}
+                  openedCwds={draft.openedCwds}
+                />
+              </Suspense>
             )}
 
             {page.kind === 'general' && (
@@ -878,34 +956,20 @@ export function SettingsPage({
                   <div className="field">
                     <label className="field__label">{t('settings.uiFont')}</label>
                     <div className="field__body">
-                      <select
-                        className="input"
-                        value={uiFontIsCustom ? '__custom__' : draft.uiFont}
-                        onChange={(e) => {
-                          if (e.target.value === '__custom__') {
-                            setUiFontCustom(true)
-                            return
-                          }
+                      <FontPicker
+                        value={draft.uiFont}
+                        isCustom={uiFontIsCustom}
+                        presets={uiPresetOptions}
+                        system={systemUiOptions}
+                        systemLabel={t('settings.systemFonts')}
+                        customLabel={t('settings.custom')}
+                        searchPlaceholder={t('settings.fontSearch')}
+                        onPick={(v) => {
                           setUiFontCustom(false)
-                          patch({ uiFont: e.target.value })
+                          patch({ uiFont: v })
                         }}
-                      >
-                        {UI_FONT_PRESETS.map((p) => (
-                          <option key={p.value} value={p.value}>
-                            {t(p.labelKey)}
-                          </option>
-                        ))}
-                        {systemFonts.length > 0 && (
-                          <optgroup label={t('settings.systemFonts')}>
-                            {systemFonts.map((name) => (
-                              <option key={name} value={fontStack(name, 'ui')}>
-                                {name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        <option value="__custom__">{t('settings.custom')}</option>
-                      </select>
+                        onCustom={() => setUiFontCustom(true)}
+                      />
                       {uiFontIsCustom && (
                         <input
                           className="input field__sub"
@@ -926,34 +990,20 @@ export function SettingsPage({
                   <div className="field">
                     <label className="field__label">{t('settings.monoFont')}</label>
                     <div className="field__body">
-                      <select
-                        className="input"
-                        value={monoFontIsCustom ? '__custom__' : draft.monoFont}
-                        onChange={(e) => {
-                          if (e.target.value === '__custom__') {
-                            setMonoFontCustom(true)
-                            return
-                          }
+                      <FontPicker
+                        value={draft.monoFont}
+                        isCustom={monoFontIsCustom}
+                        presets={monoPresetOptions}
+                        system={systemMonoOptions}
+                        systemLabel={t('settings.systemMonoFonts')}
+                        customLabel={t('settings.custom')}
+                        searchPlaceholder={t('settings.fontSearch')}
+                        onPick={(v) => {
                           setMonoFontCustom(false)
-                          patch({ monoFont: e.target.value })
+                          patch({ monoFont: v })
                         }}
-                      >
-                        {MONO_FONT_PRESETS.map((p) => (
-                          <option key={p.value} value={p.value}>
-                            {t(p.labelKey)}
-                          </option>
-                        ))}
-                        {systemMonoFonts.length > 0 && (
-                          <optgroup label={t('settings.systemMonoFonts')}>
-                            {systemMonoFonts.map((name) => (
-                              <option key={name} value={fontStack(name, 'mono')}>
-                                {name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        <option value="__custom__">{t('settings.custom')}</option>
-                      </select>
+                        onCustom={() => setMonoFontCustom(true)}
+                      />
                       {monoFontIsCustom && (
                         <input
                           className="input field__sub"

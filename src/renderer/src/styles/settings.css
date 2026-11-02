@@ -438,6 +438,69 @@
   margin-top: 8px;
 }
 
+/* ── 字体选择器：可搜索的下拉面板 ───────────────────────── */
+.fontpick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fontpick__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.fontpick__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fontpick__panel {
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.fontpick__search {
+  margin-bottom: 6px;
+}
+.fontpick__list {
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.fontpick__group {
+  padding: 7px 8px 3px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.fontpick__opt {
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fontpick__opt:hover,
+.fontpick__opt.is-active {
+  background: var(--bg-hover);
+}
+.fontpick__opt[aria-selected='true'] {
+  color: var(--accent);
+}
+.fontpick__opt--custom {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 6px 6px;
+}
+
 .input {
   width: 100%;
   padding: 7px 10px;

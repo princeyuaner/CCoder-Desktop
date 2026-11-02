@@ -16,14 +16,30 @@ permissions:
   contents: read
 
 jobs:
+  # 打包前先挡一道：类型错误不必等到三端各跑完 10 分钟才发现。
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/verify
+
   windows:
+    needs: verify
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+      # Electron / electron-builder 的下载缓存：不缓存的话三端每次都要
+      # 重新拉 100MB+ 的 Electron，构建时间会多出好几分钟。
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm run package:win
       - uses: actions/upload-artifact@v4
@@ -36,13 +52,20 @@ jobs:
           if-no-files-found: error
 
   linux:
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm run package:linux
       - uses: actions/upload-artifact@v4
@@ -55,11 +78,18 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: verify
     runs-on: macos-14
     env:
-      # 没有签名证书时别让 electron-builder 去找钥匙串；出的是未签名 dmg，
-      # 需要签名 / 公证时再在仓库 Secrets 里配 CSC_LINK、APPLE_ID 等。
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # 配了 MAC_CSC_LINK 就启用签名；没配则关掉钥匙串自动发现，照常出未签名包。
+      CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK != '' }}
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      # 公证暂未开启（electron-builder.yml 里没有 mac.notarize）；
+      # 凭证先留着，接入时直接可用。
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       # macos-14 runner 内存比 Windows/Linux 少，electron-vite 打 11MB 的
       # renderer bundle 时会撞到默认 ~4GB 堆上限（exit 134）。抬到 5GB。
       NODE_OPTIONS: '--max-old-space-size=5120'
@@ -67,8 +97,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm run package:mac
       - uses: actions/upload-artifact@v4
@@ -86,7 +122,7 @@ jobs:
   # 同时创建同一个 Release 时互相撞车。
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, linux, macos]
+    needs: [verify, windows, linux, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write

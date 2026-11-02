@@ -7,23 +7,34 @@
  *
  * 结果在进程内缓存 —— 设置页每次打开都会来要，但字体在运行期间基本不变。
  * 枚举失败时回空数组，让设置页退回原来的预设列表，绝不阻塞设置页。
+ * 失败不写缓存：一次超时不应该让用户在本次运行中永远看不到本机字体。
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
+/** 运行期新装的字体不必重启就能看到；枚举本身不算便宜，别每次设置页都跑 */
+const CACHE_TTL = 30 * 60 * 1000
+
 let cached: string[] | null = null
+let cachedAt = 0
 let inflight: Promise<string[]> | null = null
 
-export function listSystemFonts(): Promise<string[]> {
-  if (cached) return Promise.resolve(cached)
+export function listSystemFonts(force = false): Promise<string[]> {
+  if (!force && cached && Date.now() - cachedAt < CACHE_TTL) return Promise.resolve(cached)
   inflight ??= collect()
-    .catch(() => [] as string[])
     .then((fonts) => {
       cached = fonts
-      inflight = null
+      cachedAt = Date.now()
       return fonts
+    })
+    .catch((err: unknown) => {
+      console.warn('[fonts] enumerate failed:', err)
+      return cached ?? []
+    })
+    .finally(() => {
+      inflight = null
     })
   return inflight
 }
@@ -97,8 +108,17 @@ async function linuxFontNames(): Promise<string[]> {
 
 /* ── 归一化 ───────────────────────────────────────────────── */
 
-/** 注册表名尾巴上的格式标注，如 `Arial (TrueType)`；`Courier 10,12,15 (120)` 这种老式点阵字体也在这里去掉后缀去重 */
+/** 注册表名尾巴上的格式标注，如 `Arial (TrueType)` */
 const TYPE_SUFFIX = /\s*(?:\((?:TrueType|OpenType|Type 1|PostScript|CFF|All res)\)|\(\d+\))\s*$/i
+
+/**
+ * 老式点阵字体的字号列表，如 `Courier 10,12,15 (120)`。
+ * 只认「数字列表 + 括号字符集」这个组合，避免误伤名字本身以数字结尾的字体。
+ */
+const BITMAP_SUFFIX = /\s+\d+(?:,\d+)*\s*\(\d+\)\s*$/
+
+/** 格式标注和字号列表可能同时出现，逐层剥掉 */
+const NAME_SUFFIXES = [BITMAP_SUFFIX, TYPE_SUFFIX] as const
 
 /** 单个字重的入口（`Arial Bold`）应归并回家族名，否则列表里会有一堆重复项 */
 const STYLE_SUFFIX =
@@ -109,12 +129,13 @@ const STYLE_SUFFIX =
  * 只按名字过滤已知的那几个 —— 宁可漏，也别误伤名字里恰好带 symbol 的正常字体。
  */
 const NON_TEXT_FONT =
-  /^\s*(?:Segoe (?:MDL2|Fluent) Assets|Fluent Icons|Material Icons|Material Symbols|Font Awesome|Marlett|Webdings|Wingdings|Symbol)\b/i
+  /^\s*(?:Segoe (?:MDL2|Fluent) Assets|Segoe UI (?:Emoji|Symbol)|Fluent Icons|Material (?:Icons|Symbols)|Font Awesome|Marlett|Webdings|Wingdings|Symbol|Apple Color Emoji|Noto Color Emoji|Twemoji)\b/i
 
-function normalizeFamilies(raw: string[]): string[] {
+export function normalizeFamilies(raw: string[]): string[] {
   const seen = new Map<string, string>()
   for (const item of raw) {
-    const stripped = item.replace(TYPE_SUFFIX, '')
+    let stripped = item
+    for (const suffix of NAME_SUFFIXES) stripped = stripped.replace(suffix, '')
     // `Microsoft YaHei & Microsoft YaHei UI (TrueType)` 是同一份文件里的两个家族
     for (const half of stripped.split('&')) {
       const name = half.replace(STYLE_SUFFIX, '').replace(/\s+/g, ' ').trim()

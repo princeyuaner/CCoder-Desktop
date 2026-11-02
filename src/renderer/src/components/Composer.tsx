@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -213,7 +214,7 @@ interface Props {
   onEditConsumed?: () => void
 }
 
-export function Composer({
+function ComposerImpl({
   onSend,
   onInterrupt,
   running,
@@ -2029,3 +2030,12 @@ function ModelPicker({
     </div>
   )
 }
+
+/*
+ * 输入框必须在流式输出时保持不动。
+ *
+ * MainPane 每收到一批 token 就重渲染；这里 memo 之后，只要 props 没变
+ * （发送中只有 Transcript 需要更新），Composer 连同它的模型/目录/引用面板
+ * 都整块跳过。
+ */
+export const Composer = memo(ComposerImpl)

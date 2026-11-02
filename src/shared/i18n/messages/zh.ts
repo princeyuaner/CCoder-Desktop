@@ -249,6 +249,7 @@ export const zh = {
   /* ── 转写区 ─────────────────────────────────────────────── */
   'transcript.empty': '发一条消息开始 —— 渠道配好后这里就会出字。',
   'transcript.jumpBottom': '回到底部',
+  'transcript.loadEarlier': '加载更早的消息',
   'transcript.connecting': '正在连接 CLI…',
   'transcript.waitAgent': '等待子代理完成…',
   'transcript.waitAgents': '等待 {n} 个子代理完成…',
@@ -679,6 +680,7 @@ export const zh = {
   'settings.monoFontHint': '代码块、内置编辑器、终端、diff、路径和工具输出所用的等宽字体。',
   'settings.systemFonts': '本机字体',
   'settings.systemMonoFonts': '本机等宽字体',
+  'settings.fontSearch': '搜索字体',
   'settings.chat': '对话',
   'settings.showTimestamps': '显示消息时间',
   'settings.showTimestamps.on': '显示',

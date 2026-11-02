@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { MessageKey } from '@shared/i18n'
 import type { RunAgent, RunBackgroundTask, RunState, RunTask } from '../run-state'
 import { useI18n } from '../i18n'
@@ -29,7 +29,7 @@ interface Props {
   onOpenTrace: () => void
 }
 
-export function RunPanel({
+function RunPanelImpl({
   run,
   live,
   running,
@@ -511,3 +511,6 @@ function useNow(active: boolean): number {
   }, [active])
   return now
 }
+
+/** 任务清单只在运行状态变化时更新，不跟着正文流式重渲染 */
+export const RunPanel = memo(RunPanelImpl)

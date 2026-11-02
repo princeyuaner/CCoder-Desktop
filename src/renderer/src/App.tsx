@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sessionMetaKey, type StoredSession } from '@shared/session'
 import { cliDef, sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
 import { disposeIdleNewChats, disposeStoredChat } from './useChat'
@@ -7,7 +7,13 @@ import { Sidebar } from './components/Sidebar'
 import { SessionSearch } from './components/SessionSearch'
 import { MainPane } from './components/MainPane'
 import { NewSessionDialog } from './components/NewSessionDialog'
-import { SettingsPage } from './components/SettingsPage'
+/*
+ * 设置页（连同 MCP / Skills / Hooks 三个管理器）只在点开设置时才需要，
+ * 静态导入会让聊天首屏白白解析两百多 KB。拆成独立 chunk，点开时再取。
+ */
+const SettingsPage = lazy(() =>
+  import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+)
 import { ConfirmModal } from './components/ConfirmModal'
 import { WhatsNewModal } from './components/WhatsNewModal'
 import { baseName, cwdKey } from '@shared/path'
@@ -759,13 +765,15 @@ export function App(): JSX.Element {
 
       {/* 设置弹窗：盖住侧栏和主区，但不卸载当前对话 */}
       {view === 'settings' && (
-        <SettingsPage
-          initialPage={openMcpSettings ? 'mcp' : undefined}
-          onBack={() => {
-            setView('chat')
-            setOpenMcpSettings(false)
-          }}
-        />
+        <Suspense fallback={null}>
+          <SettingsPage
+            initialPage={openMcpSettings ? 'mcp' : undefined}
+            onBack={() => {
+              setView('chat')
+              setOpenMcpSettings(false)
+            }}
+          />
+        </Suspense>
       )}
 
       {notice && (

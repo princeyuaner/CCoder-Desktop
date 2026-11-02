@@ -1,0 +1,28 @@
+name: Verify
+description: Install dependencies, typecheck, and run the headless regression checks
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+    - run: npm ci
+      shell: bash
+    - run: npm run typecheck
+      shell: bash
+    - run: npm run verify:fonts
+      shell: bash
+    - run: npm run verify:markdown
+      shell: bash
+    - run: npm run verify:turn-start
+      shell: bash
+    - run: npm run verify:file-attribution
+      shell: bash
+    - run: npm run verify:session-channel
+      shell: bash
+    - run: npm run verify:event-batch
+      shell: bash
+    - run: npm run verify:session-store
+      shell: bash

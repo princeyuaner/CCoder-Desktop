@@ -14,7 +14,7 @@
  * remark-math 默认规则会把 `$5 到 $10`、`$HOME 和 $PATH` 吃成行内公式。
  * 详见 remark-math-guard.ts —— 那里按原文位置还原误判。
  */
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -41,12 +41,28 @@ function langOf(className: unknown): string {
   return m ? m[1] : ''
 }
 
-export function RichMarkdown({ text, cwd = '' }: { text: string; cwd?: string }): JSX.Element {
+export function RichMarkdown({
+  text,
+  cwd = '',
+  streaming = false
+}: {
+  text: string
+  cwd?: string
+  streaming?: boolean
+}): JSX.Element {
   /*
    * components 对象每次渲染都重建的话，react-markdown 会认为组件变了，
    * 整棵树重挂载 —— 流式输出时表现为闪烁和滚动位置丢失。
    * cwd 会变（切换会话），所以只按 cwd 缓存。
+   *
+   * text / streaming 每个 delta 都会变，不能进依赖；用 ref 把最新值带进
+   * 这个稳定对象里，让 pre 能判断「哪个代码块还在增长」。
    */
+  const streamingRef = useRef(streaming)
+  const textEndRef = useRef(text.length)
+  streamingRef.current = streaming
+  textEndRef.current = text.length
+
   const components = useMemo<Components>(
     () => ({
       /* 行内代码：围栏代码块在 pre 里被整体接管，不会走到这里 */
@@ -59,7 +75,7 @@ export function RichMarkdown({ text, cwd = '' }: { text: string; cwd?: string })
       },
 
       /* 围栏代码块容器：换成项目自己的卡片（带语言标签和复制按钮） */
-      pre({ children }) {
+      pre({ node, children }) {
         const child = Array.isArray(children) ? children[0] : children
         const props = (child as any)?.props ?? {}
         const cls = String(props.className ?? '')
@@ -70,7 +86,19 @@ export function RichMarkdown({ text, cwd = '' }: { text: string; cwd?: string })
 
         const lang = langOf(cls)
         const code = String(props.children ?? '').replace(/\n$/, '')
-        return <CodeCard lang={lang} code={code} />
+
+        /*
+         * 流式时只有尾部围栏块还在增长 —— 它的 mdast 位置一直顶到文本末尾。
+         * 其余已完成块位置固定，着色结果由 CodeCard 的 useMemo 缓存。
+         * 留 1 个字符余量，容忍结尾换行。
+         */
+        const end = node?.position?.end.offset
+        const growing =
+          streamingRef.current &&
+          typeof end === 'number' &&
+          textEndRef.current - end <= 1
+
+        return <CodeCard lang={lang} code={code} streaming={growing} />
       },
 
       /* 链接：不给 href，点击交给主进程（理由同 rich.tsx 的 openLinkedTarget） */

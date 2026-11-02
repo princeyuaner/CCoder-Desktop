@@ -257,6 +257,7 @@ export const en = {
   /* ── Transcript ─────────────────────────────────────────── */
   'transcript.empty': 'Send a message to start — output appears here once a channel is configured.',
   'transcript.jumpBottom': 'Back to bottom',
+  'transcript.loadEarlier': 'Load earlier messages',
   'transcript.connecting': 'Connecting to CLI…',
   'transcript.waitAgent': 'Waiting for subagent…',
   'transcript.waitAgents': { one: 'Waiting for {n} subagent…', other: 'Waiting for {n} subagents…' },
@@ -700,6 +701,7 @@ export const en = {
     'Monospace font for code blocks, the built-in editor, terminal, diffs, paths and tool output.',
   'settings.systemFonts': 'Installed fonts',
   'settings.systemMonoFonts': 'Installed monospace fonts',
+  'settings.fontSearch': 'Search fonts',
   'settings.chat': 'Chat',
   'settings.showTimestamps': 'Show message timestamps',
   'settings.showTimestamps.on': 'Show',

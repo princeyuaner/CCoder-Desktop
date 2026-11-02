@@ -25,6 +25,11 @@ function useLegacy(): boolean {
   }
 }
 
-export function MarkdownText(props: { text: string; cwd?: string }): JSX.Element {
+export function MarkdownText(props: {
+  text: string
+  cwd?: string
+  /** 这条消息还在流式增长：尾部代码块先不着色 */
+  streaming?: boolean
+}): JSX.Element {
   return useLegacy() ? <RichText {...props} /> : <RichMarkdown {...props} />
 }

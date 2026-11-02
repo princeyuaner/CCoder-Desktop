@@ -3,7 +3,7 @@ import { cliConfig, cliDef, type CliAuthMode, type CliId } from '@shared/setting
 import type { RecentAddDir } from '@shared/add-dirs'
 import { sameModel } from '@shared/model'
 import type { ChatActiveInfo, IdeCodeRef } from '@shared/ide-chat'
-import type { SessionMeta } from '@shared/session'
+import type { SessionMeta, SessionSendInput } from '@shared/session'
 import { parseIdeRefs, draftFromUserText } from '../ideRef'
 import { MODE_LABEL_KEY } from '../constants'
 import { useSettings } from '../useSettings'
@@ -15,8 +15,10 @@ import {
   useChat,
   type ChannelLabel,
   type ChannelTarget,
-  type ChatItem
+  type ChatItem,
+  type SendMeta
 } from '../useChat'
+import { useStableCallback } from '../useStableCallback'
 import type { Active } from '../App'
 import { ChatHeader } from './ChatHeader'
 import { ConfirmModal } from './ConfirmModal'
@@ -43,6 +45,9 @@ import { StatusBar } from './StatusBar'
 import { PermissionModal } from './PermissionModal'
 import { QuestionDrawer } from './QuestionDrawer'
 import { RunPanel } from './RunPanel'
+
+/** `recentAddDirs ?? []` 每次渲染都会造新数组，memo 子组件会因此失效 */
+const NO_ADD_DIRS: RecentAddDir[] = []
 
 interface Props {
   active: Active
@@ -826,6 +831,33 @@ export function MainPane({
     )
   }
 
+  /*
+   * 传给 memo 子组件的回调统一固定身份。
+   *
+   * 流式输出时 MainPane 每 16ms 重渲染一次；如果这些箭头函数每次都是新的，
+   * Composer / 执行台 / 标题栏的 memo 会全部失效，等于没优化。
+   * useStableCallback 内部始终调用最新一次渲染的闭包，不会读到旧 state。
+   */
+  const sendInput = useStableCallback((input: SessionSendInput, meta?: SendMeta) =>
+    void chat.send(input, meta)
+  )
+  const selectModel = useStableCallback(pickSelection)
+  const clearChat = useStableCallback(clearConversation)
+  const updateAddDirs = useStableCallback(changeAddDirs)
+  const editUserMessage = useStableCallback(editMessage)
+  const retryLastTurn = useStableCallback(retryTurn)
+  const consumeEdit = useStableCallback(() => setEditDraft(null))
+  const consumeIncoming = useStableCallback(onIncomingConsumed)
+  const togglePanel = useStableCallback(() => setPanelPref(!panelOpen))
+  const cancelRename = useStableCallback(() => setRenaming(false))
+  const toggleHeaderMenuStable = useStableCallback(toggleHeaderMenu)
+  const commitRenameStable = useStableCallback(commitRename)
+  const collapsePanel = useStableCallback(() => setPanelPref(false))
+  const openTrace = useStableCallback(() => {
+    setTab('trace')
+    setPanelPref(false)
+  })
+
   return (
     <main className={`mainpane ${panelOpen ? 'has-panel' : ''}`}>
       <div className="chatcol">
@@ -836,12 +868,12 @@ export function MainPane({
           hasRunInfo={hasRunInfo}
           panelOpen={panelOpen}
           live={panelLive}
-          onTogglePanel={() => setPanelPref(!panelOpen)}
+          onTogglePanel={togglePanel}
           menuOpen={headerMenu !== null}
-          onToggleMenu={toggleHeaderMenu}
+          onToggleMenu={toggleHeaderMenuStable}
           renaming={renaming}
-          onCommitRename={commitRename}
-          onCancelRename={() => setRenaming(false)}
+          onCommitRename={commitRenameStable}
+          onCancelRename={cancelRename}
         />
         {headerMenu && (
           <PopoverMenu
@@ -920,8 +952,8 @@ export function MainPane({
           thinkingOpen={settings.thinkingOpen}
           toolDetail={settings.toolDetail}
           cwd={cwd}
-          onEditMessage={editMessage}
-          onRetryTurn={retryTurn}
+          onEditMessage={editUserMessage}
+          onRetryTurn={retryLastTurn}
         />
         {/*
           提问抽屉：贴在输入框上方，不遮转写区。
@@ -937,7 +969,7 @@ export function MainPane({
         )}
 
         <Composer
-          onSend={(input, meta) => void chat.send(input, meta)}
+          onSend={sendInput}
           onInterrupt={chat.interrupt}
           running={running}
           queue={chat.queue}
@@ -957,8 +989,8 @@ export function MainPane({
           effort={chat.effort}
           cwd={cwd}
           addDirs={chat.addDirs}
-          recentAddDirs={recentAddDirs ?? []}
-          onAddDirsChange={changeAddDirs}
+          recentAddDirs={recentAddDirs ?? NO_ADD_DIRS}
+          onAddDirsChange={updateAddDirs}
           changedFiles={changedFiles}
           /*
            * 「本轮改动」的本地标记（已看过 / 已还原）按这个 key 复位。
@@ -973,14 +1005,14 @@ export function MainPane({
           turns={chat.turns}
           steps={chat.steps}
           usage={chat.usage}
-          onSelect={pickSelection}
+          onSelect={selectModel}
           onModeChange={chat.applyPermissionMode}
           onEffortChange={chat.applyEffort}
-          onClearConversation={clearConversation}
+          onClearConversation={clearChat}
           incomingRefs={incomingRefs}
-          onIncomingConsumed={onIncomingConsumed}
+          onIncomingConsumed={consumeIncoming}
           editDraft={editDraft}
-          onEditConsumed={() => setEditDraft(null)}
+          onEditConsumed={consumeEdit}
         />
         <StatusBar
           turns={chat.turns}
@@ -1003,11 +1035,8 @@ export function MainPane({
           live={panelLive}
           running={running}
           onInterrupt={chat.interrupt}
-          onCollapse={() => setPanelPref(false)}
-          onOpenTrace={() => {
-            setTab('trace')
-            setPanelPref(false)
-          }}
+          onCollapse={collapsePanel}
+          onOpenTrace={openTrace}
         />
       )}
 

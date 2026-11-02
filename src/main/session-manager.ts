@@ -111,6 +111,16 @@ interface Live {
   needsRespawn: boolean
   /** 本轮开始时的磁盘快照；轮末再拍一次，两次对比出工具事件漏掉的改动 */
   diskBefore: WorkspaceSnapshot | null
+  /** 轮前快照正在异步计算；turn_end 要等它落定才能对比 */
+  prep: Promise<WorkspaceSnapshot | null> | null
+  /** 轮末结算中：期间到达的事件先按序存着，等 turn_end 发完再处理 */
+  finishing: boolean
+  /** CLI 进程已退出、正在结算；turn_end 交给退出收尾 */
+  exiting: boolean
+  /** 轮末结算期间暂存的事件 */
+  deferred: AgentEvent[]
+  /** 进程代次：换进程后旧进程迟到的 onEvent / onExit 直接丢弃 */
+  sessionEpoch: number
   /**
    * 本轮开始时的文件归属序号。
    *
@@ -243,13 +253,18 @@ export class SessionManager {
       lastAskedTool: null,
       needsRespawn: false,
       diskBefore: null,
+      prep: null,
+      finishing: false,
+      exiting: false,
+      deferred: [],
+      sessionEpoch: 0,
       claimSeq: 0
     })
     this.emitStatus({ sessionId: id, status: 'idle', providerSessionId: o.resumeId ?? null })
     return id
   }
 
-  send(sessionId: string, input: SessionSendInput): SessionSendResult {
+  async send(sessionId: string, input: SessionSendInput): Promise<SessionSendResult> {
     const s = this.live.get(sessionId)
     if (!s) return { ok: false, message: t('session.notFound') }
     // 图片-only 消息合法；文本和图片都空才拒绝
@@ -290,8 +305,9 @@ export class SessionManager {
       return { ok: true }
     }
 
-    this.beginTurn(s, spawning)
-    s.session?.send(input)
+    const started = await this.startTurn(s, input, spawning)
+    if (started === 'gone') return { ok: false, message: t('session.notFound') }
+    // aborted = 用户已主动停止，不算发送失败
     return { ok: true }
   }
 
@@ -439,6 +455,8 @@ export class SessionManager {
 
   /** 把当前 CLI 进程换掉；下一次发送会用新参数重新拉起（并 --resume 接回） */
   private respawn(s: Live): void {
+    // 旧进程的 exit / 事件回调可能晚于新进程启动，代次加一后直接丢弃
+    s.sessionEpoch += 1
     s.session?.dispose()
     s.session = null
     s.needsRespawn = false
@@ -540,6 +558,7 @@ export class SessionManager {
     s.interrupted = true
     s.queue = []
     s.diskBefore = null
+    s.sessionEpoch += 1
     s.session?.dispose()
     this.live.delete(sessionId)
     this.emitStatus({ sessionId, status: 'exited', providerSessionId: s.providerSessionId })
@@ -655,6 +674,7 @@ export class SessionManager {
       const model =
         s.model.trim() || fallbackModel || (s.cli === 'dsh' ? DSH_DEFAULT_MODEL : '')
       const resume = s.providerSessionId ?? s.initialResumeId ?? null
+      const epoch = ++s.sessionEpoch
       s.session = provider.start({
         channel: ch,
         cwd: s.cwd,
@@ -668,8 +688,12 @@ export class SessionManager {
         mcpServers: getLegacyRuntimeMcpServers(s.cli, s.cwd),
         // 进程活着就用它自己的 id；进程重启后回落到最初要接的那条
         resumeId: resume,
-        onEvent: (e) => this.onEvent(s, e),
-        onExit: (code, stderr) => this.onExit(s, code, stderr)
+        onEvent: (e) => {
+          if (s.sessionEpoch === epoch) this.onEvent(s, e)
+        },
+        onExit: (code, stderr) => {
+          if (s.sessionEpoch === epoch) this.onExit(s, code, stderr)
+        }
       })
       // 只记启动参数，不记 prompt / 用户输入
       logMain('session.spawn', {
@@ -697,29 +721,128 @@ export class SessionManager {
   }
 
   /**
-   * 标记一轮开始：清本轮计数、拍磁盘快照、通知界面。
+   * 标记一轮开始：清本轮计数、异步拍磁盘快照、通知界面。
    *
    * 用户发送、排队消息出队、以及 CLI 自己接着跑的新一轮都走这里 ——
    * 三种来源在界面上必须是同一套「轮开始」状态。`starting` 表示 CLI
    * 进程刚拉起来、还在连接中（用户主动发送时会出现）。
+   *
+   * 快照不再同步阻塞主进程，但 `busy` 必须在这一刻就置位：
+   * - 用户在快照期间再发消息 → 排队，不会并发开两轮；
+   * - CLI 自己续跑的活动事件 → 不会重复认领新一轮。
+   *
+   * 返回的 promise 在磁盘状态就绪后落定；`finishTurn` 必须等它，
+   * 否则轮末会拿不到 before 快照。
    */
-  private beginTurn(s: Live, starting: boolean): void {
+  private markTurnStarted(
+    s: Live,
+    starting: boolean
+  ): Promise<WorkspaceSnapshot | null> {
     s.busy = true
     s.interrupted = false
     s.lastEventWasError = false
     s.toolCount = 0
-    // 拍快照必须在模型动文件之前 —— 然后才轮到模型写盘
     s.claimSeq = this.fileSeq
-    s.diskBefore = this.snapshotForTurn(s)
+    s.diskBefore = null
+
     this.emitEvent({ sessionId: s.id, event: { t: 'turn_started' } })
     this.emitStatus({
       sessionId: s.id,
       status: starting ? 'starting' : 'running',
       providerSessionId: s.providerSessionId
     })
+
+    const prep = this.snapshotForTurn(s)
+    s.prep = prep
+    void prep.then((snap) => {
+      // 期间又开了新一轮的话，这份快照已经过期
+      if (s.prep === prep) {
+        s.diskBefore = snap
+        s.prep = null
+      }
+    })
+    return prep
+  }
+
+  /**
+   * 用户发送 / 队列出队：等轮前快照拍完再把输入交给 CLI。
+   *
+   * 快照必须在模型动文件之前完成；以前同步拍快照时天然满足，现在异步了，
+   * 只能把「send」推迟到快照之后。
+   */
+  private async startTurn(
+    s: Live,
+    input: SessionSendInput,
+    spawning: boolean
+  ): Promise<'sent' | 'requeued' | 'gone' | 'aborted'> {
+    const prep = this.markTurnStarted(s, spawning)
+    await prep
+
+    if (this.live.get(s.id) !== s) return 'gone'
+
+    /*
+     * 快照期间用户点了停止：输入还没交给 CLI，别再发出去。
+     * 渲染层已经乐观地开了这一轮，补一个空的 turn_end 把它收口；
+     * 如果轮末结算已经启动（例如打断时 CLI 回了 turn_end），交给它收尾。
+     */
+    if (s.interrupted) {
+      if (s.prep === prep) s.prep = null
+      s.diskBefore = null
+      if (!s.finishing && !s.exiting) {
+        s.busy = false
+        s.lastAskedTool = null
+        this.emitStatus({
+          sessionId: s.id,
+          status: 'idle',
+          providerSessionId: s.providerSessionId,
+          errored: false
+        })
+        this.emitEvent({
+          sessionId: s.id,
+          event: {
+            t: 'turn_end',
+            durationMs: 0,
+            steps: 0,
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheCreationTokens: 0
+            }
+          }
+        })
+      }
+      return 'aborted'
+    }
+
+    // 快照期间进程退出了：消息放回队首，退出收尾会统一 flush
+    if (!s.session) {
+      if (s.prep === prep) s.prep = null
+      s.diskBefore = null
+      s.queue.unshift(input)
+      // 退出 / 轮末结算还在跑：别在这里抢跑，否则会在新轮中途推 idle
+      if (!s.exiting && !s.finishing) {
+        s.busy = false
+        void this.flushQueue(s)
+      }
+      return 'requeued'
+    }
+
+    s.session.send(input)
+    return 'sent'
   }
 
   private onEvent(s: Live, e: AgentEvent): void {
+    /*
+     * 轮末结算是异步的（磁盘对比要走 git）。CLI 在这段时间可能已经开始
+     * 下一轮，事件先按序存着，等 turn_end 发完再处理 —— 否则新轮的 delta
+     * 会被追加到旧卡片里。
+     */
+    if (s.finishing || s.exiting) {
+      s.deferred.push(e)
+      return
+    }
+
     /*
      * CLI 自己开的新一轮。
      *
@@ -731,7 +854,10 @@ export class SessionManager {
      * 只认模型活动事件：task_started / task_progress / task_notification
      * 在上一轮结束后还会继续到达，那时模型不一定在跑，不能拿它们当依据。
      */
-    if (!s.busy && isTurnActivity(e)) this.beginTurn(s, false)
+    if (!s.busy && isTurnActivity(e)) {
+      // 自主续跑没有调用方可以 await；快照结果由 markTurnStarted 自己落到 diskBefore
+      this.markTurnStarted(s, false)
+    }
 
     /*
      * 记下这个文件刚被哪条会话写过。轮末的磁盘对比要靠它排掉别的会话在
@@ -788,27 +914,19 @@ export class SessionManager {
         ev = { ...ev, message: t('session.officialAuthHint', { detail: raw }) }
       }
     } else if (ev.t === 'turn_end') {
-      // 步数只有管理器知道，在这里补齐
-      ev = { ...ev, steps: s.toolCount }
+      if (s.finishing) return
+      s.finishing = true
+      // 步数和错误标记在同步阶段定住：异步结算期间到达的事件不属于本轮
+      const finished = { ...ev, steps: s.toolCount }
+      // 用户主动打断不算错误：打断后 CLI 也可能回一条 is_error 的结果
+      const errored = s.lastEventWasError && !s.interrupted
+      s.lastEventWasError = false
+      const prep = s.prep
       /*
        * 磁盘对比必须在把「空闲」推给界面之前做完。否则用户看到空闲后
        * 立刻发下一条，上一轮的磁盘改动会晚到，被渲染层算进新一轮。
        */
-      const diskChanges = this.collectDiskChanges(s)
-      // 用户主动打断不算错误：打断后 CLI 也可能回一条 is_error 的结果
-      const errored = s.lastEventWasError && !s.interrupted
-      s.lastEventWasError = false
-      s.busy = false
-      s.lastAskedTool = null
-      for (const c of diskChanges) this.emitEvent({ sessionId: s.id, event: c })
-      this.emitStatus({
-        sessionId: s.id,
-        status: 'idle',
-        providerSessionId: s.providerSessionId,
-        errored
-      })
-      this.emitEvent({ sessionId: s.id, event: ev })
-      this.flushQueue(s)
+      void this.finishTurn(s, finished, errored, prep)
       return
     }
     // 轮末「先报错、再 turn_end」：给下一次状态推送留个标记
@@ -816,12 +934,66 @@ export class SessionManager {
     this.emitEvent({ sessionId: s.id, event: ev })
   }
 
-  private snapshotForTurn(s: Live): WorkspaceSnapshot | null {
+  private async snapshotForTurn(s: Live): Promise<WorkspaceSnapshot | null> {
     try {
-      return snapshotWorkspace(s.cwd)
+      return await snapshotWorkspace(s.cwd)
     } catch {
       return null
     }
+  }
+
+  /**
+   * 轮末收尾：等轮前快照落定 → 异步拍轮末快照 → 对比 → 推空闲。
+   *
+   * 整个过程 `busy` 保持 true，新消息排队、自主续跑也不会另开一轮；
+   * CLI 在这期间发来的事件先进 `deferred`，等 turn_end 推完再按序处理。
+   */
+  private async finishTurn(
+    s: Live,
+    ev: Extract<AgentEvent, { t: 'turn_end' }>,
+    errored: boolean,
+    prep: Promise<WorkspaceSnapshot | null> | null
+  ): Promise<void> {
+    let before = s.diskBefore
+    if (prep) {
+      try {
+        before = await prep
+      } catch {
+        before = null
+      }
+      if (s.prep === prep) s.prep = null
+    }
+
+    const changes = await this.collectDiskChanges(s, before, s.claimSeq)
+    if (this.live.get(s.id) !== s) return
+    // 进程在结算期间退出了（或退出收尾已经跑完）：交给 onExit 处理
+    if (s.exiting || !s.finishing) {
+      s.finishing = false
+      return
+    }
+
+    s.busy = false
+    s.finishing = false
+    s.lastAskedTool = null
+    for (const c of changes) this.emitEvent({ sessionId: s.id, event: c })
+    this.emitStatus({
+      sessionId: s.id,
+      status: 'idle',
+      providerSessionId: s.providerSessionId,
+      errored
+    })
+    this.emitEvent({ sessionId: s.id, event: ev })
+
+    this.drainDeferred(s)
+    void this.flushQueue(s)
+  }
+
+  /** 轮末结算期间暂存的事件，按原顺序补处理 */
+  private drainDeferred(s: Live): void {
+    const pending = s.deferred
+    if (!pending.length) return
+    s.deferred = []
+    for (const e of pending) this.onEvent(s, e)
   }
 
   /**
@@ -831,14 +1003,16 @@ export class SessionManager {
    * 本轮开始之后被**别的会话**用工具写过的路径一律跳过 —— 那条会话自己会
    * 报它的改动，本会话再报一遍就成了「A 改的文件显示到 B 里」。
    */
-  private collectDiskChanges(s: Live): AgentEvent[] {
-    const before = s.diskBefore
-    const since = s.claimSeq
+  private async collectDiskChanges(
+    s: Live,
+    before: WorkspaceSnapshot | null = s.diskBefore,
+    since: number = s.claimSeq
+  ): Promise<AgentEvent[]> {
     s.diskBefore = null
     if (!before) return []
     let changes: AgentEvent[]
     try {
-      changes = diffWorkspace(before, snapshotWorkspace(s.cwd))
+      changes = await diffWorkspace(before, await snapshotWorkspace(s.cwd))
     } catch {
       return []
     }
@@ -849,7 +1023,9 @@ export class SessionManager {
     })
   }
 
-  private flushQueue(s: Live): void {
+  private async flushQueue(s: Live): Promise<void> {
+    // 上一轮还在结算 / 快照还没拍完：等它结束时会再调一次
+    if (s.busy) return
     const next = s.queue.shift()
     if (!next) return
     if (s.needsRespawn) this.respawn(s)
@@ -870,11 +1046,14 @@ export class SessionManager {
       })
       return
     }
-    this.beginTurn(s, spawning)
-    s.session?.send(next)
+    const started = await this.startTurn(s, next, spawning)
+    // requeued 时 startTurn 已经安排了下一次 flush；gone 说明会话已销毁
+    void started
   }
 
   private onExit(s: Live, code: number | null, stderr: string): void {
+    // stop() 已经删掉了 Live：退出事件只是收尾，不必再推状态
+    if (this.live.get(s.id) !== s) return
     logMain('session.exit', {
       id: s.id,
       cli: s.cli,
@@ -887,12 +1066,38 @@ export class SessionManager {
     })
 
     s.session = null
-    s.busy = false
+    s.exiting = true
+    void this.finishExit(s, code, stderr)
+  }
+
+  /**
+   * 进程退出后的收尾。
+   *
+   * 和 turn_end 一样，轮末磁盘对比是异步的；结算期间保持 busy，避免用户
+   * 立刻发下一条时和旧快照交叉。进程没了但会话还在，最后会重新拉起队列。
+   */
+  private async finishExit(s: Live, code: number | null, stderr: string): Promise<void> {
+    s.busy = true
     /*
      * 进程都没了，这一轮不会再有 turn_end。把已经落盘的改动结算掉，
      * 别让它们消失（也别留到下一轮的 before 快照里，那样就永远报不出来）。
      */
-    const diskChanges = this.collectDiskChanges(s)
+    let before = s.diskBefore
+    const prep = s.prep
+    if (prep) {
+      try {
+        before = await prep
+      } catch {
+        before = null
+      }
+      if (s.prep === prep) s.prep = null
+    }
+    const diskChanges = await this.collectDiskChanges(s, before, s.claimSeq)
+
+    if (this.live.get(s.id) !== s) return
+    s.busy = false
+    s.finishing = false
+    s.exiting = false
 
     if (!s.interrupted && code !== null && code !== 0) {
       const tail = stderr.trim().slice(-400)
@@ -925,7 +1130,8 @@ export class SessionManager {
       // 进程非零退出，或者退出前最后一条是错误（如 dsh 的 fatal）
       errored: !s.interrupted && ((code !== null && code !== 0) || s.lastEventWasError)
     })
+    this.drainDeferred(s)
     // 进程没了但会话还在，下一轮会重新拉起
-    this.flushQueue(s)
+    void this.flushQueue(s)
   }
 }

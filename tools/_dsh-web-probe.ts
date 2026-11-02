@@ -249,7 +249,7 @@ async function main(): Promise<void> {
     firstId,
     'session.v4.jsonl.zstd'
   )
-  const replay = readDshTranscript(transcriptFile, cwd, firstId)
+  const replay = await readDshTranscript(transcriptFile, cwd, firstId)
   const replayTypes = replay.map((e) => e.t)
   console.log('history events:', replayTypes.join(', '))
   if (!replayTypes.includes('session_started')) fail('历史回放缺少 session_started')
