@@ -138,17 +138,33 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
+      # 发布页文案优先用手写的 docs/releases/v<tag>.md（本次更新 / 验证 / 安装），
+      # 没有这份文件时才退回 GitHub 自动生成的 Full Changelog。
+      - name: Resolve release notes
+        id: notes
+        shell: bash
+        run: |
+          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then
+            echo "body_path=$notes" >> "$GITHUB_OUTPUT"
+            echo "generate=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "body_path=" >> "$GITHUB_OUTPUT"
+            echo "generate=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: CCoder ${{ github.ref_name }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.body_path }}
+          generate_release_notes: ${{ steps.notes.outputs.generate }}
           files: |
             release/*.exe
             release/*.AppImage

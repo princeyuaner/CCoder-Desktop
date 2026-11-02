@@ -226,10 +226,11 @@ publish:
 发版流程：
 
 1. 在 `src/shared/whats-new.ts` 的 `WHATS_NEW_RELEASES` 最前面补一条本版本说明：`version` 必须和 `package.json` 一致，重点和条目都要写中英文。更新公告按版本号精确匹配，漏写时客户端会静默不弹。
-2. 修改 `package.json` 的 `version`，提交并推送。
-3. 推一个与版本号一致的 tag（例如 `v1.2.12`）。
-4. GitHub Actions 的 **Build desktop packages** 会先跑 Verify（类型检查 + 回归脚本），再在 Windows / Linux / macOS 三个 runner 上并行构建。全部成功后，`release` job 会创建同名正式 Release，并上传三端的安装包、`latest.yml` / `latest-linux.yml` / `latest-mac.yml`。
-5. 手动触发这个 workflow（`workflow_dispatch`）只构建并保存 Actions artifact，不创建 Release。
+2. 在 `docs/releases/v<version>.md` 写发布页文案（`## 本次更新` / `## 验证` / `## 安装`）。release job 会优先用这份文件；没有时才退回 GitHub 自动生成的 Full Changelog。
+3. 修改 `package.json` 的 `version`，提交并推送。
+4. 推一个与版本号一致的 tag（例如 `v1.2.12`）。
+5. GitHub Actions 的 **Build desktop packages** 会先跑 Verify（类型检查 + 回归脚本），再在 Windows / Linux / macOS 三个 runner 上并行构建。全部成功后，`release` job 会创建同名正式 Release，并上传三端的安装包、`latest.yml` / `latest-linux.yml` / `latest-mac.yml`。
+6. 手动触发这个 workflow（`workflow_dispatch`）只构建并保存 Actions artifact，不创建 Release。
 
 注意：
 
