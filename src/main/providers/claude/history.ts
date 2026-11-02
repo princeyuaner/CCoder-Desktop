@@ -5,6 +5,7 @@ import { agentRunInfo, taskResultInfo } from './tool-result-meta'
 import { taskNotificationFromText, taskSystemEvent } from './task-events'
 import { normalizeQuestions } from './control'
 import { t } from '../../i18n'
+import { clipToolOutput, stringifyContent } from './tool-output'
 
 /**
  * 把 CLI 自己写的会话记录（jsonl）回放成 AgentEvent。
@@ -93,21 +94,6 @@ function userImages(message: unknown): ImageAttachment[] {
     if (out.length >= MAX_HISTORY_IMAGES) break
   }
   return out
-}
-
-function stringifyContent(v: unknown): string {
-  if (typeof v === 'string') return v
-  if (Array.isArray(v)) {
-    return v
-      .map((b) => {
-        const o = obj(b)
-        if (!o) return ''
-        return typeof o.text === 'string' ? o.text : `[${str(o.type) || 'block'}]`
-      })
-      .filter(Boolean)
-      .join('\n')
-  }
-  return v == null ? '' : JSON.stringify(v)
 }
 
 /**
@@ -210,7 +196,7 @@ export function replayRecords(records: Record<string, unknown>[]): AgentEvent[] 
         t: 'tool_result',
         id,
         status: b.is_error === true ? 'error' : 'ok',
-        content: stringifyContent(b.content),
+        content: clipToolOutput(stringifyContent(b.content)),
         ...(stat ? { stat } : {}),
         ...(created ? { created: true } : {}),
         ...(agent ? { agent } : {}),

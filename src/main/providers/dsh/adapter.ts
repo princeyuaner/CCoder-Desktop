@@ -1035,7 +1035,7 @@ export class DshProvider implements Provider {
   id = 'dsh'
 
   async detect(): Promise<{ installed: boolean; path: string }> {
-    const status = checkDshStatus()
+    const status = await checkDshStatus()
     return { installed: status.installed && status.nodeOk, path: status.path }
   }
 

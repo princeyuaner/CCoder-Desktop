@@ -9,6 +9,7 @@ import { agentRunInfo, taskResultInfo } from './tool-result-meta'
 import { taskSystemEvent } from './task-events'
 import { claudeCommands } from './commands'
 import { t } from '../../i18n'
+import { clipToolOutput, stringifyContent } from './tool-output'
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
@@ -37,23 +38,6 @@ const CLI_TO_OURS: Record<string, PermissionMode> = {
 
 export function normalizePermissionMode(v: unknown): PermissionMode {
   return CLI_TO_OURS[str(v)] ?? 'standard'
-}
-
-/** tool_result 的 content 可能是字符串，也可能是块数组 */
-function stringifyContent(v: unknown): string {
-  if (typeof v === 'string') return v
-  if (Array.isArray(v)) {
-    return v
-      .map((b) => {
-        const o = obj(b)
-        if (!o) return ''
-        if (typeof o.text === 'string') return o.text
-        return `[${str(o.type) || 'block'}]`
-      })
-      .filter(Boolean)
-      .join('\n')
-  }
-  return v == null ? '' : JSON.stringify(v)
 }
 
 /**
@@ -377,7 +361,7 @@ export class ClaudeStreamTranslator {
         t: 'tool_result',
         id,
         status: b.is_error === true ? 'error' : 'ok',
-        content: stringifyContent(b.content),
+        content: clipToolOutput(stringifyContent(b.content)),
         ...(stat ? { stat } : {}),
         ...(created ? { created: true } : {}),
         ...(agent ? { agent } : {}),

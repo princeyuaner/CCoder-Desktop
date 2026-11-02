@@ -392,7 +392,9 @@ function registerSettingsIpc(sessions: SessionManager): void {
   })
 
   ipcMain.handle(IPC.codexStatus, () => checkCodexStatus())
-  ipcMain.handle(IPC.dshStatus, (_e, channelId?: string | null) => checkDshStatus(channelId))
+  ipcMain.handle(IPC.dshStatus, (_e, channelId?: string | null) =>
+    checkDshStatus(channelId)
+  )
 
   // 会话存储归 CLI 所有：我们只读它写的，唯一的写操作是"删掉一整条"
   ipcMain.handle(IPC.sessionsList, () => listStoredSessions())

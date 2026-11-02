@@ -102,12 +102,56 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
   return stdout
 }
 
+/**
+ * cwd → 仓库根。每轮两次快照都要先跑 `rev-parse`，而 Windows 上每次
+ * spawn git 就是几十毫秒。根目录在同一个 cwd 下几乎不会变，缓存几分钟；
+ * 真失效了（目录被删 / 换成另一个仓库）下一次快照也会因为其他命令失败
+ * 退回目录树，不会用到过期的根。
+ */
+const GIT_ROOT_TTL_MS = 5 * 60_000
+const gitRootCache = new Map<string, { root: string; at: number }>()
+
+async function gitRootOf(cwd: string): Promise<string> {
+  const hit = gitRootCache.get(cwd)
+  if (hit && Date.now() - hit.at < GIT_ROOT_TTL_MS) return hit.root
+  const root = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).trim() || cwd
+  gitRootCache.set(cwd, { root, at: Date.now() })
+  return root
+}
+
 async function statOrNull(path: string): Promise<Stats | null> {
   try {
     return await stat(path)
   } catch {
     return null
   }
+}
+
+/**
+ * 限制并发的 map。
+ *
+ * 脏文件 / 工作树条目可能上千，一次性 `Promise.all` 会把文件描述符和
+ * 磁盘队列打满；16 路已经足够把串行 `stat` 的往返延迟吃掉。
+ */
+const IO_CONCURRENCY = 16
+
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const out = new Array<R>(items.length)
+  let next = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++
+      if (i >= items.length) return
+      out[i] = await fn(items[i])
+    }
+  })
+  await Promise.all(workers)
+  return out
 }
 
 async function countLines(path: string): Promise<number> {
@@ -152,15 +196,24 @@ async function gitSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
    *
    * --no-renames：重命名拆成「删 + 增」两条，和修改清单的粒度一致。
    */
-  const root = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).trim() || cwd
-  const status = await runGit(cwd, [
-    '-c',
-    'status.relativePaths=false',
-    'status',
-    '--porcelain=v1',
-    '-z',
-    '--no-renames',
-    '--untracked-files=all'
+  const root = await gitRootOf(cwd)
+
+  /*
+   * status 和两条 diff 互不依赖，一起跑。原本是三次串行 spawn，
+   * 大仓库里光进程启动 + 遍历工作树就够让「发送」明显变慢。
+   */
+  const [status, workDiff, cachedDiff] = await Promise.all([
+    runGit(cwd, [
+      '-c',
+      'status.relativePaths=false',
+      'status',
+      '--porcelain=v1',
+      '-z',
+      '--no-renames',
+      '--untracked-files=all'
+    ]),
+    runGit(cwd, ['diff', '--numstat', '-z', '--no-renames']),
+    runGit(cwd, ['diff', '--cached', '--numstat', '-z', '--no-renames'])
   ])
 
   /** path → 状态；只收 dirty / untracked */
@@ -175,17 +228,18 @@ async function gitSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
   }
 
   const stats = new Map<string, { added: number; removed: number }>()
-  parseNumstat(await runGit(cwd, ['diff', '--numstat', '-z', '--no-renames']), stats)
-  parseNumstat(
-    await runGit(cwd, ['diff', '--cached', '--numstat', '-z', '--no-renames']),
-    stats
-  )
+  parseNumstat(workDiff, stats)
+  parseNumstat(cachedDiff, stats)
 
-  for (const [rel, xy] of statuses) {
-    const abs = resolve(root, rel)
+  const inScope = [...statuses].filter(([rel]) => {
     // 工作区是仓库子目录时，只报这个子树里的改动
-    const relToCwd = relative(cwd, abs)
-    if (relToCwd.startsWith('..') || isAbsolute(relToCwd)) continue
+    const relToCwd = relative(cwd, resolve(root, rel))
+    return !relToCwd.startsWith('..') && !isAbsolute(relToCwd)
+  })
+
+  // 每个 dirty 文件的 stat / 行数都独立，按并发上限一起取
+  const entries = await mapLimit(inScope, IO_CONCURRENCY, async ([rel, xy]) => {
+    const abs = resolve(root, rel)
     const deleted = xy.includes('D')
     const created = xy === '??'
     const st = deleted ? null : await statOrNull(abs)
@@ -193,16 +247,20 @@ async function gitSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
     // untracked 不在 numstat 里，按内容行数算
     const added = created ? await countLines(abs) : (exact?.added ?? 0)
     const removed = created ? 0 : (exact?.removed ?? 0)
+    return {
+      abs,
+      state: {
+        added,
+        removed,
+        mtimeMs: st?.mtimeMs ?? 0,
+        size: st?.size ?? 0,
+        created,
+        deleted
+      } satisfies FileState
+    }
+  })
 
-    files.set(abs, {
-      added,
-      removed,
-      mtimeMs: st?.mtimeMs ?? 0,
-      size: st?.size ?? 0,
-      created,
-      deleted
-    })
-  }
+  for (const { abs, state } of entries) files.set(abs, state)
 
   return { cwd, kind: 'git', complete: true, files }
 }
@@ -231,8 +289,15 @@ async function fsSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
     } catch {
       continue
     }
+
+    /*
+     * 先把目录里的文件收集起来，再按并发上限一起 stat。
+     * 串行 stat 在 node_modules 之外的大目录上依然要几十次往返，
+     * 而同一目录下这些 stat 完全独立。
+     */
+    const toStat: string[] = []
     for (const e of entries) {
-      // 异步 stat 后单个大目录也可能拖过 deadline，循环里再兜一次
+      // 目录遍历本身也可能拖过 deadline，循环里再兜一次
       if (Date.now() - started > FS_DEADLINE_MS) {
         complete = false
         stack.length = 0
@@ -245,21 +310,28 @@ async function fsSnapshot(cwd: string): Promise<WorkspaceSnapshot> {
       }
       // 符号链接不跟 —— 目录环会让遍历停不下来
       if (!e.isFile()) continue
-      const st = await statOrNull(full)
-      if (st) {
-        files.set(full, {
-          added: 0,
-          removed: 0,
-          mtimeMs: st.mtimeMs,
-          size: st.size,
-          created: false,
-          deleted: false
-        })
-      }
-      // 扫描过程中被删掉的文件，statOrNull 返回 null，忽略
-      if (files.size > FS_MAX_FILES) {
-        complete = false
-        break
+      toStat.push(full)
+    }
+
+    if (toStat.length > 0) {
+      const stats = await mapLimit(toStat, IO_CONCURRENCY, statOrNull)
+      for (let i = 0; i < stats.length; i++) {
+        // 扫描过程中被删掉的文件，statOrNull 返回 null，忽略
+        const st = stats[i]
+        if (st) {
+          files.set(toStat[i], {
+            added: 0,
+            removed: 0,
+            mtimeMs: st.mtimeMs,
+            size: st.size,
+            created: false,
+            deleted: false
+          })
+        }
+        if (files.size > FS_MAX_FILES) {
+          complete = false
+          break
+        }
       }
     }
   }

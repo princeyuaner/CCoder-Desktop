@@ -14,7 +14,7 @@
  * remark-math 默认规则会把 `$5 到 $10`、`$HOME 和 $PATH` 吃成行内公式。
  * 详见 remark-math-guard.ts —— 那里按原文位置还原误判。
  */
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -32,6 +32,19 @@ const REMARK_PLUGINS = [remarkGfm, remarkMath, mathGuard]
 const REHYPE_PLUGINS = [rehypeMathToTag] as unknown as NonNullable<
   React.ComponentProps<typeof Markdown>['rehypePlugins']
 >
+
+/*
+ * 流式解析节流。
+ *
+ * remark/rehype 每次渲染都是**整段文本重新解析**，和文本长度线性相关。
+ * 短回答保持 16ms（≈60fps）不影响观感；几千字以后按帧率换解析时间：
+ * 用户看到的是光标在走，而不是整段 Markdown 每秒重排 60 次。
+ */
+const STREAM_INTERVAL_MS = 16
+const MEDIUM_STREAM_INTERVAL_MS = 48
+const LONG_STREAM_INTERVAL_MS = 100
+const MEDIUM_CHARS = 6_000
+const LONG_CHARS = 20_000
 
 /* ── 代码块：围栏代码走 CodeCard，行内代码走 .ic ──────── */
 
@@ -58,10 +71,59 @@ export function RichMarkdown({
    * text / streaming 每个 delta 都会变，不能进依赖；用 ref 把最新值带进
    * 这个稳定对象里，让 pre 能判断「哪个代码块还在增长」。
    */
+  /*
+   * 实际交给 Markdown 解析的文本。流式时按文本长度降频更新，
+   * 非流式（历史回放 / 已收口）立即对齐。
+   */
+  const [shown, setShown] = useState(text)
+  const latest = useRef(text)
+  latest.current = text
+  const shownAt = useRef(0)
+  const throttleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!streaming) {
+      if (throttleTimer.current !== null) {
+        clearTimeout(throttleTimer.current)
+        throttleTimer.current = null
+      }
+      shownAt.current = Date.now()
+      setShown(text)
+      return
+    }
+    const now = Date.now()
+    const interval =
+      text.length >= LONG_CHARS
+        ? LONG_STREAM_INTERVAL_MS
+        : text.length >= MEDIUM_CHARS
+          ? MEDIUM_STREAM_INTERVAL_MS
+          : STREAM_INTERVAL_MS
+    const wait = Math.max(0, interval - (now - shownAt.current))
+    if (wait === 0) {
+      shownAt.current = now
+      setShown(latest.current)
+      return
+    }
+    // 已经有一次待执行的刷新就够了：它读的是 latest，不会落后
+    if (throttleTimer.current !== null) return
+    throttleTimer.current = setTimeout(() => {
+      throttleTimer.current = null
+      shownAt.current = Date.now()
+      setShown(latest.current)
+    }, wait)
+  }, [text, streaming])
+
+  useEffect(
+    () => () => {
+      if (throttleTimer.current !== null) clearTimeout(throttleTimer.current)
+    },
+    []
+  )
+
   const streamingRef = useRef(streaming)
-  const textEndRef = useRef(text.length)
+  const textEndRef = useRef(shown.length)
   streamingRef.current = streaming
-  textEndRef.current = text.length
+  textEndRef.current = shown.length
 
   const components = useMemo<Components>(
     () => ({
@@ -188,11 +250,23 @@ export function RichMarkdown({
     [cwd]
   )
 
-  return (
-    <div className="md selectable">
-      <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
-        {text}
+  /*
+   * 元素也用 memo 固定住：`shown` 没变的那些帧，React 能直接复用同一个
+   * element、跳过 Markdown 子树的重新解析。只做节流不做这一步的话，
+   * 父组件每次 delta 重渲染仍然会让 react-markdown 全量 parse 一遍。
+   */
+  const body = useMemo(
+    () => (
+      <Markdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={components}
+      >
+        {shown}
       </Markdown>
-    </div>
+    ),
+    [shown, components]
   )
+
+  return <div className="md selectable">{body}</div>
 }

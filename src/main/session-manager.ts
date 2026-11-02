@@ -81,6 +81,14 @@ interface Live {
   session: ProviderSession | null
   /** 本轮已经发生的工具调用数，用于状态栏的「N 步」 */
   toolCount: number
+  /**
+   * 本轮是否出现过任何工具事件。
+   *
+   * 纯对话轮不可能改文件，轮末可以省掉一次磁盘快照（大仓库里这是
+   * 每轮几百毫秒的 git status/diff）。只在**一个工具都没跑过**时省略，
+   * 保守判断：读文件、MCP、子代理都算工具活动。
+   */
+  toolActivity: boolean
   /** 是否有一轮正在跑 */
   busy: boolean
   /** 用户主动打断时置位，避免把打断当成错误 */
@@ -244,6 +252,7 @@ export class SessionManager {
       initialResumeId: o.resumeId ?? null,
       session: null,
       toolCount: 0,
+      toolActivity: false,
       busy: false,
       interrupted: false,
       lastEventWasError: false,
@@ -742,6 +751,7 @@ export class SessionManager {
     s.interrupted = false
     s.lastEventWasError = false
     s.toolCount = 0
+    s.toolActivity = false
     s.claimSeq = this.fileSeq
     s.diskBefore = null
 
@@ -859,6 +869,21 @@ export class SessionManager {
       this.markTurnStarted(s, false)
     }
 
+    // 有工具（含后台任务 / 子代理）才需要轮末比对磁盘；纯对话轮跳过
+    if (
+      e.t === 'tool_started' ||
+      e.t === 'tool_call' ||
+      e.t === 'tool_result' ||
+      e.t === 'file_change' ||
+      e.t === 'permission_request' ||
+      e.t === 'task_started' ||
+      e.t === 'task_progress' ||
+      e.t === 'task_updated' ||
+      e.t === 'task_notification'
+    ) {
+      s.toolActivity = true
+    }
+
     /*
      * 记下这个文件刚被哪条会话写过。轮末的磁盘对比要靠它排掉别的会话在
      * 本会话这一轮里写的路径 —— 见 fileWriters。
@@ -954,17 +979,29 @@ export class SessionManager {
     errored: boolean,
     prep: Promise<WorkspaceSnapshot | null> | null
   ): Promise<void> {
+    /*
+     * 这一轮一个工具都没跑过 → 不可能有本会话写入，磁盘对比直接跳过。
+     * 纯问答轮在大仓库里也要等一次 git status/diff，省掉的是用户从
+     * 「最后一段文字出现」到「输入框解锁」之间的等待。
+     */
+    const willDiff = s.toolActivity
+
     let before = s.diskBefore
     if (prep) {
-      try {
-        before = await prep
-      } catch {
-        before = null
+      if (willDiff) {
+        try {
+          before = await prep
+        } catch {
+          before = null
+        }
       }
+      // 不比对时不等快照：让它自己落地，下一轮 markTurnStarted 会重置
       if (s.prep === prep) s.prep = null
     }
 
-    const changes = await this.collectDiskChanges(s, before, s.claimSeq)
+    const changes = willDiff
+      ? await this.collectDiskChanges(s, before, s.claimSeq)
+      : (s.diskBefore = null, [] as AgentEvent[])
     if (this.live.get(s.id) !== s) return
     // 进程在结算期间退出了（或退出收尾已经跑完）：交给 onExit 处理
     if (s.exiting || !s.finishing) {

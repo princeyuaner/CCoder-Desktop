@@ -1,4 +1,4 @@
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   copyFileSync,
   cpSync,
@@ -13,6 +13,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import type { DshStatus } from '../../../shared/dsh'
 import type { Channel, Settings } from '../../../shared/settings'
 import { pathKey } from '../../path-key'
@@ -33,6 +34,91 @@ const IS_WIN = process.platform === 'win32'
 let cachedNode: string | null = null
 let cachedBinJs: string | null | undefined
 let cachedNodeOk: boolean | undefined
+
+const execFileAsync = promisify(execFile)
+
+/** 安装探测的超时；--version 正常是几十毫秒，15s 只用来兜住挂死的 node */
+const NODE_PROBE_TIMEOUT_MS = 5_000
+const VERSION_TIMEOUT_MS = 15_000
+/** 版本号缓存多久。bin.js 的 mtime/size 变了会立刻失效 */
+const VERSION_CACHE_MS = 5 * 60_000
+/** 失败结果只缓存一小会儿：用户可能刚修好 node / 重装，别让他干等 5 分钟 */
+const VERSION_ERROR_CACHE_MS = 30_000
+
+interface DshVersionEntry {
+  at: number
+  stamp: string
+  value: { version?: string; error?: string }
+}
+
+/** 同一份 bin.js 只跑一次 `--version`；重装（mtime/size 变化）自动重探 */
+const versionCache = new Map<string, DshVersionEntry>()
+
+/** bin.js 的版本戳 —— 缓存失效的判据，不读文件内容 */
+function binStamp(binJs: string): string {
+  try {
+    const st = statSync(binJs)
+    return `${st.mtimeMs}:${st.size}`
+  } catch {
+    return '0'
+  }
+}
+
+/**
+ * `nodeSupportsImportMetaMain` 的异步版，供设置页探测使用。
+ *
+ * 同步版仍然留着给 `spawnDsh` —— 那里必须同步知道能不能启动。但设置页
+ * 打开 / 切渠道不能为了这个探测把主进程卡 5 秒，所以这里用 execFile。
+ */
+let nodeProbeInFlight: { node: string; promise: Promise<boolean> } | null = null
+
+function probeNodeAsync(node: string): Promise<boolean> {
+  if (cachedNodeOk !== undefined) return Promise.resolve(cachedNodeOk)
+  if (nodeProbeInFlight?.node === node) return nodeProbeInFlight.promise
+
+  const promise = execFileAsync(
+    node,
+    ['--input-type=module', '-e', 'process.exit(import.meta.main === true ? 0 : 1)'],
+    { timeout: NODE_PROBE_TIMEOUT_MS, windowsHide: true }
+  ).then(
+    () => true,
+    () => false
+  )
+  const entry = { node, promise }
+  nodeProbeInFlight = entry
+  void promise.then((ok) => {
+    cachedNodeOk = ok
+    if (nodeProbeInFlight === entry) nodeProbeInFlight = null
+  })
+  return promise
+}
+
+/** 跑一次 `--version`，带缓存；失败也返回结构化结果而不是抛错 */
+async function readDshVersion(
+  node: string,
+  binJs: string
+): Promise<{ version?: string; error?: string }> {
+  const key = `${node}\u0000${binJs}`
+  const stamp = binStamp(binJs)
+  const hit = versionCache.get(key)
+  const ttl = hit?.value.error ? VERSION_ERROR_CACHE_MS : VERSION_CACHE_MS
+  if (hit && hit.stamp === stamp && Date.now() - hit.at < ttl) return hit.value
+
+  let value: { version?: string; error?: string }
+  try {
+    const { stdout } = await execFileAsync(node, [binJs, '--version'], {
+      timeout: VERSION_TIMEOUT_MS,
+      windowsHide: true,
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024
+    })
+    value = { version: String(stdout).trim() }
+  } catch (e) {
+    value = { error: e instanceof Error ? e.message : String(e) }
+  }
+  versionCache.set(key, { at: Date.now(), stamp, value })
+  return value
+}
 
 function pathDirs(): string[] {
   return (process.env.PATH ?? '')
@@ -161,8 +247,12 @@ export function nodeSupportsImportMetaMain(node = resolveNodeBin()): boolean {
  *
  * 传了 channelId 就显示该渠道自己的 home —— 和实际跑会话的目录保持一致，
  * 免得设置页写着 `~/.dsh`、请求却来自 `dsh-homes/<id>`。
+ *
+ * **全部走异步**：`--version` 正常只要几十毫秒，但装坏 / node 挂死时要等超时。
+ * 以前这里是 execFileSync，设置页一打开整个主进程（所有窗口、流式事件）
+ * 跟着停十几秒。
  */
-export function checkDshStatus(channelId?: string | null): DshStatus {
+export async function checkDshStatus(channelId?: string | null): Promise<DshStatus> {
   const checkedAt = Date.now()
   const binJs = resolveDshBinJs()
   const node = resolveNodeBin()
@@ -175,7 +265,7 @@ export function checkDshStatus(channelId?: string | null): DshStatus {
       installed: false,
       path: 'dsh',
       node,
-      nodeOk: nodeSupportsImportMetaMain(node),
+      nodeOk: await probeNodeAsync(node),
       home,
       sharedHome,
       error: '没有找到 DeepSeek Harness。先运行：npm i -g @deepseek-ai/dsh',
@@ -183,7 +273,7 @@ export function checkDshStatus(channelId?: string | null): DshStatus {
     }
   }
 
-  const nodeOk = nodeSupportsImportMetaMain(node)
+  const nodeOk = await probeNodeAsync(node)
   if (!nodeOk) {
     return {
       installed: true,
@@ -197,35 +287,17 @@ export function checkDshStatus(channelId?: string | null): DshStatus {
     }
   }
 
-  try {
-    const version = execFileSync(node, [binJs, '--version'], {
-      timeout: 15_000,
-      windowsHide: true,
-      encoding: 'utf8'
-    })
-      .toString()
-      .trim()
-    return {
-      installed: true,
-      path: binJs,
-      node,
-      nodeOk: true,
-      version,
-      home,
-      sharedHome,
-      checkedAt
-    }
-  } catch (e) {
-    return {
-      installed: true,
-      path: binJs,
-      node,
-      nodeOk: true,
-      home,
-      sharedHome,
-      error: e instanceof Error ? e.message : String(e),
-      checkedAt
-    }
+  const { version, error } = await readDshVersion(node, binJs)
+  return {
+    installed: true,
+    path: binJs,
+    node,
+    nodeOk: true,
+    ...(version !== undefined ? { version } : {}),
+    home,
+    sharedHome,
+    ...(error !== undefined ? { error } : {}),
+    checkedAt
   }
 }
 
