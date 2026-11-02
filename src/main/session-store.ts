@@ -9,7 +9,9 @@ import type {
   SessionSearchResult,
   StoredSession
 } from '../shared/session'
-import { looksInjected, replayRecords } from './providers/claude/history'
+import { looksInjected } from './providers/claude/history'
+import { readRange } from './providers/claude/history-read'
+import { readClaudeTranscript } from './providers/claude/history-load'
 import {
   listCodexSessionFiles,
   readCodexTranscript
@@ -44,9 +46,6 @@ const MAX_HEAD_BYTES = 8 * 1024 * 1024
 /** 文件尾兜底：即使首行超过 MAX_HEAD_BYTES，cwd 也总在最后一条记录末尾附近 */
 const TAIL_BYTES = 256 * 1024
 
-/** 单份会话最多回放这么多条记录，防一份异常大的文件把界面拖死 */
-const MAX_RECORDS = 20_000
-
 /**
  * 列表扫描时同时处理的文件数。
  *
@@ -58,18 +57,6 @@ const SCAN_FILE_CONCURRENCY = 8
 const obj = (v: unknown): Record<string, unknown> | undefined =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
-
-async function readRange(file: string, start: number, bytes: number): Promise<string> {
-  if (bytes <= 0) return ''
-  const fh = await fsp.open(file, 'r')
-  try {
-    const buf = Buffer.alloc(bytes)
-    const { bytesRead } = await fh.read(buf, 0, bytes, start)
-    return buf.subarray(0, bytesRead).toString('utf8')
-  } finally {
-    await fh.close()
-  }
-}
 
 async function readHead(file: string, bytes = HEAD_BYTES): Promise<string> {
   return readRange(file, 0, bytes)
@@ -496,21 +483,6 @@ export async function deleteStoredSession(
 const TRANSCRIPT_CACHE_MAX = 4
 const TRANSCRIPT_CACHE_BYTES = 48 * 1024 * 1024
 
-/**
- * 大文件先只读尾部：回放本来也只保留最后 `MAX_RECORDS` 条。
- * 从 4MB 起步，条数不够再成倍往前扩，直到覆盖到文件头或攒够条数。
- */
-const TRANSCRIPT_TAIL_BYTES = 4 * 1024 * 1024
-const TRANSCRIPT_TAIL_GROW = 8
-/**
- * 尾部最多往前扩到这里。
- *
- * 图片多的会话是「字节多、记录少」：4MB 够不到 20000 条就会 4MB→32MB→256MB
- * 一路读下去，几百 MB 的字符串 + 同步 JSON.parse 会把主进程卡死。
- * 到上限就只回放已经读到的记录 —— 宁可少几条，也不要把内存打爆。
- */
-const TRANSCRIPT_TAIL_MAX_BYTES = 32 * 1024 * 1024
-
 interface TranscriptCacheEntry {
   file: string
   mtimeMs: number
@@ -548,43 +520,6 @@ function cacheTranscript(key: string, entry: TranscriptCacheEntry): void {
     const evicted = transcriptCache.get(oldest)
     transcriptCache.delete(oldest)
     if (evicted) transcriptCacheBytes -= evicted.size
-  }
-}
-
-function parseRecordLines(text: string): Record<string, unknown>[] {
-  const records: Record<string, unknown>[] = []
-  for (const line of text.split('\n')) {
-    if (!line.trim().startsWith('{')) continue
-    try {
-      const v = JSON.parse(line) as unknown
-      const o = obj(v)
-      if (o) records.push(o)
-    } catch {
-      // 截断/损坏的行跳过
-    }
-  }
-  return records
-}
-
-async function readClaudeRecords(
-  file: string,
-  size: number
-): Promise<Record<string, unknown>[]> {
-  let bytes = Math.min(size, TRANSCRIPT_TAIL_BYTES)
-  for (;;) {
-    const start = Math.max(0, size - bytes)
-    const text = await readRange(file, start, bytes)
-    // 从文件中间开始读，第一行很可能是半条记录 —— 丢掉它
-    const nl = text.indexOf('\n')
-    const body = start > 0 ? (nl >= 0 ? text.slice(nl + 1) : '') : text
-    const records = parseRecordLines(body)
-    if (start === 0) return records.slice(-MAX_RECORDS)
-    if (records.length >= MAX_RECORDS) return records.slice(-MAX_RECORDS)
-    const next = Math.min(size, bytes * TRANSCRIPT_TAIL_GROW)
-    if (next === bytes || next > TRANSCRIPT_TAIL_MAX_BYTES) {
-      return records.slice(-MAX_RECORDS)
-    }
-    bytes = next
   }
 }
 
@@ -633,7 +568,7 @@ export async function readTranscript(
   try {
     if (found.cli === 'codex') events = await readCodexTranscript(found.file, cwd, id)
     else if (found.cli === 'dsh') events = await readDshTranscript(found.file, cwd, id)
-    else events = replayRecords(await readClaudeRecords(found.file, st.size), opts)
+    else events = await readClaudeTranscript(found.file, st.size, opts)
   } catch {
     return []
   }
@@ -668,25 +603,36 @@ const SEARCH_CACHE_MAX = 400
  *
  * 只限条数不够：单条上限 100 万字符 × 400 条，最坏能吃掉近 800MB 内存。
  * 超过预算时从现在最旧的那条开始淘汰。
+ *
+ * 条目里同时存原文和小写副本：搜索每敲一个字都会重扫所有会话，每次
+ * 重新 `toLowerCase()` 一份百万字文本是纯浪费。两份都计入预算。
  */
 const SEARCH_CACHE_CHARS = 64 * 1024 * 1024
 
-const searchTextCache = new Map<string, { mtimeMs: number; size: number; text: string }>()
+interface SearchTextEntry {
+  mtimeMs: number
+  size: number
+  /** 原始文本，用来截命中片段 */
+  text: string
+  /** 小写副本，用来做不区分大小写的匹配 */
+  lower: string
+}
+
+const entryChars = (e: SearchTextEntry): number => e.text.length + e.lower.length
+
+const searchTextCache = new Map<string, SearchTextEntry>()
 let searchCacheChars = 0
 
-function rememberSearchText(
-  file: string,
-  entry: { mtimeMs: number; size: number; text: string }
-): void {
+function rememberSearchText(file: string, entry: SearchTextEntry): void {
   const prev = searchTextCache.get(file)
   if (prev) {
     searchTextCache.delete(file)
-    searchCacheChars -= prev.text.length
+    searchCacheChars -= entryChars(prev)
   }
   // 单条就超过整份预算：不缓存，避免一个巨型会话把其他条目全挤掉
-  if (entry.text.length > SEARCH_CACHE_CHARS) return
+  if (entryChars(entry) > SEARCH_CACHE_CHARS) return
   searchTextCache.set(file, entry)
-  searchCacheChars += entry.text.length
+  searchCacheChars += entryChars(entry)
   while (
     searchTextCache.size > SEARCH_CACHE_MAX ||
     searchCacheChars > SEARCH_CACHE_CHARS
@@ -695,7 +641,7 @@ function rememberSearchText(
     if (oldest === undefined) break
     const evicted = searchTextCache.get(oldest)
     searchTextCache.delete(oldest)
-    if (evicted) searchCacheChars -= evicted.text.length
+    if (evicted) searchCacheChars -= entryChars(evicted)
   }
 }
 
@@ -724,9 +670,10 @@ function extractSearchText(events: AgentEvent[]): string {
 /** 读一条会话的搜索文本；oversized = 文件太大被跳过 */
 async function searchTextOf(
   session: StoredSession
-): Promise<{ text: string; oversized: boolean }> {
+): Promise<{ text: string; lower: string; oversized: boolean }> {
+  const empty = { text: '', lower: '', oversized: false }
   const sf = pathById.get(keyOf(session.cwd, session.id))
-  if (!sf) return { text: '', oversized: false }
+  if (!sf) return empty
 
   let size: number
   let mtimeMs: number
@@ -735,13 +682,13 @@ async function searchTextOf(
     size = st.size
     mtimeMs = st.mtimeMs
   } catch {
-    return { text: '', oversized: false }
+    return empty
   }
-  if (size > SEARCH_MAX_BYTES) return { text: '', oversized: true }
+  if (size > SEARCH_MAX_BYTES) return { ...empty, oversized: true }
 
   const hit = searchTextCache.get(sf.file)
   if (hit && hit.mtimeMs === mtimeMs && hit.size === size) {
-    return { text: hit.text, oversized: false }
+    return { text: hit.text, lower: hit.lower, oversized: false }
   }
 
   let text: string
@@ -751,11 +698,12 @@ async function searchTextOf(
     )
   } catch {
     // 单份记录坏了（截断、zstd 损坏）只跳过它，不打断整次搜索
-    return { text: '', oversized: false }
+    return empty
   }
 
-  rememberSearchText(sf.file, { mtimeMs, size, text })
-  return { text, oversized: false }
+  const lower = text.toLowerCase()
+  rememberSearchText(sf.file, { mtimeMs, size, text, lower })
+  return { text, lower, oversized: false }
 }
 
 function snippetAround(text: string, at: number, len: number): string {
@@ -843,11 +791,10 @@ export async function searchStoredSessions(
 
     const s = ordered[i]
     scanned++
-    const { text, oversized } = await searchTextOf(s)
+    const { text, lower, oversized } = await searchTextOf(s)
     if (oversized) skippedLarge = true
-    if (!text) continue
+    if (!lower) continue
 
-    const lower = text.toLowerCase()
     const first = lower.indexOf(q)
     if (first < 0) continue
 

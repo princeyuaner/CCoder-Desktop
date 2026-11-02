@@ -26,6 +26,40 @@ const byRecent = (a: StoredSession, b: StoredSession): number =>
 
 /** 两次自动刷新之间至少隔这么久 —— 连着跑几轮时别把列表反复拉一遍 */
 const THROTTLE_MS = 800
+/**
+ * 窗口重新获得焦点时的最小刷新间隔。
+ *
+ * 焦点事件比轮末频繁得多：在编辑器和终端之间来回切一下就会触发一次
+ * 全量 stat。列表本身按创建时间排序，几秒的延迟不影响行序。
+ */
+const FOCUS_MIN_MS = 4000
+
+/**
+ * 列表内容是否没变。
+ *
+ * 主进程每次扫描都会重建 StoredSession 对象，引用比较永远不相等；
+ * 逐字段比一遍才能把「什么都没变」的刷新挡在 setState 之外，否则每个
+ * `turn_end` / 焦点都会让整棵侧栏重渲染。
+ */
+function sameSessions(a: StoredSession[], b: StoredSession[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (
+      x.id !== y.id ||
+      x.cwd !== y.cwd ||
+      x.cli !== y.cli ||
+      x.title !== y.title ||
+      x.createdAt !== y.createdAt ||
+      x.updatedAt !== y.updatedAt
+    ) {
+      return false
+    }
+  }
+  return true
+}
 
 /**
  * 已有会话列表。数据来自 CLI 自己写的 ~/.claude/projects —— 我们只读。
@@ -93,6 +127,8 @@ export function useSessions(activeId: string | null): {
   /** 正在等索引出现的 CLI session id → 重试计时器 */
   const watching = useRef(new Set<string>())
   const watchTimers = useRef<number[]>([])
+  /** 排队中的焦点刷新；4 秒窗口内只排一次 */
+  const focusTimer = useRef<number | null>(null)
   /**
    * running 的同步镜像。
    *
@@ -116,7 +152,8 @@ export function useSessions(activeId: string | null): {
       let next: StoredSession[] = []
       try {
         next = await window.api!.sessions.list()
-        setSessions(next)
+        // 内容没变就复用旧数组：避免整棵侧栏跟着无意义的刷新重渲染
+        setSessions((prev) => (sameSessions(prev, next) ? prev : next))
       } catch {
         // 读不到就当没有，不该让界面挂掉
       }
@@ -226,10 +263,33 @@ export function useSessions(activeId: string | null): {
     return off
   }, [refreshSoon, watchUntilListed])
 
-  /** 切回窗口时也刷一次 —— 用户可能刚在终端里跑过 claude */
+  /**
+   * 切回窗口时也刷一次 —— 用户可能刚在终端里跑过 claude。
+   *
+   * 但焦点事件比轮末密集得多，单独给一个 4 秒的最小间隔：窗口在编辑器和
+   * 终端之间来回切时，不必每次都重扫几百份会话记录。
+   */
   useEffect(() => {
-    window.addEventListener('focus', refreshSoon)
-    return () => window.removeEventListener('focus', refreshSoon)
+    const onFocus = (): void => {
+      if (focusTimer.current !== null) return
+      const wait = Math.max(0, FOCUS_MIN_MS - (Date.now() - lastAt.current))
+      if (wait === 0) {
+        refreshSoon()
+        return
+      }
+      focusTimer.current = window.setTimeout(() => {
+        focusTimer.current = null
+        refreshSoon()
+      }, wait)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      if (focusTimer.current !== null) {
+        window.clearTimeout(focusTimer.current)
+        focusTimer.current = null
+      }
+    }
   }, [refreshSoon])
 
   /**

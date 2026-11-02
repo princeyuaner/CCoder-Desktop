@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.16",
+  "version": "1.2.17",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -43,6 +43,7 @@
     "verify:event-batch": "npx esbuild src/main/session-event-batcher.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/session-event-batcher.cjs && node tools/verify-event-batch.cjs",
     "verify:session-store": "npx esbuild tools/_session-store-probe.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/session-store-probe.cjs && node tools/verify-session-store.cjs",
     "verify:whats-new": "npx esbuild src/shared/whats-new.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/whats-new.cjs && node tools/verify-whats-new.cjs",
+    "verify:input-history": "npx esbuild tools/_input-history-probe.ts --bundle --platform=node --format=cjs --alias:@shared=./src/shared --external:react --outfile=.tmp-build/input-history-probe.cjs && node .tmp-build/input-history-probe.cjs",
     "package": "npm run package:win",
     "package:win": "node tools/stage-rg.cjs --platform win32 --arch x64 && electron-vite build && electron-builder --win --x64 --publish never --config.electronDist=node_modules/electron/dist",
     "package:linux": "node tools/stage-rg.cjs --platform linux --arch x64 && electron-vite build && electron-builder --linux --x64 --publish never",

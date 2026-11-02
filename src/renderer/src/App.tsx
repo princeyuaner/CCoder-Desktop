@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sessionMetaKey, type StoredSession } from '@shared/session'
 import { cliDef, sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
-import { disposeIdleNewChats, disposeStoredChat } from './useChat'
+import { disposeIdleNewChats, disposeStoredChat, forgetInputHistory } from './useChat'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { SessionSearch } from './components/SessionSearch'
@@ -532,6 +532,7 @@ export function App(): JSX.Element {
     // 主进程已经按 provider id 停过进程了；渲染进程这边的 controller（可能在
     // 后台跑着）也要一起摘掉，否则它还会继续收事件、占着内存。
     disposeStoredChat(s.cli, s.cwd, s.id)
+    forgetInputHistory(s.cli, s.cwd, s.id)
     // 删掉的正好是当前打开的那条 —— 退回新会话，别停在一个已经不存在的会话上
     if (active.kind === 'stored' && active.id === s.id) newSession()
     void refresh()
@@ -568,6 +569,7 @@ export function App(): JSX.Element {
       done += 1
       // 和单条删除一样：主进程收的是 CLI 进程，渲染层这边的 controller 也要摘掉
       disposeStoredChat(s.cli, s.cwd, s.id)
+      forgetInputHistory(s.cli, s.cwd, s.id)
       if (active.kind === 'stored' && active.id === s.id && sameCwd(active.cwd, s.cwd)) {
         activeRemoved = true
       }

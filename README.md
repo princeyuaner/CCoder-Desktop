@@ -62,6 +62,7 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - 流式输出、思考块、工具卡片、代码高亮与 diff。
 - **消息级操作**：悬停自己发的消息出现「复制 / 编辑并重发 / 重发这一轮」。复制会把 `@` 引用展开成 Markdown 代码块；编辑会把原话和引用卡一并放回输入框；重发只对最后一条用户消息开放，不会把更早那几轮的上下文搅乱。
 - **会话内查找**（`Ctrl+F`）：在正文、思考、工具输出和引用代码里找，`Enter` / `Shift+Enter` 前后跳转，`Esc` 退出。走 CSS Custom Highlight API，流式输出时不会打断渲染，也不改 DOM 结构。
+- **输入历史**：每条会话单独记录发送过的内容，输入框里按 `↑` / `↓` 翻看；`↑` 只在光标位于首行时接管（单行输入任意位置都算），多行编辑、选区和输入法组合不受影响。历史持久化在本机，最多 100 条 / 200 KB，打开旧会话时会从已有转写补齐。
 - 图片粘贴、拖入文本文件、`@` 文件引用、`/` 斜杠指令、发送队列。**拖进 / 选进来的文本文件**会被读成代码引用卡（和 IDE 发来的引用同一条编码），自动跳过二进制、超过 512 KB 或 500 行的会截断并标注。
 - **会话级附加目录**：输入框上方的「附加目录 +N」给这条会话单独加 Claude 的 `--add-dir`。工作区固定可访问，新会话默认不带；想复用可以从「最近使用」里点选。改动在下一次启动 CLI 进程时生效，运行中的会话等本轮跑完；失效目录保留配置、启动时跳过。
 - **跑完提醒**：一轮结束时弹系统通知，点一下切回那条会话；窗口在前台且正开着这条会话时不弹。可在设置 → 通用关闭。
@@ -432,6 +433,7 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - Streaming output, thinking blocks, tool cards, syntax highlighting, and diffs.
 - **Message actions**: hovering one of your messages reveals copy / edit-and-resend / resend-this-turn. Copy expands `@` references into Markdown code blocks; edit restores both the text and its reference cards to the composer; resend is only offered on the last user message so earlier turns are not duplicated.
 - **Find in conversation** (`Ctrl+F`): searches message text, thinking, tool output, and referenced code. `Enter` / `Shift+Enter` step through matches, `Esc` closes. Uses the CSS Custom Highlight API, so streaming output is never interrupted and the DOM structure is left untouched.
+- **Input history**: every session records what you send; press `↑` / `↓` in the composer to step through it. `↑` is only intercepted while the caret is on the first line (anywhere in a single-line draft), so multiline editing, selections, and IME composition keep working. History persists locally (100 entries / 200 KB per session) and is backfilled from an existing transcript when an old session is opened.
 - Image paste, drag-and-drop of text files, `@` file references, `/` slash commands, and a send queue. **Dropped or picked text files** become reference cards using the same `<ide_reference>` encoding as IDE sends; binaries are skipped, and files over 512 KB or 500 lines are truncated and labelled.
 - **Session-scoped extra directories**: the “Extra dirs +N” chip above the composer adds Claude's `--add-dir` for this session only. The workspace is always accessible, and new sessions start empty; use “Recently used” to add a directory explicitly. Changes apply when the CLI process next starts; a running session waits until the current turn ends. Missing directories stay configured but are skipped at launch.
 - **Finish alert**: a system notification when a turn ends; click it to jump back to that session. Nothing is shown while the window is focused on that session. Can be turned off in Settings → General.

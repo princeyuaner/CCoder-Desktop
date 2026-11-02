@@ -53,6 +53,77 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.17',
+    date: '2026-11-02',
+    highlight: {
+      icon: 'sparkle',
+      title: {
+        zh: '输入历史，顺手翻；大会话，不卡顿',
+        en: 'Input history, and large sessions that stay responsive'
+      },
+      desc: {
+        zh: '输入框现在按 ↑ / ↓ 就能翻出本会话发过的内容，重启后仍然保留；Claude 大会话的解析移到独立线程，打开长会话不再占住主进程；搜索和侧栏刷新也减少了重复工作。',
+        en: 'Press ↑ / ↓ in the composer to step through what you sent in this session, even after a restart. Claude history parsing now runs off the main thread, so opening a large session no longer blocks IPC or streaming, and search and sidebar refreshes do less repeated work.'
+      }
+    },
+    sections: [
+      {
+        kind: 'new',
+        items: [
+          {
+            icon: 'keyboard',
+            title: {
+              zh: '输入历史与上下键切换',
+              en: 'Input history with ↑ / ↓'
+            },
+            desc: {
+              zh: '每条会话单独记录发送过的原话。输入框里按 ↑ 往前翻、按 ↓ 返回；越过最新一条会恢复翻历史前的草稿。只在首行接管 ↑，多行编辑、选区、输入法和 @ / 命令弹层都不受影响。历史保留在本机，最多 100 条 / 200KB；打开旧会话时会从已有转写自动补齐。',
+              en: 'Each session records the text you actually sent. Press ↑ in the composer to go back and ↓ to return; going past the newest entry restores the draft you had before. ↑ is intercepted only on the first line, so multiline editing, selections, IME composition and the @ / slash popups keep working. History stays on this machine (up to 100 entries / 200KB per session) and is backfilled from the existing transcript when you open an old session.'
+            }
+          }
+        ]
+      },
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'sparkle',
+            title: {
+              zh: '大会话解析移出主线程',
+              en: 'Large sessions parse off the main thread'
+            },
+            desc: {
+              zh: 'Claude 历史记录的读盘、JSON 解析和回放搬到独立 worker；超过 2MB 的会话在后台解析，打开长会话时 IPC 和流式输出不再被同步解析卡住，worker 不可用时自动回退主线程。',
+              en: 'Reading, JSON parsing and replay of Claude history now run in a worker. Sessions over 2MB are parsed in the background, so opening a long session no longer stalls IPC or streaming; it falls back to the main thread if the worker is unavailable.'
+            }
+          },
+          {
+            icon: 'search',
+            title: {
+              zh: '搜索与侧栏刷新更省',
+              en: 'Lighter search and sidebar refreshes'
+            },
+            desc: {
+              zh: '会话搜索按会话缓存小写文本，连续输入不再重复转换整份记录；侧栏在内容没变时复用旧列表，窗口聚焦触发的刷新最多 4 秒一次。',
+              en: 'Session search caches the lowercased text per session, so typing no longer re-lowercases the whole record; the sidebar reuses its list when nothing changed, and focus-triggered refreshes are limited to once every four seconds.'
+            }
+          },
+          {
+            icon: 'batch',
+            title: {
+              zh: '长会话的工具事件更轻',
+              en: 'Lighter tool events in long sessions'
+            },
+            desc: {
+              zh: '工具卡查找改为从转写尾部向前，工具回执只替换目标一项，不再为每个回执遍历整条会话。',
+              en: 'Tool-card lookup now starts from the end of the transcript and a tool result replaces only its target item instead of walking the whole session.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.16',
     date: '2026-11-02',
     highlight: {

@@ -32,6 +32,7 @@ extraResources:
     to: worker
     filter:
       - dsh-history-worker.js
+      - claude-history-worker.js
       - chunks/**/*
 
 # Windows 用 node_modules 里已装好的 Electron（win32-x64），避免每次打包都

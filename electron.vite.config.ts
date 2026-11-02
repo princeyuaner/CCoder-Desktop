@@ -46,6 +46,14 @@ export default defineConfig({
           'dsh-history-worker': resolve(
             __dirname,
             'src/main/providers/dsh/history-worker.ts'
+          ),
+          /*
+           * Claude 大会话的 JSON.parse / 回放同样搬出主线程。共用上面同一套
+           * 打包与加载方式（out/main → resources/worker）。
+           */
+          'claude-history-worker': resolve(
+            __dirname,
+            'src/main/providers/claude/history-worker.ts'
           )
         }
       }

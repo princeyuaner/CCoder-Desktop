@@ -135,6 +135,8 @@ export interface ModelSelection {
 
 interface Props {
   onSend: (input: SessionSendInput, meta?: SendMeta) => void
+  /** 本会话发过的输入（最新在末尾）；输入框里用 ↑/↓ 切换 */
+  inputHistory: string[]
   onInterrupt: () => void
   running: boolean
   /** 等待队列：运行中发的消息排在这里，轮末自动发送 */
@@ -216,6 +218,7 @@ interface Props {
 
 function ComposerImpl({
   onSend,
+  inputHistory,
   onInterrupt,
   running,
   queue,
@@ -310,6 +313,7 @@ function ComposerImpl({
     if (!editDraft || editDraft.nonce === lastEditNonce.current) return
     lastEditNonce.current = editDraft.nonce
     setText(editDraft.text)
+    resetHistoryNav()
     setRefs(editDraft.refs)
     setMention(null)
     setCommand(null)
@@ -390,6 +394,22 @@ function ComposerImpl({
     ctxPartSum > 0 ? Math.round((v / ctxPartSum) * 100) : 0
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  /**
+   * 输入历史浏览位置：-1 = 不在浏览（输入框里是草稿），其余是 history 下标。
+   * 用 ref 而不是 state：它不影响渲染，连续按 ↑ 时也不会读到批处理前的旧值。
+   */
+  const histIndexRef = useRef(-1)
+  /** 开始浏览前输入框里的草稿；↓ 越过最新一条时恢复它 */
+  const histDraftRef = useRef('')
+  const historyRef = useRef(inputHistory)
+  historyRef.current = inputHistory
+
+  // 发送完 / 换会话后历史数组会换：回到「未浏览」状态
+  useEffect(() => {
+    histIndexRef.current = -1
+    histDraftRef.current = ''
+  }, [inputHistory])
+
   const fileRef = useRef<HTMLInputElement>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
   /** 上下文胶囊 + 详情浮层的外壳，用来判断点击是否在外面 */
@@ -421,6 +441,57 @@ function ComposerImpl({
   }
 
   useLayoutEffect(fitInput, [text])
+
+  /** 把历史里的某条放回输入框，并把光标放到末尾 */
+  const setHistoryText = (value: string): void => {
+    setText(value)
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(value.length, value.length)
+    })
+  }
+
+  /** 用户又改了内容：退出历史浏览，下一次 ↑ 从最新一条重新开始 */
+  const resetHistoryNav = (): void => {
+    histIndexRef.current = -1
+    histDraftRef.current = ''
+  }
+
+  /**
+   * ↑/↓ 翻历史。返回 true = 这次按键被历史导航消费。
+   *
+   * 最新一条在数组末尾，所以 ↑ 从末尾往前；↓ 越过最新一条时恢复开始
+   * 浏览前输入框里的草稿 —— 和 shell 的行为一致。
+   */
+  const navigateHistory = (dir: -1 | 1): boolean => {
+    const list = historyRef.current
+    if (list.length === 0) return false
+    const at = histIndexRef.current
+
+    if (dir === -1) {
+      if (at < 0) {
+        histDraftRef.current = text
+        histIndexRef.current = list.length - 1
+      } else if (at > 0) {
+        histIndexRef.current = at - 1
+      }
+      setHistoryText(list[histIndexRef.current])
+      return true
+    }
+
+    if (at < 0) return false
+    const next = at + 1
+    if (next >= list.length) {
+      histIndexRef.current = -1
+      setHistoryText(histDraftRef.current)
+    } else {
+      histIndexRef.current = next
+      setHistoryText(list[next])
+    }
+    return true
+  }
 
   // 窗口变窄时同样的文字会折成更多行 —— 只靠 [text] 触发会漏掉这种情况
   useEffect(() => {
@@ -518,6 +589,8 @@ function ComposerImpl({
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
     const value = e.target.value
     setText(value)
+    // 用户开始编辑后就不再是「正在翻历史」了
+    resetHistoryNav()
     const caret = e.target.selectionStart ?? value.length
 
     const m = findMention(value, caret)
@@ -557,6 +630,7 @@ function ComposerImpl({
     const pos = before.length + insert.length
 
     setText(next)
+    resetHistoryNav()
     if (isDir) {
       setMention({
         query: `${f.path}/`,
@@ -577,6 +651,7 @@ function ComposerImpl({
   /** 把一段文本塞进输入框；命令参数和 @ 引用共用一套聚焦逻辑 */
   const insertCommandText = (value: string, caret = value.length): void => {
     setText(value)
+    resetHistoryNav()
     requestAnimationFrame(() => {
       const el = inputRef.current
       el?.focus()
@@ -603,6 +678,7 @@ function ComposerImpl({
       case 'insert':
         if (c.insert === '@') {
           setText('@')
+          resetHistoryNav()
           setMention({ query: '', start: 0, active: 0, items: [], loading: true })
           requestAnimationFrame(() => {
             const el = inputRef.current
@@ -639,6 +715,7 @@ function ComposerImpl({
     }
     setCommand(null)
     setText('')
+    resetHistoryNav()
 
     if (c.run === 'send') {
       runNativeCommand(c)
@@ -775,6 +852,43 @@ function ComposerImpl({
       }
     }
 
+    /*
+     * ↑/↓ 翻历史输入。
+     *
+     * - 已经在历史里：继续翻，不受光标位置影响（多行历史也能上下走）；
+     * - 不在历史里：只有光标在第一行才接管 ↑ —— 单行输入任意位置都算，
+     *   多行则要求光标在开头，免得把正常的光标移动抢走。
+     * 有选区 / 带修饰键（Shift+↑ 选、Ctrl+↑ 等）一律不接管。
+     */
+    if (
+      (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey
+    ) {
+      const el = e.currentTarget
+      const start = el.selectionStart
+      const caret = start ?? text.length
+      if (start === el.selectionEnd) {
+        if (histIndexRef.current >= 0) {
+          if (navigateHistory(e.key === 'ArrowUp' ? -1 : 1)) {
+            e.preventDefault()
+            return
+          }
+        } else if (
+          e.key === 'ArrowUp' &&
+          historyRef.current.length > 0 &&
+          text.lastIndexOf('\n', caret - 1) === -1 &&
+          (caret === 0 || text.indexOf('\n') === -1)
+        ) {
+          e.preventDefault()
+          navigateHistory(-1)
+          return
+        }
+      }
+    }
+
     if (sendKey === 'ctrlEnter') {
       // Enter / Shift+Enter 都是换行，Ctrl/Cmd+Enter 才发送
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -883,6 +997,7 @@ function ComposerImpl({
     // 引用在发送时展开成完整的 <ide_reference> 块；输入框里只留摘要
     const body = composeIdeMessage(t, refs)
     setText('')
+    resetHistoryNav()
     setAttachments([])
     setRefs([])
     setMention(null)
@@ -896,6 +1011,7 @@ function ComposerImpl({
     const taken = onTakeQueued(q.id)
     if (!taken) return
     setText((cur) => (cur.trim() ? `${cur}\n\n${taken.draft}` : taken.draft))
+    resetHistoryNav()
     if (taken.refs.length > 0) {
       setRefs((cur) => {
         const seen = new Set(cur.map(refKey))

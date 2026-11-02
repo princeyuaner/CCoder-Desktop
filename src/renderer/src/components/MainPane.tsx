@@ -838,9 +838,11 @@ export function MainPane({
    * Composer / 执行台 / 标题栏的 memo 会全部失效，等于没优化。
    * useStableCallback 内部始终调用最新一次渲染的闭包，不会读到旧 state。
    */
-  const sendInput = useStableCallback((input: SessionSendInput, meta?: SendMeta) =>
+  const sendInput = useStableCallback((input: SessionSendInput, meta?: SendMeta) => {
+    // 只记输入框里的原话（meta.draft），不把展开后的 IDE 引用正文塞进历史
+    if (meta?.draft) chat.recordInput(meta.draft)
     void chat.send(input, meta)
-  )
+  })
   const selectModel = useStableCallback(pickSelection)
   const clearChat = useStableCallback(clearConversation)
   const updateAddDirs = useStableCallback(changeAddDirs)
@@ -970,6 +972,7 @@ export function MainPane({
 
         <Composer
           onSend={sendInput}
+          inputHistory={chat.inputHistory}
           onInterrupt={chat.interrupt}
           running={running}
           queue={chat.queue}

@@ -15,7 +15,9 @@ import { toolDisplay, type ToolFallback, type ToolStat } from '@shared/tool'
 import { stripAnsi } from '@shared/ansi'
 import { sanitizeAddDirs, sameAddDirs } from '@shared/add-dirs'
 import { ltext, type LocalizedText } from '@shared/i18n'
+import { cwdKey } from '@shared/path'
 import { applyFileChange, filesAfterLastTurn, type ChangedFile } from './changedFiles'
+import { parseIdeRefs } from './ideRef'
 import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
 import type {
@@ -229,6 +231,8 @@ export interface ChatApi {
   files: ChangedFile[]
   /** 当前 CLI 上报的原生指令；Codex / dsh 的静态子集在渲染层合入 */
   nativeCommands: NativeCommand[]
+  /** 本会话发过的输入（最新在末尾）；输入框 ↑/↓ 切换 */
+  inputHistory: string[]
   /**
    * 当前"等待占位行"的起点（Date.now()）；不在等待时为 undefined。
    * 放在会话状态里，切走再切回来计时能续上。
@@ -239,6 +243,8 @@ export interface ChatApi {
    * `meta` 用于把原话和引用一并存下来，供队列里的「编辑」恢复。
    */
   send(input: SessionSendInput, meta?: SendMeta): Promise<void>
+  /** 记一条用户输入到本会话的历史（发送时由输入框传原话进来） */
+  recordInput(text: string): void
   /** 执行 CLI 原生指令（如 Codex 的 compact）；不支持时返回 ok=false */
   runCommand(name: string, args?: string): Promise<SessionSendResult>
   removeQueued(id: string): void
@@ -372,6 +378,20 @@ function closeOpen(items: ChatItem[]): ChatItem[] {
   return items
 }
 
+/**
+ * 找某张工具卡。
+ *
+ * 工具事件都发生在转写区尾部，从后往前找通常第一次就命中；
+ * 从头 `findIndex` / `some` 在一轮几十个工具调用时是 O(n²)。
+ */
+function lastToolIndex(items: ChatItem[], id: string): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (it.kind === 'tool' && it.id === id) return i
+  }
+  return -1
+}
+
 /** 往最后一张卡追加文字；不是同一类就新开一张 */
 function appendDelta(
   items: ChatItem[],
@@ -441,7 +461,7 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
     case 'tool_started': {
       // 转写区不画的工具（任务清单/子代理/提问），连占位卡也不用出
       if (RUN_META_TOOLS.has(e.name) || e.name === 'AskUserQuestion') return items
-      const idx = items.findIndex((it) => it.kind === 'tool' && it.id === e.id)
+      const idx = lastToolIndex(items, e.id)
       // 已经画过：这条只是补一个刚认出来的路径
       if (idx >= 0) {
         if (!e.path) return items
@@ -501,7 +521,7 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
       }
       // tool_started 已经先画了占位卡：原地补全，别出现两张同 id 的卡。
       // 位置和开始时刻都沿用占位卡 —— 耗时要从卡片出现时算起。
-      const idx = items.findIndex((it) => it.kind === 'tool' && it.id === e.id)
+      const idx = lastToolIndex(items, e.id)
       if (idx >= 0) {
         const prev = items[idx] as Extract<ChatItem, { kind: 'tool' }>
         const copy = items.slice()
@@ -511,25 +531,26 @@ function reduce(items: ChatItem[], e: AgentEvent, live = true): ChatItem[] {
       return [...closeOpen(items), next]
     }
 
-    case 'tool_result':
-      // 被隐藏的任务工具没有对应 ChatItem：直接跳过，别每次都 map 出一个新数组
-      if (!items.some((it) => it.kind === 'tool' && it.id === e.id)) return items
-      return items.map((it) =>
-        it.kind === 'tool' && it.id === e.id
-          ? {
-              ...it,
-              status: e.status,
-              // 工具输出带终端颜色码（类型检查 / 构建日志最多），
-              // 直接进 <pre> 会显示成 [2m、[39m 之类的乱码
-              content: stripAnsi(e.content),
-              // patch 里的精确值覆盖 tool_call 时用 input 估的那版 ——
-              // replace_all 的真实次数只有它知道
-              ...(e.stat ? { stat: e.stat } : {}),
-              ...(e.created ? { created: true } : {}),
-              ms: it.startedAt ? Date.now() - it.startedAt : undefined
-            }
-          : it
-      )
+    case 'tool_result': {
+      // 被隐藏的任务工具没有对应 ChatItem：直接跳过，别每次都复制整条转写
+      const idx = lastToolIndex(items, e.id)
+      if (idx < 0) return items
+      const prev = items[idx] as Extract<ChatItem, { kind: 'tool' }>
+      const copy = items.slice()
+      copy[idx] = {
+        ...prev,
+        status: e.status,
+        // 工具输出带终端颜色码（类型检查 / 构建日志最多），
+        // 直接进 <pre> 会显示成 [2m、[39m 之类的乱码
+        content: stripAnsi(e.content),
+        // patch 里的精确值覆盖 tool_call 时用 input 估的那版 ——
+        // replace_all 的真实次数只有它知道
+        ...(e.stat ? { stat: e.stat } : {}),
+        ...(e.created ? { created: true } : {}),
+        ms: prev.startedAt ? Date.now() - prev.startedAt : undefined
+      }
+      return copy
+    }
 
     case 'permission_request':
       return [
@@ -650,6 +671,8 @@ export interface ChatSnapshot {
   files: ChangedFile[]
   /** 当前 CLI 上报的原生指令；会话级缓存，切换会话不会串 */
   nativeCommands: NativeCommand[]
+  /** 本会话发过的输入（最新在末尾）；输入框 ↑/↓ 切换 */
+  inputHistory: string[]
   notice: LocalizedText | null
   /**
    * 当前"等待占位行"的起点（Date.now()）；不在等待时为 undefined。
@@ -695,6 +718,75 @@ export const storedChatKey = (cli: CliId, cwd: string, id: string): string =>
  */
 export const newChatKey = (cli: CliId, n: number): string => `new${SEP}${cli}${SEP}${n}`
 
+/* ── 输入历史 ───────────────────────────────────────────────
+ *
+ * 每条会话保存用户真正发出去的话（不含 IDE 引用展开后的正文）。
+ * 新会话在 CLI 给出 id 之前先用内存键；拿到 id 后迁移到稳定的
+ * (cli, cwd, id) 键并落 localStorage —— 重开应用还能接上。
+ */
+const INPUT_HISTORY_MAX = 100
+/** 单条会话的历史总字符预算：100 条超长输入不该把 localStorage 撑爆 */
+const INPUT_HISTORY_CHARS = 200_000
+const INPUT_HISTORY_PREFIX = 'ccoder:input-history:'
+/** 新会话还没有稳定身份：这个键只在当前进程内有效，不落盘 */
+const DRAFT_HISTORY_PREFIX = 'draft:'
+
+const sessionHistoryKey = (cli: CliId, cwd: string, id: string): string =>
+  // cwdKey 会统一分隔符并折叠 Windows 盘符大小写 —— 同一会话重启后要能对上
+  JSON.stringify([cli, cwdKey(cwd), id])
+
+const draftHistoryKey = (chatKey: string): string => `${DRAFT_HISTORY_PREFIX}${chatKey}`
+
+/**
+ * 按条数和总字符双限裁剪；最新一条永远保留，哪怕它自己就超预算 ——
+ * 否则刚发出去的那句话反而搜不到。
+ */
+function trimInputHistory(entries: string[]): string[] {
+  const out = entries.slice(-INPUT_HISTORY_MAX)
+  let budget = INPUT_HISTORY_CHARS
+  let keepFrom = out.length
+  for (let i = out.length - 1; i >= 0; i--) {
+    const size = out[i].length
+    if (keepFrom < out.length && budget - size < 0) break
+    budget -= size
+    keepFrom = i
+  }
+  return out.slice(keepFrom)
+}
+
+function readInputHistory(key: string): string[] {
+  if (key.startsWith(DRAFT_HISTORY_PREFIX) || typeof localStorage === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(INPUT_HISTORY_PREFIX + key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return trimInputHistory(parsed.filter((x): x is string => typeof x === 'string'))
+  } catch {
+    return []
+  }
+}
+
+function writeInputHistory(key: string, entries: string[]): void {
+  if (key.startsWith(DRAFT_HISTORY_PREFIX) || typeof localStorage === 'undefined') return
+  try {
+    const kept = trimInputHistory(entries)
+    if (kept.length === 0) localStorage.removeItem(INPUT_HISTORY_PREFIX + key)
+    else localStorage.setItem(INPUT_HISTORY_PREFIX + key, JSON.stringify(kept))
+  } catch {
+    // 配额满 / 隐私模式：历史只是锦上添花，绝不能影响发送
+  }
+}
+
+/** 合并两份历史：已有的在前、本次的在后，去掉相邻重复并截到上限 */
+function mergeInputHistory(base: string[], extra: string[]): string[] {
+  const out = base.slice(-INPUT_HISTORY_MAX)
+  for (const text of extra) {
+    if (out[out.length - 1] !== text) out.push(text)
+  }
+  return trimInputHistory(out)
+}
+
 /** chat key → controller。一个 controller 可能挂在多个 key 下（新会话后来变成已有会话） */
 const controllers = new Map<string, ChatController>()
 /** Live id（主进程的内部会话 id）→ controller，给唯一的全局 dispatcher 用 */
@@ -735,6 +827,8 @@ class ChatController {
   providerSessionId: string | null
   /** CLI 回报的 cwd（或创建时的 cwd），用于把「新会话」和侧栏那一行对上 */
   providerCwd: string
+  /** 输入历史的存储键；新会话拿到 CLI id 后从 draft 键迁到稳定键 */
+  private historyKey: string
 
   private listeners = new Set<() => void>()
   private snap: ChatSnapshot
@@ -782,6 +876,14 @@ class ChatController {
     this.init = { ...init }
     this.providerSessionId = init.resumeId
     this.providerCwd = init.cwd
+    /*
+     * 已有会话在创建时就有 (cli, cwd, id)，直接读持久化历史；
+     * 新会话要等 CLI 给出 id —— 在那之前只放内存，避免 localStorage 里
+     * 留一堆下次启动永远读不到的草稿键。
+     */
+    this.historyKey = init.resumeId
+      ? sessionHistoryKey(init.cli, init.cwd, init.resumeId)
+      : draftHistoryKey(key)
     this.snap = {
       items: [],
       status: 'idle',
@@ -799,6 +901,7 @@ class ChatController {
       run: emptyRunState(),
       files: [],
       nativeCommands: nativeCommandCache.get(nativeCommandKey(init.cli, init.cwd)) ?? [],
+      inputHistory: readInputHistory(this.historyKey),
       notice: null
     }
   }
@@ -840,6 +943,89 @@ class ChatController {
 
     this.snap = next
     for (const cb of this.listeners) cb()
+  }
+
+  /**
+   * 记一条输入历史。
+   *
+   * 只去重**相邻**重复（和 shell 的 ignoredups 一致）；再次发送很久以前的
+   * 同一句话仍然值得排到最新，所以不做全局去重。
+   */
+  recordInput = (text: string): void => {
+    const value = text.trim()
+    if (!value) return
+    const prev = this.snap.inputHistory
+    if (prev[prev.length - 1] === value) return
+    const next = trimInputHistory([...prev, value])
+    this.patch({ inputHistory: next })
+    writeInputHistory(this.historyKey, next)
+  }
+
+  /**
+   * 把转写里已有的用户消息并入输入历史。
+   *
+   * 本功能上线前发出的消息不在 localStorage 里；重开一条老会话时用
+   * `user_message` 兜底，↑ 立刻就有东西可翻。转写文本里的 IDE 引用块
+   * 会被剥掉，只留用户当时写的那句话。已在历史里的内容去重。
+   */
+  private withTranscriptHistory(prompts: string[]): string[] {
+    const current = this.snap.inputHistory
+    /*
+     * 同一句话可能发过多次：只保留**最后一次**，否则 ↑ 最先看到的会是
+     * 很久以前那句，而最近的重复反而被去掉了。
+     */
+    const lastAt = new Map<string, number>()
+    for (let i = 0; i < prompts.length; i++) lastAt.set(prompts[i], i)
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (let i = 0; i < prompts.length; i++) {
+      const text = prompts[i]
+      if (lastAt.get(text) !== i) continue
+      seen.add(text)
+      out.push(text)
+    }
+    // 持久化历史里有、但这次转写没读到的（文件被截断 / 读取失败）补在后面
+    for (const text of current) {
+      if (seen.has(text)) continue
+      seen.add(text)
+      out.push(text)
+    }
+    const merged = trimInputHistory(out)
+    if (merged.length === current.length && merged.every((v, i) => v === current[i])) {
+      return current
+    }
+    writeInputHistory(this.historyKey, merged)
+    return merged
+  }
+
+  /**
+   * 新会话拿到 CLI id 后，把输入历史从临时键迁到稳定的 (cli, cwd, id) 键。
+   *
+   * 迁移发生在本进程第一次 `session_started` 之后；如果同一个 id 上次运行
+   * 已有历史，就把它接在前面，保留「早先的在前、这次的在后」的顺序。
+   */
+  private upgradeHistoryKey(id: string, cwd: string): void {
+    const next = sessionHistoryKey(
+      this.init.cli,
+      cwd || this.providerCwd || this.init.cwd,
+      id
+    )
+    if (next === this.historyKey) return
+    this.historyKey = next
+
+    const current = this.snap.inputHistory
+    const existing = readInputHistory(next)
+    if (existing.length === 0) {
+      if (current.length > 0) writeInputHistory(next, current)
+      return
+    }
+    if (current.length === 0) {
+      this.patch({ inputHistory: existing })
+      return
+    }
+    const merged = mergeInputHistory(existing, current)
+    this.patch({ inputHistory: merged })
+    writeInputHistory(next, merged)
   }
 
   /** 幂等：StrictMode 的 setup/cleanup/setup、切走再切回都只真正 start 一次 */
@@ -918,8 +1104,26 @@ class ChatController {
 
       // 历史里的 steps 已经是权威累计值，待校准的实时计数清零
       this.pendingSteps = 0
+      /*
+       * 老会话在这次功能上线前发过的话不在 localStorage 里。用转写里的
+       * user_message 兜底（剥掉 IDE 引用块），↑ 一打开就有东西可翻。
+       */
+      const prompts: string[] = []
+      for (const h of history) {
+        if (h.t !== 'user_message') continue
+        const prompt = parseIdeRefs(h.text).text.trim()
+        if (prompt) prompts.push(prompt)
+      }
       // 修改清单只回放最后一轮 —— 和实时行为一致
-      this.patch({ items, run, turns, steps, usage, files: filesAfterLastTurn(history) })
+      this.patch({
+        items,
+        run,
+        turns,
+        steps,
+        usage,
+        files: filesAfterLastTurn(history),
+        inputHistory: this.withTranscriptHistory(prompts)
+      })
     } catch {
       // 历史读不到就当空会话 —— 实时流仍然能继续
     }
@@ -1016,6 +1220,8 @@ class ChatController {
       if (e.sessionId) {
         const key = storedChatKey(this.init.cli, e.cwd || this.init.cwd, e.sessionId)
         if (!controllers.has(key)) controllers.set(key, this)
+        // 输入历史跟着会话身份升级：之前只存在内存里的那几条要迁到稳定键
+        this.upgradeHistoryKey(e.sessionId, e.cwd)
       }
       this.patch({
         model: e.model || this.snap.model,
@@ -1513,6 +1719,21 @@ export function disposeNewChat(cli: CliId, n: number): void {
 }
 
 /**
+ * 会话记录被删除时，把它的输入历史一起清掉。
+ *
+ * 不放在 `disposeStoredChat` 里：`/clear` 也会走 dispose，但旧会话的记录
+ * 还在磁盘上，用户之后打开它时历史应该还在。
+ */
+export function forgetInputHistory(cli: CliId, cwd: string, id: string): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.removeItem(INPUT_HISTORY_PREFIX + sessionHistoryKey(cli, cwd, id))
+  } catch {
+    // 私密模式 / 配额异常：清不掉也不影响删除本身
+  }
+}
+
+/**
  * 回收从没发过消息的新会话。
  *
  * 点一次「新会话」就会在主进程建一个 Live（还没发消息，所以不会 spawn 进程）。
@@ -1550,6 +1771,7 @@ const EMPTY_SNAPSHOT: ChatSnapshot = {
   run: emptyRunState(),
   files: [],
   nativeCommands: [],
+  inputHistory: [],
   notice: null
 }
 
@@ -1563,6 +1785,7 @@ const noopSubscribe = (): (() => void) => () => undefined
 const noopSnapshot = (): ChatSnapshot => EMPTY_SNAPSHOT
 const noop = (): void => undefined
 const noopSend = async (_input: SessionSendInput, _meta?: SendMeta): Promise<void> => undefined
+const noopRecordInput = (_text: string): void => undefined
 const noopRunCommand = async (_name: string, _args?: string): Promise<SessionSendResult> => ({
   ok: false
 })
@@ -1680,8 +1903,10 @@ export function useChat(opts: {
       run: s.run,
       files: s.files,
       nativeCommands: s.nativeCommands,
+      inputHistory: s.inputHistory,
       waitingSince: s.waitingSince,
       send: controller ? controller.send : noopSend,
+      recordInput: controller ? controller.recordInput : noopRecordInput,
       runCommand: controller ? controller.runCommand : noopRunCommand,
       removeQueued: controller ? controller.removeQueued : noopRemoveQueued,
       clearQueue: controller ? controller.clearQueue : noop,

@@ -26,5 +26,7 @@ runs:
       shell: bash
     - run: npm run verify:session-store
       shell: bash
+    - run: npm run verify:input-history
+      shell: bash
     - run: npm run verify:whats-new
       shell: bash
