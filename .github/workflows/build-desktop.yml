@@ -82,9 +82,14 @@ jobs:
     runs-on: macos-14
     env:
       # 配了 MAC_CSC_LINK 就启用签名；没配则关掉钥匙串自动发现，照常出未签名包。
+      #
+      # 不要把 CSC_LINK / CSC_KEY_PASSWORD 直接写进 job env：secret 不存在时
+      # GitHub 会把它们设成**空字符串**，而 electron-builder 只判空值不判空串，
+      # 空串会被 path.resolve 成仓库根目录，报 "<repo> not a file" 并让 macOS
+      # 构建失败。用 MAC_* 中转，下面确认非空后再写进 GITHUB_ENV。
       CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK != '' }}
-      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
       # 公证暂未开启（electron-builder.yml 里没有 mac.notarize）；
       # 凭证先留着，接入时直接可用。
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -95,6 +100,12 @@ jobs:
       NODE_OPTIONS: '--max-old-space-size=5120'
     steps:
       - uses: actions/checkout@v4
+      - name: Configure macOS signing
+        if: env.MAC_CSC_LINK != ''
+        shell: bash
+        run: |
+          printf 'CSC_LINK=%s\n' "$MAC_CSC_LINK" >> "$GITHUB_ENV"
+          printf 'CSC_KEY_PASSWORD=%s\n' "$MAC_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
