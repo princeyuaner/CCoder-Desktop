@@ -16,7 +16,7 @@ import { stripAnsi } from '@shared/ansi'
 import { sanitizeAddDirs, sameAddDirs } from '@shared/add-dirs'
 import { ltext, type LocalizedText } from '@shared/i18n'
 import { cwdKey } from '@shared/path'
-import { applyFileChange, reduceFiles, type ChangedFile } from './changedFiles'
+import { applyFileChanges, reduceFiles, type ChangedFile } from './changedFiles'
 import { parseIdeRefs } from './ideRef'
 import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
@@ -874,6 +874,23 @@ const byLive = new Map<string, ChatController>()
 const nativeCommandCache = new Map<string, NativeCommand[]>()
 const nativeCommandKey = (cli: CliId, cwd: string): string => `${cli}${SEP}${normCwd(cwd)}`
 
+/**
+ * file_change 的合并窗口。
+ *
+ * 轮末磁盘快照是一批同步 emit 的，16~32ms 足够收齐同一批；再长会让
+ * 「本轮修改」明显慢半拍。
+ */
+const FILE_CHANGE_FLUSH_MS = 32
+
+/**
+ * 同时保留多少条「打开过、但已经切走」的会话状态。
+ *
+ * 切走不 dispose 是为了切回来秒开；但大会话的 items（含历史图片 base64）
+ * 会一直常驻，访问得多了渲染进程内存只涨不降。超过这个数就按 LRU 回收
+ * 最久没打开的、且确认没有在跑/排队/后台任务的会话。
+ */
+const MAX_CACHED_CHATS = 8
+
 let wired = false
 
 /**
@@ -900,6 +917,11 @@ class ChatController {
   providerSessionId: string | null
   /** CLI 回报的 cwd（或创建时的 cwd），用于把「新会话」和侧栏那一行对上 */
   providerCwd: string
+  /**
+   * 最近一次被打开 / 复用的时间。控制器不会在切走时销毁（切回来要秒开），
+   * 超出缓存上限时按这个时间做 LRU 淘汰 —— 见 evictIdleChats。
+   */
+  lastUsedAt = Date.now()
   /** 输入历史的存储键；新会话拿到 CLI id 后从 draft 键迁到稳定键 */
   private historyKey: string
 
@@ -914,6 +936,16 @@ class ChatController {
    */
   private ratePoints: { at: number; tokens: number }[] = []
   private rateTimer: number | null = null
+  /**
+   * 已经收到、但还没落进快照的文件改动。
+   *
+   * 轮末磁盘快照会一口气报出几十到几百个路径，主进程逐条 emit，渲染层
+   * 如果也逐条 patch，每条都会触发一次 MainPane + Composer 的重渲染。
+   * 这里攒到一帧再一次性合并；任何非 file_change 事件到来前都会先 flush，
+   * 保证「本轮修改」不会晚于轮末状态出现，也不会跨轮串味。
+   */
+  private pendingFiles: Extract<AgentEvent, { t: 'file_change' }>[] = []
+  private fileTimer: number | null = null
   /**
    * 这一轮是否还没真正结束。
    *
@@ -989,6 +1021,34 @@ class ChatController {
 
   get providerId(): string | null {
     return this.providerSessionId
+  }
+
+  /**
+   * 能不能在缓存超限时被回收。
+   *
+   * 只要还有界面订阅（正在看）、进程在跑、队列里压着消息、后台任务没结束、
+   * 或者有没答复的审批，就绝不能动 —— 回收 = dispose = 停进程，这些状态下
+   * 都会丢东西。
+   */
+  canEvict(): boolean {
+    if (this.disposed || this.listeners.size > 0) return false
+    // 还没拿到 CLI id 的新会话：可能正在启动，而且回收也省不下多少（items 为空）
+    if (!this.providerSessionId) return false
+    const s = this.snap
+    if (s.status === 'running' || s.status === 'starting') return false
+    if (this.turnOpen || s.queue.length > 0) return false
+    if (s.run.background.some((b) => b.status === 'running')) return false
+    if (
+      s.run.agents.some(
+        (a) => a.status === 'running' && a.startedAt > 0 && isBackgroundAgent(a)
+      )
+    ) {
+      return false
+    }
+    return !s.items.some(
+      (i) =>
+        (i.kind === 'permission' || i.kind === 'question') && i.state === 'pending'
+    )
   }
 
   getSnapshot = (): ChatSnapshot => this.snap
@@ -1255,8 +1315,31 @@ class ChatController {
     this.ratePoints = []
   }
 
+  /** 把攒下的文件改动一次性合并进快照；攒着的时候不会丢顺序 */
+  private flushFileChanges(): void {
+    if (this.fileTimer !== null) {
+      window.clearTimeout(this.fileTimer)
+      this.fileTimer = null
+    }
+    if (this.pendingFiles.length === 0) return
+    const changes = this.pendingFiles
+    this.pendingFiles = []
+    this.patch({ files: applyFileChanges(this.snap.files, changes) })
+  }
+
+  /** 进入新一轮 / 销毁时丢掉上一轮还没落地的文件改动（files 本身会被清空） */
+  private discardFileChanges(): void {
+    if (this.fileTimer !== null) {
+      window.clearTimeout(this.fileTimer)
+      this.fileTimer = null
+    }
+    this.pendingFiles = []
+  }
+
   handleEvent = (e: AgentEvent): void => {
     if (this.disposed) return
+    // 任何非文件事件都要排在已经收到的文件改动之后
+    if (e.t !== 'file_change') this.flushFileChanges()
 
     /*
      * 权限模式的实际生效值。点选时已经乐观改过胶囊；CLI 拒绝或自己回落时，
@@ -1289,9 +1372,16 @@ class ChatController {
     // 流式增量顺手累计一下输出速度（正文和思考都算输出 token）
     if (e.t === 'text_delta' || e.t === 'thinking_delta') this.noteRate(e.text)
 
-    // 文件改动不画卡片，只更新「本轮修改」这一份状态
+    // 文件改动不画卡片，只更新「本轮修改」这一份状态。
+    // 轮末可能一次来几百条，攒一帧再合并 —— 见 pendingFiles。
     if (e.t === 'file_change') {
-      this.patch({ files: applyFileChange(this.snap.files, e) })
+      this.pendingFiles.push(e)
+      if (this.fileTimer === null) {
+        this.fileTimer = window.setTimeout(() => {
+          this.fileTimer = null
+          this.flushFileChanges()
+        }, FILE_CHANGE_FLUSH_MS)
+      }
       return
     }
 
@@ -1391,6 +1481,8 @@ class ChatController {
 
   handleStatus = (p: SessionStatusPayload): void => {
     if (this.disposed) return
+    // idle/exited 之前要把本轮的磁盘改动先落到界面上
+    this.flushFileChanges()
     if (p.providerSessionId) this.providerSessionId = p.providerSessionId
     const next: Partial<ChatSnapshot> = { status: p.status }
     // 进程停了就不该再显示「本轮速度」—— 没有 turn_end 的异常退出也走这里
@@ -1481,6 +1573,8 @@ class ChatController {
     }
 
     this.turnOpen = true
+    // 新一轮会清空 files —— 上一轮还没落地的改动不必再渲染一次
+    this.discardFileChanges()
     // 从这一刻起，下一次 idle 就是"这一轮跑完了"，值得提醒
     this.turnNotified = true
     this.patch({
@@ -1727,6 +1821,7 @@ class ChatController {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.discardFileChanges()
     this.clearRate()
     this.pendingSteps = 0
     this.listeners.clear()
@@ -1769,15 +1864,42 @@ function disposeController(c: ChatController): void {
   c.dispose()
 }
 
+/**
+ * 缓存超限时回收最久没打开的空闲会话。
+ *
+ * `keep` 是当前正要挂载的那条 —— 它的首次订阅还没发生，不能按
+ * `listeners.size` 判断；其余 controller 只要还挂着界面订阅，canEvict
+ * 就会拒绝回收，所以这里不会误伤正在看的会话。
+ */
+function evictIdleChats(keep: ChatController | null): void {
+  const all = uniqueControllers().filter((c) => !c.isDisposed)
+  if (all.length <= MAX_CACHED_CHATS) return
+
+  const candidates = all
+    .filter((c) => c !== keep && c.canEvict())
+    .sort((a, b) => a.lastUsedAt - b.lastUsedAt)
+
+  let over = all.length - MAX_CACHED_CHATS
+  for (const c of candidates) {
+    if (over <= 0) break
+    disposeController(c)
+    over--
+  }
+}
+
 /** 复用已有 controller，没有就新建。key 是会话身份，不是「当前打开了哪条」 */
 export function acquireChat(key: string, init: ChatInit): ChatController {
   wireDispatcher()
   const existing = controllers.get(key)
-  if (existing) return existing
+  if (existing) {
+    existing.lastUsedAt = Date.now()
+    return existing
+  }
 
   if (init.resumeId) {
     const reuse = findByProvider(init.resumeId, init.cwd)
     if (reuse) {
+      reuse.lastUsedAt = Date.now()
       controllers.set(key, reuse)
       return reuse
     }
@@ -1790,7 +1912,9 @@ export function acquireChat(key: string, init: ChatInit): ChatController {
 
 /** 只查不建 —— 设置页返回时 enabled 会短暂为 false，但已有会话必须原样复用 */
 export function lookupChat(key: string): ChatController | null {
-  return controllers.get(key) ?? null
+  const c = controllers.get(key) ?? null
+  if (c) c.lastUsedAt = Date.now()
+  return c
 }
 
 export function disposeChat(key: string): void {
@@ -1962,7 +2086,10 @@ export function useChat(opts: {
 
   // 没有 cleanup —— 组件卸载不结束会话。生命周期的终点在 dispose 系列函数里。
   useEffect(() => {
-    if (controller) void controller.ensureStarted()
+    if (!controller) return
+    void controller.ensureStarted()
+    // 新会话挂上之后，按 LRU 回收之前打开过、但已经切走的老会话
+    evictIdleChats(controller)
   }, [controller])
 
   const snapshot = useSyncExternalStore(

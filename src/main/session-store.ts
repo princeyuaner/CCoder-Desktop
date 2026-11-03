@@ -398,6 +398,17 @@ async function scanStoredSessions(): Promise<StoredSession[]> {
       let head: { cwd: string; title: string; createdAt: number }
       if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
         head = hit
+      } else if (hit && hit.cwd && st.size > hit.size) {
+        /*
+         * JSONL 是追加写的：文件变长而没变短，说明头部那几条记录原样没动。
+         * 每轮 turn_end 活跃会话都会被标脏，这里直接复用上次的 cwd / 标题 /
+         * 创建时间，省掉每轮一次 32KB 读 + 解析。文件被截断重写（变短或
+         * 同长度）时仍走完整解析。
+         */
+        head = { cwd: hit.cwd, title: hit.title, createdAt: hit.createdAt }
+        // 必须把 size/mtime 推上去：否则下次“变长”判断永远拿旧 size 比，
+        // 文件被截断重写成更大的中间值时会被误判成纯追加。
+        headCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, ...head })
       } else {
         const parsed = await parseHeadExpanding(full, st.size)
         head = parsed.head

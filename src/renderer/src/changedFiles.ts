@@ -60,24 +60,17 @@ function makeFile(ch: Extract<AgentEvent, { t: 'file_change' }>): ChangedFile {
 }
 
 /**
- * 把一条 file_change 合进列表。
+ * 把一条 file_change 合进已有的那条记录。
  *
  * 合并规则：
  *  - 工具来源：同一文件多次编辑累加；
  *  - 磁盘来源：只补「还没有工具统计」的路径。git 给的是对 HEAD 的总 diff，
  *    文件本轮之前就脏的话会把旧改动算进来，所以不能覆盖工具算出的行数。
  */
-export function applyFileChange(
-  files: ChangedFile[],
+function mergeFile(
+  cur: ChangedFile,
   ch: Extract<AgentEvent, { t: 'file_change' }>
-): ChangedFile[] {
-  if (!ch.path.trim()) return files
-  const key = fileKey(ch.path)
-  const i = files.findIndex((f) => f.key === key)
-
-  if (i < 0) return [...files, makeFile(ch)]
-
-  const cur = files[i]
+): ChangedFile {
   const next: ChangedFile = { ...cur }
 
   if (ch.source === 'disk') {
@@ -104,9 +97,56 @@ export function applyFileChange(
     next.byTool = true
   }
 
+  return next
+}
+
+/** 把一条 file_change 合进列表 */
+export function applyFileChange(
+  files: ChangedFile[],
+  ch: Extract<AgentEvent, { t: 'file_change' }>
+): ChangedFile[] {
+  if (!ch.path.trim()) return files
+  const key = fileKey(ch.path)
+  const i = files.findIndex((f) => f.key === key)
+
+  if (i < 0) return [...files, makeFile(ch)]
+
   const copy = files.slice()
-  copy[i] = next
+  copy[i] = mergeFile(files[i], ch)
   return copy
+}
+
+/**
+ * 一次合并一批 file_change。
+ *
+ * 轮末磁盘快照可能一次报出几十到几百个路径，逐条合并会让每条都
+ * `findIndex` + 整表拷贝（O(n²)），而且每合并一条就触发一次 React 更新。
+ * 这里只拷贝一次列表、用一次索引扫描完成全部合并，调用方也只需要 patch 一次。
+ */
+export function applyFileChanges(
+  files: ChangedFile[],
+  changes: readonly Extract<AgentEvent, { t: 'file_change' }>[]
+): ChangedFile[] {
+  if (changes.length === 0) return files
+
+  const next = files.slice()
+  const index = new Map<string, number>()
+  for (let i = 0; i < next.length; i++) index.set(next[i].key, i)
+
+  let dirty = false
+  for (const ch of changes) {
+    if (!ch.path.trim()) continue
+    const key = fileKey(ch.path)
+    const at = index.get(key)
+    if (at === undefined) {
+      index.set(key, next.length)
+      next.push(makeFile(ch))
+    } else {
+      next[at] = mergeFile(next[at], ch)
+    }
+    dirty = true
+  }
+  return dirty ? next : files
 }
 
 /**

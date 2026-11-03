@@ -53,6 +53,72 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.19',
+    date: '2026-11-03',
+    highlight: {
+      icon: 'sparkle',
+      title: {
+        zh: '侧栏刷新更快，轮末不再卡一下',
+        en: 'Faster sidebar refreshes, smoother turn endings'
+      },
+      desc: {
+        zh: 'dsh / codex 的会话列表也改成了监听增量，没变的记录连 stat 都省掉；轮末一次报出的大量文件改动合并成一次界面更新；切走的老会话超过上限后按最久未打开回收，长时间使用不再只涨内存。',
+        en: 'dsh and codex session lists now scan incrementally, skipping even the stat for unchanged records. Batches of file changes at the end of a turn are merged into one UI update, and old sessions you navigated away from are reclaimed least-recently-used once over the cache limit, so memory stops growing indefinitely.'
+      }
+    },
+    sections: [
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'batch',
+            title: {
+              zh: 'dsh / codex 列表增量扫描',
+              en: 'Incremental dsh / codex session lists'
+            },
+            desc: {
+              zh: '递归监听 dsh 的会话目录和投影缓存、codex 的 rollout 目录：没被改动过的会话直接复用上一次的解析结果，连 stat 都不做；dsh 标题变更也能及时反映。监听不可用时自动退回全量扫描，并每 60 秒兜底校验一次。',
+              en: 'dsh session and projection-cache directories plus codex rollout directories are watched recursively. Unchanged sessions reuse their previous parse without even a stat, and dsh title changes still show up promptly. If watching is unavailable it falls back to a full scan with a 60-second revalidation.'
+            }
+          },
+          {
+            icon: 'sparkle',
+            title: {
+              zh: '轮末文件改动合并更新',
+              en: 'File changes batched at turn end'
+            },
+            desc: {
+              zh: '一轮结束时磁盘快照可能一次报出几十到几百个路径。以前每个路径都会单独触发一次界面更新，现在先在后台合并，再一次性落到「本轮修改」，轮末不再出现成串的重渲染。',
+              en: 'A turn can produce dozens or hundreds of changed paths at once. Each one used to trigger its own UI update; they are now merged and applied in a single update, removing the burst of re-renders at the end of a turn.'
+            }
+          },
+          {
+            icon: 'collapse',
+            title: {
+              zh: '老会话缓存有上限',
+              en: 'Bounded cache for old sessions'
+            },
+            desc: {
+              zh: '切走的会话仍会保留以便秒开，但最多缓存 8 条；超出后按最久未打开回收，且只回收没在跑、没排队、没有后台任务和待审批的那些。打开过很多大会话时，渲染进程内存不再一路增长。',
+              en: 'Sessions you navigate away from stay cached for instant switching, up to eight. Beyond that the least-recently-used ones are reclaimed — only when idle, with no queued messages, background tasks or pending approvals. Memory no longer grows without bound after visiting many large sessions.'
+            }
+          },
+          {
+            icon: 'batch',
+            title: {
+              zh: '追加写会话不再重复读头',
+              en: 'No repeated head reads for appended sessions'
+            },
+            desc: {
+              zh: '会话记录只会追加，文件变长时直接复用已经解析好的 cwd / 标题 / 创建时间，不再每轮重读 32KB 文件头。',
+              en: 'Session records are append-only, so when a file grows the already-parsed cwd, title and creation time are reused instead of re-reading the 32KB header every turn.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.18',
     date: '2026-11-02',
     highlight: {

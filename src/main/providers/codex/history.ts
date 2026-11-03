@@ -1,7 +1,6 @@
-import type { Dirent } from 'node:fs'
-import { promises as fsp } from 'node:fs'
+import { promises as fsp, watch, type Dirent, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import type { AgentEvent, Usage } from '../../../shared/events'
 import type { StoredSession } from '../../../shared/session'
 import { t } from '../../i18n'
@@ -216,6 +215,82 @@ const headCache = new Map<
   { mtimeMs: number; size: number; head: Head }
 >()
 
+/**
+ * 增量扫描状态。
+ *
+ * 侧栏每次 turn_end / 窗口获得焦点都会重拉列表。以前每次都要把
+ * `<年>/<月>/<日>` 整棵树走一遍、再给每个 rollout stat 一次；和 Claude 的
+ * 做法对齐之后，watch 没报过变化的文件连 stat 都省掉，只剩一次递归
+ * readdir 增量维护的已知文件集合。watch 不可用时退回全量行为。
+ */
+const dirtyFiles = new Set<string>()
+/** 上一次全量扫描（或 watch 新增事件）得到的文件集合 */
+const knownFiles = new Set<string>()
+const rowCache = new Map<
+  string,
+  { mtimeMs: number; size: number; entry: CodexSessionFile }
+>()
+let codexWatch: FSWatcher | null = null
+let watchRetryAt = 0
+/** 无法定位到具体文件（filename 为 null / 非递归降级 / 新目录）时全量重扫 */
+let rescanAll = true
+let lastFullScan = 0
+
+/** 定期全量校验：兜住 watch 丢事件 / 合并事件 */
+const FULL_REVALIDATE_MS = 60_000
+/** watch 建不起来时（sessions 目录可能还不存在）多久再试 */
+const WATCH_RETRY_MS = 10_000
+
+function ensureWatch(): void {
+  if (codexWatch) return
+  const now = Date.now()
+  if (now < watchRetryAt) return
+  watchRetryAt = now + WATCH_RETRY_MS
+
+  const attach = (recursive: boolean): FSWatcher | null => {
+    try {
+      const watcher = watch(codexSessionsRoot(), { recursive }, (_event, filename) => {
+        // 非递归只能看到根目录条目，无法判断子树里改了什么
+        if (!recursive || filename === null) {
+          rescanAll = true
+          return
+        }
+        const raw = filename.toString()
+        if (!raw || raw.includes('\0')) {
+          rescanAll = true
+          return
+        }
+        const full = resolve(codexSessionsRoot(), raw)
+        if (full.endsWith('.jsonl')) {
+          knownFiles.add(full)
+          dirtyFiles.add(full)
+        } else {
+          // 目录被创建 / 删除 / 重命名：下一次重走一遍，保证新会话不漏
+          rescanAll = true
+        }
+      })
+      watcher.on('error', () => {
+        if (codexWatch !== watcher) return
+        try {
+          watcher.close()
+        } catch {
+          // 已经坏了
+        }
+        codexWatch = null
+        rescanAll = true
+        watchRetryAt = Date.now() + WATCH_RETRY_MS
+      })
+      watcher.unref?.()
+      return watcher
+    } catch {
+      return null
+    }
+  }
+
+  codexWatch = attach(true) ?? attach(false)
+  if (codexWatch) rescanAll = true
+}
+
 /** 递归找出所有 rollout 文件（结构是 年/月/日，不写死层数） */
 async function walk(dir: string, out: string[], depth = 0): Promise<void> {
   if (depth > 6) return
@@ -225,11 +300,14 @@ async function walk(dir: string, out: string[], depth = 0): Promise<void> {
   } catch {
     return
   }
+  const subdirs: string[] = []
   for (const e of entries) {
     const full = join(dir, e.name)
-    if (e.isDirectory()) await walk(full, out, depth + 1)
+    if (e.isDirectory()) subdirs.push(full)
     else if (e.isFile() && e.name.endsWith('.jsonl')) out.push(full)
   }
+  // 同层目录相互独立：串行 await 会让层级越深、目录越多，墙钟时间越像求和
+  await mapLimit(subdirs, IO_CONCURRENCY, (d) => walk(d, out, depth + 1))
 }
 
 export interface CodexSessionFile {
@@ -238,8 +316,32 @@ export interface CodexSessionFile {
 }
 
 export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
-  const files: string[] = []
-  await walk(codexSessionsRoot(), files)
+  ensureWatch()
+
+  const now = Date.now()
+  const fullScan =
+    rescanAll || codexWatch === null || now - lastFullScan >= FULL_REVALIDATE_MS
+  /*
+   * 先取走再清空：扫描期间新到的事件落进新的集合，下一趟继续处理。
+   * 宁可多扫一次，也不能把扫描过程中发生的改动吞掉。
+   */
+  const dirty = new Set(dirtyFiles)
+  dirtyFiles.clear()
+  if (fullScan) {
+    rescanAll = false
+    lastFullScan = now
+  }
+
+  let files: string[]
+  if (fullScan) {
+    files = []
+    await walk(codexSessionsRoot(), files)
+    knownFiles.clear()
+    for (const file of files) knownFiles.add(file)
+  } else {
+    files = [...knownFiles]
+  }
+
   const seen = new Set<string>()
 
   /*
@@ -248,10 +350,25 @@ export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
    * turn_end / focus 都会重扫一遍，串行代价很直观。
    */
   const parsed = await mapLimit(files, IO_CONCURRENCY, async (file) => {
+    /*
+     * 增量快路径：watch 没报过变化、上次也解析成功 —— 连 stat 都省掉。
+     * 文件没变时 updatedAt 就是上次的 mtime，字段完全一致。
+     */
+    if (!fullScan && !dirty.has(file)) {
+      const cached = rowCache.get(file)
+      if (cached) {
+        seen.add(file)
+        return cached.entry
+      }
+    }
+
     let st
     try {
       st = await fsp.stat(file)
     } catch {
+      // 已经删掉：本趟不返回，缓存也一起清掉
+      rowCache.delete(file)
+      knownFiles.delete(file)
       return null
     }
     seen.add(file)
@@ -301,6 +418,7 @@ export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
         cli: 'codex'
       }
     }
+    rowCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, entry })
     return entry
   })
 
@@ -310,6 +428,9 @@ export async function listCodexSessionFiles(): Promise<CodexSessionFile[]> {
 
   for (const key of headCache.keys()) {
     if (!seen.has(key)) headCache.delete(key)
+  }
+  for (const key of rowCache.keys()) {
+    if (!seen.has(key)) rowCache.delete(key)
   }
   return out
 }

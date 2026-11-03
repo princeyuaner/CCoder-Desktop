@@ -1,5 +1,5 @@
-import { existsSync, promises as fsp } from 'node:fs'
-import { join, normalize } from 'node:path'
+import { existsSync, promises as fsp, watch, type FSWatcher, type Stats } from 'node:fs'
+import { basename, dirname, join, normalize, resolve } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import type { AgentEvent } from '../../../shared/events'
 import type { StoredSession } from '../../../shared/session'
@@ -185,6 +185,127 @@ async function readProjCache(file: string): Promise<DshProjCache | null> {
   return info
 }
 
+/**
+ * 增量扫描状态。
+ *
+ * 侧栏每次 turn_end / 窗口获得焦点都会重拉列表。以前每个会话都要
+ * `readdir(会话目录)` + `stat(记录)` + `stat/读投影缓存`，35 条会话实测
+ * 单趟 31ms（本机），而其中绝大多数文件根本没变。这里按 Claude 列表的
+ * 做法挂一个递归 watch：没被动过的会话直接复用上一次的行，连 stat 都省，
+ * 只剩根目录/编码目录的 readdir 用来发现新会话；60s 仍全量校验一次，
+ * 兜住投影缓存更新和 watch 丢事件。
+ */
+interface DshRowCacheEntry {
+  file: string
+  mtimeMs: number
+  size: number
+  row: DshSessionFile
+}
+
+/** 会话目录 → 上次找到的记录文件名（v4/v3/无后缀），省掉每趟 readdir */
+const dshNameCache = new Map<string, string>()
+const dshRowCache = new Map<string, DshRowCacheEntry>()
+/** watch 报过变化的会话目录 */
+const dshDirtyDirs = new Set<string>()
+const dshWatchedRoots = new Set<string>()
+const dshWatches: FSWatcher[] = []
+let dshWatchRetryAt = 0
+/** 无法定位到具体会话目录时，下一趟强制重读元数据 */
+let dshRescanAll = true
+let dshLastFullScan = 0
+
+const DSH_FULL_REVALIDATE_MS = 60_000
+const DSH_WATCH_RETRY_MS = 10_000
+
+function ensureDshWatches(homes: readonly string[]): void {
+  const now = Date.now()
+  if (now < dshWatchRetryAt) return
+
+  let attached = 0
+
+  /**
+   * 挂一个监听；成功后登记，失败返回 null。
+   * `onFile` 只在拿到具体文件名时调用；拿不到（非递归降级 / null）就全量。
+   */
+  const attachRoot = (
+    root: string,
+    recursive: boolean,
+    onFile: (full: string) => void
+  ): void => {
+    if (dshWatchedRoots.has(root)) return
+    const attach = (rec: boolean): FSWatcher | null => {
+      try {
+        const watcher = watch(root, { recursive: rec }, (_event, filename) => {
+          // 非递归降级只能看到根目录条目，无法判断子树里改了什么
+          if (!rec || filename === null) {
+            dshRescanAll = true
+            return
+          }
+          const raw = filename.toString()
+          if (!raw || raw.includes('\0')) {
+            dshRescanAll = true
+            return
+          }
+          onFile(resolve(root, raw))
+        })
+        watcher.on('error', () => {
+          if (!dshWatchedRoots.has(root)) return
+          try {
+            watcher.close()
+          } catch {
+            // 已经坏了
+          }
+          dshWatchedRoots.delete(root)
+          const i = dshWatches.indexOf(watcher)
+          if (i >= 0) dshWatches.splice(i, 1)
+          dshRescanAll = true
+          dshWatchRetryAt = Date.now() + DSH_WATCH_RETRY_MS
+        })
+        watcher.unref?.()
+        return watcher
+      } catch {
+        return null
+      }
+    }
+
+    const watcher = recursive ? (attach(true) ?? attach(false)) : attach(false)
+    if (!watcher) return
+    dshWatchedRoots.add(root)
+    dshWatches.push(watcher)
+    attached++
+    // attach 之前发生的改动收不到，第一次强制全量
+    dshRescanAll = true
+  }
+
+  for (const home of homes) {
+    // 会话记录：递归监听，按会话目录标脏
+    attachRoot(resolve(join(home, 'sessions')), true, (full) => {
+      // 记录文件就是会话目录下的那个；按目录标脏，v3→v4 升级也能覆盖
+      if (TRANSCRIPT_NAMES.includes(basename(full))) {
+        dshDirtyDirs.add(dirname(full))
+      } else {
+        // 新会话目录 / 删除 / 重命名：下一趟重新枚举全部候选
+        dshRescanAll = true
+      }
+    })
+
+    /*
+     * 投影缓存（标题 / cwd / blank）：不在 sessions 树下，会话记录没变时
+     * 也可能被 dsh 更新。只监听文件层级，任何变化都全量重读一次 —— 标题
+     * 生成不频繁，比让侧栏标题停在 60s 前更划算。
+     */
+    const projRoot = resolve(join(home, 'storages', 'session_projcache', 'sessions'))
+    if (existsSync(projRoot)) attachRoot(projRoot, false, () => {
+      dshRescanAll = true
+    })
+  }
+
+  // 一个都没挂上（home 还没建 / 权限）时，隔一会儿再试；期间退回全量扫描
+  if (attached === 0 && dshWatches.length === 0) {
+    dshWatchRetryAt = now + DSH_WATCH_RETRY_MS
+  }
+}
+
 /** 没有投影缓存时，从会话前几帧里找第一条真人消息当标题 */
 async function titleFromTranscript(file: string, size: number): Promise<string> {
   const text = await readPrefix(file, size, 256 * 1024)
@@ -216,9 +337,38 @@ async function titleFromTranscript(file: string, size: number): Promise<string> 
   return ''
 }
 
+/** 投影缓存的路径只由 home 和目录 id 决定 */
+const projectionFile = (home: string, id: string): string =>
+  join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`)
+
 export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
   const seenFiles = new Set<string>()
   const seenProj = new Set<string>()
+  const seenDirs = new Set<string>()
+
+  const homes = listDshHomes()
+  ensureDshWatches(homes)
+
+  const now = Date.now()
+  const fullScan =
+    dshRescanAll ||
+    dshWatches.length === 0 ||
+    now - dshLastFullScan >= DSH_FULL_REVALIDATE_MS
+  /*
+   * 先取走再清空：扫描期间新到的事件落进新的集合，下一趟继续处理。
+   * 宁可多扫一次，也不能把扫描过程中发生的改动吞掉。
+   */
+  const dirty = new Set(dshDirtyDirs)
+  dshDirtyDirs.clear()
+  if (fullScan) {
+    dshRescanAll = false
+    dshLastFullScan = now
+    /*
+     * 全量校验时重新列一次会话目录：同名会话可能已经从 v3 升级到 v4，
+     * 而旧文件还躺在那里。名字缓存只在增量扫描之间复用以省 readdir。
+     */
+    dshNameCache.clear()
+  }
 
   /*
    * 先只收候选会话目录（readdir 很便宜），再把「列目录 + stat + 读头 +
@@ -227,9 +377,12 @@ export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
    * 原来三层循环全部串行：home → 编码目录 → 会话目录，每个文件还要
    * `await stat` / `await readHeader`。侧栏每次刷新都走这里，会话一多，
    * 刷新延迟就是单文件 IO 的线性累加。
+   *
+   * 根目录和编码目录仍要每趟列一次 —— 新会话就是从这里发现的；开销只有
+   * 几个 readdir。
    */
   const candidates: Array<{ home: string; id: string; dir: string }> = []
-  for (const home of listDshHomes()) {
+  for (const home of homes) {
     const root = join(home, 'sessions')
     let encodings: string[]
     try {
@@ -251,32 +404,69 @@ export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
   }
 
   const rows = await mapLimit(candidates, IO_CONCURRENCY, async ({ home, id, dir }) => {
-    let files: string[]
-    try {
-      files = await fsp.readdir(dir)
-    } catch {
-      return null
+    /*
+     * 增量快路径：watch 没报过这个目录、上一次也解析成功 —— 连 stat 都省。
+     * 解析出来的行原样复用；文件没变时 updatedAt 也仍然是那个 mtime。
+     */
+    if (!fullScan && !dirty.has(dir)) {
+      const cached = dshRowCache.get(dir)
+      if (cached) {
+        seenFiles.add(cached.file)
+        seenProj.add(projectionFile(home, id))
+        seenDirs.add(dir)
+        return cached.row
+      }
     }
 
-    const name = TRANSCRIPT_NAMES.find((n) => files.includes(n))
-    if (!name) return null
+    // 目录被标脏时记录文件可能升级（v3 → v4）或改名，名字缓存作废
+    if (dirty.has(dir)) dshNameCache.delete(dir)
 
-    const file = join(dir, name)
-    let st
-    try {
-      st = await fsp.stat(file)
-    } catch {
-      return null
+    let name = dshNameCache.get(dir)
+    let file = name ? join(dir, name) : ''
+    let st: Stats | null = null
+    if (file) {
+      try {
+        st = await fsp.stat(file)
+      } catch {
+        st = null
+      }
+    }
+
+    /*
+     * 名字未知（第一次扫）或记录被删 / 升级：重新列一次目录。
+     * 只有这两种情况会走 readdir，稳定会话不再为找文件名付一次目录遍历。
+     */
+    if (!st) {
+      let files: string[]
+      try {
+        files = await fsp.readdir(dir)
+      } catch {
+        dshNameCache.delete(dir)
+        return null
+      }
+      name = TRANSCRIPT_NAMES.find((n) => files.includes(n))
+      if (!name) {
+        dshNameCache.delete(dir)
+        return null
+      }
+      dshNameCache.set(dir, name)
+      file = join(dir, name)
+      try {
+        st = await fsp.stat(file)
+      } catch {
+        return null
+      }
     }
     if (!st.isFile()) return null
     seenFiles.add(file)
+    seenDirs.add(dir)
 
     const header = await readHeader(file, st.size, st.mtimeMs)
     if (!header) return null
     // 子代理会话不是用户开的，混进侧栏只会让列表变脏
     if (header.origin === 'subagent' || header.delegationDepth > 0) return null
 
-    const projFile = join(home, 'storages', 'session_projcache', 'sessions', `${id}.json`)
+    const projFile = projectionFile(home, id)
     seenProj.add(projFile)
     const proj = await readProjCache(projFile)
 
@@ -307,6 +497,7 @@ export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
         cli: 'dsh'
       }
     }
+    dshRowCache.set(dir, { file, mtimeMs: st.mtimeMs, size: st.size, row })
     return row
   })
 
@@ -317,6 +508,8 @@ export async function listDshSessionFiles(): Promise<DshSessionFile[]> {
   // 已经删掉的会话别在缓存里留一辈子
   for (const k of headerCache.keys()) if (!seenFiles.has(k)) headerCache.delete(k)
   for (const k of projCache.keys()) if (!seenProj.has(k)) projCache.delete(k)
+  for (const k of dshRowCache.keys()) if (!seenDirs.has(k)) dshRowCache.delete(k)
+  for (const k of dshNameCache.keys()) if (!seenDirs.has(k)) dshNameCache.delete(k)
 
   return out
 }
