@@ -53,6 +53,113 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.20',
+    date: '2026-11-04',
+    highlight: {
+      icon: 'review',
+      title: {
+        zh: 'IDE 更像一个完整编辑器了',
+        en: 'The IDE grew into a fuller editor'
+      },
+      desc: {
+        zh: '资源管理器支持多选、拖拽和复制粘贴；右侧新增审阅栏；未命名缓冲区、语言模式、LF / CRLF、编码自动识别和 .editorconfig 一起补上；编辑器偏好扩展到字体、光标、参考线与粘性滚动。星野主题换成极光帷幕，新会话也有了自己的上手卡片。',
+        en: 'The explorer now supports multi-select, drag and drop, and copy / paste. A review panel arrives on the right, alongside untitled buffers, language mode, LF / CRLF, automatic encoding detection, and .editorconfig. Editor preferences expand to fonts, cursor, guides, and sticky scroll. The starfield theme gets aurora curtains, and new chats get a proper start screen.'
+      }
+    },
+    sections: [
+      {
+        kind: 'new',
+        items: [
+          {
+            icon: 'review',
+            title: { zh: '右侧审阅栏', en: 'Review panel' },
+            desc: {
+              zh: '汇总工作区改动，按文件展开与 HEAD 比较的 hunk 摘要，点击直接打开对应 diff；没有改动或不是仓库时自动收起，也可以从活动栏手动开合。',
+              en: 'Summarizes workspace changes with per-file hunks compared against HEAD; click straight through to the diff. It collapses automatically when the workspace is clean or not a repository, and can be toggled from the activity rail.'
+            }
+          },
+          {
+            icon: 'lsp',
+            title: { zh: '路径 + 符号面包屑', en: 'Path and symbol breadcrumbs' },
+            desc: {
+              zh: '编辑器顶部显示当前文件路径和光标所在符号，点击即可跳到对应的文件或定义。',
+              en: 'The top of the editor shows the current file path and the symbol under the cursor; click either to jump to the file or definition.'
+            }
+          },
+          {
+            icon: 'keyboard',
+            title: { zh: '未命名缓冲区与文件切换', en: 'Untitled buffers and file switching' },
+            desc: {
+              zh: 'Ctrl+N 新建未命名缓冲区，支持另存为、手动切换语言模式、切换 LF / CRLF；未保存前一直标记为未保存。',
+              en: 'Ctrl+N opens an untitled buffer with Save As, manual language mode, and LF / CRLF switching; it stays marked dirty until saved.'
+            }
+          },
+          {
+            icon: 'rich-text',
+            title: { zh: '打开时自动识别编码', en: 'Encoding detected on open' },
+            desc: {
+              zh: '识别 BOM、UTF-8、GBK / GB18030、Big5、Shift-JIS、EUC-JP / KR、UTF-16 / 32，以及常见的西欧 / 俄文单字节编码；状态栏可以手动改写或恢复自动检测。',
+              en: 'Detects BOM, UTF-8, GBK / GB18030, Big5, Shift-JIS, EUC-JP / KR, UTF-16 / 32, and common Western / Cyrillic single-byte encodings. The status bar can override it or return to auto-detect.'
+            }
+          },
+          {
+            icon: 'hooks',
+            title: { zh: '读取工作区 .editorconfig', en: 'Workspace .editorconfig support' },
+            desc: {
+              zh: 'indent_style / indent_size / tab_width / end_of_line / insert_final_newline / trim_trailing_whitespace 会覆盖全局设置和按语言配置。',
+              en: 'indent_style, indent_size, tab_width, end_of_line, insert_final_newline, and trim_trailing_whitespace override global and per-language settings.'
+            }
+          },
+          {
+            icon: 'sparkle',
+            title: { zh: '星野主题与新会话空态', en: 'Starfield theme and a new start screen' },
+            desc: {
+              zh: '星野主题改为极光帷幕背景，星点更密并加入疏散星团；新会话空态用四张卡片说明 @、/、图片与执行者，随主题明暗适配。',
+              en: 'The starfield theme now paints aurora curtains with denser stars and an open cluster. New chats explain @, /, images, and runners with four cards that adapt to light and dark themes.'
+            }
+          }
+        ]
+      },
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'collapse',
+            title: { zh: '资源管理器操作补齐', en: 'A more capable explorer' },
+            desc: {
+              zh: '支持 Ctrl / Shift 多选、全选、拖拽移动（按住 Ctrl / Alt 为复制）、内部复制 / 剪切 / 粘贴和多选删除；可切换隐藏文件与 node_modules / dist 等忽略目录，并按工作区自定义忽略 glob。',
+              en: 'Ctrl / Shift multi-select, select all, drag to move (hold Ctrl / Alt to copy), in-app copy / cut / paste, and multi-item delete. Toggle dotfiles and ignored folders such as node_modules / dist, and define per-workspace ignore globs.'
+            }
+          },
+          {
+            icon: 'keyboard',
+            title: { zh: '编辑器偏好扩展到细节', en: 'Editor preferences down to the details' },
+            desc: {
+              zh: '新增字体、连字、行高、字距、换行列宽、光标形状 / 闪烁 / 平滑移动、当前行、空白与控制字符、行号（含相对行号）、缩进 / 括号参考线、列标尺、缩略图、粘性滚动、平滑滚动、Ctrl + 滚轮缩放、保存时格式化和按语言缩进；终端字号与行高单独可调。',
+              en: 'New font, ligatures, line height, letter spacing, wrap column, cursor style / blinking / smooth movement, current line, whitespace and control characters, line numbers (including relative), indent and bracket guides, column ruler, minimap, sticky scroll, smooth scrolling, Ctrl + wheel zoom, format on save, and per-language indentation. Terminal font size and line height are separate.'
+            }
+          },
+          {
+            icon: 'search',
+            title: { zh: '搜索替换更稳', en: 'Safer search and replace' },
+            desc: {
+              zh: '结果按文件折叠，替换前先给逐文件预览，替换后可以撤销一次；搜索历史按工作区保存。替换后又被外部修改的文件会跳过，不会覆盖新内容。',
+              en: 'Results collapse by file, replace shows a per-file preview first, and the last replace can be undone once. Search history is kept per workspace. Files modified externally after a replace are skipped rather than overwritten.'
+            }
+          },
+          {
+            icon: 'sparkle',
+            title: { zh: '思考深度有了能量反馈', en: 'Thinking depth with energy feedback' },
+            desc: {
+              zh: '拖动思考深度时，滑轨会按档位打出粒子、电弧和涟漪；暗色与浅色主题共用同一套配色，减少动态效果时自动安静下来。',
+              en: 'Dragging thinking depth sends sparks, arcs, and ripples along the track, tuned per level. Dark and light themes share one palette, and it quiets down when reduced motion is requested.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.19',
     date: '2026-11-03',
     highlight: {

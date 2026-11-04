@@ -31,6 +31,15 @@ function monoFont(): string {
   )
 }
 
+/** 空字符串表示跟随主设置里的代码字体 */
+function fontFamilyFor(prefs: EditorSettings): string {
+  return prefs.fontFamily.trim() || monoFont()
+}
+
+function lineHeightFor(prefs: EditorSettings): number {
+  return Math.round(prefs.fontSize * prefs.lineHeight)
+}
+
 /** 大文件降级档位：0 正常，1 大，2 超大 */
 type EditorTier = 0 | 1 | 2
 
@@ -116,11 +125,26 @@ function preferencesOptions(
 ): monaco.editor.IEditorOptions & monaco.editor.IGlobalEditorOptions {
   return {
     fontSize: prefs.fontSize,
+    fontFamily: fontFamilyFor(prefs),
+    fontLigatures: prefs.fontLigatures,
+    letterSpacing: prefs.letterSpacing,
+    lineHeight: lineHeightFor(prefs),
     tabSize: prefs.tabSize,
     insertSpaces: prefs.insertSpaces,
     wordWrap: prefs.wordWrap,
-    wordWrapColumn: 100,
-    minimap: { enabled: prefs.minimap }
+    wordWrapColumn: prefs.wordWrapColumn,
+    cursorStyle: prefs.cursorStyle,
+    cursorBlinking: prefs.cursorBlinking,
+    cursorSmoothCaretAnimation: prefs.cursorSmoothCaretAnimation,
+    renderLineHighlight: prefs.renderLineHighlight,
+    renderWhitespace: prefs.renderWhitespace,
+    renderControlCharacters: prefs.renderControlCharacters,
+    lineNumbers: prefs.lineNumbers,
+    rulers: prefs.rulers > 0 ? [prefs.rulers] : [],
+    smoothScrolling: prefs.smoothScrolling,
+    mouseWheelZoom: prefs.mouseWheelZoom,
+    minimap: { enabled: prefs.minimap },
+    stickyScroll: { enabled: prefs.stickyScroll }
   }
 }
 
@@ -133,8 +157,18 @@ function mergedOptions(
   return {
     ...base,
     ...prefsOptions,
-    // 大文件档位下强制关掉 minimap，优先保证输入 / 滚动流畅
-    minimap: { ...base.minimap, ...prefsOptions.minimap, enabled: prefs.minimap && tier === 0 }
+    // 大文件档位下强制关掉 minimap / sticky scroll / 参考线，优先保证输入 / 滚动流畅
+    minimap: { ...base.minimap, ...prefsOptions.minimap, enabled: prefs.minimap && tier === 0 },
+    stickyScroll: {
+      ...(base.stickyScroll as object),
+      ...(prefsOptions.stickyScroll as object),
+      enabled: prefs.stickyScroll && tier === 0
+    },
+    guides: {
+      indentation: prefs.indentationGuides && tier < 2,
+      // 括号对参考线要逐行配对括号，大文件下代价太高
+      bracketPairs: prefs.bracketPairGuides && tier === 0
+    }
   }
 }
 
@@ -198,6 +232,8 @@ export function MonacoEditor({
   file,
   jumpLine,
   prefs = DEFAULT_EDITOR_SETTINGS,
+  languageId,
+  indent,
   onCursor,
   onChange,
   onSendSelection,
@@ -209,6 +245,10 @@ export function MonacoEditor({
   jumpLine?: number
   /** 设置页里的编辑器偏好；不传时用默认值（测试 / 旧调用方） */
   prefs?: EditorSettings
+  /** 当前文件的 Monaco 语言 id；用于状态栏手动切换语言模式 */
+  languageId?: string
+  /** 当前文件生效的缩进（全局 / 按语言 / .editorconfig 合并后） */
+  indent?: { tabSize: number; insertSpaces: boolean }
   onCursor: (line: number, col: number) => void
   onChange: (text: string) => void
   onSendSelection: (sel: EditorSelection) => void
@@ -225,15 +265,23 @@ export function MonacoEditor({
   const tierTimer = useRef<number | null>(null)
   const prefsRef = useRef(prefs)
   prefsRef.current = prefs
+  const languageRef = useRef(languageId)
+  languageRef.current = languageId
+  const indentRef = useRef(indent)
+  indentRef.current = indent
   const cwdRef = useRef(cwd)
   cwdRef.current = cwd
   const propsRef = useRef({ file, onCursor, onChange, onSendSelection, onSendFile })
   propsRef.current = { file, onCursor, onChange, onSendSelection, onSendFile }
 
   const ensureModel = useCallback((next: IdeTextFile): monaco.editor.ITextModel => {
-    const lang = monacoLanguage(next.language, next.rel)
-    const abs = `${cwdRef.current.replace(/\\/g, '/').replace(/\/+$/, '')}/${next.rel}`
-    const uri = monaco.Uri.file(abs)
+    const lang = languageRef.current ?? monacoLanguage(next.language, next.rel)
+    // 未命名缓冲区没有磁盘路径，用 untitled: scheme 隔开，避免和同名的真实文件撞 model
+    const uri = next.untitled
+      ? monaco.Uri.parse(next.rel)
+      : monaco.Uri.file(
+          `${cwdRef.current.replace(/\\/g, '/').replace(/\/+$/, '')}/${next.rel}`
+        )
     // tsProject 可能已经为 import 目标建了同名 model；不能重复 createModel
     let model = modelsRef.current.get(next.rel) ?? monaco.editor.getModel(uri) ?? undefined
     if (!model || model.isDisposed()) {
@@ -246,9 +294,10 @@ export function MonacoEditor({
     }
     if (!modelsRef.current.has(next.rel)) modelsRef.current.set(next.rel, model)
     if (model.getLanguageId() !== lang) monaco.editor.setModelLanguage(model, lang)
+    const ind = indentRef.current
     model.updateOptions({
-      tabSize: prefsRef.current.tabSize,
-      insertSpaces: prefsRef.current.insertSpaces
+      tabSize: ind?.tabSize ?? prefsRef.current.tabSize,
+      insertSpaces: ind?.insertSpaces ?? prefsRef.current.insertSpaces
     })
     return model
   }, [])
@@ -266,21 +315,13 @@ export function MonacoEditor({
       model: initialModel,
       theme: 'ccoder',
       automaticLayout: true,
-      fontFamily: monoFont(),
-      lineHeight: Math.round(prefsRef.current.fontSize * 1.55),
       detectIndentation: false,
       largeFileOptimizations: true,
       ...mergedOptions(initialTier, prefsRef.current),
-      lineNumbers: 'on',
       lineNumbersMinChars: 3,
       lineDecorationsWidth: 6,
       glyphMargin: false,
       showFoldingControls: 'mouseover',
-      smoothScrolling: false,
-      cursorBlinking: 'smooth',
-      cursorSmoothCaretAnimation: 'off',
-      renderLineHighlight: 'all',
-      renderWhitespace: 'selection',
       scrollBeyondLastLine: false,
       padding: { top: 8, bottom: 20 },
       scrollbar: {
@@ -300,8 +341,6 @@ export function MonacoEditor({
        * 关掉 Shadow DOM 后菜单回到普通 DOM，主题变量正常生效。
        */
       useShadowDOM: false,
-      mouseWheelZoom: false,
-      stickyScroll: { enabled: false },
       suggest: { showWords: false }
     })
 
@@ -441,19 +480,33 @@ export function MonacoEditor({
     }
   }, [file.text, file.rel])
 
+  // 手动切换语言模式 / 文件级缩进（.editorconfig、按语言配置）立即生效
+  useEffect(() => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model) return
+    const lang = languageId ?? monacoLanguage(file.language, file.rel)
+    if (model.getLanguageId() !== lang) monaco.editor.setModelLanguage(model, lang)
+    const ind = indent ?? prefs
+    model.updateOptions({ tabSize: ind.tabSize, insertSpaces: ind.insertSpaces })
+    // prefs 不在依赖里：字号 / 换行由下面的偏好 effect 处理
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [languageId, indent?.tabSize, indent?.insertSpaces, file.rel, file.language])
+
   // 设置页改了编辑器偏好：已打开的窗口立即跟上，不用重开
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
     editor.updateOptions({
       ...mergedOptions(tierRef.current, prefs),
-      lineHeight: Math.round(prefs.fontSize * 1.55)
+      lineHeight: lineHeightFor(prefs)
     })
-    for (const model of modelsRef.current.values()) {
-      if (!model.isDisposed()) {
-        model.updateOptions({ tabSize: prefs.tabSize, insertSpaces: prefs.insertSpaces })
-      }
-    }
+    const model = editor.getModel()
+    const ind = indentRef.current
+    model?.updateOptions({
+      tabSize: ind?.tabSize ?? prefs.tabSize,
+      insertSpaces: ind?.insertSpaces ?? prefs.insertSpaces
+    })
   }, [prefs])
 
   // 从聊天工具卡 / 搜索跳转到某一行
@@ -470,7 +523,7 @@ export function MonacoEditor({
   useEffect(() => {
     const apply = (): void => {
       applyMonacoTheme()
-      editorRef.current?.updateOptions({ fontFamily: monoFont() })
+      editorRef.current?.updateOptions({ fontFamily: fontFamilyFor(prefsRef.current) })
     }
     apply()
     const obs = new MutationObserver(apply)

@@ -64,6 +64,18 @@ export const KEYBINDING_COMMANDS: KeybindingCommand[] = [
   },
   { id: 'file.newFile', labelKey: 'ide.command.newFile', group: 'file', defaultBinding: null },
   {
+    id: 'file.newUntitled',
+    labelKey: 'ide.command.newUntitled',
+    group: 'file',
+    defaultBinding: 'Ctrl+N'
+  },
+  {
+    id: 'file.saveAs',
+    labelKey: 'ide.command.saveAs',
+    group: 'file',
+    defaultBinding: null
+  },
+  {
     id: 'file.newFolder',
     labelKey: 'ide.command.newFolder',
     group: 'file',
@@ -87,6 +99,48 @@ export const KEYBINDING_COMMANDS: KeybindingCommand[] = [
     labelKey: 'ide.command.delete',
     group: 'file',
     defaultBinding: 'Delete'
+  },
+  {
+    id: 'explorer.copy',
+    labelKey: 'ide.command.copy',
+    group: 'file',
+    defaultBinding: 'Ctrl+C'
+  },
+  {
+    id: 'explorer.cut',
+    labelKey: 'ide.command.cut',
+    group: 'file',
+    defaultBinding: 'Ctrl+X'
+  },
+  {
+    id: 'explorer.paste',
+    labelKey: 'ide.command.paste',
+    group: 'file',
+    defaultBinding: 'Ctrl+V'
+  },
+  {
+    id: 'explorer.selectAll',
+    labelKey: 'ide.command.selectAll',
+    group: 'file',
+    defaultBinding: 'Ctrl+A'
+  },
+  {
+    id: 'explorer.toggleHidden',
+    labelKey: 'ide.command.toggleHidden',
+    group: 'view',
+    defaultBinding: null
+  },
+  {
+    id: 'explorer.toggleIgnored',
+    labelKey: 'ide.command.toggleIgnored',
+    group: 'view',
+    defaultBinding: null
+  },
+  {
+    id: 'explorer.editIgnore',
+    labelKey: 'ide.command.editIgnore',
+    group: 'view',
+    defaultBinding: null
   },
 
   // 编辑

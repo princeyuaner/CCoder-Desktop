@@ -8,8 +8,31 @@ export const ENCODING_LABEL_KEY: Record<IdeEncoding, MessageKey> = {
   utf8: 'ide.encoding.utf8',
   utf8bom: 'ide.encoding.utf8bom',
   gbk: 'ide.encoding.gbk',
+  big5: 'ide.encoding.big5',
+  shiftjis: 'ide.encoding.shiftjis',
+  eucjp: 'ide.encoding.eucjp',
+  euckr: 'ide.encoding.euckr',
   utf16le: 'ide.encoding.utf16le',
-  utf16be: 'ide.encoding.utf16be'
+  utf16be: 'ide.encoding.utf16be',
+  utf32le: 'ide.encoding.utf32le',
+  utf32be: 'ide.encoding.utf32be',
+  windows1252: 'ide.encoding.windows1252',
+  windows1251: 'ide.encoding.windows1251',
+  windows1250: 'ide.encoding.windows1250',
+  windows1253: 'ide.encoding.windows1253',
+  windows1254: 'ide.encoding.windows1254',
+  windows1255: 'ide.encoding.windows1255',
+  windows1256: 'ide.encoding.windows1256',
+  windows1257: 'ide.encoding.windows1257',
+  windows1258: 'ide.encoding.windows1258',
+  windows874: 'ide.encoding.windows874',
+  iso88592: 'ide.encoding.iso88592',
+  iso88595: 'ide.encoding.iso88595',
+  iso88596: 'ide.encoding.iso88596',
+  iso88597: 'ide.encoding.iso88597',
+  iso88598: 'ide.encoding.iso88598',
+  iso88599: 'ide.encoding.iso88599',
+  koi8r: 'ide.encoding.koi8r'
 }
 
 /**
@@ -20,14 +43,18 @@ export const ENCODING_LABEL_KEY: Record<IdeEncoding, MessageKey> = {
  */
 export function EncodingMenu({
   current,
+  autoDetected,
   dirty,
   onReopen,
+  onReopenAuto,
   onSave,
   onClose
 }: {
   current: IdeEncoding
+  autoDetected: boolean
   dirty: boolean
   onReopen: (encoding: IdeEncoding) => void
+  onReopenAuto: () => void
   onSave: (encoding: IdeEncoding) => void
   onClose: () => void
 }): JSX.Element {
@@ -55,6 +82,19 @@ export function EncodingMenu({
     >
       <div className="ide-ctx ide-enc" onMouseDown={(e) => e.stopPropagation()}>
         <div className="ide-enc-head">{t('ide.encoding.reopen')}</div>
+        <button
+          type="button"
+          data-encoding-section="reopen"
+          data-encoding="auto"
+          disabled={dirty}
+          onClick={() => {
+            onClose()
+            onReopenAuto()
+          }}
+        >
+          {t('ide.encoding.auto')}
+          {autoDetected && <em>{t('ide.encoding.current')}</em>}
+        </button>
         {IDE_ENCODINGS.map((encoding) => (
           <button
             key={encoding}

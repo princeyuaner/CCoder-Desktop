@@ -125,8 +125,14 @@ import {
   replaceInWorkspace,
   saveTextFile,
   searchCode,
+  transferEntries,
+  undoReplace,
   workspaceAbsolutePath
 } from './ide-fs'
+import {
+  editorConfigFor,
+  invalidateEditorConfigCache
+} from './ide-editorconfig'
 import {
   authorizeVcsSender,
   closeIdeWindow,
@@ -169,12 +175,15 @@ import type {
   IdeCreateRequest,
   IdeDeleteRequest,
   IdeEncoding,
+  IdeListDirOptions,
   IdeRenameRequest,
   IdeReplaceRequest,
   IdeSaveRequest,
   IdeSearchRequest,
   IdeSearchStartRequest,
-  IdeTerminalStartRequest
+  IdeTerminalStartRequest,
+  IdeTransferRequest,
+  IdeUndoReplaceRequest
 } from '../shared/ide'
 import * as vcs from './vcs'
 import type {
@@ -1103,8 +1112,8 @@ function registerIdeIpc(): void {
     message: t('main.workspaceWriteForbidden')
   })
 
-  ipcMain.handle(IPC.ideListDir, (e, cwd: string, rel: string) =>
-    allow(e, cwd) ? listDir(cwd, rel) : denyRead()
+  ipcMain.handle(IPC.ideListDir, (e, cwd: string, rel: string, options?: IdeListDirOptions) =>
+    allow(e, cwd) ? listDir(cwd, rel, options) : denyRead()
   )
   ipcMain.handle(
     IPC.ideReadFile,
@@ -1154,6 +1163,9 @@ function registerIdeIpc(): void {
   ipcMain.handle(IPC.ideReplaceInWorkspace, (e, req: IdeReplaceRequest) =>
     req && allow(e, req.cwd) ? replaceInWorkspace(req) : denyWrite()
   )
+  ipcMain.handle(IPC.ideUndoReplace, (e, req: IdeUndoReplaceRequest) =>
+    req && allow(e, req.cwd) ? undoReplace(req) : denyWrite()
+  )
   ipcMain.handle(IPC.ideSaveFile, (e, req: IdeSaveRequest) =>
     req && allow(e, req.cwd) ? saveTextFile(req) : denyWrite()
   )
@@ -1166,6 +1178,17 @@ function registerIdeIpc(): void {
   ipcMain.handle(IPC.ideDeleteEntry, (e, req: IdeDeleteRequest) =>
     req && allow(e, req.cwd) ? deleteEntry(req) : denyWrite()
   )
+  ipcMain.handle(IPC.ideTransferEntries, (e, req: IdeTransferRequest) =>
+    req && allow(e, req.cwd) ? transferEntries(req) : denyWrite()
+  )
+  ipcMain.handle(IPC.ideEditorConfig, (e, cwd: string, rel: string) => {
+    if (!allow(e, cwd) || typeof rel !== 'string') return {}
+    // 配置文件本身也是普通文件：变化后清缓存，下一次请求重新读
+    if (rel.replace(/\\/g, '/').endsWith('/.editorconfig') || rel === '.editorconfig') {
+      invalidateEditorConfigCache()
+    }
+    return editorConfigFor(cwd, rel)
+  })
 
   ipcMain.handle(IPC.ideTerminalStart, (e, req: IdeTerminalStartRequest) => {
     if (

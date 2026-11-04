@@ -397,7 +397,9 @@ export function monacoLanguage(language: string, rel: string): string {
 }
 
 function css(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  // IDE 自己有一层皮肤：优先读 .ide-app 上覆盖的 token，避免影响主窗口
+  const scope = document.querySelector('.ide-app') ?? document.documentElement
+  const value = getComputedStyle(scope).getPropertyValue(name).trim()
   return value || fallback
 }
 
@@ -405,25 +407,26 @@ function css(name: string, fallback: string): string {
 export function applyMonacoTheme(): void {
   const root = document.documentElement
   const light = root.dataset.scheme === 'light'
-  const bg = css('--bg-app', light ? '#ffffff' : '#191919')
-  const raised = css('--bg-raised', light ? '#ffffff' : '#232323')
-  const fg = css('--text', light ? '#1d1d1f' : '#e8e8e8')
-  const dim = css('--text-muted', light ? '#5f5f67' : '#a0a0a6')
-  const faint = css('--text-faint', light ? '#a8a8b0' : '#55555d')
-  const border = css('--border', light ? '#dcdce2' : '#333338')
-  const hover = css('--bg-hover', light ? '#ececf0' : '#262626')
-  const active = css('--bg-active', light ? '#e4e4e8' : '#303036')
+  const appBg = css('--bg-app', light ? '#fbf8f1' : '#0b0c0e')
+  const bg = css('--ide-editor', appBg)
+  const raised = css('--bg-raised', light ? '#f5f1e9' : '#1a1d23')
+  const fg = css('--text', light ? '#25231f' : '#e7e2d7')
+  const dim = css('--text-muted', light ? '#6b665d' : '#a39f95')
+  const faint = css('--text-faint', light ? '#918a7e' : '#6f6d66')
+  const border = css('--border', light ? '#d3ccbf' : '#262a32')
+  const hover = css('--bg-hover', light ? '#e1dbcf' : '#20242b')
+  const active = css('--bg-active', light ? '#ece7dd' : '#1e2229')
 
-  const keyword = light ? '8b3fb8' : 'c792ea'
-  const string = light ? '2e7d32' : 'a5d6a7'
-  const number = light ? 'a05a00' : 'f78c6c'
-  const comment = light ? '8a8a92' : '6b6b73'
-  const type = light ? '2c62a8' : '82aaff'
-  const fn = light ? '8a5a00' : 'ffcb6b'
-  // 语义着色：变量 / 参数 / 属性各给一个颜色，否则 LSP 打开后仍然一大片白色
-  const variable = light ? '1d4f91' : 'c8d3f5'
-  const property = light ? '0f7b6c' : '7fdbca'
-  const param = light ? '7a3e00' : 'e5c07b'
+  // 暖石墨 + 铜色：语法色和 ide.css 里的 --syn-* 保持一致
+  const keyword = css('--syn-kw', light ? '9a4f24' : 'd9a066')
+  const string = css('--syn-str', light ? '3f6b4e' : 'a8c0a0')
+  const number = css('--syn-num', light ? '7a5b2e' : 'd7b98e')
+  const comment = css('--syn-comment', light ? '8a857a' : '6e6c66')
+  const type = css('--syn-type', light ? '6c4f82' : 'c9b48f')
+  const fn = css('--syn-fn', light ? '2e5f73' : '8fb6c9')
+  const variable = css('--syn-var', light ? '25231f' : 'e7e2d7')
+  const property = css('--syn-prop', light ? '3f6b7e' : '8fb3c4')
+  const param = css('--syn-param', light ? '6e5a84' : 'c3b2d6')
 
   monaco.editor.defineTheme('ccoder', {
     base: light ? 'vs' : 'vs-dark',
@@ -466,13 +469,13 @@ export function applyMonacoTheme(): void {
       'editor.foreground': fg,
       'editorGutter.background': bg,
       'editorLineNumber.foreground': faint,
-      'editorLineNumber.activeForeground': dim,
-      'editor.selectionBackground': light ? '#cfe0f6' : '#264f78',
-      'editor.inactiveSelectionBackground': light ? '#e4edf9' : '#20354d',
-      'editor.lineHighlightBackground': light ? '#f7f7f9' : '#ffffff08',
-      'editorCursor.foreground': fg,
-      'editorIndentGuide.background1': light ? '#e7e7ea' : '#2b2b31',
-      'editorIndentGuide.activeBackground1': light ? '#c9c9d1' : '#3c3c46',
+      'editorLineNumber.activeForeground': light ? '#a9612f' : '#da9a63',
+      'editor.selectionBackground': light ? '#e8d6c3' : '#3a2c22',
+      'editor.inactiveSelectionBackground': light ? '#efe3d4' : '#2f251d',
+      'editor.lineHighlightBackground': light ? '#f4ede1' : '#ffffff08',
+      'editorCursor.foreground': light ? '#a9612f' : '#da9a63',
+      'editorIndentGuide.background1': light ? '#e4dccf' : '#242830',
+      'editorIndentGuide.activeBackground1': light ? '#cdbfa9' : '#3a404a',
       'editorWidget.background': raised,
       'editorWidget.foreground': fg,
       'editorWidget.border': border,
@@ -491,8 +494,8 @@ export function applyMonacoTheme(): void {
       'scrollbarSlider.hoverBackground': light ? '#00000024' : '#ffffff22',
       'scrollbarSlider.activeBackground': light ? '#00000034' : '#ffffff33',
       'minimap.background': bg,
-      'editorBracketMatch.background': light ? '#dfe8f6' : '#2f4a66',
-      'editorBracketMatch.border': light ? '#b9cbe6' : '#45698f'
+      'editorBracketMatch.background': light ? '#f0e2d0' : '#3b2c21',
+      'editorBracketMatch.border': light ? '#d8be9f' : '#6b4e35'
     }
   })
   monaco.editor.setTheme('ccoder')

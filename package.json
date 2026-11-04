@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.19",
+  "version": "1.2.20",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -44,6 +44,9 @@
     "verify:session-store": "npx esbuild tools/_session-store-probe.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/session-store-probe.cjs && node tools/verify-session-store.cjs",
     "verify:whats-new": "npx esbuild src/shared/whats-new.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/whats-new.cjs && node tools/verify-whats-new.cjs",
     "verify:input-history": "npx esbuild tools/_input-history-probe.ts --bundle --platform=node --format=cjs --alias:@shared=./src/shared --external:react --outfile=.tmp-build/input-history-probe.cjs && node .tmp-build/input-history-probe.cjs",
+    "verify:editorconfig": "npx esbuild src/shared/editorconfig.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/editorconfig.cjs && node tools/verify-editorconfig.cjs",
+    "verify:encoding": "npx esbuild src/main/ide-fs.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-fs.cjs && node tools/verify-encoding.cjs",
+    "verify:ide-editor": "npx esbuild src/main/ide-fs.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-fs.cjs && npx esbuild src/main/ide-editorconfig.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-editorconfig.cjs && node node_modules/electron/cli.js --no-sandbox --disable-gpu tools/verify-ide-editor-features.cjs",
     "package": "npm run package:win",
     "package:win": "node tools/stage-rg.cjs --platform win32 --arch x64 && electron-vite build && electron-builder --win --x64 --publish never --config.electronDist=node_modules/electron/dist",
     "package:linux": "node tools/stage-rg.cjs --platform linux --arch x64 && electron-vite build && electron-builder --linux --x64 --publish never",
@@ -52,6 +55,7 @@
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "chardet": "2.2.0",
     "electron-updater": "^6.8.9",
     "fzstd": "^0.1.1",
     "iconv-lite": "^0.6.3",

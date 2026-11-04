@@ -1,0 +1,533 @@
+/*
+ * 星野主题。
+ *
+ * 背景由 StarfieldBackground 绘制；这个文件只负责两件事：
+ *   1. 画出星云 / 行星 / 轨道 / 暗角（.sf-* 只在组件挂载时存在）
+ *   2. 把聊天窗口的实心表面换成夜色玻璃（全部挂在 data-theme=starfield 下）
+ */
+
+.sf-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  --sf-violet: 157 140 255;
+  --sf-cyan: 143 231 255;
+  --sf-gold: 243 200 126;
+}
+
+.sf-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(950px 760px at 20% 28%, rgba(28, 118, 128, 0.26), transparent 66%),
+    radial-gradient(1000px 720px at 84% 8%, rgba(94, 70, 182, 0.26), transparent 66%),
+    linear-gradient(180deg, #02050c 0%, #040a13 58%, #02050b 100%);
+}
+
+/* 极光的三团底光：左薄荷、右紫、中间一层薄青 */
+.sf-aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(64px);
+  mix-blend-mode: screen;
+  will-change: translate;
+}
+
+.sf-aurora--l {
+  left: -9%;
+  top: -28%;
+  width: 48%;
+  height: 100%;
+  rotate: -9deg;
+  opacity: 0.48;
+  background: radial-gradient(
+    ellipse 48% 58% at 50% 42%,
+    rgba(137, 245, 205, 0.34),
+    rgba(62, 184, 178, 0.15) 46%,
+    transparent 74%
+  );
+  animation: sf-wave-l 28s ease-in-out infinite alternate;
+}
+
+.sf-aurora--r {
+  right: -13%;
+  top: -34%;
+  width: 54%;
+  height: 112%;
+  rotate: 8deg;
+  opacity: 0.46;
+  background: radial-gradient(
+    ellipse 48% 58% at 50% 40%,
+    rgba(176, 150, 255, 0.34),
+    rgba(96, 122, 222, 0.15) 48%,
+    transparent 74%
+  );
+  animation: sf-wave-r 34s ease-in-out infinite alternate-reverse;
+}
+
+.sf-aurora--m {
+  left: 16%;
+  top: -30%;
+  width: 42%;
+  height: 88%;
+  rotate: 4deg;
+  opacity: 0.26;
+  filter: blur(78px);
+  background: radial-gradient(
+    ellipse 42% 56% at 50% 38%,
+    rgba(143, 231, 255, 0.28),
+    rgba(88, 140, 200, 0.08) 50%,
+    transparent 74%
+  );
+  animation: sf-wave-m 40s ease-in-out infinite alternate;
+  animation-delay: -9s;
+}
+
+/* 极光里的细竖纹，压得很淡，负责"幕"的质感 */
+.sf-streaks {
+  position: absolute;
+  left: 1%;
+  top: -12%;
+  width: 54%;
+  height: 92%;
+  transform: skewX(-7deg);
+  filter: blur(15px);
+  mix-blend-mode: screen;
+  opacity: 0.18;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 9px,
+    rgba(152, 255, 224, 0.12) 9px 12px,
+    transparent 12px 27px,
+    rgba(143, 231, 255, 0.08) 27px 30px,
+    transparent 30px 46px
+  );
+  -webkit-mask-image: radial-gradient(ellipse 66% 64% at 42% 38%, #000 12%, transparent 82%);
+  mask-image: radial-gradient(ellipse 66% 64% at 42% 38%, #000 12%, transparent 82%);
+  animation: sf-streak 20s ease-in-out infinite alternate;
+}
+
+.sf-horizon {
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  bottom: -34%;
+  height: 74%;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 100%, rgba(88, 210, 204, 0.2), rgba(157, 140, 255, 0.08) 42%, transparent 74%),
+    radial-gradient(ellipse 32% 40% at 22% 100%, rgba(127, 224, 188, 0.13), transparent 72%),
+    radial-gradient(ellipse 30% 38% at 78% 100%, rgba(170, 150, 255, 0.12), transparent 72%);
+  filter: blur(34px);
+}
+
+.sf-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 极光的主要形态用 SVG 描边 + 高斯模糊画，比纯 CSS 光斑更有"幕"的走向 */
+.sf-curtains {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: sf-sway 32s ease-in-out infinite alternate;
+}
+
+.sf-curtains svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 左中偏上的疏散星团，给画面一个视觉落点 */
+.sf-cluster {
+  position: absolute;
+  z-index: 2;
+  left: 22%;
+  top: 13%;
+  width: 330px;
+  height: 330px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(180, 236, 255, 0.17), rgba(143, 231, 255, 0.05) 38%, transparent 66%);
+  filter: blur(16px);
+  opacity: 0.85;
+}
+
+.sf-mist {
+  position: absolute;
+  z-index: 2;
+  left: -6%;
+  right: -6%;
+  bottom: 2%;
+  height: 30%;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 48% 60% at 36% 60%, rgba(127, 224, 188, 0.1), transparent 72%),
+    radial-gradient(ellipse 42% 56% at 68% 48%, rgba(157, 140, 255, 0.1), transparent 72%);
+  filter: blur(44px);
+  animation: sf-mist 30s ease-in-out infinite alternate;
+}
+
+.sf-grain,
+.sf-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.sf-grain {
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.9'/%3E%3C/svg%3E");
+}
+
+.sf-vignette {
+  background:
+    radial-gradient(ellipse 82% 74% at 52% 44%, transparent 38%, rgba(1, 3, 8, 0.5) 100%),
+    linear-gradient(180deg, rgba(1, 3, 8, 0.28), transparent 18%, transparent 78%, rgba(1, 3, 8, 0.4));
+}
+
+@keyframes sf-wave-l {
+  from { translate: -2% 0; }
+  to { translate: 2.6% 1.2%; }
+}
+@keyframes sf-wave-r {
+  from { translate: 2% 0; }
+  to { translate: -2.4% 1%; }
+}
+@keyframes sf-wave-m {
+  from { translate: -1.4% 0; }
+  to { translate: 1.8% -1%; }
+}
+@keyframes sf-streak {
+  from { translate: -1.6% 0; opacity: 0.18; }
+  to { translate: 1.8% 0.6%; opacity: 0.3; }
+}
+@keyframes sf-sway {
+  from { translate: -0.5% 0; }
+  to { translate: 0.7% -0.5%; }
+}
+@keyframes sf-mist {
+  to { translate: 2% -1.5%; }
+}
+
+/* ── 应用表面 ─────────────────────────────────────────────── */
+
+:root[data-theme='starfield'] body {
+  background: var(--bg-app);
+}
+
+:root[data-theme='starfield'] .app {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-theme='starfield'] .titlebar {
+  background: linear-gradient(180deg, rgba(3, 7, 14, 0.72), rgba(3, 7, 14, 0.5));
+  border-bottom-color: var(--border);
+  backdrop-filter: blur(22px) saturate(1.15);
+  -webkit-backdrop-filter: blur(22px) saturate(1.15);
+}
+
+:root[data-theme='starfield'] .titlebar__brand-mark {
+  color: #c7d8ff;
+  filter: drop-shadow(0 0 6px rgba(var(--sf-cyan) / 0.38));
+}
+
+:root[data-theme='starfield'] .sidebar {
+  border-right-color: var(--border);
+  background:
+    radial-gradient(1.2px 1.2px at 18% 17%, rgba(206, 226, 255, 0.36), transparent 100%),
+    radial-gradient(1px 1px at 78% 29%, rgba(173, 215, 255, 0.28), transparent 100%),
+    radial-gradient(1.4px 1.4px at 62% 48%, rgba(206, 226, 255, 0.22), transparent 100%),
+    radial-gradient(1px 1px at 29% 67%, rgba(186, 177, 255, 0.22), transparent 100%),
+    radial-gradient(1.2px 1.2px at 84% 78%, rgba(206, 226, 255, 0.18), transparent 100%),
+    linear-gradient(180deg, rgba(4, 9, 18, 0.78) 0%, rgba(4, 9, 18, 0.64) 58%, rgba(4, 9, 18, 0.74) 100%);
+  backdrop-filter: blur(28px) saturate(1.16);
+  -webkit-backdrop-filter: blur(28px) saturate(1.16);
+}
+
+:root[data-theme='starfield'] .app__body {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-theme='starfield'] .mainpane {
+  position: relative;
+  background: transparent;
+}
+
+:root[data-theme='starfield'] .mainpane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 52% 48% at 50% 42%, rgba(2, 6, 13, 0.58), transparent 78%),
+    linear-gradient(180deg, rgba(2, 6, 13, 0.3) 0%, transparent 16%, transparent 78%, rgba(2, 6, 13, 0.42) 100%);
+}
+
+:root[data-theme='starfield'] .chatcol,
+:root[data-theme='starfield'] .runpanel {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-theme='starfield'] .runpanel {
+  background: rgba(4, 9, 18, 0.62);
+  border-left-color: var(--border-soft);
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+}
+
+:root[data-theme='starfield'] .session.is-active {
+  background: linear-gradient(90deg, rgba(var(--sf-violet) / 0.16), rgba(var(--sf-cyan) / 0.035));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 24px -18px rgba(var(--sf-violet) / 0.9);
+}
+
+:root[data-theme='starfield'] .session.is-active .session__title {
+  color: #f1f5ff;
+}
+
+:root[data-theme='starfield'] .sidebar__settings,
+:root[data-theme='starfield'] .navitem,
+:root[data-theme='starfield'] .iconbtn {
+  color: var(--text-dim);
+}
+
+:root[data-theme='starfield'] .sidebar__settings:hover,
+:root[data-theme='starfield'] .navitem:hover,
+:root[data-theme='starfield'] .iconbtn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+:root[data-theme='starfield'] ::-webkit-scrollbar-thumb {
+  background: rgba(143, 174, 226, 0.24);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+:root[data-theme='starfield'] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(143, 174, 226, 0.38);
+  background-clip: content-box;
+}
+
+/* ── 会话 ─────────────────────────────────────────────────── */
+
+:root[data-theme='starfield'] .tab.is-active::after {
+  background: linear-gradient(90deg, rgb(var(--sf-cyan)), rgb(var(--sf-violet)) 75%);
+  box-shadow: 0 0 12px rgba(var(--sf-cyan) / 0.5);
+}
+
+:root[data-theme='starfield'] .tl__me {
+  color: #e2ecfa;
+  background: linear-gradient(135deg, rgba(102, 96, 214, 0.22), rgba(50, 151, 180, 0.08));
+  border-color: rgba(var(--sf-violet) / 0.24);
+  box-shadow:
+    0 0 38px -22px rgba(var(--sf-violet) / 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+:root[data-theme='starfield'] .tl__me-time {
+  color: var(--text-faint);
+}
+
+:root[data-theme='starfield'] .tl__say,
+:root[data-theme='starfield'] .md {
+  color: #cfdaeb;
+}
+
+:root[data-theme='starfield'] .md .md-h,
+:root[data-theme='starfield'] .md strong {
+  color: #f0f5ff;
+}
+
+:root[data-theme='starfield'] .md .lnk {
+  color: var(--sf-cyan);
+}
+
+:root[data-theme='starfield'] .md .ic,
+:root[data-theme='starfield'] .inline-code {
+  color: #ddd6ff;
+  background: rgba(var(--sf-violet) / 0.12);
+  border: 1px solid rgba(var(--sf-violet) / 0.14);
+}
+
+:root[data-theme='starfield'] .md .codebox {
+  background: rgba(6, 13, 25, 0.72);
+  border: 1px solid rgba(143, 174, 226, 0.13);
+  box-shadow:
+    0 20px 40px -34px #000,
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme='starfield'] .md .code {
+  color: #c5d4e8;
+}
+
+:root[data-theme='starfield'] .md .codebox__lang,
+:root[data-theme='starfield'] .md .codebox__cp {
+  color: #637693;
+}
+
+:root[data-theme='starfield'] .md .codebox__cp:hover {
+  color: #dbe7f7;
+}
+
+:root[data-theme='starfield'] .md .tblwrap {
+  background: rgba(6, 13, 25, 0.45);
+}
+
+:root[data-theme='starfield'] .tl__think {
+  color: #7084a2;
+}
+
+:root[data-theme='starfield'] .tl__think:hover {
+  color: #a9bcd8;
+}
+
+:root[data-theme='starfield'] .tl__think b {
+  color: #94a7c3;
+}
+
+:root[data-theme='starfield'] .tl__peek,
+:root[data-theme='starfield'] .tl__waittime {
+  color: #637693;
+}
+
+:root[data-theme='starfield'] .tl__thinkbody {
+  color: #9fb1ca;
+  background: rgba(4, 10, 20, 0.55);
+  border-color: var(--border);
+}
+
+:root[data-theme='starfield'] .tool {
+  --st-ok: var(--mint);
+  --st-ok-soft: rgba(127, 224, 188, 0.12);
+  --st-ok-line: rgba(127, 224, 188, 0.26);
+  --st-ok-rail: var(--mint);
+  --st-err-strong: #ffb3c1;
+  --st-err-soft: rgba(240, 124, 141, 0.12);
+  --st-err-line: rgba(240, 124, 141, 0.32);
+  --st-err-rail: var(--rose);
+  --st-err-border: rgba(240, 124, 141, 0.32);
+  --st-err-card: rgba(240, 124, 141, 0.045);
+  --st-err-subject: #efb6c0;
+  --st-err-code: #e3adb7;
+  --st-err-msg: #bd9aa3;
+  --st-err-more: #8b6a73;
+  --st-err-preview: rgba(240, 124, 141, 0.045);
+  --st-err-preview-line: rgba(240, 124, 141, 0.16);
+  --st-den: var(--gold);
+  --st-den-soft: rgba(243, 200, 126, 0.08);
+  --st-den-line: rgba(243, 200, 126, 0.24);
+  --st-den-rail: var(--gold);
+  --st-run: var(--gold);
+  --st-run-soft: rgba(243, 200, 126, 0.09);
+  --st-run-line: rgba(243, 200, 126, 0.26);
+  --st-run-rail: var(--gold);
+  background: rgba(7, 13, 25, 0.6);
+  border-color: var(--border-soft);
+}
+
+:root[data-theme='starfield'] .tool__row:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme='starfield'] .resume-bar,
+:root[data-theme='starfield'] .wtbar {
+  background: rgba(6, 13, 25, 0.58);
+  border-color: var(--border-soft);
+}
+
+/* ── 输入区 ───────────────────────────────────────────────── */
+
+:root[data-theme='starfield'] .composer__box {
+  background: linear-gradient(180deg, rgba(8, 15, 28, 0.86), rgba(5, 10, 20, 0.92));
+  border-color: rgba(143, 174, 226, 0.17);
+  box-shadow:
+    0 26px 60px -30px rgba(0, 0, 0, 0.95),
+    0 0 80px -46px rgba(var(--sf-violet) / 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(28px) saturate(1.16);
+  -webkit-backdrop-filter: blur(28px) saturate(1.16);
+}
+
+:root[data-theme='starfield'] .composer__box:focus-within {
+  border-color: rgba(var(--sf-cyan) / 0.32);
+  box-shadow:
+    0 26px 60px -30px rgba(0, 0, 0, 0.95),
+    0 0 80px -36px rgba(var(--sf-cyan) / 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.065);
+}
+
+:root[data-theme='starfield'] .composer__input::placeholder {
+  color: #7b8da8;
+}
+
+:root[data-theme='starfield'] .composer__cwd,
+:root[data-theme='starfield'] .chip:not(.chip--eff),
+:root[data-theme='starfield'] .badge {
+  background: rgba(8, 15, 28, 0.6);
+  border-color: rgba(143, 174, 226, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+:root[data-theme='starfield'] .chip:not(.chip--eff):hover {
+  border-color: rgba(143, 174, 226, 0.28);
+  background: rgba(143, 174, 226, 0.055);
+}
+
+:root[data-theme='starfield'] .send {
+  color: #8295b0;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(143, 174, 226, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme='starfield'] .send.is-ready {
+  color: var(--accent-fg);
+  background: var(--accent);
+  box-shadow: 0 0 24px -10px rgba(var(--sf-violet) / 0.9);
+}
+
+:root[data-theme='starfield'] .statusbar {
+  color: var(--text-faint);
+}
+
+:root[data-theme='starfield'] .statusbar__sep {
+  color: #40526c;
+}
+
+/* 让设置页的主题切换器在打开时也能看见星野的气口 */
+:root[data-theme='starfield'] .settings--dialog {
+  background: #060b16;
+  border-color: var(--border);
+  box-shadow: 0 36px 100px rgba(0, 0, 0, 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-aurora,
+  .sf-streaks,
+  .sf-curtains,
+  .sf-mist {
+    animation: none !important;
+  }
+}

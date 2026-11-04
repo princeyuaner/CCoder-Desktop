@@ -397,6 +397,7 @@ export interface LspOutlineSymbol {
   line: number
   column: number
   depth: number
+  endLine: number
 }
 
 function outlineKindOf(raw: unknown): OutlineKind {
@@ -435,13 +436,15 @@ export function outlineSymbolsOf(raw: unknown, docUri: string): LspOutlineSymbol
     if (!item || typeof item !== 'object' || out.length >= 2_000) return
     const s = item as RawSymbol
     const pos = rangeOf(s.selectionRange) ?? rangeOf(s.range)
+    const full = rangeOf(s.range)
     if (typeof s.name === 'string' && s.name && pos) {
       out.push({
         name: s.name,
         kind: outlineKindOf(s.kind),
         line: pos.startLineNumber,
         column: pos.startColumn,
-        depth
+        depth,
+        endLine: full?.endLineNumber ?? pos.endLineNumber
       })
     }
     if (Array.isArray(s.children)) {
@@ -466,7 +469,8 @@ export function outlineSymbolsOf(raw: unknown, docUri: string): LspOutlineSymbol
       kind: outlineKindOf(s.kind),
       line: range.startLineNumber,
       column: range.startColumn,
-      depth: 0
+      depth: 0,
+      endLine: range.endLineNumber
     })
   }
   return out

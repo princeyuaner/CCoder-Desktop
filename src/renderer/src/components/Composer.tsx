@@ -43,6 +43,7 @@ import { ChangedFiles } from './ChangedFiles'
 import { ComposerDirs } from './ComposerDirs'
 import type { RecentAddDir } from '@shared/add-dirs'
 import { CommandPopup, MentionPopup } from './ComposerPopups'
+import { createEffortFx, type EffortFx } from './effortFx'
 import { buildCommandItems, filterCommands, type PopupCommand } from '../commands'
 import {
   IconBrain,
@@ -1474,6 +1475,7 @@ function ComposerImpl({
           {/* 思考深度。跟模型一样是 CLI 启动参数 —— 改了就换进程 + --resume 接回 */}
           <Picker
             className="chip chip--eff"
+            popClass="picker__pop--effort"
             open={openPicker === 'effort'}
             onOpenChange={(o) => {
               setOpenPicker(o ? 'effort' : null)
@@ -1494,15 +1496,14 @@ function ComposerImpl({
             }
           >
             {/* 点回原来那一档由 applyEffort 自己挡掉 —— 那会白白重启一次 CLI 进程，
-                而且会在转写区留一条「高 → 高」的废话 */}
+                而且会在转写区留一条「高 → 高」的废话。选新档后弹层多留半秒，
+                让滑轨上的能量放电动画走完再收；档位本身立即提交。 */}
             {(close) => (
               <EffortPicker
                 value={effort}
                 levels={effortLevelsFor(cli)}
-                onPick={(l) => {
-                  onEffortChange(l)
-                  close()
-                }}
+                onPick={onEffortChange}
+                onClose={close}
               />
             )}
           </Picker>
@@ -1651,96 +1652,272 @@ function Picker({
 const effortPct = (i: number, count: number): number =>
   count <= 1 ? 0 : (i / (count - 1)) * 100
 
+/** 提交后弹层多停一会儿，把滑轨上的能量动画放完 */
+const EFFORT_CLOSE_DELAY = 520
+
 /**
- * 思考深度：一根滑轨 + 五个刻度。
+ * 思考深度：一根滑轨 + 五 / 六个刻度。
  *
- * 为什么不用列表（那是权限模式的做法）：五档之间是**连续**的深浅关系，
+ * 为什么不用列表（那是权限模式的做法）：档位之间是**连续**的深浅关系，
  * 列表只能靠读字分辨，滑轨一眼就看得出当前在哪一档、还剩几档可加。
  *
  * 交互：滑轨可以拖（拖的时候只改预览，松手才提交），刻度文字可以直接点。
  * 拖拽过程中每一帧都提交的话，每越过一档就要重启一次 CLI 进程 —— 没必要。
+ *
+ * 动效：画布层只活在弹层里，不接管应用背景。档位变化时沿轨道方向放电，
+ * 档位越高弧光越密；颜色和明暗全部由 chat.css 的 --eff-* 变量驱动。
  */
 function EffortPicker({
   value,
   levels,
-  onPick
+  onPick,
+  onClose
 }: {
   value: EffortLevel
   /** Claude 五档；Codex 多一档 Ultra */
   levels: EffortLevel[]
-  /** 选定了。外面负责把弹层收起来 */
+  /** 档位变化：立即提交，不等动画 */
   onPick: (l: EffortLevel) => void
+  /** 关掉弹层。选新档后由这里延后调用 */
+  onClose: () => void
 }): JSX.Element {
   const { t } = useI18n()
   /** 拖拽中的临时值；松手前不往外发 */
   const [drag, setDrag] = useState<EffortLevel | null>(null)
   const dragging = useRef(false)
   const railRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const knobRef = useRef<HTMLSpanElement>(null)
+  const fxRef = useRef<EffortFx | null>(null)
+  const closeTimer = useRef<number | null>(null)
+  const pulseTimer = useRef<number | null>(null)
 
   const shown = drag ?? value
-  const idx = Math.max(0, levels.indexOf(shown))
+  const rawIdx = levels.indexOf(shown)
+  const idx = rawIdx < 0 ? 0 : rawIdx
+  const prevIdx = useRef(idx)
+
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) window.clearTimeout(closeTimer.current)
+      if (pulseTimer.current) window.clearTimeout(pulseTimer.current)
+    }
+  }, [])
+
+  // 画布引擎跟着弹层的生命周期走；档位数量变了（Claude ↔ Codex）才重建
+  useEffect(() => {
+    const root = rootRef.current
+    const canvas = canvasRef.current
+    const knob = knobRef.current
+    if (!root || !canvas || !knob) return
+    const fx = createEffortFx({ root, canvas, knob, count: levels.length })
+    fxRef.current = fx
+    const introTimer = window.setTimeout(() => fx.intro(), 260)
+    return () => {
+      window.clearTimeout(introTimer)
+      fx.dispose()
+      if (fxRef.current === fx) fxRef.current = null
+    }
+  }, [levels.length])
+
+  // 预览 / 提交都会经过这里：换档就放电，档位高时再给面板一下热震
+  useEffect(() => {
+    const prev = prevIdx.current
+    prevIdx.current = idx
+    if (prev === idx) return
+
+    const root = rootRef.current
+    const knob = knobRef.current
+    if (root && knob) {
+      if (pulseTimer.current) window.clearTimeout(pulseTimer.current)
+      root.classList.remove('is-pulse', 'is-hot')
+      knob.classList.remove('is-pop')
+      void root.offsetWidth
+      root.classList.add('is-pulse')
+      if (idx >= 3) root.classList.add('is-hot')
+      knob.classList.add('is-pop')
+      pulseTimer.current = window.setTimeout(() => {
+        root.classList.remove('is-pulse', 'is-hot')
+        knob.classList.remove('is-pop')
+        pulseTimer.current = null
+      }, 760)
+    }
+
+    fxRef.current?.burst(idx, idx > prev ? 1 : -1)
+  }, [idx])
+
+  const cancelClose = (): void => {
+    if (!closeTimer.current) return
+    window.clearTimeout(closeTimer.current)
+    closeTimer.current = null
+  }
+
+  const scheduleClose = (): void => {
+    cancelClose()
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null
+      setDrag(null)
+      onClose()
+    }, EFFORT_CLOSE_DELAY)
+  }
 
   /** 鼠标横坐标 → 最近的一档 */
   const levelAt = (clientX: number): EffortLevel => {
     const el = railRef.current
     if (!el) return value
     const r = el.getBoundingClientRect()
-    const t = Math.min(1, Math.max(0, (clientX - r.left) / r.width))
-    return levels[Math.round(t * (levels.length - 1))]
+    const ratio = Math.min(1, Math.max(0, (clientX - r.left) / Math.max(1, r.width)))
+    return levels[Math.round(ratio * (levels.length - 1))]
+  }
+
+  /**
+   * 选中一档。换成别的档才提交；点回当前档只负责收起。
+   * 提交后先让本地预览停在目标档，等动画走完再真正关弹层。
+   */
+  const commit = (lv: EffortLevel): void => {
+    if (lv === value) {
+      cancelClose()
+      setDrag(null)
+      onClose()
+      return
+    }
+    setDrag(lv)
+    onPick(lv)
+    scheduleClose()
+  }
+
+  const stopDragging = (): void => {
+    dragging.current = false
+    rootRef.current?.classList.remove('is-dragging')
   }
 
   return (
-    <div className="epick">
-      <div className="picker__head">{t('composer.effort')}</div>
+    <div
+      className="epick"
+      ref={rootRef}
+      data-effort={shown}
+      data-effort-index={idx}
+    >
+      <canvas ref={canvasRef} className="epick__fx" aria-hidden="true" />
+      <span className="epick__scan" aria-hidden="true" />
+
+      <div className="epick__head">
+        <span className="epick__title">
+          <span className="epick__dot" aria-hidden="true" />
+          {t('composer.effort')}
+        </span>
+        <span className="epick__readout">
+          <b>{String(idx + 1).padStart(2, '0')}</b> / {String(levels.length).padStart(2, '0')}
+        </span>
+      </div>
 
       <div
         className="erail"
         ref={railRef}
+        role="slider"
+        tabIndex={0}
+        aria-label={t('composer.effort')}
+        aria-valuemin={1}
+        aria-valuemax={levels.length}
+        aria-valuenow={idx + 1}
+        aria-valuetext={t(EFFORT_LABEL_KEY[shown])}
         onPointerDown={(e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return
+          cancelClose()
           dragging.current = true
-          e.currentTarget.setPointerCapture(e.pointerId)
+          rootRef.current?.classList.add('is-dragging')
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId)
+          } catch {
+            // 合成事件 / 触控笔没有活动指针时忽略即可
+          }
           setDrag(levelAt(e.clientX))
+          e.preventDefault()
         }}
         onPointerMove={(e) => {
           if (dragging.current) setDrag(levelAt(e.clientX))
         }}
         onPointerUp={(e) => {
           if (!dragging.current) return
-          dragging.current = false
-          const lv = levelAt(e.clientX)
+          stopDragging()
+          try {
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+              e.currentTarget.releasePointerCapture(e.pointerId)
+            }
+          } catch {
+            // 同上
+          }
+          commit(levelAt(e.clientX))
+        }}
+        onPointerCancel={() => {
+          stopDragging()
           setDrag(null)
-          onPick(lv)
+        }}
+        onLostPointerCapture={() => {
+          if (!dragging.current) return
+          stopDragging()
+          setDrag(null)
+        }}
+        onKeyDown={(e) => {
+          let next: number | null = null
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = idx - 1
+          if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = idx + 1
+          if (e.key === 'Home') next = 0
+          if (e.key === 'End') next = levels.length - 1
+          if (next === null) return
+          e.preventDefault()
+          const clamped = Math.max(0, Math.min(levels.length - 1, next))
+          if (clamped === idx) return
+          commit(levels[clamped])
         }}
       >
         <div className="erail__fill" style={{ width: `${effortPct(idx, levels.length)}%` }} />
         {levels.map((l, i) => (
           <span
             key={l}
-            className="erail__tick"
+            className={`erail__tick${i <= idx ? ' is-past' : ''}`}
             style={{ left: `${effortPct(i, levels.length)}%` }}
           />
         ))}
         <span
+          ref={knobRef}
           className="erail__knob"
           style={{ left: `${effortPct(idx, levels.length)}%` }}
-        />
+        >
+          <span className="erail__halo" aria-hidden="true" />
+          <span className="erail__ring erail__ring--2" aria-hidden="true" />
+          <span className="erail__ring" aria-hidden="true" />
+          <span className="erail__core" aria-hidden="true" />
+        </span>
       </div>
 
       <div className="erail__lab">
-        {levels.map((l) => (
+        {levels.map((l, i) => (
           <button
             key={l}
-            className={l === value ? 'is-on' : ''}
-            onClick={() => onPick(l)}
+            type="button"
+            className={i === idx ? 'is-on' : ''}
+            aria-pressed={i === idx}
+            onClick={() => commit(l)}
           >
             {t(EFFORT_LABEL_KEY[l])}
           </button>
         ))}
       </div>
 
-      <div className="elvl">
+      {/* key 换了就重放一次入场 / 故障闪动，不用再手写一套状态 */}
+      <div className="elvl" key={`${shown}-${levels.length}`}>
         <div className="elvl__t">
-          {t(EFFORT_LABEL_KEY[shown])} <em>{shown}</em>
+          <span className="elvl__title" data-text={t(EFFORT_LABEL_KEY[shown])}>
+            {t(EFFORT_LABEL_KEY[shown])}
+          </span>
+          <span className="elvl__en">{shown}</span>
+          <span className="elvl__bars" aria-hidden="true">
+            {levels.map((l, i) => (
+              <i key={l} className={i <= idx ? 'is-on' : ''} />
+            ))}
+          </span>
         </div>
         <div className="elvl__d">{t(EFFORT_HINT_KEY[shown])}</div>
       </div>
@@ -1748,7 +1925,12 @@ function EffortPicker({
       {/* 只是相对量感，不是真实数字 —— 别在这里写 token 数 */}
       <div className="emeter">
         <span>{t('composer.effort.faster')}</span>
-        <i style={{ ['--pct' as string]: `${effortPct(idx, levels.length)}%` }} />
+        <span className="emeter__track">
+          <span
+            className="emeter__fill"
+            style={{ width: `${effortPct(idx, levels.length)}%` }}
+          />
+        </span>
         <span>{t('composer.effort.slower')}</span>
       </div>
     </div>

@@ -9,7 +9,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { searchCode, replaceInWorkspace } = require('./_ide-fs.cjs')
+const { searchCode, replaceInWorkspace, undoReplace } = require('./_ide-fs.cjs')
 
 let failed = 0
 function check(label, cond, detail) {
@@ -220,6 +220,87 @@ async function run() {
   check('超过匹配上限时中止', aborted.ok && aborted.data.aborted === true, aborted)
   check('中止时一处都没写', read('src/a.ts') === 'foo Foo foobar\nfoo\n', read('src/a.ts'))
   check('中止时 replacements 为 0', aborted.ok && aborted.data.totals.replacements === 0, aborted)
+
+  /* ── 替换预览 / 撤销 ────────────────────────────────── */
+
+  resetFixtures()
+  const preview = await replaceInWorkspace({
+    cwd: root,
+    query: 'foo',
+    replacement: 'bar',
+    preview: true
+  })
+  check('预览返回 ok', preview.ok === true, preview)
+  check(
+    '预览统计命中但不写盘',
+    preview.ok &&
+      preview.data.totals.replacements === 9 &&
+      preview.data.totals.filesChanged === 0 &&
+      preview.data.preview?.length === 4,
+    preview.ok && preview.data.totals
+  )
+  check(
+    '预览返回逐文件示例',
+    preview.ok &&
+      preview.data.preview.some(
+        (f) =>
+          f.rel === 'src/a.ts' &&
+          f.samples[0]?.line === 1 &&
+          f.samples[0]?.before === 'foo Foo foobar' &&
+          f.samples[0]?.after === 'bar bar barbar'
+      ),
+    preview.ok && preview.data.preview
+  )
+  check('预览不产生撤销令牌', preview.ok && preview.data.undoToken === undefined)
+  check('预览没有改磁盘', read('src/a.ts') === 'foo Foo foobar\nfoo\n', read('src/a.ts'))
+
+  const applied = await replaceInWorkspace({
+    cwd: root,
+    query: 'foo',
+    replacement: 'bar'
+  })
+  check(
+    '真实替换返回撤销令牌',
+    applied.ok && typeof applied.data.undoToken === 'string' && applied.data.undoFiles === 4,
+    applied
+  )
+  check('真实替换写入磁盘', read('src/a.ts') === 'bar bar barbar\nbar\n', read('src/a.ts'))
+
+  const token = applied.ok ? applied.data.undoToken : ''
+  const badToken = await undoReplace({ cwd: root, token: 'not-a-token' })
+  check('错误令牌拒绝撤销', badToken.ok === false, badToken)
+
+  const undo = await undoReplace({ cwd: root, token })
+  check(
+    '撤销恢复全部文件',
+    undo.ok && undo.data.restoredFiles === 4 && undo.data.restoredMatches === 9,
+    undo
+  )
+  check('撤销恢复原始内容', read('src/a.ts') === 'foo Foo foobar\nfoo\n', read('src/a.ts'))
+  check('撤销保留 CRLF', read('src/b.ts') === 'foo\r\nfoo foo\r\n', JSON.stringify(read('src/b.ts')))
+
+  const twice = await undoReplace({ cwd: root, token })
+  check('同一令牌不能撤销两次', twice.ok === false, twice)
+
+  resetFixtures()
+  const second = await replaceInWorkspace({
+    cwd: root,
+    query: 'foo',
+    replacement: 'bar'
+  })
+  const secondToken = second.ok ? second.data.undoToken : ''
+  // 替换后用户又改了其中一个文件：撤销必须跳过，不能覆盖新内容
+  fs.writeFileSync(path.join(root, 'src/a.ts'), 'user edit\n')
+  const conflictUndo = await undoReplace({ cwd: root, token: secondToken })
+  check(
+    '撤销跳过外部修改过的文件',
+    conflictUndo.ok &&
+      conflictUndo.data.restoredFiles === 3 &&
+      conflictUndo.data.files.some((f) => f.rel === 'src/a.ts' && f.status === 'conflict'),
+    conflictUndo
+  )
+  check('外部修改被保留', read('src/a.ts') === 'user edit\n', read('src/a.ts'))
+  check('其余文件被恢复', read('src/b.ts') === 'foo\r\nfoo foo\r\n', JSON.stringify(read('src/b.ts')))
 
   /* ── 参数错误 ───────────────────────────────────────── */
 

@@ -259,6 +259,37 @@
   --running: #ff9b6a;
 }
 
+/* 星野：深空底色 + 星云紫 / 星辉青，背景由 StarfieldBackground 绘制 */
+:root[data-theme='starfield'] {
+  color-scheme: dark;
+
+  --bg-app: #04070f;
+  --bg-sidebar: #050b15;
+  --bg-raised: rgba(11, 20, 36, 0.9);
+  --bg-hover: rgba(143, 174, 226, 0.075);
+  --bg-active: rgba(157, 140, 255, 0.15);
+
+  --border: rgba(143, 174, 226, 0.17);
+  --border-soft: rgba(143, 174, 226, 0.1);
+
+  --text: #e6eefb;
+  --text-dim: #a2b3ce;
+  --text-muted: #7d90ad;
+  --text-faint: #5f728e;
+
+  --accent: #9d8cff;
+  --accent-fg: #060a14;
+  --ok: #7fe0bc;
+  --warn: #f3c87e;
+  --danger: #f07c8d;
+  --running: #f3c87e;
+
+  --br-accent: #78dce8;
+  --br-text: #a9e6f2;
+  --br-bg: rgba(120, 220, 232, 0.08);
+  --br-border: rgba(120, 220, 232, 0.24);
+}
+
 /* 暖纸：米黄纸面 + 深褐文字，长时间阅读舒服（浅色 scheme） */
 :root[data-theme='sepia'] {
   color-scheme: light;

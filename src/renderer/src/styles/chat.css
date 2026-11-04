@@ -2561,6 +2561,171 @@
   font-size: 13.5px;
 }
 
+/* ── 新会话空态 ─────────────────────────────────────────── */
+
+/*
+ * 转写区本身是滚动容器；只有在空态时把它改成纵向 flex，
+ * 说明块才能落在「标签栏—输入框」之间的垂直中线上。
+ * 有消息之后这两个 modifier 都不存在，滚动行为完全不变。
+ */
+.transcript--empty {
+  display: flex;
+  flex-direction: column;
+}
+
+.transcript__inner--empty {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.ncempty {
+  width: 100%;
+  padding: 24px 0 34px;
+  animation: ncempty-in 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.ncempty__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ncempty__mark {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  box-shadow: 0 0 28px -12px var(--accent);
+}
+
+.ncempty__head h2 {
+  margin: 1px 0 4px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.ncempty__head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ncempty__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ncempty__card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 60px;
+  padding: 12px 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-raised) 68%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.ncempty__ic {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 18%, transparent);
+}
+
+.ncempty__ic--violet { --c: var(--accent); }
+.ncempty__ic--cyan { --c: var(--br-accent); }
+.ncempty__ic--mint { --c: var(--ok); }
+.ncempty__ic--gold { --c: var(--warn); }
+
+.ncempty__glyph {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.ncempty__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ncempty__body b {
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.ncempty__body span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ncempty__keys {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 15px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.ncempty__keys kbd {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-raised) 70%, transparent);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+@keyframes ncempty-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ncempty {
+    animation: none;
+  }
+}
+
 /* ── 接着已有会话跑时的说明条 ───────────────────────────── */
 
 .resume-bar {
@@ -3403,88 +3568,487 @@
   display: block;
 }
 
-.epick {
-  width: 300px;
-  padding: 4px 12px 12px;
+/* ── 思考深度弹层：能量滑轨 ───────────────────────────────
+ *
+ * 弹层自己带深空底色，不抢应用背景。所有档位色都落在 --eff-a / --eff-b
+ * 上，粒子层（effortFx.ts）也从这两个变量取色，明暗主题只需要换这一组。
+ */
+
+@property --eff-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
-.erail {
+.picker__pop--effort {
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 16px;
+  box-shadow: none;
+  animation: effPopIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.epick {
+  --eff-a: #a78bfa;
+  --eff-a-rgb: 167 139 250;
+  --eff-b: #c084fc;
+  --eff-b-rgb: 192 132 252;
   position: relative;
-  height: 4px;
-  margin-top: 12px;
-  border-radius: 2px;
-  background: #34343f;
+  width: 100%;
+  padding: 17px 26px 16px;
+  border-radius: 16px;
+  border: 1px solid rgb(var(--eff-a-rgb) / 0.2);
+  background:
+    radial-gradient(135% 120% at 12% -10%, rgb(var(--eff-a-rgb) / 0.17), transparent 46%),
+    linear-gradient(166deg, #141d31 0%, #0b1120 58%, #070b14 100%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.56),
+    0 0 48px -24px rgb(var(--eff-a-rgb) / 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  color: #e8edf7;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* 六档：冷 → 紫 → 洋红 → 金 → 白热 */
+.epick[data-effort='low'] {
+  --eff-a: #38bdf8;
+  --eff-a-rgb: 56 189 248;
+  --eff-b: #22d3ee;
+  --eff-b-rgb: 34 211 238;
+}
+.epick[data-effort='medium'] {
+  --eff-a: #60a5fa;
+  --eff-a-rgb: 96 165 250;
+  --eff-b: #818cf8;
+  --eff-b-rgb: 129 140 248;
+}
+.epick[data-effort='high'] {
+  --eff-a: #a78bfa;
+  --eff-a-rgb: 167 139 250;
+  --eff-b: #c084fc;
+  --eff-b-rgb: 192 132 252;
+}
+.epick[data-effort='xhigh'] {
+  --eff-a: #e879f9;
+  --eff-a-rgb: 232 121 249;
+  --eff-b: #f472b6;
+  --eff-b-rgb: 244 114 182;
+}
+.epick[data-effort='max'] {
+  --eff-a: #fbbf24;
+  --eff-a-rgb: 251 191 36;
+  --eff-b: #fb7185;
+  --eff-b-rgb: 251 113 133;
+}
+.epick[data-effort='ultra'] {
+  --eff-a: #fef08a;
+  --eff-a-rgb: 254 240 138;
+  --eff-b: #f43f5e;
+  --eff-b-rgb: 244 63 94;
+}
+
+/* 旋转的描边光束 */
+.epick::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--eff-angle),
+    transparent 0deg,
+    rgb(var(--eff-a-rgb) / 0.85) 38deg,
+    transparent 92deg,
+    transparent 206deg,
+    rgb(var(--eff-b-rgb) / 0.8) 256deg,
+    transparent 318deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.78;
+  pointer-events: none;
+  animation: effBorder 8s linear infinite;
+}
+
+/* 粒子层盖在内容上，跟 mockup 一样让档位变化"溅"出来 */
+.epick__fx {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.epick__scan {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  top: -50%;
+  height: 36%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgb(var(--eff-a-rgb) / 0.07), transparent);
+  filter: blur(8px);
+  pointer-events: none;
+  animation: effScan 7s linear infinite;
+}
+
+.epick__head,
+.erail,
+.erail__lab,
+.elvl,
+.emeter {
+  position: relative;
+  z-index: 2;
+}
+
+/* 换档时：面板闪一下；极高以上再带一点横向热震 */
+.epick.is-pulse {
+  animation: effPulse 0.7s ease-out;
+}
+.epick.is-pulse.is-hot {
+  animation:
+    effPulse 0.7s ease-out,
+    effShake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+.epick__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.epick__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: #a9b8d0;
+}
+.epick__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eff-a);
+  box-shadow: 0 0 10px var(--eff-a), 0 0 22px rgb(var(--eff-a-rgb) / 0.5);
+  animation: effPing 2.6s ease-out infinite;
+}
+.epick__readout {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: rgba(148, 163, 184, 0.56);
+  font-variant-numeric: tabular-nums;
+}
+.epick__readout b {
+  color: var(--eff-a);
+  font-weight: 600;
+  text-shadow: 0 0 12px rgb(var(--eff-a-rgb) / 0.8);
+}
+
+/* 滑轨：hit 区 40px，方便点也方便放光 */
+.erail {
+  height: 40px;
+  margin-top: 13px;
   cursor: pointer;
-  /* 触控笔/触摸下别把拖拽当成滚动 */
   touch-action: none;
+  outline: none;
+  border-radius: 8px;
+}
+.erail:focus-visible {
+  outline: 1px solid rgb(var(--eff-a-rgb) / 0.62);
+  outline-offset: 2px;
+}
+.erail::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  border-radius: 99px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.28), rgba(148, 163, 184, 0.14));
 }
 .erail__fill {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 2px;
-  background: #a78bfa;
+  top: 50%;
+  height: 2px;
+  width: 0;
+  border-radius: 99px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, var(--eff-a), var(--eff-b));
+  box-shadow:
+    0 0 8px rgb(var(--eff-a-rgb) / 0.9),
+    0 0 24px rgb(var(--eff-b-rgb) / 0.5);
+  overflow: hidden;
+  transition: width 0.45s cubic-bezier(0.22, 1.3, 0.36, 1);
+}
+.epick.is-dragging .erail__fill {
+  transition-duration: 0.1s;
+}
+.erail__fill::after {
+  content: '';
+  position: absolute;
+  inset: -1px 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.92), transparent);
+  background-size: 40px 100%;
+  mix-blend-mode: screen;
+  opacity: 0.65;
+  animation: effFlow 1.8s linear infinite;
 }
 .erail__tick {
   position: absolute;
-  top: -3px;
+  top: 50%;
   width: 1px;
-  height: 10px;
-  background: #3f3f4c;
+  height: 9px;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  background: rgba(148, 163, 184, 0.3);
+  transition: height 0.3s, background 0.3s, box-shadow 0.3s;
 }
+.erail__tick.is-past {
+  height: 11px;
+  background: rgb(var(--eff-a-rgb) / 0.68);
+  box-shadow: 0 0 7px rgb(var(--eff-a-rgb) / 0.8);
+}
+
 .erail__knob {
   position: absolute;
   top: 50%;
-  width: 13px;
-  height: 13px;
-  margin: -6.5px 0 0 -6.5px;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  will-change: left;
+  transition: left 0.45s cubic-bezier(0.22, 1.3, 0.36, 1);
+}
+.epick.is-dragging .erail__knob {
+  transition-duration: 0.1s;
+}
+.erail__knob.is-pop {
+  animation: effKnobPop 0.62s cubic-bezier(0.18, 1.4, 0.36, 1);
+}
+.erail__core {
+  position: absolute;
+  inset: 7px;
   border-radius: 50%;
-  background: var(--text);
+  background: radial-gradient(circle at 35% 28%, #fff, #eef1ff 52%, #cbd5ff);
   box-shadow:
-    0 0 0 3px #2a2a2a,
-    0 2px 6px rgba(0, 0, 0, 0.5);
+    0 0 8px #fff,
+    0 0 18px var(--eff-a),
+    0 0 36px rgb(var(--eff-b-rgb) / 0.72),
+    0 0 60px rgb(var(--eff-a-rgb) / 0.38);
+}
+.erail__halo {
+  position: absolute;
+  inset: -19px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--eff-a-rgb) / 0.27), transparent 62%);
+  filter: blur(6px);
+  animation: effHalo 2.8s ease-in-out infinite;
+}
+.erail__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgb(var(--eff-a-rgb) / 0.46);
+  animation: effSpin 3.6s linear infinite;
+}
+.erail__ring::before {
+  content: '';
+  position: absolute;
+  top: -2.5px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--eff-a);
+  box-shadow: 0 0 9px 1px rgb(var(--eff-a-rgb) / 0.8);
+}
+.erail__ring--2 {
+  inset: -6px;
+  border-style: dashed;
+  border-color: rgb(var(--eff-b-rgb) / 0.32);
+  animation: effSpin 8s linear infinite reverse;
+}
+.erail__ring--2::before {
+  top: -1.5px;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  background: var(--eff-b);
+  box-shadow: 0 0 8px var(--eff-b);
 }
 
 .erail__lab {
   display: flex;
   justify-content: space-between;
-  margin-top: 11px;
+  margin-top: 6px;
 }
 .erail__lab button {
-  font-size: 11.5px;
-  color: var(--text-faint);
+  padding: 3px 2px;
+  border: 0;
+  background: none;
+  color: rgba(148, 163, 184, 0.48);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.3s,
+    transform 0.4s cubic-bezier(0.2, 1.4, 0.4, 1),
+    text-shadow 0.3s;
 }
 .erail__lab button:hover {
-  color: var(--text-dim);
+  color: #cbd5e1;
 }
 .erail__lab button.is-on {
-  color: #ddd6fe;
+  color: #fff;
   font-weight: 600;
+  transform: translateY(1px) scale(1.08);
+  text-shadow:
+    0 1px 2px rgba(2, 6, 15, 0.95),
+    0 0 16px rgb(var(--eff-a-rgb) / 0.9);
+}
+.erail__lab button:focus-visible {
+  outline: 1px solid rgb(var(--eff-a-rgb) / 0.65);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
+/* 当前档位说明卡 */
 .elvl {
   margin-top: 14px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.035);
-  border-radius: 8px;
+  padding: 11px 13px 10px;
+  border-radius: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  background: linear-gradient(160deg, rgba(6, 11, 22, 0.78), rgba(4, 8, 15, 0.56));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 0 34px rgb(var(--eff-a-rgb) / 0.05);
+  overflow: hidden;
+  animation: effCardIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.elvl::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(280px circle at 10% -4%, rgb(var(--eff-a-rgb) / 0.14), transparent 62%);
+  pointer-events: none;
+}
+.elvl::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: 0;
+  width: 42%;
+  height: 220%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transform: translateX(-170%) rotate(18deg);
+  animation: effSheen 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  pointer-events: none;
 }
 .elvl__t {
-  font-size: 13px;
-  color: var(--text);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.elvl__t em {
-  margin-left: 5px;
-  font-style: normal;
+.elvl__title {
+  position: relative;
+  display: inline-block;
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  color: #f8fafc;
+  text-shadow: 0 0 22px rgb(var(--eff-a-rgb) / 0.5);
+}
+.elvl__title::before,
+.elvl__title::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  text-shadow: none;
+  opacity: 0;
+}
+.elvl__title::before {
+  color: #3ee7ff;
+  animation: effGlitchA 0.44s steps(2, end) both;
+}
+.elvl__title::after {
+  color: #ff4fd8;
+  animation: effGlitchB 0.44s steps(2, end) both;
+}
+.elvl__en {
+  padding: 3px 6px 2px;
+  border-radius: 5px;
+  border: 1px solid rgb(var(--eff-a-rgb) / 0.2);
+  background: rgb(var(--eff-a-rgb) / 0.08);
+  color: var(--eff-a);
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
 }
+.elvl__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 14px;
+  margin-left: auto;
+}
+.elvl__bars i {
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(148, 163, 184, 0.18);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.elvl__bars i:nth-child(1) { height: 5px; }
+.elvl__bars i:nth-child(2) { height: 7px; }
+.elvl__bars i:nth-child(3) { height: 9px; }
+.elvl__bars i:nth-child(4) { height: 11px; }
+.elvl__bars i:nth-child(5) { height: 13px; }
+.elvl__bars i:nth-child(6) { height: 14px; }
+.elvl__bars i.is-on {
+  background: linear-gradient(180deg, var(--eff-a), var(--eff-b));
+  box-shadow: 0 0 7px rgb(var(--eff-a-rgb) / 0.7);
+  animation: effBars 1.8s ease-in-out infinite;
+}
+.elvl__bars i.is-on:nth-child(2) { animation-delay: 0.1s; }
+.elvl__bars i.is-on:nth-child(3) { animation-delay: 0.2s; }
+.elvl__bars i.is-on:nth-child(4) { animation-delay: 0.3s; }
+.elvl__bars i.is-on:nth-child(5) { animation-delay: 0.4s; }
+.elvl__bars i.is-on:nth-child(6) { animation-delay: 0.5s; }
 .elvl__d {
-  margin-top: 3px;
+  position: relative;
+  margin-top: 7px;
   font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--text-muted);
+  line-height: 1.55;
+  color: rgba(176, 190, 212, 0.68);
+  animation: effTextIn 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 /* 「更快 ↔ 更慢更贵」：只是相对量感，不写数字 */
@@ -3492,26 +4056,279 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
-  font-size: 11.5px;
-  color: var(--text-faint);
+  margin-top: 11px;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: rgba(148, 163, 184, 0.48);
 }
-.emeter i {
+.emeter__track {
   position: relative;
   flex: 1;
-  height: 3px;
-  border-radius: 2px;
-  background: #34343f;
+  height: 2px;
+  border-radius: 99px;
+  background: rgba(148, 163, 184, 0.14);
 }
-.emeter i::after {
-  content: '';
+.emeter__fill {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: var(--pct, 50%);
-  border-radius: 2px;
-  background: #6a6a7c;
+  width: 0;
+  border-radius: 99px;
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.28), var(--eff-a), var(--eff-b));
+  box-shadow: 0 0 12px rgb(var(--eff-a-rgb) / 0.45);
+  transition: width 0.45s cubic-bezier(0.22, 1.3, 0.36, 1);
+  overflow: hidden;
+}
+.emeter__fill::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 46px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  mix-blend-mode: screen;
+  opacity: 0.4;
+  animation: effMeterGlint 2.4s linear infinite;
+}
+
+@keyframes effPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.982);
+    filter: blur(4px);
+  }
+}
+@keyframes effBorder {
+  to {
+    --eff-angle: 360deg;
+  }
+}
+@keyframes effScan {
+  0% {
+    transform: translateY(-30%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translateY(430%);
+    opacity: 0;
+  }
+}
+@keyframes effPing {
+  0% {
+    box-shadow: 0 0 0 0 rgb(var(--eff-a-rgb) / 0.5), 0 0 10px var(--eff-a);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgb(var(--eff-a-rgb) / 0), 0 0 14px var(--eff-a);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--eff-a-rgb) / 0), 0 0 10px var(--eff-a);
+  }
+}
+@keyframes effHalo {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+}
+@keyframes effSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes effFlow {
+  from {
+    background-position: -50px 0;
+  }
+  to {
+    background-position: 190px 0;
+  }
+}
+@keyframes effMeterGlint {
+  0% {
+    left: -20%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+@keyframes effKnobPop {
+  0% {
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  42% {
+    transform: translate(-50%, -50%) scale(1.32);
+  }
+  72% {
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes effBars {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes effPulse {
+  0% {
+    box-shadow:
+      0 0 0 1px rgb(var(--eff-a-rgb) / 0.55),
+      0 0 70px -8px rgb(var(--eff-a-rgb) / 0.55),
+      0 24px 60px rgba(0, 0, 0, 0.56);
+  }
+  100% {
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.56),
+      0 0 48px -24px rgb(var(--eff-a-rgb) / 0.62),
+      inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
+}
+@keyframes effShake {
+  10%,
+  90% {
+    transform: translate3d(-1px, 1px, 0);
+  }
+  20%,
+  80% {
+    transform: translate3d(2px, -1px, 0);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translate3d(-2px, 1px, 0);
+  }
+  40%,
+  60% {
+    transform: translate3d(2px, -1px, 0);
+  }
+}
+@keyframes effCardIn {
+  from {
+    opacity: 0.2;
+    transform: translateY(4px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+@keyframes effTextIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+@keyframes effSheen {
+  0% {
+    transform: translateX(-170%) rotate(18deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(340%) rotate(18deg);
+    opacity: 0;
+  }
+}
+@keyframes effGlitchA {
+  0% {
+    transform: translate(2px, -2px);
+    clip-path: inset(8% 0 58% 0);
+    opacity: 0.85;
+  }
+  28% {
+    transform: translate(-4px, 1px);
+    clip-path: inset(52% 0 8% 0);
+    opacity: 0.7;
+  }
+  58% {
+    transform: translate(2px, 2px);
+    clip-path: inset(25% 0 44% 0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate(0, 0);
+    clip-path: inset(0 0 0 0);
+    opacity: 0;
+  }
+}
+@keyframes effGlitchB {
+  0% {
+    transform: translate(-3px, 2px);
+    clip-path: inset(58% 0 6% 0);
+    opacity: 0.85;
+  }
+  32% {
+    transform: translate(4px, -1px);
+    clip-path: inset(12% 0 56% 0);
+    opacity: 0.65;
+  }
+  62% {
+    transform: translate(-2px, -2px);
+    clip-path: inset(40% 0 28% 0);
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate(0, 0);
+    clip-path: inset(0 0 0 0);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker__pop--effort,
+  .epick::before,
+  .epick__scan,
+  .epick.is-pulse,
+  .epick.is-pulse.is-hot,
+  .erail__fill::after,
+  .erail__knob.is-pop,
+  .erail__halo,
+  .erail__ring,
+  .epick__dot,
+  .elvl,
+  .elvl::after,
+  .elvl__title::before,
+  .elvl__title::after,
+  .elvl__bars i.is-on,
+  .elvl__d,
+  .emeter__fill::after {
+    animation: none !important;
+  }
+  .epick,
+  .epick *,
+  .epick *::before,
+  .epick *::after {
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── CLI › 渠道 › 模型 三列选择器 ────────────────────────

@@ -129,6 +129,7 @@ export type ThemeMode =
   | 'mist'
   | 'coffee'
   | 'moss'
+  | 'starfield'
   | 'contrast'
   | 'light'
   | 'paper'
@@ -150,6 +151,7 @@ export const THEME_SCHEME: Record<Exclude<ThemeMode, 'system'>, ThemeScheme> = {
   mist: 'dark',
   coffee: 'dark',
   moss: 'dark',
+  starfield: 'dark',
   contrast: 'dark',
   light: 'light',
   paper: 'light',
@@ -168,6 +170,7 @@ export const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
   mist: 'theme.mist',
   coffee: 'theme.coffee',
   moss: 'theme.moss',
+  starfield: 'theme.starfield',
   contrast: 'theme.contrast',
   light: 'theme.light',
   paper: 'theme.paper',
@@ -187,7 +190,7 @@ export const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
 export const THEME_GROUPS: { labelKey: MessageKey; themes: ThemeMode[] }[] = [
   {
     labelKey: 'theme.group.dark',
-    themes: ['dark', 'midnight', 'forest', 'mist', 'coffee', 'moss', 'contrast']
+    themes: ['dark', 'midnight', 'forest', 'mist', 'coffee', 'moss', 'starfield', 'contrast']
   },
   { labelKey: 'theme.group.light', themes: ['light', 'paper', 'frost', 'mint', 'lavender', 'rose', 'sandstone', 'sepia'] },
   { labelKey: 'theme.group.other', themes: ['system'] }
@@ -201,6 +204,7 @@ export const THEME_MODES: ThemeMode[] = [
   'mist',
   'coffee',
   'moss',
+  'starfield',
   'contrast',
   'light',
   'paper',
@@ -241,6 +245,7 @@ export const THEME_BG: Record<Exclude<ThemeMode, 'system'>, string> = {
   mist: '#232833',
   coffee: '#1b1713',
   moss: '#171a19',
+  starfield: '#04070f',
   contrast: '#000000',
   light: '#f6f6f7',
   paper: '#ffffff',
@@ -292,23 +297,138 @@ export const EDITOR_AUTO_SAVE_LABEL_KEY: Record<EditorAutoSave, MessageKey> = {
   onFocusChange: 'editor.autoSave.onFocusChange'
 }
 
+/** 光标形状 */
+export type EditorCursorStyle =
+  | 'line'
+  | 'line-thin'
+  | 'block'
+  | 'block-outline'
+  | 'underline'
+  | 'underline-thin'
+
+export const EDITOR_CURSOR_STYLE_LABEL_KEY: Record<EditorCursorStyle, MessageKey> = {
+  line: 'editor.cursorStyle.line',
+  'line-thin': 'editor.cursorStyle.lineThin',
+  block: 'editor.cursorStyle.block',
+  'block-outline': 'editor.cursorStyle.blockOutline',
+  underline: 'editor.cursorStyle.underline',
+  'underline-thin': 'editor.cursorStyle.underlineThin'
+}
+
+/** 光标闪烁方式 */
+export type EditorCursorBlinking = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid'
+
+export const EDITOR_CURSOR_BLINKING_LABEL_KEY: Record<EditorCursorBlinking, MessageKey> = {
+  blink: 'editor.cursorBlinking.blink',
+  smooth: 'editor.cursorBlinking.smooth',
+  phase: 'editor.cursorBlinking.phase',
+  expand: 'editor.cursorBlinking.expand',
+  solid: 'editor.cursorBlinking.solid'
+}
+
+/** 光标移动动画。explicit 只对方向键等显式移动生效 */
+export type EditorCursorSmooth = 'off' | 'on' | 'explicit'
+
+export const EDITOR_CURSOR_SMOOTH_LABEL_KEY: Record<EditorCursorSmooth, MessageKey> = {
+  off: 'editor.cursorSmooth.off',
+  on: 'editor.cursorSmooth.on',
+  explicit: 'editor.cursorSmooth.explicit'
+}
+
+/** 当前行怎么高亮 */
+export type EditorLineHighlight = 'none' | 'gutter' | 'line' | 'all'
+
+export const EDITOR_LINE_HIGHLIGHT_LABEL_KEY: Record<EditorLineHighlight, MessageKey> = {
+  none: 'editor.lineHighlight.none',
+  gutter: 'editor.lineHighlight.gutter',
+  line: 'editor.lineHighlight.line',
+  all: 'editor.lineHighlight.all'
+}
+
+/** 空白字符渲染范围 */
+export type EditorWhitespace = 'none' | 'selection' | 'trailing' | 'all'
+
+export const EDITOR_WHITESPACE_LABEL_KEY: Record<EditorWhitespace, MessageKey> = {
+  none: 'editor.whitespace.none',
+  selection: 'editor.whitespace.selection',
+  trailing: 'editor.whitespace.trailing',
+  all: 'editor.whitespace.all'
+}
+
+/** 行号显示方式 */
+export type EditorLineNumbers = 'on' | 'off' | 'relative'
+
+export const EDITOR_LINE_NUMBERS_LABEL_KEY: Record<EditorLineNumbers, MessageKey> = {
+  on: 'editor.lineNumbers.on',
+  off: 'editor.lineNumbers.off',
+  relative: 'editor.lineNumbers.relative'
+}
+
 /**
  * IDE 编辑器的可配置项。
  *
  * 之前这些全部写死在 MonacoEditor 里，用户换不了字号 / 制表符 / 换行方式。
  * 这里集中成一份可落盘的配置，主窗口和每个 IDE 窗口都读同一份。
  */
+export interface LanguageEditorSettings {
+  /** 该语言下按空格插入时的一级缩进列宽 */
+  tabSize: number
+  insertSpaces: boolean
+}
+
 export interface EditorSettings {
   /** 字号（px） */
   fontSize: number
+  /** 字体栈；空字符串表示跟随主设置里的「代码字体」 */
+  fontFamily: string
+  /** 连字（JetBrains Mono / Fira Code 一类字体） */
+  fontLigatures: boolean
+  /** 行高倍数（相对字号） */
+  lineHeight: number
+  /** 字距（px） */
+  letterSpacing: number
   /** 一个 tab 的列宽 */
   tabSize: number
   /** true = 插入空格，false = 插入制表符 */
   insertSpaces: boolean
   /** 自动换行 */
   wordWrap: EditorWordWrap
+  /** 按固定列宽换行时的列数 */
+  wordWrapColumn: number
+  /** 光标形状 */
+  cursorStyle: EditorCursorStyle
+  /** 光标闪烁方式 */
+  cursorBlinking: EditorCursorBlinking
+  /** 光标移动动画 */
+  cursorSmoothCaretAnimation: EditorCursorSmooth
+  /** 当前行高亮 */
+  renderLineHighlight: EditorLineHighlight
+  /** 空白字符渲染范围 */
+  renderWhitespace: EditorWhitespace
+  /** 是否显示控制字符 */
+  renderControlCharacters: boolean
+  /** 行号显示方式 */
+  lineNumbers: EditorLineNumbers
+  /** 缩进参考线 */
+  indentationGuides: boolean
+  /** 括号对参考线 */
+  bracketPairGuides: boolean
+  /** 列标尺；0 = 关闭 */
+  rulers: number
+  /** 平滑滚动 */
+  smoothScrolling: boolean
+  /** Ctrl + 滚轮缩放字号 */
+  mouseWheelZoom: boolean
   /** 代码缩略图 */
   minimap: boolean
+  /** 滚动时把外层符号钉在顶部 */
+  stickyScroll: boolean
+  /** 终端字号（px） */
+  terminalFontSize: number
+  /** 终端行高倍数 */
+  terminalLineHeight: number
+  /** 保存前先跑一次格式化（有语言服务 / 内置格式化器时） */
+  formatOnSave: boolean
   /** 自动保存策略 */
   autoSave: EditorAutoSave
   /** afterDelay 策略下的防抖时间（ms） */
@@ -317,22 +437,54 @@ export interface EditorSettings {
   trimTrailingWhitespace: boolean
   /** 打开 / 切换文件时在资源管理器里自动展开并定位 */
   autoRevealInExplorer: boolean
+  /**
+   * 按语言覆盖缩进（key 是 Monaco 语言 id）。
+   * 优先级低于文件所在目录的 `.editorconfig`，高于全局设置。
+   */
+  languages: Record<string, LanguageEditorSettings>
 }
 
 export const EDITOR_FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const
 export const EDITOR_TAB_SIZES = [2, 3, 4, 8] as const
 export const EDITOR_AUTO_SAVE_DELAYS = [500, 1000, 2000, 5000] as const
+export const EDITOR_LINE_HEIGHTS = [1.2, 1.35, 1.5, 1.55, 1.7, 1.85, 2] as const
+export const EDITOR_LETTER_SPACINGS = [-1, -0.5, 0, 0.5, 1, 1.5, 2] as const
+export const EDITOR_TERMINAL_LINE_HEIGHTS = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6] as const
+/** 列标尺的合法范围；0 表示关闭 */
+export const EDITOR_RULERS_MAX = 400
 
 export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   fontSize: 12,
+  fontFamily: '',
+  fontLigatures: false,
+  lineHeight: 1.55,
+  letterSpacing: 0,
   tabSize: 2,
   insertSpaces: true,
   wordWrap: 'off',
+  wordWrapColumn: 100,
+  cursorStyle: 'line',
+  cursorBlinking: 'smooth',
+  cursorSmoothCaretAnimation: 'off',
+  renderLineHighlight: 'all',
+  renderWhitespace: 'selection',
+  renderControlCharacters: false,
+  lineNumbers: 'on',
+  indentationGuides: true,
+  bracketPairGuides: false,
+  rulers: 0,
+  smoothScrolling: false,
+  mouseWheelZoom: false,
   minimap: true,
+  stickyScroll: true,
+  terminalFontSize: 12,
+  terminalLineHeight: 1.2,
+  formatOnSave: false,
   autoSave: 'off',
   autoSaveDelayMs: 1000,
   trimTrailingWhitespace: false,
-  autoRevealInExplorer: true
+  autoRevealInExplorer: true,
+  languages: {}
 }
 
 export function clampEditorFontSize(v: unknown): number {
@@ -363,6 +515,85 @@ export function clampAutoSaveDelay(v: unknown): number {
   )
 }
 
+function nearestOption(value: number, options: readonly number[]): number {
+  return options.reduce(
+    (best, option) => (Math.abs(option - value) < Math.abs(best - value) ? option : best),
+    options[0] as number
+  )
+}
+
+export function clampEditorLineHeight(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_EDITOR_SETTINGS.lineHeight
+  return nearestOption(Math.min(2, Math.max(1, n)), EDITOR_LINE_HEIGHTS)
+}
+
+export function clampEditorLetterSpacing(v: unknown): number {
+  const n =
+    typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_EDITOR_SETTINGS.letterSpacing
+  return nearestOption(Math.min(2, Math.max(-1, n)), EDITOR_LETTER_SPACINGS)
+}
+
+export function clampEditorWrapColumn(v: unknown): number {
+  const n =
+    typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : DEFAULT_EDITOR_SETTINGS.wordWrapColumn
+  return Math.min(300, Math.max(20, n))
+}
+
+export function clampEditorRulers(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 0
+  const n = Math.round(v)
+  if (n <= 0) return 0
+  return Math.min(EDITOR_RULERS_MAX, Math.max(20, n))
+}
+
+export function clampTerminalLineHeight(v: unknown): number {
+  const n =
+    typeof v === 'number' && Number.isFinite(v)
+      ? v
+      : DEFAULT_EDITOR_SETTINGS.terminalLineHeight
+  return nearestOption(Math.min(2, Math.max(1, n)), EDITOR_TERMINAL_LINE_HEIGHTS)
+}
+
+/**
+ * 字体栈直接进 CSS，过滤控制字符和会截断声明块的符号。
+ * 空字符串保留「跟随全局」的语义。
+ */
+export function normalizeEditorFontFamily(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  return raw
+    .replace(/[\u0000-\u001f\u007f<>{};]/g, '')
+    .trim()
+    .slice(0, 200)
+}
+
+function isChoice<T extends string>(value: unknown, labels: Record<T, MessageKey>): value is T {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(labels, value)
+}
+
+export function isEditorCursorStyle(v: unknown): v is EditorCursorStyle {
+  return isChoice(v, EDITOR_CURSOR_STYLE_LABEL_KEY)
+}
+
+export function isEditorCursorBlinking(v: unknown): v is EditorCursorBlinking {
+  return isChoice(v, EDITOR_CURSOR_BLINKING_LABEL_KEY)
+}
+
+export function isEditorCursorSmooth(v: unknown): v is EditorCursorSmooth {
+  return isChoice(v, EDITOR_CURSOR_SMOOTH_LABEL_KEY)
+}
+
+export function isEditorLineHighlight(v: unknown): v is EditorLineHighlight {
+  return isChoice(v, EDITOR_LINE_HIGHLIGHT_LABEL_KEY)
+}
+
+export function isEditorWhitespace(v: unknown): v is EditorWhitespace {
+  return isChoice(v, EDITOR_WHITESPACE_LABEL_KEY)
+}
+
+export function isEditorLineNumbers(v: unknown): v is EditorLineNumbers {
+  return isChoice(v, EDITOR_LINE_NUMBERS_LABEL_KEY)
+}
+
 export function isEditorWordWrap(v: unknown): v is EditorWordWrap {
   return v === 'off' || v === 'on' || v === 'bounded'
 }
@@ -371,18 +602,74 @@ export function isEditorAutoSave(v: unknown): v is EditorAutoSave {
   return v === 'off' || v === 'afterDelay' || v === 'onFocusChange'
 }
 
+function normalizeLanguageSettings(
+  raw: unknown
+): Record<string, LanguageEditorSettings> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, LanguageEditorSettings> = {}
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    // 语言 id 由 Monaco 提供，只接受短字符串；上限防止一份坏设置撑爆界面
+    if (typeof id !== 'string' || !id || id.length > 64) continue
+    if (!value || typeof value !== 'object') continue
+    const item = value as Partial<LanguageEditorSettings>
+    out[id] = {
+      tabSize: clampEditorTabSize(item.tabSize),
+      insertSpaces: item.insertSpaces !== false
+    }
+    if (Object.keys(out).length >= 64) break
+  }
+  return out
+}
+
 export function normalizeEditorSettings(raw: Partial<EditorSettings> | null | undefined): EditorSettings {
   const src = raw ?? {}
+  const fontSize = clampEditorFontSize(src.fontSize)
   return {
-    fontSize: clampEditorFontSize(src.fontSize),
+    fontSize,
+    fontFamily: normalizeEditorFontFamily(src.fontFamily),
+    fontLigatures: src.fontLigatures === true,
+    lineHeight: clampEditorLineHeight(src.lineHeight),
+    letterSpacing: clampEditorLetterSpacing(src.letterSpacing),
     tabSize: clampEditorTabSize(src.tabSize),
     insertSpaces: src.insertSpaces !== false,
     wordWrap: isEditorWordWrap(src.wordWrap) ? src.wordWrap : DEFAULT_EDITOR_SETTINGS.wordWrap,
+    wordWrapColumn: clampEditorWrapColumn(src.wordWrapColumn),
+    cursorStyle: isEditorCursorStyle(src.cursorStyle)
+      ? src.cursorStyle
+      : DEFAULT_EDITOR_SETTINGS.cursorStyle,
+    cursorBlinking: isEditorCursorBlinking(src.cursorBlinking)
+      ? src.cursorBlinking
+      : DEFAULT_EDITOR_SETTINGS.cursorBlinking,
+    cursorSmoothCaretAnimation: isEditorCursorSmooth(src.cursorSmoothCaretAnimation)
+      ? src.cursorSmoothCaretAnimation
+      : DEFAULT_EDITOR_SETTINGS.cursorSmoothCaretAnimation,
+    renderLineHighlight: isEditorLineHighlight(src.renderLineHighlight)
+      ? src.renderLineHighlight
+      : DEFAULT_EDITOR_SETTINGS.renderLineHighlight,
+    renderWhitespace: isEditorWhitespace(src.renderWhitespace)
+      ? src.renderWhitespace
+      : DEFAULT_EDITOR_SETTINGS.renderWhitespace,
+    renderControlCharacters: src.renderControlCharacters === true,
+    lineNumbers: isEditorLineNumbers(src.lineNumbers)
+      ? src.lineNumbers
+      : DEFAULT_EDITOR_SETTINGS.lineNumbers,
+    indentationGuides: src.indentationGuides !== false,
+    bracketPairGuides: src.bracketPairGuides === true,
+    rulers: clampEditorRulers(src.rulers),
+    smoothScrolling: src.smoothScrolling === true,
+    mouseWheelZoom: src.mouseWheelZoom === true,
     minimap: src.minimap !== false,
+    stickyScroll: src.stickyScroll !== false,
+    // 老版本终端字号跟随编辑器字号；没有这个字段时保持原来的表现
+    terminalFontSize:
+      src.terminalFontSize === undefined ? fontSize : clampEditorFontSize(src.terminalFontSize),
+    terminalLineHeight: clampTerminalLineHeight(src.terminalLineHeight),
+    formatOnSave: src.formatOnSave === true,
     autoSave: isEditorAutoSave(src.autoSave) ? src.autoSave : DEFAULT_EDITOR_SETTINGS.autoSave,
     autoSaveDelayMs: clampAutoSaveDelay(src.autoSaveDelayMs),
     trimTrailingWhitespace: src.trimTrailingWhitespace === true,
-    autoRevealInExplorer: src.autoRevealInExplorer !== false
+    autoRevealInExplorer: src.autoRevealInExplorer !== false,
+    languages: normalizeLanguageSettings(src.languages)
   }
 }
 

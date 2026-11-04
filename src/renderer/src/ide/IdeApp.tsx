@@ -4,13 +4,17 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode
 } from 'react'
 import type {
   IdeEncoding,
   IdeEntry,
+  IdeEol,
   IdeFsChanged,
   IdeImage,
+  IdeListDirOptions,
   IdeReplaceData,
   IdeSearchFile,
   IdeSearchMatch,
@@ -43,6 +47,11 @@ import { highlight, toLines } from './highlight'
 import { buildIdeRef, MAX_REF_LINES } from './ref'
 import { SendToChat, type SendAnchor, type SendDraft } from './SendToChat'
 import { MonacoEditor, type EditorSelection } from './MonacoEditor'
+import { SymbolBreadcrumbs } from './SymbolBreadcrumbs'
+import { ReviewDock } from './ReviewDock'
+import { LanguageMenu } from './LanguageMenu'
+import { EolMenu } from './EolMenu'
+import type { EditorConfigProperties } from '@shared/editorconfig'
 import { VcsWorkspace } from './VcsWorkspace'
 import { SyncWorkspace } from './SyncWorkspace'
 import { SyncBubble, type SyncBubbleData, type SyncBubbleRow } from './SyncBubble'
@@ -55,7 +64,6 @@ import { CommandPalette, type CommandItem } from './CommandPalette'
 import { SettingsDialog, type SettingsSection } from './SettingsDialog'
 import { EncodingMenu, ENCODING_LABEL_KEY } from './EncodingMenu'
 import { TerminalView } from './TerminalView'
-import { OutlineList } from './OutlineList'
 import { activeEditor, formatActiveDocument, runEditorAction } from './editor-actions'
 import { parseOutline, type OutlineKind, type OutlineSymbol } from './outline'
 import { ensureImportedModels, refreshImportedModels } from './tsProject'
@@ -126,6 +134,8 @@ interface Tab {
   title: string
   /** 固定后留在最左侧，批量关闭时保留 */
   pinned?: boolean
+  /** 未命名缓冲区：rel 是 `untitled:Untitled-N`，保存时走另存为 */
+  untitled?: boolean
 }
 
 interface TreeTarget {
@@ -161,6 +171,8 @@ interface DialogState {
   title: string
   message: string
   actions: DialogAction[]
+  /** 点遮罩 / Esc / 取消按钮；用于 Promise 化的确认框 */
+  onCancel?: () => void
 }
 
 interface PromptState {
@@ -169,6 +181,8 @@ interface PromptState {
   value: string
   confirmLabel: string
   run: (value: string) => void | Promise<void>
+  /** 取消 / Esc / 点遮罩；给需要返回值（另存为、覆盖确认）的调用方收尾 */
+  onCancel?: () => void
 }
 
 interface CursorPos {
@@ -238,6 +252,85 @@ function tabOf(kind: TabKind, rel: string): Tab {
   }
 }
 
+/** 未命名缓冲区的 rel 前缀；冒号让它在磁盘路径里不可能出现 */
+export const UNTITLED_PREFIX = 'untitled:'
+
+export function untitledTitle(rel: string): string {
+  return rel.startsWith(UNTITLED_PREFIX) ? rel.slice(UNTITLED_PREFIX.length) : baseName(rel)
+}
+
+/**
+ * 另存为的输入清洗：只接受工作区内相对路径。
+ *
+ * 主进程还会再校验一次；这里提前拦住绝对路径 / `..`，让错误提示停在
+ * 对话框旁边，而不是先发一轮 IPC 再弹 notice。
+ */
+function cleanRelInput(raw: string): string | null {
+  const value = raw.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+/g, '/')
+  if (!value) return null
+  if (/^([a-zA-Z]:\/|\/\/|\/)/.test(value)) return null
+  const parts = value.split('/').filter(Boolean)
+  if (parts.length === 0 || parts.includes('..')) return null
+  return parts.join('/')
+}
+
+/** 某个工作区记住的语言模式覆盖；坏数据静默丢弃 */
+function readLanguageOverrides(cwd: string): Record<string, string> {  try {
+    const raw = localStorage.getItem(`ccoder:ide:lang:${cwd}`)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, string> = {}
+    for (const [rel, id] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof rel === 'string' && typeof id === 'string' && id.length < 80) out[rel] = id
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** Monaco 语言 id → 展示名；找不到时退回 id */
+function languageLabel(id: string): string {
+  const lang = monaco.languages.getLanguages().find((item) => item.id === id)
+  return lang?.aliases?.[0] ?? id
+}
+
+interface ExplorerPrefs {
+  /** 显示以 `.` 开头的文件 / 目录 */
+  showHidden: boolean
+  /** 显示 node_modules、dist 等固定忽略目录 */
+  showIgnored: boolean
+  /** 额外的忽略 glob；匹配文件名或工作区相对路径 */
+  ignore: string[]
+}
+
+const DEFAULT_EXPLORER_PREFS: ExplorerPrefs = {
+  showHidden: true,
+  showIgnored: false,
+  ignore: []
+}
+
+function readExplorerPrefs(cwd: string): ExplorerPrefs {
+  try {
+    const raw = localStorage.getItem(`ccoder:ide:explorer:${cwd}`)
+    if (!raw) return DEFAULT_EXPLORER_PREFS
+    const parsed = JSON.parse(raw) as Partial<ExplorerPrefs> | null
+    if (!parsed || typeof parsed !== 'object') return DEFAULT_EXPLORER_PREFS
+    return {
+      showHidden: parsed.showHidden !== false,
+      showIgnored: parsed.showIgnored === true,
+      ignore: Array.isArray(parsed.ignore)
+        ? parsed.ignore.filter(
+            (p): p is string => typeof p === 'string' && !!p.trim() && p.length <= 200
+          ).slice(0, 100)
+        : []
+    }
+  } catch {
+    return DEFAULT_EXPLORER_PREFS
+  }
+}
+
 /**
  * 首屏 query 里那一批 diff 文件。
  *
@@ -282,6 +375,7 @@ const P = {
   git: 'M4 4.9v6.2M12 6.5c0 2.8-2.6 3.1-4.5 3.6',
   refresh: 'M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.5',
   diff: 'M4 3v10M4 13l-2-2M4 13l2-2M9 4h4M9 8h4M9 12h2',
+  review: 'M3 2.5h10v11H3zM5.5 5.5h5M5.5 8h5M5.5 10.5h3',
   image: 'M3 4.5h10v7H3zM5.5 6.6h.01M4 10l3-2.6 2 1.8 1.8-1.6 1.4 1.3',
   close: 'M4 4l8 8M12 4l-8 8',
   chevron: 'M6 3.5L10.5 8 6 12.5',
@@ -300,12 +394,28 @@ const P = {
     'M8 6.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6M13 8c0-.3 0-.6-.1-.9l1.2-.9-1.2-2-1.4.5c-.5-.4-1-.6-1.6-.8l-.2-1.4H6.3l-.2 1.4c-.6.2-1.1.5-1.6.8l-1.4-.5-1.2 2 1.2.9c0 .3-.1.6-.1.9s0 .6.1.9l-1.2.9 1.2 2 1.4-.5c.5.4 1 .6 1.6.8l.2 1.4h3.4l.2-1.4c.6-.2 1.1-.5 1.6-.8l1.4.5 1.2-2-1.2-.9c.1-.3.1-.6.1-.9',
   sliders:
     'M2.5 4h4.2M9.8 4h3.7M2.5 8h7.3M13 8h.5M2.5 12h1.7M7.3 12h6.2M8.2 2.5v3M6.7 6.5v3M4.4 10.5v3',
-  pin: 'M9.6 2.2 13.8 6.4l-2.1.7-1.8 1.8.2 2-1.1 1.1-3-3-2.8 2.8-.8-.8 2.8-2.8-3-3 1.1-1.1 2 .2 1.8-1.8z'
+  eye: 'M1.8 8S4 3.8 8 3.8 14.2 8 14.2 8 12 12.2 8 12.2 1.8 8 1.8 8zM8 6.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6',
+  eyeOff:
+    'M2 2.5l12 11M6.1 4.2A6.6 6.6 0 0 1 8 3.8c4 0 6.2 4.2 6.2 4.2a11 11 0 0 1-2 2.7M9.9 11.8c-.6.3-1.2.4-1.9.4-4 0-6.2-4.2-6.2-4.2a11 11 0 0 1 1.8-2.5',
+  filter: 'M2.2 4h11.6M4.4 8h7.2M6.4 12h3.2',
+  copy: 'M5.2 5.2h7.6v9.4H5.2zM3.2 1.4h7.6v2M3.2 1.4v9.4h2',
+  cut: 'M6.2 9.8 12.8 2.2M9.8 9.8 3.2 2.2M4.4 13.4a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2M11.6 13.4a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2',
+  paste: 'M5.2 3.2H3.8v10.2h8.4V3.2h-1.4M6.2 1.6h3.6v2.4H6.2z',
+  pin: 'M9.6 2.2 13.8 6.4l-2.1.7-1.8 1.8.2 2-1.1 1.1-3-3-2.8 2.8-.8-.8 2.8-2.8-3-3 1.1-1.1 2 .2 1.8-1.8z',
+  history: 'M8 2.2a5.8 5.8 0 1 0 0 11.6A5.8 5.8 0 0 0 8 2.2M8 4.8V8l2.3 1.4'
 } as const
 
 /* ── 窗口标题栏 ───────────────────────────────────────── */
 
-function IdeTitleBar({ cwd, onClose }: { cwd: string; onClose: () => void }): JSX.Element {
+function IdeTitleBar({
+  cwd,
+  onClose,
+  children
+}: {
+  cwd: string
+  onClose: () => void
+  children?: ReactNode
+}): JSX.Element {
   const { t } = useI18n()
   const [maximized, setMaximized] = useState(false)
 
@@ -317,12 +427,33 @@ function IdeTitleBar({ cwd, onClose }: { cwd: string; onClose: () => void }): JS
   return (
     <div className="ide-titlebar">
       <div className="ide-brand">
-        <span className="ide-logo">C</span>
-        <span>CCoder IDE</span>
+        <span className="ide-logo" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 20 20" fill="none">
+            <path
+              d="M5.2 6.1a5.4 5.4 0 1 1 0 7.8"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+            <path
+              d="M11.2 6.1a5.4 5.4 0 1 1 0 7.8"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              opacity=".55"
+            />
+          </svg>
+        </span>
+        <span className="ide-brand-name">
+          <em>CC</em>oder
+        </span>
         <span className="ide-divider" />
-        <span className="ide-ws">{baseName(cwd)}</span>
+        <span className="ide-ws" title={cwd}>
+          {baseName(cwd)}
+        </span>
         <span className="ide-detach">{t('ide.detach')}</span>
       </div>
+      <div className="ide-titlebar-main">{children}</div>
       <div className="ide-wctl">
         <button className="ide-wc" title={t('titlebar.minimize')} onClick={() => window.api?.minimize()}>
           <svg width="10" height="10" viewBox="0 0 10 10">
@@ -417,6 +548,8 @@ function makeSyncBubble(snapshot: SyncSnapshot, t: I18nApi['t']): SyncBubbleData
 export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const { t } = useI18n()
   const [view, setView] = useState<View>('files')
+  /** 上一次全部替换的撤销信息；放在 IdeApp 里，切到资源管理器再回来仍然可以撤销 */
+  const [lastReplace, setLastReplace] = useState<LastReplaceState | null>(null)
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
   /** 页签右键菜单 / 拖动排序状态 */
@@ -425,11 +558,23 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [dropTarget, setDropTarget] = useState<{ key: string; after: boolean } | null>(null)
   /** 状态栏编码菜单 */
   const [encodingMenuOpen, setEncodingMenuOpen] = useState(false)
+  /** 状态栏语言模式 / 换行符菜单 */
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false)
+  const [eolMenuOpen, setEolMenuOpen] = useState(false)
+  /** 每个文件手动选过的语言模式（rel → Monaco language id） */
+  const [languageOverrides, setLanguageOverrides] = useState<Record<string, string>>(() =>
+    readLanguageOverrides(cwd)
+  )
+  /** 每个打开文件生效的 .editorconfig；打开文件时异步取一次 */
+  const [editorConfigs, setEditorConfigs] = useState<Record<string, EditorConfigProperties>>({})
+  const untitledSeq = useRef(1)
   const [fileCache, setFileCache] = useState<Record<string, IdeTextFile>>({})
   const [imageCache, setImageCache] = useState<Record<string, IdeImage>>({})
   const [diffCache, setDiffCache] = useState<Record<string, VcsDiffData>>({})
   /** 每个已打开文件在磁盘上的文本，用来判断脏状态 */
   const [baseText, setBaseText] = useState<Record<string, string>>({})
+  /** 磁盘上的换行风格；转换行尾后即使文本没变也要算未保存 */
+  const [baseEol, setBaseEol] = useState<Record<string, IdeEol>>({})
   const [loadingKey, setLoadingKey] = useState<string | null>(null)
   const [savingRel, setSavingRel] = useState<string | null>(null)
   /**
@@ -455,6 +600,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [panelOpen, setPanelOpen] = useState(false)
   const [problems, setProblems] = useState<IdeProblem[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  /** 右侧审阅栏；默认展开，和新的工作流一致 */
+  const [reviewOpen, setReviewOpen] = useState(true)
+  /** 用户手动开合过之后，不再按 VCS 状态自动收起 */
+  const reviewTouchedRef = useRef(false)
   /** outlineSymbols 声明在键盘 effect 之后；用 ref 让快捷键能读到最新数量 */
   const outlineCountRef = useRef(0)
   /** 文件导航历史（Alt+← / Alt+→） */
@@ -465,6 +614,29 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [jump, setJump] = useState<{ rel: string; line: number } | null>(null)
   /** 资源管理器当前选中的文件 / 文件夹 */
   const [treeTarget, setTreeTarget] = useState<TreeTarget>({ rel: '', kind: 'dir' })
+  /** 多选：rel 集合；普通点击只有一个，Ctrl / Shift 扩展 */
+  const [treeSelection, setTreeSelection] = useState<Set<string>>(new Set())
+  const [treeAnchor, setTreeAnchor] = useState<string | null>(null)
+  /** 资源管理器显示选项（隐藏文件 / 忽略目录 / 自定义规则），按工作区记忆 */
+  const [explorerPrefs, setExplorerPrefs] = useState<ExplorerPrefs>(() =>
+    readExplorerPrefs(cwd)
+  )
+  /** 拖拽中的源路径；用 ref 是因为 drop 事件可能先于 state 更新 */
+  const [dragRels, setDragRels] = useState<string[]>([])
+  const [dropDir, setDropDir] = useState<string | null>(null)
+  const [clipboard, setClipboard] = useState<{ mode: 'copy' | 'cut'; rels: string[] } | null>(
+    null
+  )
+  const clipboardRef = useRef(clipboard)
+  clipboardRef.current = clipboard
+  const dragRelsRef = useRef<string[]>([])
+  dragRelsRef.current = dragRels
+  const treeSelectionRef = useRef(treeSelection)
+  treeSelectionRef.current = treeSelection
+  const treeAnchorRef = useRef(treeAnchor)
+  treeAnchorRef.current = treeAnchor
+  /** 最近一次鼠标按下的区域；决定 Ctrl+C / Ctrl+V 是给编辑器还是资源管理器 */
+  const explorerFocusRef = useRef(false)
   /**
    * 「在资源管理器中显示当前文件」：rel + nonce。
    * nonce 让同一个文件连续触发时也能重新展开 / 滚动。
@@ -511,8 +683,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
    * 异步回调里要读最新的标签 / 缓存，但不能让订阅 effect 依赖这些 state
    * （否则每敲一个字都会重订阅）。每帧把最新值放进 ref。
    */
-  const liveRef = useRef({ tabs, fileCache, baseText })
-  liveRef.current = { tabs, fileCache, baseText }
+  const liveRef = useRef({ tabs, fileCache, baseText, baseEol, editorConfigs })
+  liveRef.current = { tabs, fileCache, baseText, baseEol, editorConfigs }
   /** 正在保存的 rel；watcher 事件不能把“自己刚写盘”误判成外部修改 */
   const savingRelsRef = useRef(new Map<string, number>())
   /** 每个 rel 的读取序号，后到的旧结果不能覆盖新结果 */
@@ -534,6 +706,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   /** 标签栏本身：页签溢出时要靠它把当前页签滚进视野 */
   const tabsBarRef = useRef<HTMLDivElement>(null)
   const vcs = useVcsStatus(cwd)
+  // 还没手动开合过时，跟着改动数量走：有改动展开，干净 / 非仓库收起
+  useEffect(() => {
+    if (reviewTouchedRef.current || vcs.loading) return
+    setReviewOpen(!!vcs.status && vcs.status.counts.total > 0)
+  }, [vcs.status, vcs.loading])
   const sync = useSync(cwd)
   const [syncLogOpen, setSyncLogOpen] = useState(false)
   const [syncBubble, setSyncBubble] = useState<SyncBubbleData | null>(null)
@@ -541,6 +718,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const syncAnnounced = useRef<number | null>(null)
   const syncReady = useRef(false)
   const activeTab = tabs.find((t) => t.key === activeKey) ?? null
+  const activeFile = activeTab?.kind === 'file' ? fileCache[activeTab.rel] : undefined
+  const activeImage = activeTab?.kind === 'image' ? imageCache[activeTab.rel] : undefined
+  const activeDiff = activeTab?.kind === 'diff' ? diffCache[activeTab.rel] : undefined
+  const explorerListOptions = useMemo<IdeListDirOptions>(
+    () => ({
+      showHidden: explorerPrefs.showHidden,
+      showIgnored: explorerPrefs.showIgnored,
+      ignore: explorerPrefs.ignore
+    }),
+    [explorerPrefs.showHidden, explorerPrefs.showIgnored, explorerPrefs.ignore]
+  )
 
   /*
    * 标签栏横向滚动且隐藏了滚动条：页签多到溢出时，新打开的页签会排在可视
@@ -571,9 +759,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   useEffect(() => {
     if (!editorPrefs.autoRevealInExplorer) return
     if (view !== 'files' || !sidebarOpen) return
-    if (!activeTab || activeTab.kind === 'diff' || !activeTab.rel) return
+    if (!activeTab || activeTab.kind === 'diff' || activeTab.untitled || !activeTab.rel) return
     const rel = activeTab.rel
     setTreeTarget({ rel, kind: 'file' })
+    setTreeSelection(new Set([rel]))
+    setTreeAnchor(rel)
     setReveal((prev) => ({ rel, nonce: (prev?.nonce ?? 0) + 1 }))
   }, [activeKey, editorPrefs.autoRevealInExplorer])
 
@@ -589,29 +779,36 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     for (const tab of tabs) {
       if (tab.kind !== 'file') continue
       const file = fileCache[tab.rel]
-      if (!file || file.binary || file.truncated) continue
-      const language = monacoLanguage(file.language, file.rel)
+      if (!file || file.binary || file.truncated || file.untitled) continue
+      const language =
+        languageOverrides[file.rel] ?? monacoLanguage(file.language, file.rel)
       if (!isLspLanguage(language)) continue
       out.push({ rel: tab.rel, language, text: file.text })
     }
     return out
-  }, [fileCache, tabs])
+  }, [fileCache, tabs, languageOverrides])
   useEffect(() => {
     syncLspDocs(lspDocs)
   }, [lspDocs, syncLspDocs])
 
   const activeLspFile = activeTab?.kind === 'file' ? fileCache[activeTab.rel] : undefined
   const activeLanguage = activeLspFile
-    ? monacoLanguage(activeLspFile.language, activeLspFile.rel)
+    ? (languageOverrides[activeLspFile.rel] ??
+      monacoLanguage(activeLspFile.language, activeLspFile.rel))
     : null
   const activeLsp = activeLanguage ? lspStates[activeLanguage] : undefined
 
   const isDirty = useCallback(
     (rel: string): boolean => {
       const f = fileCache[rel]
-      return !!f && baseText[rel] !== undefined && f.text !== baseText[rel]
+      if (!f) return false
+      // 未命名缓冲区在落盘前始终算未保存（即使还是空文件）
+      if (f.untitled) return true
+      if (baseText[rel] === undefined) return false
+      if (f.text !== baseText[rel]) return true
+      return (f.eol ?? 'lf') !== (baseEol[rel] ?? f.eol ?? 'lf')
     },
-    [fileCache, baseText]
+    [fileCache, baseText, baseEol]
   )
   const dirtyRels = useMemo(
     () => Object.keys(fileCache).filter((rel) => isDirty(rel)),
@@ -648,7 +845,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
       let disk: IdeTextFile
       try {
-        const r = await api.ide.readFile(cwd, rel)
+        // 用户手动指定过编码的文件，外部改动后仍按手动编码读；否则重新自动识别
+        const cached = liveRef.current.fileCache[rel]
+        const forced = cached?.encodingAuto === false ? cached.encoding : undefined
+        const r = await api.ide.readFile(cwd, rel, forced)
         if (relSeqRef.current.get(rel) !== seq) return
         // 删除 / 变成非文件用结构化 code 判断，绝不匹配错误文案
         if (!r.ok) {
@@ -667,21 +867,30 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       const { fileCache: cache, baseText: bases } = liveRef.current
       const current = cache[rel]
       if (!current) return
+      // 外部内容更新后仍然遵守 .editorconfig 的换行要求；但基准 eol 记磁盘值，
+      // 这样「磁盘 LF、配置 CRLF」会继续显示为未保存，保存时再转。
+      const cfgEol = liveRef.current.editorConfigs[rel]?.endOfLine
+      const adopted = cfgEol ? { ...disk, eol: cfgEol } : disk
       const base = bases[rel]
+      const baseEol = liveRef.current.baseEol[rel]
       // await 期间用户可能已经开始输入，必须重新判断脏状态
-      const dirtyNow = base !== undefined && current.text !== base
+      const dirtyNow =
+        base !== undefined &&
+        (current.text !== base || (current.eol ?? 'lf') !== (baseEol ?? current.eol ?? 'lf'))
 
       if (!dirtyNow) {
-        setFileCache((m) => (m[rel] ? { ...m, [rel]: disk } : m))
+        setFileCache((m) => (m[rel] ? { ...m, [rel]: adopted } : m))
         setBaseText((m) => ({ ...m, [rel]: disk.text }))
+        setBaseEol((m) => ({ ...m, [rel]: disk.eol ?? 'lf' }))
         clearExternal(rel)
         return
       }
 
       if (disk.text === current.text) {
         // 外部写入和草稿恰好一致：采纳磁盘元数据，缓冲区变成干净
-        setFileCache((m) => (m[rel] ? { ...m, [rel]: disk } : m))
+        setFileCache((m) => (m[rel] ? { ...m, [rel]: adopted } : m))
         setBaseText((m) => ({ ...m, [rel]: disk.text }))
+        setBaseEol((m) => ({ ...m, [rel]: disk.eol ?? 'lf' }))
         clearExternal(rel)
         return
       }
@@ -726,6 +935,34 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     [api, cwd]
   )
 
+  /** `.editorconfig` 变了：清主进程缓存，再把所有打开文件的生效配置重取一遍 */
+  const reloadEditorConfigs = useCallback((): void => {
+    const readConfig = api?.ide?.editorConfig
+    if (!readConfig) return
+    // 先请求一次配置路径本身，主进程据此清缓存
+    void readConfig(cwd, '.editorconfig')
+      .catch(() => undefined)
+      .then(() => {
+        const open = liveRef.current.tabs.filter(
+          (tab) => tab.kind === 'file' && !tab.untitled
+        )
+        for (const tab of open) {
+          void readConfig(cwd, tab.rel)
+            .then((cfg) => {
+              setEditorConfigs((m) => ({ ...m, [tab.rel]: cfg }))
+              if (cfg.endOfLine) {
+                setFileCache((m) => {
+                  const cur = m[tab.rel]
+                  if (!cur || cur.eol === cfg.endOfLine) return m
+                  return { ...m, [tab.rel]: { ...cur, eol: cfg.endOfLine } }
+                })
+              }
+            })
+            .catch(() => undefined)
+        }
+      })
+  }, [api, cwd])
+
   const applyFsBatch = useCallback(
     (batch: IdeFsChanged): void => {
       if (!batch || !Array.isArray(batch.rels)) return
@@ -751,6 +988,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
       }
       setTreeDirty((prev) => ({ version: prev.version + 1, all, dirs }))
+
+      // .editorconfig 改了：所有打开文件的缩进 / 换行配置都要重算
+      if (
+        all ||
+        batch.rels.some((rel) => {
+          const base = rel.split('/').pop()
+          return base === '.editorconfig'
+        })
+      ) {
+        reloadEditorConfigs()
+      }
 
       // git status 比列目录贵；连续写入时合并成一次
       if (vcsRefreshTimer.current) window.clearTimeout(vcsRefreshTimer.current)
@@ -787,7 +1035,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
       }
     },
-    [revalidateDiff, revalidateFile, revalidateImage, vcs.refresh]
+    [revalidateDiff, revalidateFile, revalidateImage, reloadEditorConfigs, vcs.refresh]
   )
 
   useEffect(() => {
@@ -835,23 +1083,32 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
    * 缓存丢掉，ensureTab 会在激活时重新读取；脏草稿原样保留，绝不能被
    * 磁盘内容覆盖。
    */
-  const onWorkspaceReplaced = useCallback(
-    (r: IdeReplaceData): void => {
-      if (r.totals.filesChanged === 0) return
+  const clearAfterWorkspaceWrite = useCallback(
+    (changed: number): void => {
+      if (changed === 0) return
       const keep = new Set(dirtyRels)
       const onlyDirty = <T,>(rec: Record<string, T>): Record<string, T> =>
         Object.fromEntries(Object.entries(rec).filter(([rel]) => keep.has(rel)))
       setFileCache(onlyDirty)
       setBaseText(onlyDirty)
+      setBaseEol((m) => Object.fromEntries(Object.entries(m).filter(([rel]) => keep.has(rel))))
       setImageCache({})
       setDiffCache({})
       const keepExternal = new Set(dirtyRels.map(extKey))
       setExternal((m) =>
         Object.fromEntries(Object.entries(m).filter(([key]) => keepExternal.has(key)))
       )
-      // 全部替换可能动了任意多个目录，直接全量刷新
+      // 全部替换 / 撤销可能动了任意多个目录，直接全量刷新
       setTreeDirty((prev) => ({ version: prev.version + 1, all: true, dirs: prev.dirs }))
       void vcs.refresh()
+    },
+    [dirtyRels, vcs]
+  )
+
+  const onWorkspaceReplaced = useCallback(
+    (r: IdeReplaceData): void => {
+      clearAfterWorkspaceWrite(r.totals.filesChanged)
+      if (r.totals.filesChanged === 0) return
       showFlash(
         t('ide.replaceDone', {
           replacements: r.totals.replacements,
@@ -859,12 +1116,22 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         })
       )
     },
-    [dirtyRels, showFlash, vcs]
+    [clearAfterWorkspaceWrite, showFlash, t]
+  )
+
+  const onWorkspaceRestored = useCallback(
+    (files: number): void => {
+      clearAfterWorkspaceWrite(files)
+      if (files > 0) showFlash(t('ide.undoDone', { files }))
+    },
+    [clearAfterWorkspaceWrite, showFlash, t]
   )
 
   // 任务栏/窗口标题跟着工作区走，而不是页面默认的 CCoder
   useEffect(() => {
     document.title = `CCoder IDE — ${baseName(cwd)}`
+    // 撤销令牌是按工作区存的；切换工作区后旧令牌没有意义
+    setLastReplace(null)
   }, [cwd])
 
   // 主窗口改语言/主题/字号/缩放/编辑器偏好时，已经开着的 IDE 窗口也跟着变
@@ -966,6 +1233,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               t &&
               typeof t.key === 'string' &&
               typeof t.rel === 'string' &&
+              !t.untitled &&
               (t.kind === 'file' || t.kind === 'image' || t.kind === 'diff')
           )
           setTabs(valid)
@@ -981,11 +1249,52 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   useEffect(() => {
     if (!restored.current) return
     try {
-      localStorage.setItem(`ccoder:ide:${cwd}`, JSON.stringify({ tabs, active: activeKey }))
+      const persistable = tabs.filter((t) => !t.untitled)
+      localStorage.setItem(
+        `ccoder:ide:${cwd}`,
+        JSON.stringify({ tabs: persistable, active: activeKey })
+      )
     } catch {
       // localStorage 满了不影响使用
     }
   }, [cwd, tabs, activeKey])
+
+  // 资源管理器显示选项按工作区记忆
+  useEffect(() => {
+    try {
+      localStorage.setItem(`ccoder:ide:explorer:${cwd}`, JSON.stringify(explorerPrefs))
+    } catch {
+      // 存不下不影响本次会话
+    }
+  }, [cwd, explorerPrefs])
+
+  // 选项变了：所有展开目录都要重新列一次（隐藏 / 显示规则可能影响任意层）
+  useEffect(() => {
+    setTreeDirty((prev) => ({ version: prev.version + 1, all: true, dirs: prev.dirs }))
+  }, [explorerPrefs])
+
+  // 记录最后一次鼠标落在资源管理器还是编辑器
+  useEffect(() => {
+    const onDown = (e: MouseEvent): void => {
+      const el = e.target as HTMLElement | null
+      explorerFocusRef.current = !!el?.closest?.('.ide-explorer')
+    }
+    document.addEventListener('mousedown', onDown, true)
+    return () => document.removeEventListener('mousedown', onDown, true)
+  }, [])
+
+  // 语言模式按工作区记忆；换窗口 / 重开文件后仍是用户上次的选择
+  useEffect(() => {
+    try {
+      if (Object.keys(languageOverrides).length === 0) {
+        localStorage.removeItem(`ccoder:ide:lang:${cwd}`)
+      } else {
+        localStorage.setItem(`ccoder:ide:lang:${cwd}`, JSON.stringify(languageOverrides))
+      }
+    } catch {
+      // 存不下就算了，本次会话仍然生效
+    }
+  }, [cwd, languageOverrides])
 
   const ensureTab = useCallback(
     async (tab: Tab) => {
@@ -993,6 +1302,30 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       if (tab.kind === 'file' && fileCache[tab.rel]) return
       if (tab.kind === 'image' && imageCache[tab.rel]) return
       if (tab.kind === 'diff' && diffCache[tab.rel]) return
+
+      // 未命名缓冲区不读盘；内容在创建时已经放进 fileCache
+      if (tab.kind === 'file' && tab.untitled) {
+        setFileCache((m) =>
+          m[tab.rel]
+            ? m
+            : {
+                ...m,
+                [tab.rel]: {
+                  rel: tab.rel,
+                  text: '',
+                  size: 0,
+                  language: 'Text',
+                  truncated: false,
+                  binary: false,
+                  encoding: 'utf8',
+                  eol: 'lf',
+                  editable: true,
+                  untitled: true
+                }
+              }
+        )
+        return
+      }
 
       setLoadingKey(tab.key)
       try {
@@ -1008,8 +1341,25 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               : r.data
           setFileCache((m) => ({ ...m, [tab.rel]: restored }))
           setBaseText((m) => (tab.rel in m ? m : { ...m, [tab.rel]: r.data.text }))
+          setBaseEol((m) => (tab.rel in m ? m : { ...m, [tab.rel]: r.data.eol ?? 'lf' }))
           // 把相对路径 import 的目标也建进 Monaco，TS worker 才能跨文件解析
           ensureImportedModels(cwd, tab.rel, restored.text, api.ide.readFile)
+          // .editorconfig 可能改缩进 / 换行；拿到后立刻反映到缓冲区
+          if (api.ide.editorConfig) {
+            void api.ide
+              .editorConfig(cwd, tab.rel)
+              .then((cfg) => {
+                setEditorConfigs((m) => ({ ...m, [tab.rel]: cfg }))
+                if (cfg.endOfLine) {
+                  setFileCache((m) => {
+                    const cur = m[tab.rel]
+                    if (!cur || cur.eol === cfg.endOfLine) return m
+                    return { ...m, [tab.rel]: { ...cur, eol: cfg.endOfLine } }
+                  })
+                }
+              })
+              .catch(() => undefined)
+          }
         } else if (tab.kind === 'image') {
           const r = await api.ide.readImage(cwd, tab.rel)
           if (!r.ok) throw new Error(r.message || t('ide.openFailedUnknown'))
@@ -1207,14 +1557,16 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
    * 目录是异步读的，滚动由下面的 effect 轮询等待。
    */
   const revealInExplorer = useCallback((): void => {
-    if (!activeTab || !activeTab.rel) {
-      showFlash(t('ide.command.noActiveFile'))
+    if (!activeTab || !activeTab.rel || activeTab.untitled) {
+      showFlash(t(activeTab?.untitled ? 'ide.untitledNoPath' : 'ide.command.noActiveFile'))
       return
     }
     const rel = activeTab.rel
     setView('files')
     setSidebarOpen(true)
     setTreeTarget({ rel, kind: 'file' })
+    setTreeSelection(new Set([rel]))
+    setTreeAnchor(rel)
     setReveal((prev) => ({ rel, nonce: (prev?.nonce ?? 0) + 1 }))
   }, [activeTab, showFlash, t])
 
@@ -1222,8 +1574,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const openContainingFolder = useCallback((): void => {
     // 当前在设置页签时，退回到文件树里选中的文件
     const rel = activeTab?.rel || (treeTarget.kind === 'file' ? treeTarget.rel : '')
-    if (!rel) {
-      setNotice(t('ide.command.noActiveFile'))
+    if (!rel || activeTab?.untitled) {
+      setNotice(t(activeTab?.untitled ? 'ide.untitledNoPath' : 'ide.command.noActiveFile'))
       return
     }
     const reveal = api?.ide?.revealInOs
@@ -1378,6 +1730,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             delete next[tab.rel]
             return next
           })
+          setBaseEol((m) => {
+            if (!(tab.rel in m)) return m
+            const next = { ...m }
+            delete next[tab.rel]
+            return next
+          })
         } else if (tab.kind === 'image') {
           setImageCache((m) => {
             const next = { ...m }
@@ -1392,7 +1750,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           })
         }
       }
-      closedTabsRef.current = [...closing, ...closedTabsRef.current].slice(0, 20)
+      closedTabsRef.current = [
+        ...closing.filter((tab) => !tab.untitled),
+        ...closedTabsRef.current
+      ].slice(0, 20)
 
       setTabs((list) => {
         const next = list.filter((t) => !set.has(t.key))
@@ -1425,6 +1786,97 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     void vcs.refresh()
   }, [vcs])
 
+  /** 当前文件实际使用的 Monaco 语言 id（手动覆盖 > 扩展名推断） */
+  const languageFor = useCallback(
+    (file: IdeTextFile): string =>
+      languageOverrides[file.rel] ?? monacoLanguage(file.language, file.rel),
+    [languageOverrides]
+  )
+
+  /**
+   * 当前文件生效的缩进。
+   * 优先级：.editorconfig > 按语言配置 > 全局设置。
+   */
+  const indentFor = useCallback(
+    (file: IdeTextFile): { tabSize: number; insertSpaces: boolean } => {
+      let tabSize = editorPrefs.tabSize
+      let insertSpaces = editorPrefs.insertSpaces
+      const lang = languageFor(file)
+      const perLanguage = editorPrefs.languages[lang]
+      if (perLanguage) {
+        tabSize = perLanguage.tabSize
+        insertSpaces = perLanguage.insertSpaces
+      }
+      const cfg = editorConfigs[file.rel]
+      if (cfg?.indentStyle) insertSpaces = cfg.indentStyle === 'space'
+      if (typeof cfg?.indentSize === 'number') tabSize = cfg.indentSize
+      else if (cfg?.indentSize === 'tab') {
+        if (typeof cfg.tabWidth === 'number') tabSize = cfg.tabWidth
+      } else if (typeof cfg?.tabWidth === 'number') {
+        tabSize = cfg.tabWidth
+      }
+      return { tabSize, insertSpaces }
+    },
+    [editorConfigs, editorPrefs, languageFor]
+  )
+
+  /** 保存前统一处理行尾空白 / 末尾空行，返回要写盘的内容 */
+  const prepareSaveText = useCallback(
+    (rel: string, raw: string, cfg?: EditorConfigProperties): string => {
+      let text = raw
+      const config = cfg ?? editorConfigs[rel]
+      if (config?.trimTrailingWhitespace ?? editorPrefs.trimTrailingWhitespace) {
+        text = text.replace(/[ \t]+$/gm, '')
+      }
+      const finalNewline = config?.insertFinalNewline
+      if (finalNewline === true && text.length > 0 && !text.endsWith('\n')) text += '\n'
+      if (finalNewline === false) text = text.replace(/\n+$/, '')
+      return text
+    },
+    [editorConfigs, editorPrefs.trimTrailingWhitespace]
+  )
+
+  /** 另存为 / 未命名保存用的路径输入框，取消时给 null */
+  const askPath = useCallback(
+    (opts: {
+      title: string
+      message: string
+      value: string
+      confirmLabel: string
+    }): Promise<string | null> =>
+      new Promise((resolve) => {
+        setPrompt({
+          ...opts,
+          run: (value) => resolve(value.trim()),
+          onCancel: () => resolve(null)
+        })
+      }),
+    []
+  )
+
+  /** Promise 化的确认框；遮罩 / Esc 视为取消 */
+  const askConfirm = useCallback(
+    (opts: { title: string; message: string; confirmLabel: string }): Promise<boolean> =>
+      new Promise((resolve) => {
+        setDialog({
+          title: opts.title,
+          message: opts.message,
+          onCancel: () => resolve(false),
+          actions: [
+            { label: t('common.cancel'), run: () => resolve(false) },
+            {
+              label: opts.confirmLabel,
+              kind: 'danger',
+              run: () => resolve(true)
+            }
+          ]
+        })
+      }),
+    [t]
+  )
+
+  const saveAsFileRef = useRef<((rel: string) => Promise<boolean>) | null>(null)
+
   const saveDoc = useCallback(
     async (
       rel: string,
@@ -1442,6 +1894,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         setNotice(t('ide.tooLargeCannotSave'))
         return false
       }
+      // 未命名缓冲区没有磁盘路径：保存 = 另存为
+      if (file.untitled) {
+        return (await saveAsFileRef.current?.(rel)) ?? false
+      }
       // 磁盘上已删除的干净缓冲区也要走 saveFile，才能弹出现有的“重新创建”
       if (
         !isDirty(rel) &&
@@ -1455,11 +1911,35 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       if (!force && (savingRelsRef.current.get(extKey(rel)) ?? 0) > 0) return true
 
       const savingKey = extKey(rel)
-      // 「保存时删除行尾空白」只在写盘前生效一次；编辑器内容同步更新，
-      // 撤销栈仍然是 Monaco 自己的，不怕误删。
-      const text = editorPrefs.trimTrailingWhitespace
-        ? file.text.replace(/[ \t]+$/gm, '')
-        : file.text
+      /*
+       * 保存前格式化只在「这个文件就是当前编辑器里的 model」时做：
+       * 格式化动作是 Monaco 编辑器级的，后台文件没法在不切 model 的情况下
+       * 跑。自动保存 / 保存全部里的非活动文件保持原样，等切过去再保存。
+       */
+      let text = file.text
+      if (editorPrefs.formatOnSave && activeKey === `file:${rel}`) {
+        const editor = activeEditor()
+        const model = editor?.getModel()
+        if (editor && model && relFromUri(model.uri, cwd) === rel && model.getValue() === text) {
+          const formatted = await formatActiveDocument()
+          if (formatted) {
+            text = editor.getValue()
+            if (text !== file.text) {
+              setFileCache((m) => (m[rel] ? { ...m, [rel]: { ...m[rel], text } } : m))
+            }
+          }
+        }
+      }
+      let relCfg: EditorConfigProperties | undefined = editorConfigs[rel]
+      if (!relCfg && api.ide.editorConfig) {
+        try {
+          relCfg = await api.ide.editorConfig(cwd, rel)
+          setEditorConfigs((m) => ({ ...m, [rel]: relCfg ?? {} }))
+        } catch {
+          relCfg = undefined
+        }
+      }
+      text = prepareSaveText(rel, text, relCfg)
       if (text !== file.text) {
         setFileCache((m) =>
           m[rel] ? { ...m, [rel]: { ...m[rel], text } } : m
@@ -1473,7 +1953,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           rel,
           text,
           expectedMtimeMs: file.mtimeMs,
-          eol: file.eol,
+          eol: file.eol ?? relCfg?.endOfLine ?? 'lf',
           encoding: encoding ?? file.encoding,
           force
         })
@@ -1515,6 +1995,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
         // 保存期间用户可能继续输入：这种情况下不能拿磁盘快照覆盖当前缓冲区，
         // 只更新 mtime 等元数据；baseText 用刚写盘的文本，标签继续保持未保存。
+        // 普通保存沿用原有的「自动 / 手动」编码来源；只有明确指定编码保存才转为手动。
+        const nextAuto = encoding === undefined ? file.encodingAuto : false
         setFileCache((m) => {
           const cur = m[rel]
           if (cur && cur.text !== text) {
@@ -1525,13 +2007,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                 size: r.data.size,
                 mtimeMs: r.data.mtimeMs,
                 eol: r.data.eol,
-                encoding: r.data.encoding
+                encoding: r.data.encoding,
+                encodingAuto: nextAuto
               }
             }
           }
-          return { ...m, [rel]: r.data }
+          return { ...m, [rel]: { ...r.data, encodingAuto: nextAuto } }
         })
         setBaseText((m) => ({ ...m, [rel]: r.data.text }))
+        setBaseEol((m) => ({ ...m, [rel]: r.data.eol ?? 'lf' }))
         delete pendingDraftsRef.current[rel]
         clearExternal(rel)
         ensureImportedModels(cwd, rel, r.data.text, api.ide.readFile)
@@ -1552,13 +2036,305 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         setSavingRel((cur) => (cur === rel ? null : cur))
       }
     },
-    [api, clearExternal, cwd, editorPrefs.trimTrailingWhitespace, external, fileCache, isDirty, showFlash, vcs]
+    [api, activeKey, clearExternal, cwd, editorConfigs, editorPrefs.formatOnSave, external, fileCache, isDirty, prepareSaveText, showFlash, vcs]
   )
 
-  /** 以指定编码重新读盘；有未保存修改时不允许，避免直接覆盖缓冲区 */
+  /**
+   * 另存为（未命名缓冲区保存也走这里）。
+   *
+   * 目标必须是工作区内的相对路径；目标已存在时先确认，之后用它的 mtime
+   * 做冲突检测。成功后当前标签切换到新路径，旧路径的缓存和草稿丢弃。
+   */
+  const saveAsFile = useCallback(
+    async (fromRel: string): Promise<boolean> => {
+      if (!api?.ide) return false
+      const file = fileCache[fromRel]
+      if (!file) return false
+      if (file.binary || file.truncated) {
+        setNotice(t(file.binary ? 'ide.binaryCannotSave' : 'ide.tooLargeCannotSave'))
+        return false
+      }
+
+      const sourceTab = tabs.find((tab) => tab.kind === 'file' && tab.rel === fromRel)
+      const suggested = file.untitled ? untitledTitle(fromRel) : fromRel
+      const input = await askPath({
+        title: t('ide.saveAsTitle'),
+        message: t('ide.saveAsMessage'),
+        value: suggested,
+        confirmLabel: t('ide.saveAs')
+      })
+      if (input === null) return false
+      const toRel = cleanRelInput(input)
+      if (!toRel) {
+        setNotice(t('ide.saveAsInvalidPath'))
+        return false
+      }
+      // 普通文件在同一个路径上「另存为」等价于保存
+      if (toRel === fromRel && !file.untitled) return saveDoc(fromRel, true)
+
+      const existing = await api.ide.readFile(cwd, toRel)
+      let expectedMtimeMs: number | undefined
+      let mustCreate = false
+      if (existing.ok) {
+        const other = tabs.find(
+          (tab) => tab.kind === 'file' && tab.rel === toRel && tab.key !== sourceTab?.key
+        )
+        if (other && fileCache[toRel]?.untitled !== true && isDirty(toRel)) {
+          setNotice(t('ide.saveAsTargetOpenDirty'))
+          return false
+        }
+        const confirmed = await askConfirm({
+          title: t('ide.saveAsOverwriteTitle'),
+          message: t('ide.saveAsOverwriteMessage', { rel: toRel }),
+          confirmLabel: t('ide.overwrite')
+        })
+        if (!confirmed) return false
+        expectedMtimeMs = existing.data.mtimeMs
+      } else if (existing.code === 'not-file') {
+        setNotice(t('ide.saveAsNotFile'))
+        return false
+      } else if (existing.code !== 'missing') {
+        setNotice(t('ide.saveFailed', { error: existing.message }))
+        return false
+      } else {
+        mustCreate = true
+      }
+
+      // 目标路径的 .editorconfig 可能和新文件所在目录不同
+      let targetCfg: EditorConfigProperties | undefined
+      if (api.ide.editorConfig) {
+        try {
+          targetCfg = await api.ide.editorConfig(cwd, toRel)
+          setEditorConfigs((m) => ({ ...m, [toRel]: targetCfg ?? {} }))
+        } catch {
+          targetCfg = undefined
+        }
+      }
+
+      let text = file.text
+      if (editorPrefs.formatOnSave && activeKey === sourceTab?.key) {
+        const editor = activeEditor()
+        const model = editor?.getModel()
+        if (editor && model && model.getValue() === text) {
+          const formatted = await formatActiveDocument()
+          if (formatted) text = editor.getValue()
+        }
+      }
+      if (targetCfg?.trimTrailingWhitespace ?? editorPrefs.trimTrailingWhitespace) {
+        text = text.replace(/[ \t]+$/gm, '')
+      }
+      if (targetCfg?.insertFinalNewline === true && text.length > 0 && !text.endsWith('\n')) {
+        text += '\n'
+      } else if (targetCfg?.insertFinalNewline === false) {
+        text = text.replace(/\n+$/, '')
+      }
+      const eol = targetCfg?.endOfLine ?? file.eol ?? 'lf'
+
+      setSavingRel(fromRel)
+      savingRelsRef.current.set(extKey(fromRel), (savingRelsRef.current.get(extKey(fromRel)) ?? 0) + 1)
+      // 目标路径的 watcher 事件也要忽略，否则它会把刚写入的磁盘内容当成外部改动
+      savingRelsRef.current.set(extKey(toRel), (savingRelsRef.current.get(extKey(toRel)) ?? 0) + 1)
+      try {
+        const r = await api.ide.saveFile({
+          cwd,
+          rel: toRel,
+          text,
+          expectedMtimeMs,
+          eol,
+          encoding: file.encoding,
+          mustCreate
+        })
+        if (!r.ok) {
+          if (r.code === 'exists') setNotice(t('ide.saveAsExists'))
+          else setNotice(t('ide.saveFailed', { error: r.message }))
+          return false
+        }
+
+        // 另存为不改变编码来源：未命名缓冲区默认 UTF-8，仍算自动；
+        // 用户手动指定过编码的文件继续保持手动。
+        const savedData = { ...r.data, encodingAuto: file.encodingAuto ?? true }
+
+        const nextKey = `file:${toRel}`
+        if (sourceTab) {
+          const sourceKey = sourceTab.key
+          setTabs((list) =>
+            list
+              .filter(
+                (tab) =>
+                  tab.key === sourceKey ||
+                  !(tab.kind === 'file' && tab.rel === toRel)
+              )
+              .map((tab) =>
+                tab.key === sourceKey
+                  ? {
+                      ...tab,
+                      rel: toRel,
+                      key: nextKey,
+                      title: baseName(toRel),
+                      untitled: false
+                    }
+                  : tab
+              )
+          )
+          setActiveKey((cur) =>
+            cur === sourceKey || cur === nextKey ? nextKey : cur
+          )
+        }
+
+        if (fromRel !== toRel) {
+          setFileCache((m) => {
+            const next = { ...m }
+            delete next[fromRel]
+            next[toRel] = savedData
+            return next
+          })
+          setBaseText((m) => {
+            const next = { ...m }
+            delete next[fromRel]
+            next[toRel] = savedData.text
+            return next
+          })
+          setBaseEol((m) => {
+            const next = { ...m }
+            delete next[fromRel]
+            next[toRel] = savedData.eol ?? 'lf'
+            return next
+          })
+          setEditorConfigs((m) => {
+            const next = { ...m }
+            delete next[fromRel]
+            return next
+          })
+          setLanguageOverrides((m) => {
+            if (!(fromRel in m)) return m
+            const next = { ...m }
+            const lang = next[fromRel]
+            delete next[fromRel]
+            next[toRel] = lang
+            return next
+          })
+          delete pendingDraftsRef.current[fromRel]
+          clearExternal(toRel)
+          clearExternal(fromRel)
+          setCursor((c) => (c && c.rel === fromRel ? { ...c, rel: toRel } : c))
+          setJump((j) => (j && j.rel === fromRel ? { ...j, rel: toRel } : j))
+          ensureImportedModels(cwd, toRel, savedData.text, api.ide.readFile)
+        } else {
+          setFileCache((m) => ({ ...m, [toRel]: savedData }))
+          setBaseText((m) => ({ ...m, [toRel]: savedData.text }))
+          setBaseEol((m) => ({ ...m, [toRel]: savedData.eol ?? 'lf' }))
+        }
+
+        refresh()
+        void vcs.refresh()
+        showFlash(t('ide.saved', { name: baseName(toRel) }))
+        return true
+      } catch (err) {
+        setNotice(
+          t('ide.saveFailed', { error: err instanceof Error ? err.message : String(err) })
+        )
+        return false
+      } finally {
+        const key = extKey(fromRel)
+        const left = (savingRelsRef.current.get(key) ?? 1) - 1
+        if (left > 0) savingRelsRef.current.set(key, left)
+        else savingRelsRef.current.delete(key)
+        // 目标路径的计数在成功分支才会增加；失败时删掉也无副作用
+        const targetKey = extKey(toRel)
+        const targetLeft = (savingRelsRef.current.get(targetKey) ?? 1) - 1
+        if (targetLeft > 0) savingRelsRef.current.set(targetKey, targetLeft)
+        else savingRelsRef.current.delete(targetKey)
+        setSavingRel((cur) => (cur === fromRel ? null : cur))
+      }
+    },
+    [
+      activeKey,
+      api,
+      askConfirm,
+      askPath,
+      clearExternal,
+      cwd,
+      editorPrefs.formatOnSave,
+      editorPrefs.trimTrailingWhitespace,
+      fileCache,
+      isDirty,
+      refresh,
+      saveDoc,
+      showFlash,
+      t,
+      tabs,
+      vcs
+    ]
+  )
+  saveAsFileRef.current = saveAsFile
+
+  /** 新建一个未命名缓冲区（Ctrl+N）；保存时再选路径 */
+  const newUntitled = useCallback((): void => {
+    let n = untitledSeq.current
+    let rel = `${UNTITLED_PREFIX}Untitled-${n}`
+    while (tabs.some((tab) => tab.rel === rel)) {
+      n += 1
+      rel = `${UNTITLED_PREFIX}Untitled-${n}`
+    }
+    untitledSeq.current = n + 1
+    const title = t('ide.untitledName', { n })
+    setFileCache((m) => ({
+      ...m,
+      [rel]: {
+        rel,
+        text: '',
+        size: 0,
+        language: 'Text',
+        truncated: false,
+        binary: false,
+        encoding: 'utf8',
+        eol: 'lf',
+        editable: true,
+        untitled: true
+      }
+    }))
+    setTabs((list) => [
+      ...list,
+      { key: rel, kind: 'file', rel, title, untitled: true }
+    ])
+    setActiveKey(rel)
+    setView('files')
+    setSidebarOpen(true)
+  }, [t, tabs])
+
+  /** 命令面板 / 快捷键调用的「另存为」 */
+  const saveActiveAs = useCallback((): void => {
+    if (activeTab?.kind !== 'file' || !activeFile) {
+      showFlash(t('ide.command.noActiveFile'))
+      return
+    }
+    void saveAsFile(activeTab.rel)
+  }, [activeFile, activeTab, saveAsFile, showFlash, t])
+
+  const setLanguageMode = useCallback(
+    (rel: string, languageId: string): void => {
+      setLanguageOverrides((m) => ({ ...m, [rel]: languageId }))
+      showFlash(t('ide.language.changed', { language: languageLabel(languageId) }))
+    },
+    [showFlash, t]
+  )
+
+  const setEolMode = useCallback(
+    (rel: string, eol: IdeEol): void => {
+      setFileCache((m) => (m[rel] ? { ...m, [rel]: { ...m[rel], eol } } : m))
+      showFlash(t('ide.eol.changed', { eol: eol === 'crlf' ? 'CRLF' : 'LF' }))
+    },
+    [showFlash, t]
+  )
+
+  /** 以指定编码（省略 = 自动识别）重新读盘；有未保存修改时不允许 */
   const reopenWithEncoding = useCallback(
-    async (rel: string, encoding: IdeEncoding): Promise<void> => {
+    async (rel: string, encoding?: IdeEncoding): Promise<void> => {
       if (!api?.ide) return
+      if (fileCache[rel]?.untitled) {
+        setNotice(t('ide.untitledNoPath'))
+        return
+      }
       if (isDirty(rel)) {
         setNotice(t('ide.encoding.unsaved'))
         return
@@ -1570,15 +2346,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       }
       setFileCache((m) => ({ ...m, [rel]: r.data }))
       setBaseText((m) => ({ ...m, [rel]: r.data.text }))
+      setBaseEol((m) => ({ ...m, [rel]: r.data.eol ?? 'lf' }))
       clearExternal(rel)
       ensureImportedModels(cwd, rel, r.data.text, api.ide.readFile)
+      const label = t(ENCODING_LABEL_KEY[r.data.encoding])
       showFlash(
-        t('ide.encoding.reopened', {
-          encoding: t(ENCODING_LABEL_KEY[encoding])
-        })
+        encoding
+          ? t('ide.encoding.reopened', { encoding: label })
+          : t('ide.encoding.reopenedAuto', { encoding: label })
       )
     },
-    [api, clearExternal, cwd, isDirty, showFlash, t]
+    [api, clearExternal, cwd, fileCache, isDirty, showFlash, t]
   )
 
   /** 按指定编码写盘；即使文件没有修改也强制写一次，用于编码转换 */
@@ -1613,7 +2391,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       void (async () => {
         // 顺序保存：遇到冲突对话框就停下来，不要同时弹好几个
         for (const rel of [...dirtyRelsRef.current]) {
-          if (!isDirty(rel)) continue
+          if (!isDirty(rel) || liveRef.current.fileCache[rel]?.untitled) continue
           if (!(await saveDocRef.current(rel))) break
         }
       })()
@@ -1635,7 +2413,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     const onBlur = (): void => {
       void (async () => {
         for (const rel of [...dirtyRelsRef.current]) {
-          if (!isDirty(rel)) continue
+          if (!isDirty(rel) || liveRef.current.fileCache[rel]?.untitled) continue
           if (!(await saveDocRef.current(rel))) break
         }
       })()
@@ -1659,7 +2437,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     }
     // 已打开的文件：只存真正脏的；用户改回磁盘内容时草稿要消失
     for (const [rel, file] of Object.entries(cache)) {
-      if (!file || file.binary || file.truncated) continue
+      if (!file || file.binary || file.truncated || file.untitled) continue
       const base = bases[rel]
       if (base === undefined || file.text === base) continue
       if (file.text.length > DRAFT_FILE_MAX_CHARS) continue
@@ -1716,22 +2494,42 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     }
     setCreating(null)
     setTreeTarget({ rel: r.data.entry.rel, kind: r.data.entry.kind })
+    setTreeSelection(new Set([r.data.entry.rel]))
+    setTreeAnchor(r.data.entry.rel)
     refresh()
     if (r.data.entry.kind === 'file') openFile(r.data.entry.rel)
     showFlash(c.kind === 'dir' ? t('ide.folderCreated') : t('ide.fileCreated'))
   }, [api, cwd, creating, openFile, refresh, showFlash])
 
-  const applyRename = useCallback(
-    (oldRel: string, newRel: string): void => {
-      // 还没打开过的草稿也按新路径存，否则重命名后恢复不到
+  /**
+   * 把一批路径映射应用到所有打开状态（页签、缓存、草稿、光标、选择等）。
+   * 重命名单项和拖拽移动多项共用；一次性处理，避免多次 setState 互相覆盖。
+   */
+  const applyPathRemaps = useCallback(
+    (pairs: { from: string; to: string }[]): void => {
+      const clean = pairs.filter((p) => p.from && p.to && p.from !== p.to)
+      if (clean.length === 0) return
+      const mapRel = (rel: string): string => {
+        for (const pair of clean) {
+          if (rel === pair.from || rel.startsWith(`${pair.from}/`)) {
+            return pair.to + rel.slice(pair.from.length)
+          }
+        }
+        return rel
+      }
+      const underAny = (rel: string): boolean =>
+        clean.some((pair) => underPath(rel, pair.from))
+
+      // 还没打开过的草稿也按新路径存，否则重命名 / 移动后恢复不到
       const drafts: Record<string, string> = {}
       for (const [rel, text] of Object.entries(pendingDraftsRef.current)) {
-        drafts[remapPath(rel, oldRel, newRel)] = text
+        drafts[mapRel(rel)] = text
       }
       pendingDraftsRef.current = drafts
+
       setTabs((list) =>
         list.map((t) => {
-          const rel = remapPath(t.rel, oldRel, newRel)
+          const rel = mapRel(t.rel)
           if (rel === t.rel) return t
           return {
             ...t,
@@ -1741,13 +2539,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           }
         })
       )
-      const active = tabs.find((t) => t.key === activeKey)
-      if (active) setActiveKey(`${active.kind}:${remapPath(active.rel, oldRel, newRel)}`)
+      setActiveKey((cur) => {
+        const tab = tabs.find((t) => t.key === cur)
+        return tab ? `${tab.kind}:${mapRel(tab.rel)}` : cur
+      })
 
       const remapRecord = <T,>(rec: Record<string, T>): Record<string, T> => {
         const next: Record<string, T> = {}
         for (const [key, value] of Object.entries(rec)) {
-          next[remapPath(key, oldRel, newRel)] = value
+          next[mapRel(key)] = value
         }
         return next
       }
@@ -1759,6 +2559,27 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         return next
       })
       setBaseText(remapRecord)
+      setBaseEol(remapRecord)
+      setLanguageOverrides((m) => {
+        let changed = false
+        const next: Record<string, string> = {}
+        for (const [rel, id] of Object.entries(m)) {
+          const mapped = mapRel(rel)
+          if (mapped !== rel) changed = true
+          next[mapped] = id
+        }
+        return changed ? next : m
+      })
+      setEditorConfigs((m) => {
+        let changed = false
+        const next: Record<string, EditorConfigProperties> = {}
+        for (const [rel, cfg] of Object.entries(m)) {
+          const mapped = mapRel(rel)
+          if (mapped !== rel) changed = true
+          next[mapped] = cfg
+        }
+        return changed ? next : m
+      })
       setImageCache((m) => {
         const next = remapRecord(m)
         for (const [key, value] of Object.entries(next)) {
@@ -1766,23 +2587,28 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
         return next
       })
-      // diff 是按旧路径取的，重命名后直接丢掉，下次打开时重新拉
+      // diff 是按旧路径取的，路径变了就丢掉，下次打开时重新拉
       setDiffCache((m) =>
-        Object.fromEntries(Object.entries(m).filter(([key]) => !underPath(key, oldRel)))
+        Object.fromEntries(Object.entries(m).filter(([key]) => !underAny(key)))
       )
-      setCursor((c) =>
-        c && underPath(c.rel, oldRel) ? { ...c, rel: remapPath(c.rel, oldRel, newRel) } : c
-      )
-      setJump((j) =>
-        j && underPath(j.rel, oldRel) ? { ...j, rel: remapPath(j.rel, oldRel, newRel) } : j
-      )
-      setTreeTarget((t) =>
-        underPath(t.rel, oldRel)
-          ? { ...t, rel: remapPath(t.rel, oldRel, newRel) }
-          : t
-      )
+      setCursor((c) => (c && underAny(c.rel) ? { ...c, rel: mapRel(c.rel) } : c))
+      setJump((j) => (j && underAny(j.rel) ? { ...j, rel: mapRel(j.rel) } : j))
+      setTreeTarget((t) => (underAny(t.rel) ? { ...t, rel: mapRel(t.rel) } : t))
+      setTreeSelection((sel) => {
+        if (sel.size === 0) return sel
+        const next = new Set([...sel].map(mapRel))
+        return next
+      })
+      setTreeAnchor((a) => (a ? mapRel(a) : a))
     },
-    [activeKey, tabs]
+    [tabs]
+  )
+
+  const applyRename = useCallback(
+    (oldRel: string, newRel: string): void => {
+      applyPathRemaps([{ from: oldRel, to: newRel }])
+    },
+    [applyPathRemaps]
   )
 
   const renameTarget = useCallback(
@@ -1797,6 +2623,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       }
       applyRename(target.rel, r.data.entry.rel)
       setTreeTarget({ rel: r.data.entry.rel, kind: r.data.entry.kind })
+      setTreeSelection(new Set([r.data.entry.rel]))
+      setTreeAnchor(r.data.entry.rel)
       refresh()
       showFlash(t('ide.renamed'))
     },
@@ -1815,6 +2643,245 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       run: (value) => renameTarget(target, value)
     })
   }, [renameTarget, t])
+
+  /** 执行一批移动 / 复制，并在成功后同步页签、缓存和选择 */
+  const runTransfer = useCallback(
+    async (
+      rels: string[],
+      targetDir: string,
+      mode: 'move' | 'copy',
+      kinds: Map<string, 'file' | 'dir'>
+    ): Promise<{ ok: number; failed: number } | null> => {
+      const ideApi = api?.ide
+      if (!ideApi) return null
+      const unique = [...new Set(rels.filter(Boolean))]
+      if (unique.length === 0) return null
+      try {
+        const r = await ideApi.transferEntries({ cwd, rels: unique, targetDir, mode })
+        if (!r.ok) {
+          setNotice(t('ide.explorer.transferFailed', { error: r.message }))
+          return null
+        }
+        const good = r.data.items.filter((item) => item.ok)
+        const failed = r.data.items.filter((item) => !item.ok)
+        if (mode === 'move') {
+          applyPathRemaps(
+            good
+              .filter((item) => item.to && item.to !== item.from)
+              .map((item) => ({ from: item.from, to: item.to! }))
+          )
+        }
+        const destinations = good.map((item) => item.to).filter((x): x is string => !!x)
+        if (destinations.length > 0) {
+          setTreeSelection(new Set(destinations))
+          setTreeAnchor(destinations[0])
+          setTreeTarget({
+            rel: destinations[0],
+            kind: kinds.get(good[0]?.from ?? '') ?? 'file'
+          })
+        }
+        refresh()
+        void vcs.refresh()
+        if (failed.length > 0) {
+          setNotice(
+            t('ide.explorer.transferPartial', {
+              n: failed.length,
+              error: failed[0]?.message ?? ''
+            })
+          )
+        } else if (good.length > 0) {
+          showFlash(
+            t(mode === 'move' ? 'ide.explorer.moved' : 'ide.explorer.copied', {
+              n: good.length
+            })
+          )
+        }
+        return { ok: good.length, failed: failed.length }
+      } catch (err) {
+        setNotice(
+          t('ide.explorer.transferFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        )
+        return null
+      }
+    },
+    [api, applyPathRemaps, cwd, refresh, setNotice, showFlash, t, vcs]
+  )
+
+  /* ── 资源管理器：多选 / 拖拽 / 剪贴板 ─────────────────── */
+
+  /** 可见行按 DOM 顺序；Shift 连选用 */
+  const visibleTreeRels = useCallback((): string[] => {
+    return Array.from(document.querySelectorAll<HTMLElement>('.ide-trow[data-rel]'))
+      .map((el) => el.dataset.rel ?? '')
+      .filter(Boolean)
+  }, [])
+
+  const kindOfVisibleRel = useCallback((rel: string): 'file' | 'dir' => {
+    const row = Array.from(document.querySelectorAll<HTMLElement>('.ide-trow[data-rel]')).find(
+      (el) => el.dataset.rel === rel
+    )
+    return row?.classList.contains('is-dir') ? 'dir' : 'file'
+  }, [])
+
+  /** 普通点击单选；Ctrl/Cmd 切换；Shift 从锚点连选 */
+  const selectTreeTarget = useCallback(
+    (target: TreeTarget, e: ReactMouseEvent): void => {
+      setTreeTarget(target)
+      if (e.shiftKey) {
+        const anchor = treeAnchorRef.current
+        if (anchor) {
+          const rels = visibleTreeRels()
+          const a = rels.indexOf(anchor)
+          const b = rels.indexOf(target.rel)
+          if (a >= 0 && b >= 0) {
+            setTreeSelection(new Set(rels.slice(Math.min(a, b), Math.max(a, b) + 1)))
+            return
+          }
+        }
+      }
+      if (e.ctrlKey || e.metaKey) {
+        setTreeSelection((prev) => {
+          const next = new Set(prev)
+          if (target.rel) {
+            if (next.has(target.rel)) next.delete(target.rel)
+            else next.add(target.rel)
+          }
+          return next
+        })
+        setTreeAnchor(target.rel || null)
+        return
+      }
+      setTreeSelection(new Set(target.rel ? [target.rel] : []))
+      setTreeAnchor(target.rel || null)
+    },
+    [visibleTreeRels]
+  )
+
+  const selectAllTree = useCallback((): void => {
+    const rels = visibleTreeRels()
+    setTreeSelection(new Set(rels))
+    setTreeAnchor(rels[0] ?? null)
+  }, [visibleTreeRels])
+
+  /** 当前多选对应的目标；空选择时退回最后点击的单项 */
+  const selectedTreeTargets = useCallback((): TreeTarget[] => {
+    const rels = [...treeSelectionRef.current].filter(Boolean)
+    if (rels.length === 0) {
+      return treeTargetRef.current.rel ? [treeTargetRef.current] : []
+    }
+    return rels.map((rel) =>
+      rel === treeTargetRef.current.rel
+        ? treeTargetRef.current
+        : { rel, kind: kindOfVisibleRel(rel) }
+    )
+  }, [kindOfVisibleRel])
+
+  const beginTreeDrag = useCallback((target: TreeTarget, e: ReactDragEvent): void => {
+    const selection = treeSelectionRef.current
+    const rels = (
+      selection.has(target.rel) && selection.size > 0 ? [...selection] : [target.rel]
+    ).filter(Boolean)
+    if (rels.length === 0) return
+    dragRelsRef.current = rels
+    setDragRels(rels)
+    e.dataTransfer.effectAllowed = 'copyMove'
+    e.dataTransfer.setData('application/x-ccoder-tree', JSON.stringify(rels))
+    e.dataTransfer.setData('text/plain', rels.join('\n'))
+  }, [])
+
+  const endTreeDrag = useCallback((): void => {
+    dragRelsRef.current = []
+    setDragRels([])
+    setDropDir(null)
+  }, [])
+
+  const canDropInto = useCallback((targetDir: string): boolean => {
+    const rels = dragRelsRef.current
+    if (rels.length === 0) return false
+    return !rels.some((rel) => targetDir === rel || targetDir.startsWith(`${rel}/`))
+  }, [])
+
+  const dragOverTreeDir = useCallback(
+    (targetDir: string, e: ReactDragEvent): void => {
+      if (!canDropInto(targetDir)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = e.ctrlKey || e.altKey ? 'copy' : 'move'
+      setDropDir((cur) => (cur === targetDir ? cur : targetDir))
+    },
+    [canDropInto]
+  )
+
+  const dragLeaveTreeDir = useCallback((targetDir: string): void => {
+    setDropDir((cur) => (cur === targetDir ? null : cur))
+  }, [])
+
+  const dropOnTreeDir = useCallback(
+    (targetDir: string, e: ReactDragEvent): void => {
+      if (!canDropInto(targetDir)) return
+      e.preventDefault()
+      e.stopPropagation()
+      const rels = [...dragRelsRef.current]
+      const mode = e.ctrlKey || e.altKey ? 'copy' : 'move'
+      const kinds = new Map(rels.map((rel) => [rel, kindOfVisibleRel(rel)] as const))
+      endTreeDrag()
+      void runTransfer(rels, targetDir, mode, kinds)
+    },
+    [canDropInto, endTreeDrag, kindOfVisibleRel, runTransfer]
+  )
+
+  const copyTreeSelection = useCallback(
+    (cut: boolean): void => {
+      const rels = [...treeSelectionRef.current].filter(Boolean)
+      if (rels.length === 0) {
+        if (treeTargetRef.current.rel) rels.push(treeTargetRef.current.rel)
+        else return
+      }
+      setClipboard({ mode: cut ? 'cut' : 'copy', rels })
+      showFlash(
+        t(cut ? 'ide.explorer.cutDone' : 'ide.explorer.copyDone', { n: rels.length })
+      )
+    },
+    [showFlash, t]
+  )
+
+  const pasteTreeClipboard = useCallback((): void => {
+    const clip = clipboardRef.current
+    if (!clip) return
+    const target = treeTargetRef.current
+    const dir = target.kind === 'dir' ? target.rel : dirOfRel(target.rel)
+    const kinds = new Map(clip.rels.map((rel) => [rel, kindOfVisibleRel(rel)] as const))
+    void runTransfer(clip.rels, dir, clip.mode === 'cut' ? 'move' : 'copy', kinds).then(
+      (outcome) => {
+        if (clip.mode === 'cut' && outcome && outcome.failed === 0 && outcome.ok > 0) {
+          setClipboard(null)
+        }
+      }
+    )
+  }, [kindOfVisibleRel, runTransfer])
+
+  const editIgnoreRules = useCallback((): void => {
+    setPrompt({
+      title: t('ide.explorer.ignoreTitle'),
+      message: t('ide.explorer.ignoreMessage'),
+      value: explorerPrefs.ignore.join(', '),
+      confirmLabel: t('ide.explorer.ignoreSave'),
+      run: (value) => {
+        const patterns = splitGlobList(value)
+        setExplorerPrefs((prev) => ({ ...prev, ignore: patterns }))
+      }
+    })
+  }, [explorerPrefs.ignore, t])
+
+  const toggleHiddenFiles = useCallback((): void => {
+    setExplorerPrefs((prev) => ({ ...prev, showHidden: !prev.showHidden }))
+  }, [])
+
+  const toggleIgnoredDirs = useCallback((): void => {
+    setExplorerPrefs((prev) => ({ ...prev, showIgnored: !prev.showIgnored }))
+  }, [])
 
   const dropTabsUnder = useCallback(
     (prefix: string): void => {
@@ -1835,6 +2902,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         Object.fromEntries(Object.entries(rec).filter(([key]) => !underPath(key, prefix)))
       setFileCache(drop)
       setBaseText(drop)
+      setBaseEol(drop)
+      setLanguageOverrides(drop)
+      setEditorConfigs(drop)
       setImageCache(drop)
       setDiffCache(drop)
       const prefixKey = extKey(prefix)
@@ -1853,25 +2923,51 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       setCursor((c) => (c && underPath(c.rel, prefix) ? null : c))
       setJump((j) => (j && underPath(j.rel, prefix) ? null : j))
       setTreeTarget((t) => (underPath(t.rel, prefix) ? { rel: '', kind: 'dir' } : t))
+      setTreeSelection((sel) => {
+        if (sel.size === 0) return sel
+        return new Set([...sel].filter((rel) => !underPath(rel, prefix)))
+      })
+      setTreeAnchor((a) => (a && underPath(a, prefix) ? null : a))
     },
     [activeKey, tabs]
   )
 
   const requestDelete = useCallback(
-    (target: TreeTarget) => {
+    (input: TreeTarget | TreeTarget[]) => {
       setMenu(null)
+      const list = (Array.isArray(input) ? input : [input])
+        .filter((target) => !!target.rel)
+        .sort((a, b) => a.rel.length - b.rel.length)
+      const targets = list.filter(
+        (target, i) =>
+          !list.some(
+            (other, j) =>
+              j < i && (target.rel === other.rel || target.rel.startsWith(`${other.rel}/`))
+          )
+      )
+      if (targets.length === 0) return
+
+      const single = targets.length === 1 ? targets[0] : null
       const affected = tabs.filter(
-        (t) => t.kind === 'file' && underPath(t.rel, target.rel)
+        (t) =>
+          t.kind === 'file' &&
+          targets.some((target) => underPath(t.rel, target.rel))
       )
       const dirty = affected.filter((t) => t.kind === 'file' && isDirty(t.rel))
+      const dirtySuffix = dirty.length
+        ? t('ide.deleteDirtySuffix', { n: dirty.length })
+        : ''
       const what =
-        target.kind === 'dir' ? t('ide.deleteDirWhat') : t('ide.deleteFileWhat')
+        single?.kind === 'dir' ? t('ide.deleteDirWhat') : t('ide.deleteFileWhat')
       setDialog({
-        title:
-          target.kind === 'dir' ? t('ide.deleteDirTitle') : t('ide.deleteFileTitle'),
-        message:
-          t('ide.deleteMessage', { what, rel: target.rel }) +
-          (dirty.length ? t('ide.deleteDirtySuffix', { n: dirty.length }) : ''),
+        title: single
+          ? single.kind === 'dir'
+            ? t('ide.deleteDirTitle')
+            : t('ide.deleteFileTitle')
+          : t('ide.deleteManyTitle'),
+        message: single
+          ? t('ide.deleteMessage', { what, rel: single.rel }) + dirtySuffix
+          : t('ide.deleteManyMessage', { n: targets.length }) + dirtySuffix,
         actions: [
           { label: t('common.cancel'), run: () => undefined },
           {
@@ -1879,27 +2975,54 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             kind: 'danger',
             run: async () => {
               if (!api?.ide) return
-              const r = await api.ide.deleteEntry({ cwd, rel: target.rel })
-              if (!r.ok) {
-                setNotice(t('ide.deleteFailed', { error: r.message }))
-                return
+              const done: TreeTarget[] = []
+              let firstError: string | null = null
+              for (const target of targets) {
+                const r = await api.ide.deleteEntry({ cwd, rel: target.rel })
+                if (r.ok) {
+                  done.push(target)
+                } else if (!firstError) {
+                  firstError = r.message
+                }
               }
-              dropTabsUnder(target.rel)
+              for (const target of done) dropTabsUnder(target.rel)
               refresh()
-              showFlash(t('ide.deleted'))
+              if (done.length > 0) {
+                showFlash(
+                  done.length === 1
+                    ? t('ide.deleted')
+                    : t('ide.deletedMany', { n: done.length })
+                )
+              }
+              if (firstError) {
+                setNotice(t('ide.deleteFailed', { error: firstError }))
+              }
             }
           }
         ]
       })
     },
-    [api, cwd, dropTabsUnder, isDirty, refresh, showFlash, tabs]
+    [api, cwd, dropTabsUnder, isDirty, refresh, showFlash, tabs, t]
   )
 
   /** 快捷键 / 命令面板调用的「删除选中的文件树项」 */
   const deleteTreeTarget = useCallback((): void => {
-    const target = treeTargetRef.current
-    if (target.rel) requestDelete(target)
-  }, [requestDelete])
+    const targets = selectedTreeTargets()
+    if (targets.length > 0) requestDelete(targets)
+  }, [requestDelete, selectedTreeTargets])
+
+  /** 右键菜单删除：目标在多选里就整批删，否则只删右键那一项 */
+  const deleteForTarget = useCallback(
+    (target: TreeTarget): void => {
+      const selection = treeSelectionRef.current
+      if (target.rel && selection.has(target.rel) && selection.size > 1) {
+        requestDelete(selectedTreeTargets())
+      } else {
+        requestDelete(target)
+      }
+    },
+    [requestDelete, selectedTreeTargets]
+  )
 
   const requestCloseTab = useCallback(
     (key: string) => {
@@ -1995,6 +3118,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   const copyTabPath = useCallback(
     (rel: string): void => {
+      if (rel.startsWith(UNTITLED_PREFIX)) {
+        showFlash(t('ide.untitledNoPath'))
+        return
+      }
       void navigator.clipboard
         .writeText(rel)
         .then(() => showFlash(t('ide.tab.copied')))
@@ -2043,6 +3170,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   useEffect(() => {
     setEncodingMenuOpen(false)
+    setLanguageMenuOpen(false)
+    setEolMenuOpen(false)
   }, [activeKey])
 
   useEffect(() => api?.ide?.onCloseRequest(requestWindowClose), [api, requestWindowClose])
@@ -2058,6 +3187,13 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     ])
     /** 只在文件树有选中项、且焦点不在输入框时响应的命令 */
     const TREE_ONLY = new Set(['explorer.rename', 'explorer.delete'])
+    /** 和编辑器 / 终端抢快捷键的命令：只在最后一次鼠标落在资源管理器时响应 */
+    const EXPLORER_KEYS = new Set([
+      'explorer.copy',
+      'explorer.cut',
+      'explorer.paste',
+      'explorer.selectAll'
+    ])
 
     const onKey = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement | null
@@ -2077,11 +3213,23 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       }
 
       const inTerminal = !!(target?.closest?.('.xterm'))
+      const inEditor = !!(target?.closest?.('.monaco-editor'))
       for (const command of commandsRef.current) {
         const binding = keybindingsRef.current[command.id]
         if (!binding || !matchBinding(binding, e)) continue
         // 终端里的 Ctrl+W / Ctrl+P / Alt+← 等是 shell 的输入，不能抢
         if (inTerminal && !TERMINAL_GLOBAL.has(command.id)) return
+        if (EXPLORER_KEYS.has(command.id)) {
+          if (!explorerFocusRef.current || typing || inTerminal || inEditor) return
+          if (
+            (command.id === 'explorer.copy' || command.id === 'explorer.cut') &&
+            treeSelectionRef.current.size === 0 &&
+            !treeTargetRef.current.rel
+          ) {
+            return
+          }
+          if (command.id === 'explorer.paste' && !clipboardRef.current) return
+        }
         if (
           TREE_ONLY.has(command.id) &&
           (typing || !treeTargetRef.current.rel)
@@ -2100,9 +3248,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
-  const activeFile = activeTab?.kind === 'file' ? fileCache[activeTab.rel] : undefined
-  const activeImage = activeTab?.kind === 'image' ? imageCache[activeTab.rel] : undefined
-  const activeDiff = activeTab?.kind === 'diff' ? diffCache[activeTab.rel] : undefined
+  const activeFileLanguage = activeFile ? languageFor(activeFile) : undefined
+  const activeFileIndent = activeFile ? indentFor(activeFile) : undefined
 
   // 切回一个已经缓存的文件时 ensureTab 不会再读盘，这里补一次 import 扫描。
   // 不在每次敲键时重扫：保存 / 切标签已经覆盖了 import 变化的场景。
@@ -2237,6 +3384,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       }
       setFileCache((m) => ({ ...m, [rel]: r.data }))
       setBaseText((m) => (rel in m ? m : { ...m, [rel]: r.data.text }))
+      setBaseEol((m) => (rel in m ? m : { ...m, [rel]: r.data.eol ?? 'lf' }))
       sendDraftFromFile(r.data, anchor)
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err))
@@ -2290,16 +3438,34 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               {t('ide.cursor', { line: cursor.line, col: cursor.col })}
             </span>
           )}
-          <span>{activeFile.language}</span>
+          <button
+            type="button"
+            className="ide-status-lang"
+            title={t('ide.language.title')}
+            onClick={() => setLanguageMenuOpen(true)}
+          >
+            {languageLabel(activeFileLanguage ?? activeFile.language)}
+          </button>
           <span>{t('ide.lines', { n: activeFile.text.split('\n').length })}</span>
-          <span>{activeFile.eol === 'crlf' ? 'CRLF' : 'LF'}</span>
-          {activeFile.binary || activeFile.truncated ? (
+          <button
+            type="button"
+            className="ide-status-eol"
+            title={t('ide.eol.title')}
+            onClick={() => setEolMenuOpen(true)}
+          >
+            {activeFile.eol === 'crlf' ? 'CRLF' : 'LF'}
+          </button>
+          {activeFile.untitled || activeFile.binary || activeFile.truncated ? (
             <span>{t(ENCODING_LABEL_KEY[activeFile.encoding])}</span>
           ) : (
             <button
               type="button"
               className="ide-status-encoding"
-              title={t('ide.encoding.button')}
+              title={
+                activeFile.encodingAuto !== false
+                  ? t('ide.encoding.autoTitle')
+                  : t('ide.encoding.button')
+              }
               onClick={() => setEncodingMenuOpen(true)}
             >
               {t(ENCODING_LABEL_KEY[activeFile.encoding])}
@@ -2354,6 +3520,20 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         group: file,
         keybinding: displayBindingOf('file.newFile'),
         run: () => startCreate('file')
+      },
+      {
+        id: 'file.newUntitled',
+        label: t('ide.command.newUntitled'),
+        group: file,
+        keybinding: displayBindingOf('file.newUntitled'),
+        run: newUntitled
+      },
+      {
+        id: 'file.saveAs',
+        label: t('ide.command.saveAs'),
+        group: file,
+        keybinding: displayBindingOf('file.saveAs'),
+        run: saveActiveAs
       },
       {
         id: 'file.newFolder',
@@ -2415,6 +3595,55 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         group: file,
         keybinding: displayBindingOf('explorer.delete'),
         run: deleteTreeTarget
+      },
+      {
+        id: 'explorer.copy',
+        label: t('ide.command.copy'),
+        group: file,
+        keybinding: displayBindingOf('explorer.copy'),
+        run: () => copyTreeSelection(false)
+      },
+      {
+        id: 'explorer.cut',
+        label: t('ide.command.cut'),
+        group: file,
+        keybinding: displayBindingOf('explorer.cut'),
+        run: () => copyTreeSelection(true)
+      },
+      {
+        id: 'explorer.paste',
+        label: t('ide.command.paste'),
+        group: file,
+        keybinding: displayBindingOf('explorer.paste'),
+        run: pasteTreeClipboard
+      },
+      {
+        id: 'explorer.selectAll',
+        label: t('ide.command.selectAll'),
+        group: file,
+        keybinding: displayBindingOf('explorer.selectAll'),
+        run: selectAllTree
+      },
+      {
+        id: 'explorer.toggleHidden',
+        label: t('ide.command.toggleHidden'),
+        group: view,
+        keybinding: displayBindingOf('explorer.toggleHidden'),
+        run: toggleHiddenFiles
+      },
+      {
+        id: 'explorer.toggleIgnored',
+        label: t('ide.command.toggleIgnored'),
+        group: view,
+        keybinding: displayBindingOf('explorer.toggleIgnored'),
+        run: toggleIgnoredDirs
+      },
+      {
+        id: 'explorer.editIgnore',
+        label: t('ide.command.editIgnore'),
+        group: view,
+        keybinding: displayBindingOf('explorer.editIgnore'),
+        run: editIgnoreRules
       },
       {
         id: 'search.workspace',
@@ -2633,6 +3862,14 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     startCreate,
     switchTab,
     t,
+    newUntitled,
+    saveActiveAs,
+    copyTreeSelection,
+    pasteTreeClipboard,
+    selectAllTree,
+    toggleHiddenFiles,
+    toggleIgnoredDirs,
+    editIgnoreRules,
     togglePanel
   ])
 
@@ -2640,9 +3877,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   return (
     <div className="ide-app">
-      <IdeTitleBar cwd={cwd} onClose={requestWindowClose} />
-
-      <div className="ide-toolbar">
+      <IdeTitleBar cwd={cwd} onClose={requestWindowClose}>
         <button
           className="ide-quickbtn"
           onClick={() => {
@@ -2708,7 +3943,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             </span>
           )}
         </div>
-      </div>
+      </IdeTitleBar>
 
       <div className="ide-body">
         <nav className="ide-activity">
@@ -2721,6 +3956,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             }}
           >
             <Ico d={P.files} size={17} />
+            <span className="ide-act-label">{t('ide.rail.files')}</span>
           </button>
           <button
             className={`ide-act ${view === 'search' ? 'on' : ''}`}
@@ -2731,6 +3967,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             }}
           >
             <Ico d={P.search} size={17} />
+            <span className="ide-act-label">{t('ide.rail.search')}</span>
           </button>
           <button
             className={`ide-act ${view === 'vcs' ? 'on' : ''}`}
@@ -2738,6 +3975,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             onClick={() => setView('vcs')}
           >
             <Ico d={P.diff} size={17} />
+            <span className="ide-act-label">{t('ide.rail.vcs')}</span>
             {vcs.status && vcs.status.counts.total > 0 && (
               <span className="ide-act-badge">{vcs.status.counts.total}</span>
             )}
@@ -2748,8 +3986,23 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             onClick={() => setView('sync')}
           >
             <Ico d={P.sync} size={17} />
+            <span className="ide-act-label">{t('ide.rail.sync')}</span>
             {(syncSnap?.failed ?? 0) > 0 && (
               <span className="ide-act-badge is-bad">{syncSnap?.failed}</span>
+            )}
+          </button>
+          <button
+            className={`ide-act ${reviewOpen ? 'is-open' : ''}`}
+            title={t('ide.review.title')}
+            onClick={() => {
+              reviewTouchedRef.current = true
+              setReviewOpen((v) => !v)
+            }}
+          >
+            <Ico d={P.review} size={17} />
+            <span className="ide-act-label">{t('ide.rail.review')}</span>
+            {vcs.status && vcs.status.counts.total > 0 && (
+              <span className="ide-act-badge">{vcs.status.counts.total}</span>
             )}
           </button>
         </nav>
@@ -2778,6 +4031,38 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   </button>
                   <button className="ide-iconbtn" title={t('ide.refreshShort')} onClick={refresh}>
                     <Ico d={P.refresh} size={13} />
+                  </button>
+                  <button
+                    className={`ide-iconbtn ${explorerPrefs.showHidden ? 'is-on' : ''}`}
+                    data-action="toggle-hidden"
+                    title={t(
+                      explorerPrefs.showHidden
+                        ? 'ide.explorer.hideHidden'
+                        : 'ide.explorer.showHidden'
+                    )}
+                    onClick={toggleHiddenFiles}
+                  >
+                    <Ico d={explorerPrefs.showHidden ? P.eye : P.eyeOff} size={13} />
+                  </button>
+                  <button
+                    className={`ide-iconbtn ${explorerPrefs.showIgnored ? 'is-on' : ''}`}
+                    data-action="toggle-ignored"
+                    title={t(
+                      explorerPrefs.showIgnored
+                        ? 'ide.explorer.hideIgnored'
+                        : 'ide.explorer.showIgnored'
+                    )}
+                    onClick={toggleIgnoredDirs}
+                  >
+                    <Ico d={P.filter} size={13} />
+                  </button>
+                  <button
+                    className="ide-iconbtn"
+                    data-action="edit-ignore"
+                    title={t('ide.explorer.ignoreTitle')}
+                    onClick={editIgnoreRules}
+                  >
+                    <Ico d={P.sliders} size={13} />
                   </button>
                 </div>
               </div>
@@ -2831,15 +4116,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   </div>
                 </form>
               )}
-              {activeTab?.kind === 'file' && (
-                <OutlineList
-                  symbols={outlineSymbols}
-                  onJump={(line) => {
-                    if (activeTab?.kind === 'file') jumpTo(activeTab.rel, line)
-                  }}
-                />
-              )}
-              <div className="ide-tree">
+              <div
+                className={`ide-tree ${dropDir === '' && dragRels.length > 0 ? 'is-drop' : ''}`}
+                onDragOver={(e) => dragOverTreeDir('', e)}
+                onDragLeave={() => dragLeaveTreeDir('')}
+                onDrop={(e) => dropOnTreeDir('', e)}
+              >
                 <TreeDir
                   key={cwd}
                   cwd={cwd}
@@ -2851,17 +4133,28 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   dirtyDirs={treeDirty.dirs}
                   defaultOpen
                   git={gitMap}
-                  selectedRel={treeTarget.rel}
+                  selectedRels={treeSelection}
+                  explorer={explorerListOptions}
+                  dropDir={dropDir}
                   revealRel={reveal?.rel ?? null}
                   revealSeq={reveal?.nonce ?? 0}
-                  onSelect={setTreeTarget}
+                  onSelect={selectTreeTarget}
                   onMenu={(target, e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    if (!treeSelectionRef.current.has(target.rel)) {
+                      setTreeSelection(new Set(target.rel ? [target.rel] : []))
+                      setTreeAnchor(target.rel || null)
+                    }
                     setTreeTarget(target)
                     setMenu({ x: e.clientX, y: e.clientY, target })
                   }}
                   onOpen={openFile}
+                  onDragStart={beginTreeDrag}
+                  onDragEnd={endTreeDrag}
+                  onDragOverDir={dragOverTreeDir}
+                  onDragLeaveDir={dragLeaveTreeDir}
+                  onDropDir={dropOnTreeDir}
                 />
               </div>
             </div>
@@ -2872,6 +4165,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               onOpen={openFile}
               dirtyRels={dirtyRels}
               onReplaced={onWorkspaceReplaced}
+              onRestored={onWorkspaceRestored}
+              lastReplace={lastReplace}
+              onLastReplace={setLastReplace}
               askConfirm={setDialog}
             />
           )}
@@ -2894,7 +4190,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                       : ' is-drop-before'
                     : ''
                 }`}
-                title={tab.rel}
+                title={tab.untitled ? tab.title : tab.rel}
                 draggable
                 onClick={() => setActiveKey(tab.key)}
                 onAuxClick={(e) => {
@@ -2987,15 +4283,24 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           {activeTab && (
             <div className="ide-crumbbar">
               <span className="ide-crumb-path">
-                {activeTab.rel.split('/').map((seg, i, arr) => (
-                  <span key={`${seg}-${i}`}>
-                    <b>{seg}</b>
-                    {i < arr.length - 1 && <i>›</i>}
-                  </span>
-                ))}
+                {activeTab.untitled
+                  ? <b>{activeTab.title}</b>
+                  : activeTab.rel.split('/').map((seg, i, arr) => (
+                      <span key={`${seg}-${i}`}>
+                        <b>{seg}</b>
+                        {i < arr.length - 1 && <i>›</i>}
+                      </span>
+                    ))}
               </span>
+              {activeTab.kind === 'file' && !activeTab.untitled && activeFile && (
+                <SymbolBreadcrumbs
+                  symbols={outlineSymbols}
+                  line={cursor?.rel === activeTab.rel ? cursor.line : 1}
+                  onJump={(line) => jumpTo(activeTab.rel, line)}
+                />
+              )}
               <span className="ide-crumb-right">
-                {activeTab.kind === 'file' && activeFile && (
+                {activeTab.kind === 'file' && !activeTab.untitled && activeFile && (
                   <button className="ide-linkbtn" onClick={() => openDiff(activeTab.rel)}>
                     {t('diff.head')}
                   </button>
@@ -3054,6 +4359,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   file={activeFile}
                   jumpLine={jump?.rel === activeTab.rel ? jump.line : undefined}
                   prefs={editorPrefs}
+                  languageId={activeFileLanguage}
+                  indent={activeFileIndent}
                   onCursor={(line, col) =>
                     setCursor({ rel: activeTab.rel, line, col })
                   }
@@ -3090,11 +4397,22 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             <TerminalView
               cwd={cwd}
               active={panelVisible && panelTab === 'terminal'}
-              fontSize={editorPrefs.fontSize}
+              fontSize={editorPrefs.terminalFontSize}
+              lineHeight={editorPrefs.terminalLineHeight}
             />
           }
         />
         </div>
+        {reviewOpen && (
+          <ReviewDock
+            cwd={cwd}
+            status={vcs.status}
+            activeRel={activeTab?.kind === 'file' ? activeTab.rel : undefined}
+            onOpenDiff={openDiff}
+            onOpenScm={() => setView('vcs')}
+            onClose={() => setReviewOpen(false)}
+          />
+        )}
         </div>
 
         {view === 'sync' && (
@@ -3123,6 +4441,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                 Object.fromEntries(Object.entries(rec).filter(([rel]) => keep.has(rel)))
               setFileCache(onlyDirty)
               setBaseText(onlyDirty)
+              setBaseEol((m) =>
+                Object.fromEntries(Object.entries(m).filter(([rel]) => keep.has(rel)))
+              )
               setImageCache({})
               setDiffCache({})
               const keepExternal = new Set(dirtyRels.map(extKey))
@@ -3204,7 +4525,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           </span>
         )}
         <span className="ide-status-right">
-          {view !== 'vcs' && activeTab && <span className="ide-status-rel">{activeTab.rel}</span>}
+          {view !== 'vcs' && activeTab && (
+            <span className="ide-status-rel">
+              {activeTab.untitled ? activeTab.title : activeTab.rel}
+            </span>
+          )}
           {view !== 'vcs' && statusRight}
         </span>
       </div>
@@ -3284,6 +4609,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           state={menu}
           renameKey={displayBindingOf('explorer.rename')}
           deleteKey={displayBindingOf('explorer.delete')}
+          copyKey={displayBindingOf('explorer.copy')}
+          cutKey={displayBindingOf('explorer.cut')}
+          pasteKey={displayBindingOf('explorer.paste')}
+          selectedCount={treeSelection.size}
+          canPaste={!!clipboard}
+          clipboardMode={clipboard?.mode ?? null}
           onClose={() => setMenu(null)}
           onNewFile={(target) => startCreate('file', target)}
           onNewFolder={(target) => startCreate('dir', target)}
@@ -3296,7 +4627,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
               run: (value) => renameTarget(target, value)
             })
           }
-          onDelete={requestDelete}
+          onDelete={deleteForTarget}
+          onCopy={() => copyTreeSelection(false)}
+          onCut={() => copyTreeSelection(true)}
+          onPaste={() => pasteTreeClipboard()}
+          onSelectAll={selectAllTree}
+          onEditIgnore={editIgnoreRules}
           onSend={(target) =>
             void openFileForSend(target.rel, {
               left: menu.x,
@@ -3341,10 +4677,28 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       {encodingMenuOpen && activeTab?.kind === 'file' && activeFile && !activeFile.binary && !activeFile.truncated && (
         <EncodingMenu
           current={activeFile.encoding}
+          autoDetected={activeFile.encodingAuto !== false}
           dirty={isDirty(activeTab.rel)}
           onReopen={(encoding) => void reopenWithEncoding(activeTab.rel, encoding)}
+          onReopenAuto={() => void reopenWithEncoding(activeTab.rel)}
           onSave={(encoding) => saveWithEncoding(activeTab.rel, encoding)}
           onClose={() => setEncodingMenuOpen(false)}
+        />
+      )}
+
+      {languageMenuOpen && activeTab?.kind === 'file' && activeFile && (
+        <LanguageMenu
+          current={activeFileLanguage ?? activeFile.language}
+          onPick={(id) => setLanguageMode(activeTab.rel, id)}
+          onClose={() => setLanguageMenuOpen(false)}
+        />
+      )}
+
+      {eolMenuOpen && activeTab?.kind === 'file' && activeFile && (
+        <EolMenu
+          current={activeFile.eol ?? 'lf'}
+          onPick={(eol) => setEolMode(activeTab.rel, eol)}
+          onClose={() => setEolMenuOpen(false)}
         />
       )}
 
@@ -3367,7 +4721,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       {dialog && (
         <ConfirmDialog
           state={dialog}
-          onClose={() => setDialog(null)}
+          onClose={() => {
+            const cancel = dialog.onCancel
+            setDialog(null)
+            cancel?.()
+          }}
           onAction={(action) => {
             setDialog(null)
             void action.run()
@@ -3390,12 +4748,19 @@ function TreeDir({
   dirtyDirs,
   defaultOpen = false,
   git,
-  selectedRel,
+  selectedRels,
+  explorer,
+  dropDir,
   revealRel,
   revealSeq = 0,
   onSelect,
   onMenu,
-  onOpen
+  onOpen,
+  onDragStart,
+  onDragEnd,
+  onDragOverDir,
+  onDragLeaveDir,
+  onDropDir
 }: {
   cwd: string
   rel: string
@@ -3408,14 +4773,21 @@ function TreeDir({
   dirtyDirs: Set<string>
   defaultOpen?: boolean
   git: Record<string, VcsChange>
-  selectedRel: string
+  selectedRels: ReadonlySet<string>
+  explorer: IdeListDirOptions
+  dropDir: string | null
   /** 「在资源管理器中显示」的目标文件：位于本目录下时就自动展开 */
   revealRel?: string | null
   /** 同一个文件重复触发时靠它重新展开已经收起的目录 */
   revealSeq?: number
-  onSelect: (target: TreeTarget) => void
+  onSelect: (target: TreeTarget, e: ReactMouseEvent) => void
   onMenu: (target: TreeTarget, e: ReactMouseEvent) => void
   onOpen: (rel: string, line?: number) => void
+  onDragStart: (target: TreeTarget, e: ReactDragEvent) => void
+  onDragEnd: () => void
+  onDragOverDir: (dir: string, e: ReactDragEvent) => void
+  onDragLeaveDir: (dir: string) => void
+  onDropDir: (dir: string, e: ReactDragEvent) => void
 }): JSX.Element {
   const { t } = useI18n()
   const [open, setOpen] = useState(defaultOpen)
@@ -3423,6 +4795,7 @@ function TreeDir({
   const [failed, setFailed] = useState(false)
   const [loadedVersion, setLoadedVersion] = useState(-1)
   const target: TreeTarget = { rel, kind: 'dir' }
+  const selected = selectedRels.has(rel)
   const revealOpen =
     !!revealRel && (rel === '' || revealRel === rel || revealRel.startsWith(`${rel}/`))
 
@@ -3434,6 +4807,7 @@ function TreeDir({
   /** 收起期间目录内容可能变了，重新展开时必须无条件列一次 */
   const wasOpen = useRef(false)
   const dirty = dirtyAll || dirtyDirs.has(extKey(rel))
+  const ignoreKey = (explorer.ignore ?? []).join('\n')
 
   useEffect(() => {
     if (!open) {
@@ -3450,7 +4824,7 @@ function TreeDir({
 
     let cancelled = false
     setFailed(false)
-    const pending = window.api?.ide?.listDir(cwd, rel)
+    const pending = window.api?.ide?.listDir(cwd, rel, explorer)
     if (!pending) {
       setFailed(true)
       return
@@ -3468,22 +4842,35 @@ function TreeDir({
     return () => {
       cancelled = true
     }
-  }, [open, version, loadedVersion, cwd, rel, dirty])
+    // ignoreKey 让规则变化时即使 version 没变也重新列
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, version, loadedVersion, cwd, rel, dirty, explorer.showHidden, explorer.showIgnored, ignoreKey])
 
   return (
     <div className="ide-tnode">
       <div
         className={`ide-trow is-dir ${depth === 0 ? 'is-root' : ''} ${
-          selectedRel === rel ? 'is-sel' : ''
-        }`}
+          selected ? 'is-sel' : ''
+        } ${dropDir === rel ? 'is-drop-target' : ''}`}
         style={{ paddingLeft: 8 + depth * 12 }}
         title={rel || cwd}
         data-rel={rel}
-        onClick={() => {
-          onSelect(target)
-          setOpen((o) => !o)
+        data-kind="dir"
+        draggable={rel !== ''}
+        onClick={(e) => {
+          onSelect(target, e)
+          if (!e.ctrlKey && !e.metaKey && !e.shiftKey) setOpen((o) => !o)
         }}
         onContextMenu={(e) => onMenu(target, e)}
+        onDragStart={(e) => rel && onDragStart(target, e)}
+        onDragEnd={onDragEnd}
+        onDragOver={(e) => rel && onDragOverDir(rel, e)}
+        onDragLeave={() => rel && onDragLeaveDir(rel)}
+        onDrop={(e) => {
+          if (!rel) return
+          e.stopPropagation()
+          onDropDir(rel, e)
+        }}
       >
         <span className={`ide-chev ${open ? 'is-open' : ''}`}>
           <Ico d={open ? P.down : P.chevron} size={10} />
@@ -3520,12 +4907,19 @@ function TreeDir({
                 dirtyAll={dirtyAll}
                 dirtyDirs={dirtyDirs}
                 git={git}
-                selectedRel={selectedRel}
+                selectedRels={selectedRels}
+                explorer={explorer}
+                dropDir={dropDir}
                 revealRel={revealRel}
                 revealSeq={revealSeq}
                 onSelect={onSelect}
                 onMenu={onMenu}
                 onOpen={onOpen}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+                onDragOverDir={onDragOverDir}
+                onDragLeaveDir={onDragLeaveDir}
+                onDropDir={onDropDir}
               />
             ) : (
               <FileRow
@@ -3533,10 +4927,12 @@ function TreeDir({
                 entry={e}
                 depth={depth + 1}
                 status={git[e.rel]}
-                selected={selectedRel === e.rel}
+                selected={selectedRels.has(e.rel)}
                 onSelect={onSelect}
                 onMenu={onMenu}
                 onOpen={onOpen}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
               />
             )
           )}
@@ -3553,15 +4949,19 @@ function FileRow({
   selected,
   onSelect,
   onMenu,
-  onOpen
+  onOpen,
+  onDragStart,
+  onDragEnd
 }: {
   entry: IdeEntry
   depth: number
   status?: VcsChange
   selected: boolean
-  onSelect: (target: TreeTarget) => void
+  onSelect: (target: TreeTarget, e: ReactMouseEvent) => void
   onMenu: (target: TreeTarget, e: ReactMouseEvent) => void
   onOpen: (rel: string, line?: number) => void
+  onDragStart: (target: TreeTarget, e: ReactDragEvent) => void
+  onDragEnd: () => void
 }): JSX.Element {
   const target: TreeTarget = { rel: entry.rel, kind: 'file' }
   return (
@@ -3570,11 +4970,15 @@ function FileRow({
       style={{ paddingLeft: 26 + depth * 12 }}
       title={entry.rel}
       data-rel={entry.rel}
-      onClick={() => {
-        onSelect(target)
-        onOpen(entry.rel)
+      data-kind="file"
+      draggable
+      onClick={(e) => {
+        onSelect(target, e)
+        if (!e.ctrlKey && !e.metaKey && !e.shiftKey) onOpen(entry.rel)
       }}
       onContextMenu={(e) => onMenu(target, e)}
+      onDragStart={(e) => onDragStart(target, e)}
+      onDragEnd={onDragEnd}
     >
       <Ico d={isImageRel(entry.rel) ? P.image : P.file} size={13} />
       <span className="ide-tname">{entry.name}</span>
@@ -3628,17 +5032,103 @@ function mergeSearchFiles(prev: IdeSearchFile[], next: IdeSearchFile[]): IdeSear
   return [...map.values()]
 }
 
+/** 搜索历史按工作区存在 localStorage 里；只存查询条件，不存结果 */
+interface SearchHistoryEntry {
+  q: string
+  caseSensitive: boolean
+  wholeWord: boolean
+  regex: boolean
+  include: string
+  exclude: string
+}
+
+const SEARCH_HISTORY_MAX = 20
+
+function searchHistoryKey(cwd: string): string {
+  return `ccoder:ide:search-history:${cwd}`
+}
+
+function readSearchHistory(cwd: string): SearchHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(searchHistoryKey(cwd))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter(
+        (v): v is SearchHistoryEntry =>
+          !!v &&
+          typeof v === 'object' &&
+          typeof (v as SearchHistoryEntry).q === 'string' &&
+          ((v as SearchHistoryEntry).q as string).trim().length > 0
+      )
+      .map((v) => ({
+        q: v.q,
+        caseSensitive: v.caseSensitive === true,
+        wholeWord: v.wholeWord === true,
+        regex: v.regex === true,
+        include: typeof v.include === 'string' ? v.include : '',
+        exclude: typeof v.exclude === 'string' ? v.exclude : ''
+      }))
+      .slice(0, SEARCH_HISTORY_MAX)
+  } catch {
+    return []
+  }
+}
+
+function writeSearchHistory(cwd: string, entries: SearchHistoryEntry[]): void {
+  try {
+    if (entries.length === 0) localStorage.removeItem(searchHistoryKey(cwd))
+    else localStorage.setItem(searchHistoryKey(cwd), JSON.stringify(entries))
+  } catch {
+    // localStorage 满了不影响搜索
+  }
+}
+
+function sameSearch(a: SearchHistoryEntry, b: SearchHistoryEntry): boolean {
+  return (
+    a.q === b.q &&
+    a.caseSensitive === b.caseSensitive &&
+    a.wholeWord === b.wholeWord &&
+    a.regex === b.regex &&
+    a.include.trim() === b.include.trim() &&
+    a.exclude.trim() === b.exclude.trim()
+  )
+}
+
+interface SearchPreviewState {
+  data: IdeReplaceData
+  req: {
+    query: string
+    replacement: string
+    options: IdeSearchOptions
+    dirtyRels: string[]
+  }
+}
+
+interface LastReplaceState {
+  summary: string
+  undoToken?: string
+  undoFiles: number
+}
+
 function SearchPanel({
   cwd,
   onOpen,
   dirtyRels,
   onReplaced,
+  onRestored,
+  lastReplace,
+  onLastReplace,
   askConfirm
 }: {
   cwd: string
   onOpen: (rel: string, line?: number) => void
   dirtyRels: string[]
   onReplaced: (r: IdeReplaceData) => void
+  onRestored: (files: number) => void
+  lastReplace: LastReplaceState | null
+  onLastReplace: (state: LastReplaceState | null) => void
   askConfirm: (state: DialogState) => void
 }): JSX.Element {
   const { t, tn } = useI18n()
@@ -3657,10 +5147,16 @@ function SearchPanel({
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [replacing, setReplacing] = useState(false)
-  const [lastReplace, setLastReplace] = useState<string | null>(null)
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [preview, setPreview] = useState<SearchPreviewState | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
   /** 本次结果是否来自内置搜索（rg 不可用 / 启动失败） */
   const [fallback, setFallback] = useState(false)
+  /** 折叠起来的文件（按 rel）；新搜索会清空，默认全部展开 */
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const [history, setHistory] = useState<SearchHistoryEntry[]>(() => readSearchHistory(cwd))
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyBoxRef = useRef<HTMLDivElement>(null)
   /** 当前有效的 requestId；旧请求的迟到事件一律丢弃 */
   const activeRef = useRef('')
 
@@ -3677,6 +5173,53 @@ function SearchPanel({
 
   // 正则至少 1 个字符；字面量沿用旧 UI 的「至少 2 个字符」，避免扫全库
   const usable = regex ? q.length >= 1 : q.trim().length >= 2
+
+  useEffect(() => {
+    setHistory(readSearchHistory(cwd))
+    setHistoryOpen(false)
+  }, [cwd])
+
+  const rememberSearch = useCallback(
+    (entry: SearchHistoryEntry): void => {
+      setHistory((prev) => {
+        const next = [entry, ...prev.filter((e) => !sameSearch(e, entry))].slice(
+          0,
+          SEARCH_HISTORY_MAX
+        )
+        writeSearchHistory(cwd, next)
+        return next
+      })
+    },
+    [cwd]
+  )
+
+  useEffect(() => {
+    if (!historyOpen) return
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      if (historyBoxRef.current?.contains(target)) return
+      if (target.closest('.ide-shistory-toggle')) return
+      setHistoryOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setHistoryOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [historyOpen])
+
+  useEffect(() => {
+    if (!preview) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !replacing) setPreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [preview, replacing])
 
   // 主进程按 requestId 推送批次；旧请求的事件直接丢弃
   useEffect(() => {
@@ -3733,6 +5276,7 @@ function SearchPanel({
       setError(null)
       setNote(null)
       setFallback(false)
+      setCollapsed(new Set())
 
       try {
         const r = await api.startSearch({ cwd, query: q, options, requestId })
@@ -3747,6 +5291,14 @@ function SearchPanel({
           return
         }
         setFallback(r.data.fallback)
+        rememberSearch({
+          q,
+          caseSensitive,
+          wholeWord,
+          regex,
+          include: includeText.trim(),
+          exclude: excludeText.trim()
+        })
       } catch (err) {
         if (activeRef.current === requestId) {
           setError(err instanceof Error ? err.message : String(err))
@@ -3761,15 +5313,40 @@ function SearchPanel({
       // 新查询 / 面板卸载时立刻让主进程停掉旧搜索，而不是只丢弃结果
       window.api?.ide?.cancelSearch(requestId)
     }
-  }, [cwd, q, options, refreshTick, usable])
+  }, [
+    cwd,
+    q,
+    options,
+    refreshTick,
+    usable,
+    caseSensitive,
+    wholeWord,
+    regex,
+    includeText,
+    excludeText,
+    rememberSearch
+  ])
 
   const total = results.reduce((n, f) => n + f.matches.length, 0)
-  const canReplace = searched && !busy && !replacing && total > 0 && !error && usable
+  const allCollapsed =
+    results.length > 0 && results.every((f) => collapsed.has(f.rel))
+  const toggleFile = (rel: string): void => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(rel)) next.delete(rel)
+      else next.add(rel)
+      return next
+    })
+  }
+  const toggleAllCollapsed = (): void => {
+    setCollapsed(allCollapsed ? new Set() : new Set(results.map((f) => f.rel)))
+  }
+  const canReplace =
+    searched && !busy && !replacing && !previewBusy && total > 0 && !error && usable
 
-  const doReplace = async (): Promise<void> => {
+  const doReplace = async (req: SearchPreviewState['req']): Promise<void> => {
     setReplacing(true)
     setError(null)
-    setLastReplace(null)
     try {
       const api = window.api
       if (!api?.ide) {
@@ -3778,10 +5355,10 @@ function SearchPanel({
       }
       const r = await api.ide.replaceInWorkspace({
         cwd,
-        query: q,
-        replacement,
-        options,
-        dirtyRels
+        query: req.query,
+        replacement: req.replacement,
+        options: req.options,
+        dirtyRels: req.dirtyRels
       })
       if (!r.ok) {
         setError(r.message)
@@ -3814,7 +5391,12 @@ function SearchPanel({
           })
         )
       }
-      setLastReplace(t('ide.replaced', { summary: parts.join(' · ') }))
+      onLastReplace({
+        summary: t('ide.replaced', { summary: parts.join(' · ') }),
+        undoToken: d.undoToken,
+        undoFiles: d.undoFiles ?? 0
+      })
+      setPreview(null)
 
       onReplaced(d)
       // 重新搜索，让面板显示替换后的磁盘内容
@@ -3830,27 +5412,96 @@ function SearchPanel({
     }
   }
 
-  const onReplaceAll = (): void => {
+  /** 先跑一次不写盘的替换，拿到逐文件示例再让用户确认 */
+  const openReplacePreview = async (): Promise<void> => {
     if (!canReplace) return
-    const dirtyNote = dirtyRels.length
-      ? t('ide.dirtySkipNote', { n: dirtyRels.length })
-      : ''
-    const truncatedNote = note ? t('ide.panelTruncatedNote') : ''
+    setPreviewBusy(true)
+    setError(null)
+    try {
+      const api = window.api
+      if (!api?.ide) {
+        setError(t('ide.replaceUnsupported'))
+        return
+      }
+      const r = await api.ide.replaceInWorkspace({
+        cwd,
+        query: q,
+        replacement,
+        options,
+        dirtyRels,
+        preview: true
+      })
+      if (!r.ok) {
+        setError(r.message)
+        return
+      }
+      if (r.data.aborted) {
+        setError(r.data.message ?? t('ide.replaceAborted'))
+        return
+      }
+      setPreview({
+        data: r.data,
+        req: { query: q, replacement, options, dirtyRels }
+      })
+    } catch (err) {
+      setError(
+        t('ide.replaceFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      )
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+
+  const doUndo = async (token: string): Promise<void> => {
+    setReplacing(true)
+    setError(null)
+    try {
+      const api = window.api
+      if (!api?.ide) {
+        setError(t('ide.replaceUnsupported'))
+        return
+      }
+      const r = await api.ide.undoReplace({ cwd, token })
+      if (!r.ok) {
+        setError(t('ide.undoFailed', { error: r.message }))
+        return
+      }
+      const skipped = r.data.files.length - r.data.restoredFiles
+      onRestored(r.data.restoredFiles)
+      onLastReplace(
+        skipped > 0
+          ? {
+              summary: t('ide.undoPartial', {
+                files: r.data.restoredFiles,
+                skipped
+              }),
+              undoFiles: 0
+            }
+          : null
+      )
+      setRefreshTick((x) => x + 1)
+    } catch (err) {
+      setError(
+        t('ide.undoFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      )
+    } finally {
+      setReplacing(false)
+    }
+  }
+
+  const onUndo = (token: string): void => {
     askConfirm({
-      title: t('ide.replaceDialogTitle'),
-      message: t('ide.replaceDialogMessage', {
-        total,
-        replacement: replacement || '',
-        files: results.length,
-        notes: dirtyNote + truncatedNote
+      title: t('ide.undoReplaceTitle'),
+      message: t('ide.undoReplaceMessage', {
+        files: lastReplace?.undoFiles ?? 0
       }),
       actions: [
         { label: t('common.cancel'), run: () => undefined },
-        {
-          label: t('ide.replaceAll'),
-          kind: 'danger',
-          run: doReplace
-        }
+        { label: t('ide.undoReplace'), kind: 'danger', run: () => doUndo(token) }
       ]
     })
   }
@@ -3882,7 +5533,83 @@ function SearchPanel({
           disabled={replacing}
         />
         {busy && <span className="ide-spin" />}
+        <button
+          type="button"
+          className={`ide-shistory-toggle ${historyOpen ? 'is-on' : ''}`}
+          aria-expanded={historyOpen}
+          title={t('ide.searchHistory')}
+          onClick={() => setHistoryOpen((v) => !v)}
+        >
+          <Ico d={P.history} size={12} />
+        </button>
       </div>
+
+      {historyOpen && (
+        <div className="ide-shistory" ref={historyBoxRef}>
+          <div className="ide-shistory-head">
+            <span>{t('ide.searchHistory')}</span>
+            {history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHistory([])
+                  writeSearchHistory(cwd, [])
+                }}
+              >
+                {t('ide.searchHistoryClear')}
+              </button>
+            )}
+          </div>
+          {history.length === 0 ? (
+            <div className="ide-shistory-empty">{t('ide.searchHistoryEmpty')}</div>
+          ) : (
+            history.map((entry, i) => {
+              const flags = [
+                entry.caseSensitive ? 'Aa' : '',
+                entry.wholeWord ? t('ide.wholeWordShort') : '',
+                entry.regex ? '.*' : '',
+                entry.include || entry.exclude ? t('ide.filter') : ''
+              ].filter(Boolean)
+              return (
+                <div className="ide-shistory-row" key={`${entry.q}-${i}`}>
+                  <button
+                    type="button"
+                    className="ide-shistory-main"
+                    title={entry.q}
+                    onClick={() => {
+                      setQ(entry.q)
+                      setCaseSensitive(entry.caseSensitive)
+                      setWholeWord(entry.wholeWord)
+                      setRegex(entry.regex)
+                      setIncludeText(entry.include)
+                      setExcludeText(entry.exclude)
+                      if (entry.include || entry.exclude) setShowFilters(true)
+                      setHistoryOpen(false)
+                      // 即使查询条件完全相同，也重新跑一次（磁盘可能已经变了）
+                      setRefreshTick((x) => x + 1)
+                    }}
+                  >
+                    <span>{entry.q}</span>
+                    {flags.length > 0 && <em>{flags.join(' · ')}</em>}
+                  </button>
+                  <button
+                    type="button"
+                    className="ide-shistory-del"
+                    title={t('ide.searchHistoryRemove')}
+                    onClick={() => {
+                      const next = history.filter((_, j) => j !== i)
+                      setHistory(next)
+                      writeSearchHistory(cwd, next)
+                    }}
+                  >
+                    <Ico d={P.close} size={9} />
+                  </button>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
 
       {showReplace && (
         <div className="ide-searchbox ide-searchbox--replace">
@@ -3898,10 +5625,10 @@ function SearchPanel({
           <button
             className="ide-replaceall"
             disabled={!canReplace}
-            onClick={onReplaceAll}
-            title={t('ide.replaceDialogTitle')}
+            onClick={() => void openReplacePreview()}
+            title={t('ide.replacePreviewTitle')}
           >
-            {replacing ? <span className="ide-spin" /> : t('ide.replaceAll')}
+            {replacing || previewBusy ? <span className="ide-spin" /> : t('ide.replaceAll')}
           </button>
         </div>
       )}
@@ -3961,49 +5688,196 @@ function SearchPanel({
       )}
 
       <div className={`ide-searchsum ${error ? 'is-error' : ''}`}>
-        {error
-          ? error
-          : searched
-            ? t('ide.results', {
-                n: total,
-                files: results.length,
-                truncated: note ? t('ide.resultsTruncated') : ''
-              })
-            : regex
-              ? t('ide.enterRegex')
-              : t('ide.enterTwoChars')}
+        <span className="ide-searchsum-text">
+          {error
+            ? error
+            : searched
+              ? t('ide.results', {
+                  n: total,
+                  files: results.length,
+                  truncated: note ? t('ide.resultsTruncated') : ''
+                })
+              : regex
+                ? t('ide.enterRegex')
+                : t('ide.enterTwoChars')}
+        </span>
+        {searched && results.length > 0 && !error && (
+          <button
+            type="button"
+            className="ide-scollapse-all"
+            onClick={toggleAllCollapsed}
+            title={
+              allCollapsed ? t('ide.searchExpandAll') : t('ide.searchCollapseAll')
+            }
+          >
+            {allCollapsed ? t('ide.searchExpandAll') : t('ide.searchCollapseAll')}
+          </button>
+        )}
       </div>
       {note && !error && <div className="ide-searchnote">{note}</div>}
       {fallback && !note && !error && (
         <div className="ide-searchnote">{t('ide.searchFallback')}</div>
       )}
-      {lastReplace && <div className="ide-searchsum is-done">{lastReplace}</div>}
+      {lastReplace && (
+        <div className="ide-searchsum is-done ide-sundobar">
+          <span className="ide-searchsum-text">{lastReplace.summary}</span>
+          {lastReplace.undoToken && (
+            <button
+              type="button"
+              className="ide-sundo"
+              data-action="undo-replace"
+              disabled={replacing}
+              onClick={() => onUndo(lastReplace.undoToken as string)}
+            >
+              {t('ide.undoReplace')}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="ide-searchres">
-        {results.map((f) => (
-          <div key={f.rel} className="ide-sfile">
-            <div className="ide-sfhead" title={f.rel}>
-              <Ico d={P.file} size={12} />
-              <span>{f.name}</span>
-              <em>{f.matches.length}</em>
-            </div>
-            {f.matches.map((m, i) => (
+        {results.map((f) => {
+          const folded = collapsed.has(f.rel)
+          return (
+            <div key={f.rel} className="ide-sfile">
               <button
-                key={`${f.rel}-${m.line}-${m.column}-${i}`}
-                className="ide-smatch"
-                title={`${f.rel}:${m.line}:${m.column}`}
-                onClick={() => onOpen(f.rel, m.line)}
+                type="button"
+                className="ide-sfhead"
+                aria-expanded={!folded}
+                title={f.rel}
+                onClick={() => toggleFile(f.rel)}
               >
-                <span className="ide-sline">{m.line}</span>
-                <span className="ide-snip">{highlightMatch(m.text, m)}</span>
+                <Ico d={folded ? P.chevron : P.down} size={10} />
+                <Ico d={P.file} size={12} />
+                <span>{f.name}</span>
+                <em>{f.matches.length}</em>
               </button>
-            ))}
-          </div>
-        ))}
+              {!folded &&
+                f.matches.map((m, i) => (
+                  <button
+                    key={`${f.rel}-${m.line}-${m.column}-${i}`}
+                    className="ide-smatch"
+                    title={`${f.rel}:${m.line}:${m.column}`}
+                    onClick={() => onOpen(f.rel, m.line)}
+                  >
+                    <span className="ide-sline">{m.line}</span>
+                    <span className="ide-snip">{highlightMatch(m.text, m)}</span>
+                  </button>
+                ))}
+            </div>
+          )
+        })}
         {searched && results.length === 0 && !busy && !error && (
           <div className="ide-emptyhint">{t('ide.noMatches')}</div>
         )}
       </div>
+
+      {preview &&
+        (() => {
+          const files = preview.data.preview ?? []
+          const skippedDirty = preview.data.totals.filesSkippedDirty
+          const skippedOther =
+            preview.data.totals.filesSkippedBinary + preview.data.totals.filesSkippedLarge
+          return (
+            <div
+              className="ide-preview-overlay"
+              onMouseDown={() => {
+                if (!replacing) setPreview(null)
+              }}
+            >
+              <div
+                className="ide-preview"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('ide.replacePreviewTitle')}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="ide-preview-title">
+                  <span>{t('ide.replacePreviewTitle')}</span>
+                  <button
+                    type="button"
+                    className="ide-preview-close"
+                    disabled={replacing}
+                    onClick={() => setPreview(null)}
+                    title={t('common.cancel')}
+                  >
+                    <Ico d={P.close} size={11} />
+                  </button>
+                </div>
+                <div className="ide-preview-summary">
+                  {t('ide.replacePreviewSummary', {
+                    files: files.length,
+                    total: preview.data.totals.replacements
+                  })}
+                </div>
+                {(skippedDirty > 0 || skippedOther > 0) && (
+                  <div className="ide-preview-notes">
+                    {skippedDirty > 0 &&
+                      t('ide.replaceSkippedDirty', { n: skippedDirty })}
+                    {skippedDirty > 0 && skippedOther > 0 ? ' · ' : ''}
+                    {skippedOther > 0 &&
+                      t('ide.replaceIgnored', { n: skippedOther })}
+                  </div>
+                )}
+                <div className="ide-preview-list">
+                  {files.length === 0 ? (
+                    <div className="ide-preview-empty">
+                      {t('ide.replacePreviewEmpty')}
+                    </div>
+                  ) : (
+                    files.map((f) => (
+                      <div key={f.rel} className="ide-preview-file">
+                        <div className="ide-preview-filehead" title={f.rel}>
+                          <span>{f.rel}</span>
+                          <em>{f.replacements}</em>
+                        </div>
+                        {f.samples.map((s, i) => (
+                          <div className="ide-preview-sample" key={`${f.rel}-${s.line}-${i}`}>
+                            <span className="ide-preview-line">{s.line}</span>
+                            <div className="ide-preview-lines">
+                              <div className="is-before">{s.before}</div>
+                              <div className="is-after">{s.after}</div>
+                            </div>
+                          </div>
+                        ))}
+                        {f.more && (
+                          <div className="ide-preview-more">
+                            {t('ide.replacePreviewMore', {
+                              n: Math.max(0, f.replacements - f.samples.length)
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+                {preview.data.previewTruncated && (
+                  <div className="ide-preview-note">
+                    {t('ide.replacePreviewTruncated', { files: files.length })}
+                  </div>
+                )}
+                <div className="ide-preview-actions">
+                  <button
+                    type="button"
+                    className="ide-preview-cancel"
+                    disabled={replacing}
+                    onClick={() => setPreview(null)}
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    className="ide-preview-apply"
+                    disabled={replacing || files.length === 0}
+                    onClick={() => void doReplace(preview.req)}
+                  >
+                    {replacing ? <span className="ide-spin" /> : t('ide.replaceAll')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
     </div>
   )
 }
@@ -4469,21 +6343,43 @@ function TreeMenu({
   state,
   renameKey,
   deleteKey,
+  copyKey,
+  cutKey,
+  pasteKey,
+  selectedCount,
+  canPaste,
+  clipboardMode,
   onClose,
   onNewFile,
   onNewFolder,
   onRename,
   onDelete,
+  onCopy,
+  onCut,
+  onPaste,
+  onSelectAll,
+  onEditIgnore,
   onSend
 }: {
   state: TreeMenuState
   renameKey?: string
   deleteKey?: string
+  copyKey?: string
+  cutKey?: string
+  pasteKey?: string
+  selectedCount: number
+  canPaste: boolean
+  clipboardMode: 'copy' | 'cut' | null
   onClose: () => void
   onNewFile: (target: TreeTarget) => void
   onNewFolder: (target: TreeTarget) => void
   onRename: (target: TreeTarget) => void
   onDelete: (target: TreeTarget) => void
+  onCopy: () => void
+  onCut: () => void
+  onPaste: () => void
+  onSelectAll: () => void
+  onEditIgnore: () => void
   onSend: (target: TreeTarget) => void
 }): JSX.Element {
   const { t } = useI18n()
@@ -4491,7 +6387,8 @@ function TreeMenu({
   const dir: TreeTarget =
     target.kind === 'dir' ? target : { rel: dirOfRel(target.rel), kind: 'dir' }
   const left = Math.max(8, Math.min(state.x, window.innerWidth - 196))
-  const top = Math.max(8, Math.min(state.y, window.innerHeight - 260))
+  const top = Math.max(8, Math.min(state.y, window.innerHeight - 340))
+  const count = Math.max(1, selectedCount)
 
   useEffect(() => {
     const close = (): void => onClose()
@@ -4544,6 +6441,51 @@ function TreeMenu({
           <Ico d={P.newFolder} size={13} />
           {t('ide.newFolder')}
         </button>
+        <span className="ide-ctx-sep" />
+        <button
+          disabled={!target.rel && selectedCount === 0}
+          onClick={() => {
+            onClose()
+            onCopy()
+          }}
+        >
+          <Ico d={P.copy} size={13} />
+          {t('ide.explorer.copy')}
+          {copyKey && <kbd>{copyKey}</kbd>}
+        </button>
+        <button
+          disabled={!target.rel && selectedCount === 0}
+          onClick={() => {
+            onClose()
+            onCut()
+          }}
+        >
+          <Ico d={P.cut} size={13} />
+          {t('ide.explorer.cut')}
+          {cutKey && <kbd>{cutKey}</kbd>}
+        </button>
+        <button
+          disabled={!canPaste}
+          onClick={() => {
+            onClose()
+            onPaste()
+          }}
+        >
+          <Ico d={P.paste} size={13} />
+          {clipboardMode === 'cut'
+            ? t('ide.explorer.pasteMove')
+            : t('ide.explorer.paste')}
+          {pasteKey && <kbd>{pasteKey}</kbd>}
+        </button>
+        <button
+          onClick={() => {
+            onClose()
+            onSelectAll()
+          }}
+        >
+          <Ico d={P.files} size={13} />
+          {t('ide.explorer.selectAll')}
+        </button>
         {target.rel && (
           <>
             <span className="ide-ctx-sep" />
@@ -4565,11 +6507,23 @@ function TreeMenu({
               }}
             >
               <Ico d={P.trash} size={13} />
-              {t('ide.delete')}
+              {count > 1
+                ? t('ide.explorer.deleteCount', { n: count })
+                : t('ide.delete')}
               {deleteKey && <kbd>{deleteKey}</kbd>}
             </button>
           </>
         )}
+        <span className="ide-ctx-sep" />
+        <button
+          onClick={() => {
+            onClose()
+            onEditIgnore()
+          }}
+        >
+          <Ico d={P.sliders} size={13} />
+          {t('ide.explorer.ignoreTitle')}
+        </button>
       </div>
     </div>
   )
@@ -4697,8 +6651,13 @@ function PromptDialog({
     void state.run(v)
   }
 
+  const cancel = (): void => {
+    onClose()
+    state.onCancel?.()
+  }
+
   return (
-    <div className="ide-dialog-overlay" onMouseDown={onClose}>
+    <div className="ide-dialog-overlay" onMouseDown={cancel}>
       <div className="ide-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <div className="ide-dialog-title">{state.title}</div>
         <div className="ide-dialog-msg">{state.message}</div>
@@ -4714,12 +6673,12 @@ function PromptDialog({
               submit()
             } else if (e.key === 'Escape') {
               e.preventDefault()
-              onClose()
+              cancel()
             }
           }}
         />
         <div className="ide-dialog-actions">
-          <button onClick={onClose}>{t('common.cancel')}</button>
+          <button onClick={cancel}>{t('common.cancel')}</button>
           <button className="is-primary" disabled={!value.trim()} onClick={submit}>
             {state.confirmLabel}
           </button>

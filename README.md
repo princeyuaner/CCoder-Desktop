@@ -73,13 +73,17 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 ### 独立 IDE
 
 - 一个工作区一个窗口，窗口位置 / 大小记忆在 `ide-windows.json`。
-- Monaco 编辑器、文件树、快速打开（`Ctrl+P`）、工作区搜索与全局替换。
-- **编辑器偏好**：字号、制表符宽度、缩进方式、自动换行、代码缩略图、自动保存、保存时删除行尾空白。设置同时作用于所有 IDE 窗口。
-- **命令与导航**：命令面板（`Ctrl+Shift+P`）、快速打开里的 `>` 命令 / `@` 当前文件符号 / `#` 工作区符号（`Ctrl+T`）、大纲、问题面板、跳转到行（`Ctrl+G`）、前进 / 后退、重开已关闭标签（`Ctrl+Shift+T`）、保存全部（`Ctrl+Shift+S`）、快速修复（`Ctrl+.`）、跳转声明 / 实现 / 类型定义。
+- Monaco 编辑器、文件树、快速打开（`Ctrl+P`）、工作区搜索与全局替换：结果按文件折叠，替换前先给逐文件预览，替换后可以撤销一次；搜索历史按工作区保存。
+- **资源管理器**：Ctrl / Shift 多选、全选、拖拽移动（按住 Ctrl / Alt 拖拽为复制）、内部复制 / 剪切 / 粘贴；`Delete` 可一次删除多项；点文件开头开关显示 / 隐藏隐藏文件，过滤按钮显示 / 隐藏 `node_modules`、`dist` 等忽略目录；还可以按工作区自定义忽略 glob（匹配文件名或相对路径）。
+- **编辑器偏好**：字号、字体（可覆盖全局代码字体）、连字、行高、字距、制表符宽度、缩进方式、自动换行与列宽、光标形状 / 闪烁 / 平滑移动、当前行高亮、空白与控制字符、行号（含相对行号）、缩进 / 括号对参考线、列标尺、代码缩略图、粘性滚动、平滑滚动、Ctrl + 滚轮缩放、保存时格式化、自动保存、保存时删除行尾空白；终端字号和行高单独可调。还可以按语言覆盖缩进。设置同时作用于所有 IDE 窗口。
+- **审阅栏**：右侧汇总工作区改动，按文件展开与 HEAD 比较的 hunk 摘要，点击打开对应 diff；没有改动或不是仓库时自动收起，也可以从活动栏手动开合。
+- **命令与导航**：命令面板（`Ctrl+Shift+P`）、快速打开里的 `>` 命令 / `@` 当前文件符号 / `#` 工作区符号（`Ctrl+T`）、路径 + 符号面包屑、问题面板、跳转到行（`Ctrl+G`）、前进 / 后退、重开已关闭标签（`Ctrl+Shift+T`）、保存全部（`Ctrl+Shift+S`）、快速修复（`Ctrl+.`）、跳转声明 / 实现 / 类型定义。
+- **文件与编辑**：新建未命名缓冲区（`Ctrl+N`）、另存为、手动切换语言模式、切换 LF / CRLF；未命名缓冲区保存前一直标记为未保存。打开文件时自动识别编码（BOM、UTF-8、GBK / GB18030、Big5、Shift-JIS、EUC-JP / KR、UTF-16 / 32，以及常见的西欧 / 俄文单字节编码），状态栏可手动改写或恢复自动检测。
+- **工程约定**：读取工作区里的 `.editorconfig`（`indent_style` / `indent_size` / `tab_width` / `end_of_line` / `insert_final_newline` / `trim_trailing_whitespace`），优先级高于全局设置和按语言配置。
 - **崩溃恢复**：未保存的草稿按工作区写入本地存储，崩溃 / 断电后重新打开同一工作区会自动恢复。
 - **内置终端**（Ctrl + 反引号）：在当前工作区启动 cmd，支持常规命令、颜色和简单的本地行编辑。
 - **TS / JS 语言智能（回落）**：没有语言服务器时，相对路径 `import` 的目标会被自动加入 Monaco 的 TypeScript worker，支持跨文件跳转定义、查找引用、重命名和文档符号。
-- **语言服务器（LSP）**：自动探测（TypeScript 优先项目 `node_modules`，其余查 `PATH`）`typescript-language-server`、`pyright`、`pylsp`、`gopls`、`rust-analyzer`、`clangd`、`yaml-language-server`、`bash-language-server`、`lua-language-server`，提供跳转定义 / 声明 / 实现 / 类型定义、查找引用、重命名、悬停、补全、参数提示、文档符号与工作区符号搜索、代码操作（快速修复 / 重构）、当前符号高亮、语义着色（类 / 属性 / 参数 / 变量 / 函数）、格式化，并把 `publishDiagnostics` 汇总到问题面板；侧栏大纲优先使用 `documentSymbol`，失败时回落到正则扫描。Python 另外使用增强的 Monarch 语法，即使服务器不支持语义着色，类 / 函数 / 属性 / 内置函数也有颜色。可在设置 → 编辑器 → 语言服务里关闭。
+- **语言服务器（LSP）**：自动探测（TypeScript 优先项目 `node_modules`，其余查 `PATH`）`typescript-language-server`、`pyright`、`pylsp`、`gopls`、`rust-analyzer`、`clangd`、`yaml-language-server`、`bash-language-server`、`lua-language-server`，提供跳转定义 / 声明 / 实现 / 类型定义、查找引用、重命名、悬停、补全、参数提示、文档符号与工作区符号搜索、代码操作（快速修复 / 重构）、当前符号高亮、语义着色（类 / 属性 / 参数 / 变量 / 函数）、格式化，并把 `publishDiagnostics` 汇总到问题面板；文档符号（面包屑和当前文件符号搜索）优先使用 `documentSymbol`，失败时回落到正则扫描。Python 另外使用增强的 Monarch 语法，即使服务器不支持语义着色，类 / 函数 / 属性 / 内置函数也有颜色。可在设置 → 编辑器 → 语言服务里关闭。
 - 未保存修改保护；外部（Agent / 终端 / 其他编辑器）改动会实时推送到窗口。
 - 渲染超大文件导致无响应时提供「强制关闭」逃生口，不依赖渲染层。
 - 文件读写和 VCS 写操作按窗口绑定的工作区鉴权，越界路径会被拒绝。
@@ -355,6 +359,13 @@ src/
 - 每个 IDE 窗口各自启动语言服务器，不跨窗口共享；同一窗口里 TypeScript / JavaScript 共用一个 `typescript-language-server` 进程。窗口关闭或渲染进程崩溃时会结束这些进程。
 - 语言服务器可能为了分析而在项目里执行构建脚本 / 过程宏（`rust-analyzer`、`cargo check`、`clangd` 的编译数据库等）。当前没有 Workspace Trust 提示：只在你信任的工作区启用 LSP，拿不准时到设置 → 编辑器 → 语言服务里关掉。
 - 编辑器尚未实现分屏 / 多编辑器组；切换工作区视图时编辑器和终端会保留，但同一文件不能并排编辑。
+- 外观设置里的缩略图、粘性滚动、缩进参考线、括号对参考线和语义着色仍受大文件性能档位约束：文件变大时会自动关闭，用户设置不能强制打开。
+- 审阅栏是只读汇总：按 hunk 的接受 / 拒绝仍在源代码管理里完成，审阅栏本身不会直接改盘。
+- `.editorconfig` 只实现缩进、换行、行尾空白和末尾空行几项；`charset`、`max_line_length` 等暂不生效。未命名缓冲区只存在于当前窗口，关闭或重启后不会恢复。
+- 编码自动识别是统计式的（UTF-8 / BOM 走确定性判断，其余交给 chardet）：只有几个字的旧编码文件可能判错，识别不出来时按 GB18030 读。状态栏编码菜单可以手动重新打开、恢复自动检测，或另选一种编码保存。
+- 「撤销全部替换」只保存在主进程内存里，一次替换只能撤销一次；应用重启、或多开同一工作区的窗口再次替换后，旧的撤销令牌会失效。替换后又被外部修改过的文件会跳过，不会覆盖新内容。搜索历史按工作区存在 localStorage，最多 20 条。
+- 「保存时格式化」只对当前活动文件生效；保存全部时其他文件按原样写盘。
+- 资源管理器的自定义忽略规则只影响文件树本身；快速打开 / 代码搜索仍沿用 `.gitignore` 和内置忽略表。临时打开 node_modules 等忽略目录后，其中的变化不会触发实时刷新（watcher 不监听这些目录）。
 - 界面提供简体中文 / English；系统语言为中文（含繁体）时用简体中文，其余语言用 English。
 
 ---
@@ -445,12 +456,16 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 ### Standalone IDE
 
 - One window per workspace; window position and size are remembered in `ide-windows.json`.
-- Monaco editor, file tree, quick open (`Ctrl+P`), workspace search, and replace all.
-- **Editor preferences**: font size, tab size, indentation, word wrap, minimap, auto-save, and trim-trailing-whitespace-on-save. Shared by every IDE window.
-- **Commands and navigation**: command palette (`Ctrl+Shift+P`), `>` commands / `@` symbols in the current file / `#` workspace symbols (`Ctrl+T`) in quick open, outline, problems panel, go to line (`Ctrl+G`), back/forward, reopen closed tab (`Ctrl+Shift+T`), save all (`Ctrl+Shift+S`), quick fix (`Ctrl+.`), and go to declaration / implementation / type definition.
+- Monaco editor, file tree, quick open (`Ctrl+P`), and workspace search with replace all: results collapse by file, replace shows a per-file preview first, and the last replace can be undone once; search history is kept per workspace.
+- **Explorer**: Ctrl / Shift multi-select, select all, drag to move (hold Ctrl / Alt while dropping to copy), in-app copy / cut / paste, and multi-item delete with `Delete`; an eye button shows / hides dotfiles, a filter button shows / hides ignored folders such as `node_modules` and `dist`, and each workspace can define its own ignore globs (matched against file names or relative paths).
+- **Editor preferences**: font size, font family (overrides the global code font), ligatures, line height, letter spacing, tab size, indentation, word wrap and wrap column, cursor style / blinking / smooth movement, current-line highlight, whitespace and control characters, line numbers (including relative), indentation / bracket-pair guides, column ruler, minimap, sticky scroll, smooth scrolling, Ctrl + wheel zoom, format on save, auto-save, and trim-trailing-whitespace-on-save; terminal font size and line height are configured separately. Indentation can be overridden per language. Shared by every IDE window.
+- **Review panel**: a right-hand summary of workspace changes, with per-file hunks compared against HEAD and a click-through to the diff. It hides automatically when the workspace is clean or not a repository, and can be toggled from the activity rail.
+- **Commands and navigation**: command palette (`Ctrl+Shift+P`), `>` commands / `@` symbols in the current file / `#` workspace symbols (`Ctrl+T`) in quick open, path + symbol breadcrumbs, problems panel, go to line (`Ctrl+G`), back/forward, reopen closed tab (`Ctrl+Shift+T`), save all (`Ctrl+Shift+S`), quick fix (`Ctrl+.`), and go to declaration / implementation / type definition.
+- **Files and editing**: new untitled buffers (`Ctrl+N`), Save As, manual language mode, and LF / CRLF switching; untitled buffers stay marked dirty until saved. Encodings are detected on open (BOM, UTF-8, GBK / GB18030, Big5, Shift-JIS, EUC-JP / KR, UTF-16 / 32, and common Western / Cyrillic single-byte encodings); the status bar lets you override it or return to auto-detect.
+- **Project conventions**: reads workspace `.editorconfig` (`indent_style` / `indent_size` / `tab_width` / `end_of_line` / `insert_final_newline` / `trim_trailing_whitespace`), overriding global and per-language settings.
 - **Crash recovery**: unsaved drafts are stored per workspace and restored when the same workspace is opened again.
 - **Built-in terminal** (Ctrl + backtick): starts cmd in the current workspace, with regular commands, colors, and simple local line editing.
-- **Language servers (LSP)**: auto-detects `typescript-language-server`, `pyright`, `pylsp`, `gopls`, `rust-analyzer`, `clangd`, `yaml-language-server`, `bash-language-server`, and `lua-language-server` (TypeScript prefers the project's `node_modules`; others are looked up on `PATH`). Provides go-to definition / declaration / implementation / type definition, find references, rename, hover, completion, signature help, document and workspace symbols, code actions (quick fix / refactor), document highlights, semantic highlighting (classes / properties / parameters / variables / functions), and formatting, with diagnostics feeding the problems panel. The outline prefers `documentSymbol` and falls back to regex scanning. Python also uses an enhanced Monarch grammar, so classes / functions / attributes / builtins stay colored even when the server does not provide semantic tokens. Can be disabled in Settings → Editor → Language services.
+- **Language servers (LSP)**: auto-detects `typescript-language-server`, `pyright`, `pylsp`, `gopls`, `rust-analyzer`, `clangd`, `yaml-language-server`, `bash-language-server`, and `lua-language-server` (TypeScript prefers the project's `node_modules`; others are looked up on `PATH`). Provides go-to definition / declaration / implementation / type definition, find references, rename, hover, completion, signature help, document and workspace symbols, code actions (quick fix / refactor), document highlights, semantic highlighting (classes / properties / parameters / variables / functions), and formatting, with diagnostics feeding the problems panel. Document symbols (used by breadcrumbs and current-file symbol search) prefer `documentSymbol` and fall back to regex scanning. Python also uses an enhanced Monarch grammar, so classes / functions / attributes / builtins stay colored even when the server does not provide semantic tokens. Can be disabled in Settings → Editor → Language services.
 - **TS/JS language intelligence**: relative-import targets are added to Monaco's TypeScript worker, enabling cross-file go-to-definition, find references, rename, and document symbols.
 - Unsaved-change protection; external changes (agent / terminal / another editor) are pushed to the window live.
 - A forced-close escape hatch when an oversized file makes the renderer unresponsive — it does not depend on the renderer.
@@ -718,6 +733,13 @@ src/
 - Semantic highlighting requires the server to support `textDocument/semanticTokens/full`: gopls, rust-analyzer, clangd, and typescript-language-server do; Pyright (including 1.1.414) does not, so Python relies on the enhanced built-in Monarch grammar. Files over roughly 20k lines / 1M characters disable semantic highlighting to keep input responsive.
 - Cross-file rename (F2) currently only works reliably for open tabs; edits to hidden import models are not written to disk, and the disk version wins when such a file is opened. Go-to-definition and find-references are read-only and unaffected.
 - The editor does not implement split panes / multiple editor groups yet; editors and the terminal survive view switches, but the same file cannot be edited side by side.
+- Minimap, sticky scroll, indentation guides, bracket-pair guides, and semantic highlighting are still governed by the large-file performance tiers: they turn off automatically as files grow, and the user setting cannot force them back on.
+- The review panel is a read-only summary: accepting or rejecting individual hunks still happens in Source Control; the panel never writes to disk on its own.
+- `.editorconfig` support covers indentation, line endings, trailing whitespace, and final newline; `charset` and `max_line_length` are ignored. Untitled buffers live only in the current window and are not restored after restart.
+- Encoding detection is statistical (UTF-8 and BOMs are deterministic; everything else goes through chardet). Very short legacy files can be misdetected, and undetected content falls back to GB18030. The status-bar encoding menu can reopen the file manually, switch back to auto-detect, or save with a chosen encoding.
+- Undo replace-all lives in main-process memory, works once per replace, and is lost after a restart or when another window on the same workspace replaces again. Files modified externally after the replace are skipped rather than overwritten. Search history is stored in localStorage per workspace, capped at 20 entries.
+- Format on save applies to the active file only; Save All writes the other files as-is.
+- Explorer ignore rules affect the file tree only; quick open and code search still follow `.gitignore` and the built-in ignore table. Showing ignored folders such as `node_modules` does not make the file watcher track changes inside them.
 - The UI ships Simplified Chinese and English; Chinese system locales (including Traditional Chinese) resolve to Simplified Chinese, and all others resolve to English.
 
 ---

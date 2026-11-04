@@ -27,6 +27,11 @@ export interface OutlineSymbol {
   column: number
   /** 嵌套层级，用于缩进 */
   depth: number
+  /**
+   * 1-based，符号作用域结束行（含）。正则兜底只能按「下一个同级 / 更外层
+   * 符号的上一行」估算；面包屑用它判断光标落在哪个符号里。
+   */
+  endLine?: number
 }
 
 const CONTROL = new Set([
@@ -181,5 +186,30 @@ export function parseOutline(text: string, rel: string): OutlineSymbol[] {
     if (m) push(out, m[2], kindOf(m[1]), line, lineNo, Math.min(2, indentDepth(line)))
   }
 
+  fillEndLines(out, lines)
   return out
+}
+
+/**
+ * 正则扫描没有语法树可用的范围信息，只能估：
+ * 符号作用域到「下一个 depth <= 自己的符号」之前一行结束。
+ */
+function fillEndLines(symbols: OutlineSymbol[], lines: string[]): void {
+  const lastNonBlank = (from: number): number => {
+    for (let i = from; i >= 1; i--) {
+      if (lines[i - 1]?.trim()) return i
+    }
+    return 1
+  }
+  for (let i = 0; i < symbols.length; i++) {
+    if (symbols[i].endLine !== undefined) continue
+    let end = lastNonBlank(lines.length)
+    for (let j = i + 1; j < symbols.length; j++) {
+      if (symbols[j].depth <= symbols[i].depth) {
+        end = Math.max(symbols[i].line, lastNonBlank(symbols[j].line - 1))
+        break
+      }
+    }
+    symbols[i].endLine = end
+  }
 }

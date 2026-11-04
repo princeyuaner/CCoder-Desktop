@@ -60,12 +60,15 @@ export function buildIdeRef(
   endLine?: number
 ): IdeCodeRef {
   const root = cwd.replace(/\\/g, '/').replace(/\/+$/, '')
+  const untitled = file.rel.startsWith('untitled:')
+  const name = untitled ? file.rel.slice('untitled:'.length) : baseName(file.rel)
   return {
     id: newId(),
     kind,
     rel: file.rel,
-    path: root ? `${root}/${file.rel}` : file.rel,
-    name: baseName(file.rel),
+    // 未命名缓冲区还没有磁盘路径；留空比拼一个不存在的路径更诚实
+    path: untitled ? '' : root ? `${root}/${file.rel}` : file.rel,
+    name,
     ...(kind === 'selection' ? { startLine, endLine } : {}),
     lang: fenceLang(file.language, file.rel),
     code: code.replace(/\r\n?/g, '\n'),

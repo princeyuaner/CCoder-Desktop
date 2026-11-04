@@ -248,6 +248,31 @@ export const IconCode = (p: IconProps) => (
   </svg>
 )
 
+/** 新会话空态：一颗带小尾焰的星，只做标题图标 */
+export const IconSpark = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="m8 1.9 1.2 3.4 3.4 1.2-3.4 1.2L8 11.1 6.8 7.7 3.4 6.5l3.4-1.2L8 1.9Z" />
+    <path d="m12.9 10.9.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3Z" />
+  </svg>
+)
+
+/** 新会话空态：图片 / 截图 */
+export const IconImage = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.6" />
+    <circle cx="5.8" cy="6.5" r="1" />
+    <path d="m3.2 11.4 3.2-3.1 2.3 2.1 1.6-1.5 2.5 2.5" />
+  </svg>
+)
+
+/** 新会话空态：执行者 / 终端 */
+export const IconTerminal = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.6" />
+    <path d="m4.8 6.2 1.9 1.8-1.9 1.8M8.4 9.8h2.8" />
+  </svg>
+)
+
 export const IconTrash = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M2.8 4.5h10.4M6 2.8h4M4.2 4.5l.6 8.1a1.2 1.2 0 0 0 1.2 1.1h4a1.2 1.2 0 0 0 1.2-1.1l.6-8.1M6.6 7v3.6M9.4 7v3.6" />

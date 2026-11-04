@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>新会话 · 空态与星野方案</title>
+<link rel="stylesheet" href="new-session-sky.css" />
+</head>
+<body data-variant="a" data-content="1">
+
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0V5ZM8 11v3"/></symbol>
+  <symbol id="i-task" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.2"/><path d="M8 2.8v1.5M8 11.7v1.5M2.8 8h1.5M11.7 8h1.5"/><path d="M8 5.4 9.5 8 8 10.6 6.5 8 8 5.4Z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2.4 5.1c0-.7.5-1.2 1.2-1.2h2.5l1.3 1.5h4.9c.7 0 1.2.5 1.2 1.2v4.6c0 .7-.5 1.2-1.2 1.2H3.6c-.7 0-1.2-.5-1.2-1.2V5.1Z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.3v1.3M8 12.4v1.3M2.3 8h1.3M12.4 8h1.3M4 4l.9.9M11.1 11.1l.9.9M12 4l-.9.9M4.9 11.1 4 12"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="m4.6 4.6 6.8 6.8M11.4 4.6l-6.8 6.8"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 16 16"><circle cx="3.4" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 16 16"><circle cx="4.3" cy="3.8" r="1.5"/><circle cx="4.3" cy="12.2" r="1.5"/><circle cx="11.7" cy="6.1" r="1.5"/><path d="M4.3 5.3v5.4M11.7 7.6c0 2-1.6 2.6-3.4 2.9"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 2.2 13 4v3.6c0 2.8-2 4.9-5 6.2-3-1.3-5-3.4-5-6.2V4l5-1.8Z"/><path d="m5.9 8 1.4 1.4L10.2 6.5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 12.5V4M4.4 7.4 8 3.8l3.6 3.6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="m5.5 6.5 2.5 2.6 2.5-2.6"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 16 16"><path d="M3.5 8h9"/></symbol>
+  <symbol id="i-square" viewBox="0 0 16 16"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx=".8"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="m4.6 4.6 6.8 6.8M11.4 4.6l-6.8 6.8"/></symbol>
+  <symbol id="i-brain" viewBox="0 0 16 16"><path d="M6.2 3.2c-1.5 0-2.6 1.1-2.6 2.5 0 .4.1.8.3 1.1-1 .3-1.6 1.2-1.6 2.2 0 1.2.9 2.2 2.1 2.3.1 1.3 1.2 2.3 2.5 2.3.7 0 1.3-.3 1.7-.8V3.9c-.4-.4-1-.7-1.6-.7h-.8Z"/><path d="M9.8 3.2c1.5 0 2.6 1.1 2.6 2.5 0 .4-.1.8-.3 1.1 1 .3 1.6 1.2 1.6 2.2 0 1.2-.9 2.2-2.1 2.3-.1 1.3-1.2 2.3-2.5 2.3-.7 0-1.3-.3-1.7-.8"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 16 16"><path d="m8 2.3 1.2 3.4L12.6 7l-3.4 1.2L8 11.6 6.8 8.2 3.4 7l3.4-1.3L8 2.3Z"/><path d="m12.8 11.2.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4Z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 16 16"><rect x="2.4" y="3.2" width="11.2" height="9.6" rx="1.6"/><circle cx="5.8" cy="6.4" r="1.1"/><path d="m3.2 11.4 3.2-3.1 2.3 2.1 1.6-1.5 2.5 2.5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 16 16"><rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.6"/><path d="m4.8 6.2 1.9 1.8-1.9 1.8M8.4 9.8h2.8"/></symbol>
+  <symbol id="i-tree" viewBox="0 0 16 16"><rect x="2.4" y="2.4" width="4.2" height="3.4" rx=".8"/><rect x="2.4" y="10.2" width="4.2" height="3.4" rx=".8"/><rect x="9.4" y="6.3" width="4.2" height="3.4" rx=".8"/><path d="M4.5 5.8v4.4M6.6 5.8c1.6 0 2 1.6 2.8 2.2"/></symbol>
+  <symbol id="i-bug" viewBox="0 0 16 16"><path d="M5.4 6.2a2.6 2.6 0 0 1 5.2 0v2.1a2.6 2.6 0 0 1-5.2 0V6.2Z"/><path d="M5.4 7.4H2.8M10.6 7.4h2.6M5.4 9.6l-2 1.8M10.6 9.6l2 1.8M5.7 5 4.4 3.4M10.3 5l1.3-1.6M8 3.6V2.2M8 10.9v2.2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.4"/><path d="m5.7 8.1 1.5 1.5 3.1-3.3"/></symbol>
+  <symbol id="i-target" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.4"/><circle cx="8" cy="8" r="2.2"/><circle cx="8" cy="8" r=".8" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-enter" viewBox="0 0 16 16"><path d="M12.6 3.4v4.2c0 .9-.7 1.6-1.6 1.6H3.8"/><path d="m6.2 6.6-2.6 2.6 2.6 2.6"/></symbol>
+  <symbol id="i-at" viewBox="0 0 16 16"><circle cx="7.6" cy="8" r="2.2"/><path d="M9.8 8v1.1c0 1.2.8 1.9 1.7 1.5.9-.5 1.5-1.6 1.5-3A5.4 5.4 0 1 0 10.5 13"/></symbol>
+  <symbol id="i-arrow-ne" viewBox="0 0 16 16"><path d="M4.4 11.6 11.6 4.4M6.2 4.4h5.4v5.4"/></symbol>
+</svg>
+
+<div class="sky">
+  <!-- ══ A · 银河带 ═══════════════════════════════════════════ -->
+  <div class="scene scene-back scene--a">
+    <div class="a-band"></div>
+    <div class="a-core"></div>
+    <div class="a-haze"></div>
+    <div class="a-nebula"></div>
+  </div>
+
+  <!-- ══ B · 轨道仪 ═══════════════════════════════════════════ -->
+  <div class="scene scene-back scene--b">
+    <div class="b-nebula b-nebula--one"></div>
+    <div class="b-nebula b-nebula--two"></div>
+  </div>
+
+  <!-- ══ C · 极光帷幕 ═════════════════════════════════════════ -->
+  <div class="scene scene-back scene--c">
+    <div class="c-aurora c-aurora--l"></div>
+    <div class="c-aurora c-aurora--r"></div>
+    <div class="c-aurora c-aurora--m"></div>
+    <div class="c-streaks"></div>
+    <div class="c-horizon"></div>
+  </div>
+
+  <!-- ══ D · 星图 ═════════════════════════════════════════════ -->
+  <div class="scene scene-back scene--d">
+    <div class="d-grid"></div>
+    <div class="d-grid d-grid--major"></div>
+    <div class="d-ecliptic"></div>
+  </div>
+
+  <canvas id="stars" class="stars"></canvas>
+
+  <!-- ══ 前景层 ═══════════════════════════════════════════════ -->
+  <div class="scene scene-front scene--a">
+    <span class="flare flare--one"></span>
+    <span class="flare flare--two"></span>
+    <div class="a-wisp"></div>
+  </div>
+
+  <div class="scene scene-front scene--b">
+    <svg class="b-system" viewBox="0 0 1356 858" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <radialGradient id="planetG" cx="31%" cy="26%" r="82%">
+          <stop offset="0" stop-color="#33486c" />
+          <stop offset="0.3" stop-color="#1a2942" />
+          <stop offset="0.64" stop-color="#0a1322" />
+          <stop offset="1" stop-color="#02050b" />
+        </radialGradient>
+        <radialGradient id="planetSheen" cx="30%" cy="24%" r="70%">
+          <stop offset="0" stop-color="rgba(143,231,255,0.16)" />
+          <stop offset="0.45" stop-color="rgba(143,231,255,0.04)" />
+          <stop offset="1" stop-color="rgba(157,140,255,0)" />
+        </radialGradient>
+        <radialGradient id="planetHalo" cx="50%" cy="50%" r="50%">
+          <stop offset="0.7" stop-color="rgba(143,231,255,0)" />
+          <stop offset="0.88" stop-color="rgba(143,231,255,0.18)" />
+          <stop offset="1" stop-color="rgba(157,140,255,0)" />
+        </radialGradient>
+        <linearGradient id="orbitG" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="rgba(143,231,255,0)" />
+          <stop offset="0.24" stop-color="rgba(143,231,255,0.30)" />
+          <stop offset="0.62" stop-color="rgba(157,140,255,0.30)" />
+          <stop offset="1" stop-color="rgba(157,140,255,0)" />
+        </linearGradient>
+        <linearGradient id="rimG" x1="0.1" y1="0" x2="0.55" y2="1">
+          <stop offset="0" stop-color="rgba(175,240,255,0.75)" />
+          <stop offset="0.45" stop-color="rgba(143,231,255,0.18)" />
+          <stop offset="1" stop-color="rgba(157,140,255,0.0)" />
+        </linearGradient>
+        <filter id="moonGlow" x="-300%" y="-300%" width="700%" height="700%">
+          <feGaussianBlur stdDeviation="2.4" result="b" />
+          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="7" />
+        </filter>
+        <path id="orbitPath1" d="M 280 780 a 900 250 0 1 0 1800 0 a 900 250 0 1 0 -1800 0" />
+        <path id="orbitPath2" d="M 480 780 a 700 176 0 1 0 1400 0 a 700 176 0 1 0 -1400 0" />
+        <path id="orbitPath3" d="M 60 780 a 1120 322 0 1 0 2240 0 a 1120 322 0 1 0 -2240 0" />
+        <path id="orbitPath4" d="M -320 780 a 1500 640 0 1 0 3000 0 a 1500 640 0 1 0 -3000 0" />
+        <clipPath id="planetClip"><circle cx="1180" cy="780" r="332" /></clipPath>
+        <mask id="crescentMask">
+          <rect x="0" y="0" width="1356" height="858" fill="#000" />
+          <circle cx="330" cy="180" r="25" fill="#fff" />
+          <circle cx="339" cy="189" r="24" fill="#000" />
+        </mask>
+        <linearGradient id="cometTail" x1="1" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="rgba(205,242,255,0.6)" />
+          <stop offset="0.42" stop-color="rgba(143,231,255,0.16)" />
+          <stop offset="1" stop-color="rgba(143,231,255,0)" />
+        </linearGradient>
+      </defs>
+
+      <g transform="rotate(-15 1180 780)" fill="none">
+        <circle cx="1180" cy="780" r="470" stroke="rgba(143,231,255,0.14)" stroke-width="0.8" stroke-dasharray="1 7" />
+        <circle cx="1180" cy="780" r="560" stroke="rgba(157,140,255,0.1)" stroke-width="0.7" stroke-dasharray="1 13" />
+      </g>
+
+      <g transform="rotate(-15 1180 780)">
+        <use href="#orbitPath1" fill="none" stroke="url(#orbitG)" stroke-width="1" opacity="0.8" />
+        <use href="#orbitPath2" fill="none" stroke="url(#orbitG)" stroke-width="0.9" opacity="0.56" stroke-dasharray="2 7" />
+        <use href="#orbitPath3" fill="none" stroke="url(#orbitG)" stroke-width="0.8" opacity="0.4" />
+        <use href="#orbitPath4" fill="none" stroke="url(#orbitG)" stroke-width="0.7" opacity="0.3" stroke-dasharray="1 10" />
+      </g>
+
+      <circle cx="1180" cy="780" r="430" fill="url(#planetHalo)" opacity="0.7" />
+      <circle cx="1180" cy="780" r="332" fill="url(#planetG)" />
+      <g clip-path="url(#planetClip)" opacity="0.5">
+        <ellipse cx="1080" cy="686" rx="330" ry="42" fill="rgba(143,231,255,0.035)" transform="rotate(-12 1080 686)" />
+        <ellipse cx="1120" cy="796" rx="380" ry="54" fill="rgba(157,140,255,0.03)" transform="rotate(-12 1120 796)" />
+        <ellipse cx="1050" cy="900" rx="360" ry="46" fill="rgba(143,231,255,0.028)" transform="rotate(-12 1050 900)" />
+      </g>
+      <circle cx="1180" cy="780" r="332" fill="url(#planetSheen)" />
+      <circle cx="1180" cy="780" r="332" fill="none" stroke="url(#rimG)" stroke-width="2" />
+      <circle cx="1180" cy="780" r="339" fill="none" stroke="rgba(143,231,255,0.14)" stroke-width="0.8" />
+
+      <!-- 环绕卫星 -->
+      <g transform="rotate(-15 1180 780)">
+        <g>
+          <circle r="2.4" fill="#ddf8ff" filter="url(#moonGlow)">
+            <animateMotion dur="58s" repeatCount="indefinite">
+              <mpath href="#orbitPath1" />
+            </animateMotion>
+          </circle>
+        </g>
+        <g>
+          <circle r="1.7" fill="#ddd6ff" filter="url(#moonGlow)">
+            <animateMotion dur="37s" repeatCount="indefinite">
+              <mpath href="#orbitPath2" />
+            </animateMotion>
+          </circle>
+        </g>
+        <g>
+          <circle r="1.3" fill="#bfe9f2" opacity="0.85" filter="url(#moonGlow)">
+            <animateMotion dur="86s" repeatCount="indefinite">
+              <mpath href="#orbitPath3" />
+            </animateMotion>
+          </circle>
+        </g>
+        <g>
+          <circle r="2" fill="#e8f4ff" opacity="0.8" filter="url(#moonGlow)">
+            <animateMotion dur="120s" repeatCount="indefinite">
+              <mpath href="#orbitPath4" />
+            </animateMotion>
+          </circle>
+        </g>
+      </g>
+
+      <!-- 远处的小月牙 -->
+      <circle cx="330" cy="180" r="46" fill="rgba(143,231,255,0.05)" filter="url(#softGlow)" />
+      <g mask="url(#crescentMask)">
+        <circle cx="330" cy="180" r="25" fill="#cfe6f5" opacity="0.82" />
+      </g>
+      <circle cx="330" cy="180" r="25" fill="none" stroke="rgba(143,231,255,0.14)" stroke-width="0.6" />
+
+      <!-- 长周期彗星 -->
+      <path d="M 740 162 C 662 176 590 212 518 266" fill="none" stroke="url(#cometTail)" stroke-width="2" filter="url(#softGlow)" />
+      <path d="M 740 162 C 682 186 630 222 586 262" fill="none" stroke="url(#cometTail)" stroke-width="7" opacity="0.28" filter="url(#softGlow)" />
+      <circle cx="740" cy="162" r="2.6" fill="#e8fbff" filter="url(#moonGlow)" />
+    </svg>
+  </div>
+
+  <div class="scene scene-front scene--c">
+    <svg class="c-curtains" viewBox="0 0 1356 858" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="auroraMint" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#7fe0bc" stop-opacity="0" />
+          <stop offset="0.16" stop-color="#a6f7d6" stop-opacity="0.6" />
+          <stop offset="0.52" stop-color="#5fd8c4" stop-opacity="0.3" />
+          <stop offset="1" stop-color="#3aa8b8" stop-opacity="0" />
+        </linearGradient>
+        <linearGradient id="auroraViolet" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#bdaaff" stop-opacity="0" />
+          <stop offset="0.18" stop-color="#c3b2ff" stop-opacity="0.52" />
+          <stop offset="0.56" stop-color="#8f7cf0" stop-opacity="0.26" />
+          <stop offset="1" stop-color="#6a5bd0" stop-opacity="0" />
+        </linearGradient>
+        <linearGradient id="auroraCyan" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#8fe7ff" stop-opacity="0" />
+          <stop offset="0.22" stop-color="#b6f2ff" stop-opacity="0.4" />
+          <stop offset="0.62" stop-color="#66cfe0" stop-opacity="0.18" />
+          <stop offset="1" stop-color="#4aa6c0" stop-opacity="0" />
+        </linearGradient>
+        <filter id="auroraSoft" x="-40%" y="-20%" width="180%" height="140%">
+          <feGaussianBlur stdDeviation="17" />
+        </filter>
+        <filter id="auroraTight" x="-40%" y="-20%" width="180%" height="140%">
+          <feGaussianBlur stdDeviation="5" />
+        </filter>
+      </defs>
+
+      <g fill="none" stroke-linecap="round" filter="url(#auroraSoft)" opacity="0.82">
+        <path d="M 352 -60 C 300 120 402 260 350 470 C 318 600 372 700 338 900" stroke="url(#auroraMint)" stroke-width="100" />
+        <path d="M 452 -60 C 414 140 486 300 446 520 C 420 660 470 760 448 900" stroke="url(#auroraCyan)" stroke-width="36" opacity="0.7" />
+        <path d="M 1198 -60 C 1146 160 1248 340 1196 560 C 1166 700 1218 780 1198 920" stroke="url(#auroraViolet)" stroke-width="116" opacity="0.78" />
+        <path d="M 1108 -60 C 1070 140 1148 320 1100 540 C 1072 680 1120 780 1104 900" stroke="url(#auroraCyan)" stroke-width="32" opacity="0.55" />
+        <path d="M 782 -60 C 760 180 812 380 786 600 C 770 720 792 800 782 900" stroke="url(#auroraCyan)" stroke-width="48" opacity="0.32" />
+      </g>
+
+      <g fill="none" stroke-linecap="round" filter="url(#auroraTight)" opacity="0.4">
+        <path d="M 388 -40 C 342 140 444 280 392 492 C 364 620 412 720 382 900" stroke="url(#auroraMint)" stroke-width="2.4" />
+        <path d="M 418 -40 C 372 160 468 300 420 510 C 392 640 440 740 414 900" stroke="url(#auroraCyan)" stroke-width="1.6" opacity="0.8" />
+        <path d="M 1234 -40 C 1182 180 1282 360 1230 580 C 1202 710 1248 800 1230 920" stroke="url(#auroraViolet)" stroke-width="2.6" />
+        <path d="M 1160 -40 C 1112 160 1208 340 1156 560 C 1128 690 1176 790 1158 900" stroke="url(#auroraCyan)" stroke-width="1.4" opacity="0.7" />
+      </g>
+
+      <ellipse cx="678" cy="930" rx="840" ry="230" fill="none" stroke="url(#auroraCyan)" stroke-width="112" filter="url(#auroraSoft)" opacity="0.45" />
+    </svg>
+
+    <div class="c-cluster"></div>
+    <div class="c-mist"></div>
+  </div>
+
+  <div class="scene scene-front scene--d">
+    <svg class="d-chart" viewBox="0 0 1356 858" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <filter id="chartGlow" x="-200%" y="-200%" width="500%" height="500%">
+          <feGaussianBlur stdDeviation="2.8" result="b" />
+          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+
+      <!-- 天琴 -->
+      <g class="constellation constellation--lyra" transform="translate(74 4)">
+        <path class="chart-line" d="M 330 196 L 404 248 L 365 320 L 292 336 L 258 268 Z M 258 268 L 330 196 M 365 320 L 330 196" />
+        <path class="chart-line chart-line--faint" d="M 292 336 L 330 196" />
+        <circle cx="330" cy="196" r="2.9" fill="#eaf4ff" filter="url(#chartGlow)" />
+        <circle cx="404" cy="248" r="1.8" fill="#cfe2ff" />
+        <circle cx="365" cy="320" r="2.1" fill="#dbe9ff" />
+        <circle cx="292" cy="336" r="1.5" fill="#bcd2f0" />
+        <circle cx="258" cy="268" r="1.6" fill="#bcd2f0" />
+        <text x="344" y="188" class="chart-label chart-label--bright">VEGA · 0.03</text>
+        <text x="236" y="374" class="chart-name">LYRA</text>
+        <text x="236" y="390" class="chart-sub">18h 37m · +38° 47′</text>
+      </g>
+
+      <!-- 天鹅 -->
+      <g class="constellation constellation--cygnus">
+        <path class="chart-line" d="M 1006 262 L 1064 316 L 1114 252 L 1168 310 L 1092 352 L 1064 316" />
+        <path class="chart-line chart-line--faint" d="M 1064 316 L 1092 352" />
+        <circle cx="1064" cy="316" r="2.6" fill="#eaf4ff" filter="url(#chartGlow)" />
+        <circle cx="1006" cy="262" r="1.6" fill="#cfe2ff" />
+        <circle cx="1114" cy="252" r="1.7" fill="#dbe9ff" />
+        <circle cx="1168" cy="310" r="1.4" fill="#bcd2f0" />
+        <circle cx="1092" cy="352" r="1.5" fill="#c3d7f2" />
+        <text x="1086" y="300" class="chart-label chart-label--bright">DENEB · 1.25</text>
+        <text x="1196" y="396" class="chart-name">CYGNUS</text>
+        <text x="1196" y="412" class="chart-sub">20h 41m · +45° 17′</text>
+      </g>
+
+      <!-- 黄道 -->
+      <path class="d-ecliptic-line" d="M 300 606 C 560 548 880 512 1250 330" />
+      <text x="300" y="628" class="chart-sub chart-sub--wide">ECLIPTIC</text>
+
+      <!-- 罗盘 -->
+      <g class="compass" transform="translate(330 798)">
+        <circle r="30" fill="none" stroke="rgba(160,192,235,0.20)" stroke-width="0.7" />
+        <circle r="21" fill="none" stroke="rgba(160,192,235,0.12)" stroke-width="0.6" stroke-dasharray="1 4" />
+        <path d="M0 -34v68M-34 0h68" stroke="rgba(160,192,235,0.14)" stroke-width="0.6" />
+        <path d="M0 -26 5 -4 0 3 -5 -4Z" fill="rgba(200,222,250,0.42)" />
+        <text x="-3" y="-39" class="chart-sub">N</text>
+        <text x="-3" y="47" class="chart-sub">S</text>
+        <text x="40" y="3" class="chart-sub">E</text>
+        <text x="-48" y="3" class="chart-sub">W</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="grain"></div>
+  <div class="vignette"></div>
+</div>
+
+<div class="app">
+  <header class="titlebar">
+    <div class="titlebar__brand">
+      <span class="brandmark">C</span>
+      <span class="brandname">CCoder</span>
+    </div>
+    <div class="titlebar__controls">
+      <button aria-label="最小化"><svg class="ic"><use href="#i-minus" /></svg></button>
+      <button aria-label="最大化"><svg class="ic"><use href="#i-square" /></svg></button>
+      <button aria-label="关闭"><svg class="ic"><use href="#i-close" /></svg></button>
+    </div>
+  </header>
+
+  <div class="app__body">
+    <aside class="sidebar">
+      <nav class="side-nav">
+        <button class="navitem"><svg class="ic"><use href="#i-plug" /></svg><span>插件</span></button>
+        <button class="navitem"><svg class="ic"><use href="#i-task" /></svg><span>自动化任务</span></button>
+      </nav>
+
+      <div class="side-head"><span>工作区</span><button class="iconbtn" aria-label="新建工作区"><svg class="ic"><use href="#i-plus" /></svg></button></div>
+
+      <section class="wsblock">
+        <div class="wsline">
+          <svg class="ic"><use href="#i-folder" /></svg>
+          <span class="wsname">CCoder-Desktop</span>
+          <span class="count">29</span>
+          <span class="wsactions"><svg class="ic"><use href="#i-plus" /></svg><svg class="ic"><use href="#i-x" /></svg></span>
+        </div>
+        <div class="sessions">
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">这个界面做一些优…</span><time>13 分钟</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">IDE 还缺哪些功能</span><time>13 分钟</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">还有哪些可以优…</span><time>17 小时</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">这版本改了什么</span><time>18 小时</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">还有什么可以优化</span><time>1 天</time></button>
+        </div>
+        <button class="more">展开其余 24 个会话</button>
+      </section>
+
+      <section class="wsblock">
+        <div class="wsline">
+          <svg class="ic"><use href="#i-folder" /></svg>
+          <span class="wsname">server</span>
+          <span class="count">14</span>
+          <span class="wsactions"><svg class="ic"><use href="#i-plus" /></svg><svg class="ic"><use href="#i-x" /></svg></span>
+        </div>
+        <div class="sessions">
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">检查最近7天sv…</span><time>13 分钟</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">交易产出报警是…</span><time>18 小时</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">分析这个 mongo 慢…</span><time>1 天</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#8fe7ff">◈</span><span class="sess-title">分析这个 mongo 慢…</span><time>1 天</time></button>
+          <button class="session"><span class="sess-ic" style="--c:#f3c87e">❯</span><span class="sess-title">当前有哪些 skill</span><time>1 天</time></button>
+        </div>
+        <button class="more">展开其余 9 个会话</button>
+      </section>
+
+      <div class="side-foot">
+        <button class="navitem"><svg class="ic"><use href="#i-gear" /></svg><span>设置</span></button>
+      </div>
+    </aside>
+
+    <main class="mainpane">
+      <div class="pane-head">
+        <span class="pane-title">新会话</span>
+        <button class="chip chip--branch"><svg class="ic"><use href="#i-branch" /></svg>main</button>
+        <button class="chip"><svg class="ic"><use href="#i-shield" /></svg>跳过权限</button>
+        <div class="spacer"></div>
+        <button class="iconbtn" aria-label="更多"><svg class="ic"><use href="#i-dots" /></svg></button>
+      </div>
+
+      <div class="pane-tabs">
+        <button class="tab is-active">对话</button>
+        <button class="tab">轨迹</button>
+      </div>
+
+      <div class="chatcol">
+        <p class="hint">发一条消息开始 — 渠道配好后这里就会出字。</p>
+
+        <div class="empty-stage">
+        <!-- 空态内容 1 · 上手卡片 -->
+        <section class="starter starter--1">
+          <div class="starter__head">
+            <span class="starter__mark"><svg class="ic"><use href="#i-spark" /></svg></span>
+            <div>
+              <h2>从一句话开始</h2>
+              <p>描述目标就好；需要时，再用下面的方式补充上下文。</p>
+            </div>
+          </div>
+          <div class="starter__grid">
+            <button class="tile">
+              <span class="tile__ic tile__ic--violet">@</span>
+              <span class="tile__body"><b>引用上下文</b><small>输入 @ 选择文件、目录或历史对话</small></span>
+            </button>
+            <button class="tile">
+              <span class="tile__ic tile__ic--cyan">/</span>
+              <span class="tile__body"><b>调用指令</b><small>输入 / 浏览技能、命令与插件</small></span>
+            </button>
+            <button class="tile">
+              <span class="tile__ic tile__ic--mint"><svg class="ic"><use href="#i-image" /></svg></span>
+              <span class="tile__body"><b>贴入图片</b><small>截图、设计稿直接拖进来</small></span>
+            </button>
+            <button class="tile">
+              <span class="tile__ic tile__ic--gold"><svg class="ic"><use href="#i-terminal" /></svg></span>
+              <span class="tile__body"><b>切换执行者</b><small>在输入框下方选择 CLI 与模型</small></span>
+            </button>
+          </div>
+          <div class="keyhint">
+            <span class="key">Enter</span><span>发送</span>
+            <span class="key">Shift</span><span>+</span><span class="key">Enter</span><span>换行</span>
+            <span class="keyhint__dot"></span>
+            <span>渠道配好后，这里就会出字</span>
+          </div>
+        </section>
+
+        <!-- 空态内容 2 · 建议任务 -->
+        <section class="starter starter--2">
+          <div class="starter__head starter__head--plain">
+            <h2>今天想做什么？</h2>
+            <p>选一个起点，或者直接描述你的任务。</p>
+          </div>
+          <div class="starters">
+            <button class="starter-row">
+              <span class="tile__ic tile__ic--violet"><svg class="ic"><use href="#i-tree" /></svg></span>
+              <span class="starter-row__body"><b>梳理这个仓库</b><small>先看目录、入口和模块关系，再给我一张地图</small></span>
+              <svg class="ic starter-row__go"><use href="#i-arrow-ne" /></svg>
+            </button>
+            <button class="starter-row">
+              <span class="tile__ic tile__ic--gold"><svg class="ic"><use href="#i-bug" /></svg></span>
+              <span class="starter-row__body"><b>修掉当前构建错误</b><small>复现、定位、修复，再跑一遍验证</small></span>
+              <svg class="ic starter-row__go"><use href="#i-arrow-ne" /></svg>
+            </button>
+            <button class="starter-row">
+              <span class="tile__ic tile__ic--mint"><svg class="ic"><use href="#i-check" /></svg></span>
+              <span class="starter-row__body"><b>给这段代码补测试</b><small>先用 @ 引用文件，再补边界用例</small></span>
+              <svg class="ic starter-row__go"><use href="#i-arrow-ne" /></svg>
+            </button>
+            <button class="starter-row">
+              <span class="tile__ic tile__ic--cyan"><svg class="ic"><use href="#i-terminal" /></svg></span>
+              <span class="starter-row__body"><b>解释这个报错</b><small>粘贴日志，或把截图直接拖进来</small></span>
+              <svg class="ic starter-row__go"><use href="#i-arrow-ne" /></svg>
+            </button>
+          </div>
+          <div class="keyhint">
+            <span><em class="keyhint__at">@</em> 引用文件</span>
+            <span class="keyhint__dot"></span>
+            <span><em class="keyhint__at">/</em> 调用指令</span>
+            <span class="keyhint__dot"></span>
+            <span>拖入截图</span>
+            <span class="keyhint__dot"></span>
+            <span class="key">Enter</span><span>发送</span>
+          </div>
+        </section>
+
+        <!-- 空态内容 3 · 能力说明 -->
+        <section class="starter starter--3">
+          <div class="starter__head starter__head--plain">
+            <h2>让新会话快速进入状态</h2>
+            <p>三种输入，按需组合。</p>
+          </div>
+          <div class="caps">
+            <div class="cap">
+              <span class="tile__ic tile__ic--violet"><svg class="ic"><use href="#i-target" /></svg></span>
+              <h3>说明目标</h3>
+              <p>一句话、一段需求，或者一张草图。说得越具体，第一步越准。</p>
+            </div>
+            <div class="cap">
+              <span class="tile__ic tile__ic--cyan"><svg class="ic"><use href="#i-at" /></svg></span>
+              <h3>补充上下文</h3>
+              <p><code>@</code> 引用文件与对话，附加目录，或把截图拖进输入框。</p>
+            </div>
+            <div class="cap">
+              <span class="tile__ic tile__ic--gold"><svg class="ic"><use href="#i-terminal" /></svg></span>
+              <h3>选择执行者</h3>
+              <p>在输入框下方切换 CLI、模型与思考深度，随时可以改。</p>
+            </div>
+          </div>
+          <div class="keyhint">
+            <span><em class="keyhint__at">@</em> 引用文件</span>
+            <span class="keyhint__dot"></span>
+            <span><em class="keyhint__at">/</em> 调用指令</span>
+            <span class="keyhint__dot"></span>
+            <span class="key">Enter</span><span>发送</span>
+            <span class="keyhint__dot"></span>
+            <span>渠道配好后，这里就会出字</span>
+          </div>
+        </section>
+
+        <!-- 空态内容 4 · 轻提示 -->
+        <section class="starter starter--4">
+          <div class="mini">
+            <span class="mini__lead"><svg class="ic"><use href="#i-spark" /></svg>不确定怎么开始？</span>
+            <span class="mini__item"><em>@</em>引用文件</span>
+            <span class="mini__item"><em>/</em>调用指令</span>
+            <span class="mini__item"><svg class="ic"><use href="#i-image" /></svg>拖入截图</span>
+            <span class="mini__item"><svg class="ic"><use href="#i-enter" /></svg><span class="key">Enter</span>发送</span>
+          </div>
+        </section>
+
+        </div>
+
+        <div class="composer-wrap">
+          <div class="cwd-row">
+            <button class="chip chip--cwd"><svg class="ic"><use href="#i-folder" /></svg>CCoder-Desktop</button>
+            <button class="chip chip--add"><svg class="ic"><use href="#i-plus" /></svg>添加目录</button>
+          </div>
+          <div class="composer">
+            <div class="composer__ph">发消息或创建任务，/ 调用指令，@ 文件或对话</div>
+            <div class="composer__bar">
+              <button class="round" aria-label="更多"><svg class="ic"><use href="#i-plus" /></svg></button>
+              <button class="chip chip--cli"><span class="cli-dot" style="--c:#f3a86a">▲</span>opencode</button>
+              <button class="chip chip--model">deepseek-v4.1-flash[1m]<svg class="ic chev"><use href="#i-chev" /></svg></button>
+              <div class="spacer"></div>
+              <button class="chip chip--eff"><svg class="ic"><use href="#i-brain" /></svg>极高<svg class="ic chev"><use href="#i-chev" /></svg></button>
+              <button class="chip chip--perm"><span class="dot dot--ok"></span>跳过权限<svg class="ic chev"><use href="#i-chev" /></svg></button>
+              <button class="send" aria-label="发送"><svg class="ic"><use href="#i-up" /></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="statusbar"><span>0 轮 · 0 步</span></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<nav class="variant-rail" aria-label="方案切换">
+  <span class="rail-label">天空</span>
+  <button data-v="a" class="vr-btn is-on" title="A · 银河带"><b>A</b></button>
+  <button data-v="b" class="vr-btn" title="B · 轨道仪"><b>B</b></button>
+  <button data-v="c" class="vr-btn" title="C · 极光帷幕"><b>C</b></button>
+  <button data-v="d" class="vr-btn" title="D · 星图"><b>D</b></button>
+  <span class="rail-divider"></span>
+  <span class="rail-label">空态</span>
+  <button data-content="1" class="vr-btn vr-btn--content is-on" title="1 · 上手卡片"><b>1</b></button>
+  <button data-content="2" class="vr-btn vr-btn--content" title="2 · 建议任务"><b>2</b></button>
+  <button data-content="3" class="vr-btn vr-btn--content" title="3 · 能力说明"><b>3</b></button>
+  <button data-content="4" class="vr-btn vr-btn--content" title="4 · 轻提示"><b>4</b></button>
+</nav>
+
+<script src="new-session-sky.js"></script>
+</body>
+</html>

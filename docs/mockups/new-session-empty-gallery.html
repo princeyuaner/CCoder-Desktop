@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>新会话空态 · 四个内容方案</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --text: #e8effa;
+    --muted: #8fa2bd;
+    --faint: #62758f;
+    --line: rgba(143, 174, 226, 0.14);
+    --violet: #9d8cff;
+    --cyan: #8fe7ff;
+    --font-ui: "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --font-mono: "Cascadia Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    padding: 34px 40px 30px;
+    background:
+      radial-gradient(1100px 600px at 50% -10%, rgba(76, 64, 160, 0.22), transparent 64%),
+      #04070f;
+    color: var(--text);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+  }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .eyebrow { margin-bottom: 9px; color: var(--cyan); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.3em; opacity: 0.7; }
+  h1 { margin: 0 0 8px; font-size: 26px; font-weight: 600; letter-spacing: 0.01em; }
+  header p { margin: 0; max-width: 660px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+  .meta { flex: none; text-align: right; color: var(--faint); font-family: var(--font-mono); font-size: 10px; line-height: 1.9; letter-spacing: 0.04em; }
+  .meta b { color: #c9d6e8; font-weight: 500; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 24px; }
+  figure { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: rgba(8, 15, 28, 0.48); }
+  figure img { display: block; width: 100%; height: auto; }
+  figcaption { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 15px; border-top: 1px solid rgba(143, 174, 226, 0.09); }
+  .num { padding-top: 2px; color: var(--violet); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; }
+  figcaption h2 { margin: 0 0 3px; font-size: 13.5px; font-weight: 600; color: #e7eefb; }
+  figcaption p { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+  footer { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11.5px; }
+  footer code { padding: 1px 5px; border-radius: 4px; background: rgba(143, 174, 226, 0.08); color: #c3d1e6; font-family: var(--font-mono); font-size: 10.5px; }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="eyebrow">NEW SESSION · EMPTY STATE</div>
+      <h1>新会话空态 · 四个内容方案</h1>
+      <p>背景统一用 A · 银河带，先只看内容层的密度与层级。打开 mockup 可以自由组合四种天空和四种空态。</p>
+    </div>
+    <div class="meta">CANVAS <b>1356 × 858</b><br />SKY <b>A · 银河带</b></div>
+  </header>
+
+  <main>
+    <figure>
+      <img src="new-session-empty-1.png" alt="方案 1 上手卡片" />
+      <figcaption>
+        <span class="num">01</span>
+        <div><h2>上手卡片</h2><p>把 @、指令、图片和执行者一次讲清，信息最全，适合首次使用。</p></div>
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="new-session-empty-2.png" alt="方案 2 建议任务" />
+      <figcaption>
+        <span class="num">02</span>
+        <div><h2>建议任务</h2><p>用四个真实任务当起点，点一下就能带着上下文开工。</p></div>
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="new-session-empty-3.png" alt="方案 3 能力说明" />
+      <figcaption>
+        <span class="num">03</span>
+        <div><h2>能力说明</h2><p>按“目标 / 上下文 / 执行者”三栏解释产品，更像一张使用地图。</p></div>
+      </figcaption>
+    </figure>
+    <figure>
+      <img src="new-session-empty-4.png" alt="方案 4 轻提示" />
+      <figcaption>
+        <span class="num">04</span>
+        <div><h2>轻提示</h2><p>只留一条快捷键提示，最安静；背景和输入框仍是主角。</p></div>
+      </figcaption>
+    </figure>
+  </main>
+
+  <footer>打开 <code>docs/mockups/new-session-sky.html</code>，用右侧滑轨切换天空 A–D 与空态 1–4。</footer>
+</body>
+</html>

@@ -14,6 +14,40 @@ export interface IdeEntry {
   kind: 'file' | 'dir'
 }
 
+/** 资源管理器列目录时的过滤选项 */
+export interface IdeListDirOptions {
+  /** false = 隐藏以 `.` 开头的文件 / 目录；默认 true（保持旧行为） */
+  showHidden?: boolean
+  /** true = 显示固定忽略表里的目录（node_modules、dist 等）；默认 false */
+  showIgnored?: boolean
+  /** 自定义忽略 glob；匹配文件名或工作区相对路径 */
+  ignore?: string[]
+}
+
+export type IdeTransferMode = 'move' | 'copy'
+
+export interface IdeTransferRequest {
+  cwd: string
+  /** 要移动 / 复制的源路径（工作区相对）；嵌套项会被自动收敛到最外层 */
+  rels: string[]
+  /** 目标目录（工作区相对，'' = 根目录） */
+  targetDir: string
+  mode: IdeTransferMode
+}
+
+export interface IdeTransferItem {
+  from: string
+  /** 成功时的目标路径；源已经在目标位置时等于 from */
+  to?: string
+  ok: boolean
+  code?: IdeFsErrorCode
+  message?: string
+}
+
+export interface IdeTransferData {
+  items: IdeTransferItem[]
+}
+
 /** 要在 IDE 里打开的目标。主进程负责把绝对路径换算成 rel 并做越界检查。 */
 export interface IdeTarget {
   /** 相对工作区的路径，正斜杠 */
@@ -114,8 +148,42 @@ export interface IdeTerminalExitEvent {
 
 export type IdeEol = 'lf' | 'crlf'
 
-/** 编辑器支持的文本编码；GBK 用 GB18030 解码 / 编码（GBK 的超集） */
-export const IDE_ENCODINGS = ['utf8', 'utf8bom', 'gbk', 'utf16le', 'utf16be'] as const
+/**
+ * 编辑器支持的文本编码；GBK 用 GB18030 解码 / 编码（GBK 的超集）。
+ *
+ * 常用编码排在前面，状态栏菜单按这个顺序展示。自动识别只会在这些编码
+ * 里选一个，识别不出来时回落到 GB18030。
+ */
+export const IDE_ENCODINGS = [
+  'utf8',
+  'utf8bom',
+  'gbk',
+  'big5',
+  'shiftjis',
+  'eucjp',
+  'euckr',
+  'utf16le',
+  'utf16be',
+  'utf32le',
+  'utf32be',
+  'windows1252',
+  'windows1251',
+  'windows1250',
+  'windows1253',
+  'windows1254',
+  'windows1255',
+  'windows1256',
+  'windows1257',
+  'windows1258',
+  'windows874',
+  'iso88592',
+  'iso88595',
+  'iso88596',
+  'iso88597',
+  'iso88598',
+  'iso88599',
+  'koi8r'
+] as const
 export type IdeEncoding = (typeof IDE_ENCODINGS)[number]
 
 export function isIdeEncoding(value: unknown): value is IdeEncoding {
@@ -143,8 +211,18 @@ export interface IdeTextFile {
   eol?: IdeEol
   /** 读取时识别（或用户指定）的编码；保存时按它写回 */
   encoding: IdeEncoding
+  /**
+   * 编码是自动识别出来的（而不是用户手动指定 / 保存时选定）。
+   * 状态栏据此提示「自动检测」，编码菜单也可以再切回自动模式。
+   */
+  encodingAuto?: boolean
   /** 可以安全地整体写回（非二进制且未截断） */
   editable?: boolean
+  /**
+   * 尚未落盘的缓冲区。只有渲染层会设置；`rel` 形如 `untitled:Untitled-1`，
+   * 保存时必须先走「另存为」拿到真实路径。
+   */
+  untitled?: boolean
 }
 
 export type IdeFsErrorCode =
@@ -179,6 +257,11 @@ export interface IdeSaveRequest {
   encoding?: IdeEncoding
   /** 用户确认覆盖外部改动 / 重建已删除文件时置 true */
   force?: boolean
+  /**
+   * 只允许新建。另存为到不存在的路径时使用：如果检查与写入之间有人抢先
+   * 建了同名文件，返回 `exists` 而不是静默覆盖。
+   */
+  mustCreate?: boolean
 }
 
 export interface IdeCreateRequest {
@@ -327,6 +410,22 @@ export interface IdeReplaceFileResult {
   message?: string
 }
 
+/** 替换预览里的一行示例（替换前 / 替换后） */
+export interface IdeReplacePreviewSample {
+  line: number
+  before: string
+  after: string
+}
+
+export interface IdeReplacePreviewFile {
+  rel: string
+  replacements: number
+  /** 最多返回前几处，避免预览 modal 塞满 */
+  samples: IdeReplacePreviewSample[]
+  /** 还有没展示的替换处 */
+  more?: boolean
+}
+
 export interface IdeReplaceTotals {
   filesScanned: number
   filesWithMatches: number
@@ -348,6 +447,14 @@ export interface IdeReplaceData {
   /** 扫描不完整或触发上限：一个文件都没写 */
   aborted: boolean
   message?: string
+  /** 预览模式下的逐文件示例；真正替换时为空 */
+  preview?: IdeReplacePreviewFile[]
+  /** 预览文件列表本身被截断 */
+  previewTruncated?: boolean
+  /** 真正替换后可用于撤销的令牌 */
+  undoToken?: string
+  /** 撤销会恢复的文件数 */
+  undoFiles?: number
 }
 
 export type IdeReplaceResult = IdeFsResult<IdeReplaceData>
@@ -361,5 +468,28 @@ export interface IdeReplaceRequest {
   dirtyRels?: string[]
   /** 测试 / 安全阀；服务端还会再夹一次硬上限 */
   maxReplacements?: number
+  /** 只计算并返回示例，不写盘 */
+  preview?: boolean
 }
+
+export type IdeUndoFileStatus = 'ok' | 'conflict' | 'missing' | 'error'
+
+export interface IdeUndoFileResult {
+  rel: string
+  status: IdeUndoFileStatus
+  message?: string
+}
+
+export interface IdeUndoReplaceRequest {
+  cwd: string
+  token: string
+}
+
+export interface IdeUndoReplaceData {
+  files: IdeUndoFileResult[]
+  restoredFiles: number
+  restoredMatches: number
+}
+
+export type IdeUndoReplaceResult = IdeFsResult<IdeUndoReplaceData>
 

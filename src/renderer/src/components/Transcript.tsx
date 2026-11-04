@@ -23,6 +23,7 @@ import {
 import type { ImageAttachment } from '@shared/attachment'
 import { ImageLightbox } from './ImageLightbox'
 import { MarkdownText } from './MarkdownText'
+import { NewChatEmpty } from './NewChatEmpty'
 import { fmtClock, fmtTokens, totalTokens } from './format'
 import type { TabKey } from './TabBar'
 import {
@@ -620,10 +621,13 @@ function TranscriptImpl({
     // 少这一项的话它一出现就把自己撑到可视区外面，半截卡在输入框后面
   }, [items, waiting, stickToBottom])
 
+  // 空态要独占转写区的整个高度，才能把说明块放在垂直中间
+  const isEmpty = tab !== 'trace' && items.length === 0
+
   return (
     <DisplayContext.Provider value={display}>
       <ActionsContext.Provider value={actions}>
-      <div className="transcript-wrap">
+      <div className={`transcript-wrap${isEmpty ? ' transcript-wrap--empty' : ''}`}>
         {find.open && (
           <FindBar
             find={find}
@@ -634,12 +638,12 @@ function TranscriptImpl({
             }}
           />
         )}
-        <div className="transcript" ref={bindScroll}>
-        <div className="transcript__inner" ref={innerRef}>
+        <div className={`transcript${isEmpty ? ' transcript--empty' : ''}`} ref={bindScroll}>
+        <div className={`transcript__inner${isEmpty ? ' transcript__inner--empty' : ''}`} ref={innerRef}>
           {tab === 'trace' ? (
             <TraceView items={items} />
           ) : items.length === 0 ? (
-            <p className="empty">{t('transcript.empty')}</p>
+            <NewChatEmpty />
           ) : (
             /*
              * 一条事件一个节点。**不需要分组** —— 分组是气泡版才有的问题

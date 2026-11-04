@@ -13,35 +13,37 @@ import { useI18n } from '../i18n'
  */
 
 function cssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  const scope = document.querySelector('.ide-app') ?? document.documentElement
+  const value = getComputedStyle(scope).getPropertyValue(name).trim()
   return value || fallback
 }
 
 function terminalTheme(): ITheme {
-  const bg = cssVar('--bg-app', '#191919')
-  const fg = cssVar('--text', '#d4d4d4')
+  const light = document.documentElement.dataset.scheme === 'light'
+  const bg = cssVar('--ide-editor', cssVar('--bg-app', light ? '#fbf8f1' : '#14161b'))
+  const fg = cssVar('--text', light ? '#25231f' : '#e7e2d7')
   return {
     background: bg,
     foreground: fg,
-    cursor: fg,
+    cursor: cssVar('--accent', light ? '#a9612f' : '#da9a63'),
     cursorAccent: bg,
-    selectionBackground: cssVar('--bg-active', '#333333'),
-    black: '#3b4048',
-    red: '#e06c75',
-    green: '#98c379',
-    yellow: '#e5c07b',
-    blue: '#61afef',
-    magenta: '#c678dd',
-    cyan: '#56b6c2',
-    white: '#dcdfe4',
-    brightBlack: '#5c6370',
-    brightRed: '#ef7f88',
-    brightGreen: '#a9d78a',
-    brightYellow: '#f0d08c',
-    brightBlue: '#7cc0f5',
-    brightMagenta: '#d69ae8',
-    brightCyan: '#6fcbd6',
-    brightWhite: '#ffffff'
+    selectionBackground: cssVar('--accent-wash-2', light ? '#efdcc9' : '#3a2c22'),
+    black: light ? '#4e4a43' : '#3a3a40',
+    red: light ? '#a94a42' : '#d98278',
+    green: light ? '#4f745b' : '#9bb8a3',
+    yellow: light ? '#8b5a24' : '#d9a066',
+    blue: light ? '#3f6b7e' : '#8fb3c4',
+    magenta: light ? '#6e5a84' : '#c3b2d6',
+    cyan: light ? '#2f6b63' : '#7fb3a8',
+    white: light ? '#25231f' : '#e7e2d7',
+    brightBlack: light ? '#7e786d' : '#6f6d66',
+    brightRed: light ? '#c05a50' : '#e59a90',
+    brightGreen: light ? '#5f8a6f' : '#b5cdb9',
+    brightYellow: light ? '#a9612f' : '#f0b57d',
+    brightBlue: light ? '#4f7f93' : '#a8c8d6',
+    brightMagenta: light ? '#81699a' : '#d6c7e4',
+    brightCyan: light ? '#3f7f76' : '#9ccfc5',
+    brightWhite: light ? '#11100e' : '#f7f3ea'
   }
 }
 
@@ -57,11 +59,13 @@ const HISTORY_MAX = 200
 export function TerminalView({
   cwd,
   active,
-  fontSize = 12
+  fontSize = 12,
+  lineHeight = 1.2
 }: {
   cwd: string
   active: boolean
   fontSize?: number
+  lineHeight?: number
 }): JSX.Element {
   const { t } = useI18n()
   const hostRef = useRef<HTMLDivElement>(null)
@@ -149,7 +153,7 @@ export function TerminalView({
       scrollback: 5000,
       fontFamily: cssVar('--font-mono', "'Cascadia Mono', Consolas, monospace"),
       fontSize,
-      lineHeight: 1.2,
+      lineHeight,
       theme: terminalTheme(),
       allowTransparency: false
     })
@@ -415,16 +419,17 @@ export function TerminalView({
 
   inputHandlerRef.current = handleLocalInput
 
-  /* 字体跟随设置页里的编辑器字号 */
+  /* 字体跟随设置页里的终端字号 / 行高 */
   useEffect(() => {
     const term = termRef.current
     if (!term) return
     term.options.fontSize = fontSize
+    term.options.lineHeight = lineHeight
     // 字号变了，单元格尺寸跟着变；重新 fit 一次，列数才不会错位
     requestAnimationFrame(() => {
       if (activeRef.current) fit()
     })
-  }, [fit, fontSize])
+  }, [fit, fontSize, lineHeight])
 
   return (
     <div className="ide-terminal-wrap">

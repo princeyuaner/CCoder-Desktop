@@ -457,7 +457,7 @@ const api: WindowApi = {
       ipcRenderer.on(IPC.ideFsChanged, listener)
       return () => ipcRenderer.off(IPC.ideFsChanged, listener)
     },
-    listDir: (cwd, rel) => ipcRenderer.invoke(IPC.ideListDir, cwd, rel),
+    listDir: (cwd, rel, options) => ipcRenderer.invoke(IPC.ideListDir, cwd, rel, options),
     readFile: (cwd, rel, encoding) => ipcRenderer.invoke(IPC.ideReadFile, cwd, rel, encoding),
     readImage: (cwd, rel) => ipcRenderer.invoke(IPC.ideReadImage, cwd, rel),
     revealInOs: (cwd, rel) => ipcRenderer.invoke(IPC.ideRevealInOs, cwd, rel),
@@ -471,10 +471,13 @@ const api: WindowApi = {
       return () => ipcRenderer.off(IPC.ideSearchEvent, listener)
     },
     replaceInWorkspace: (req) => ipcRenderer.invoke(IPC.ideReplaceInWorkspace, req),
+    undoReplace: (req) => ipcRenderer.invoke(IPC.ideUndoReplace, req),
     saveFile: (req) => ipcRenderer.invoke(IPC.ideSaveFile, req),
     createEntry: (req) => ipcRenderer.invoke(IPC.ideCreateEntry, req),
     renameEntry: (req) => ipcRenderer.invoke(IPC.ideRenameEntry, req),
     deleteEntry: (req) => ipcRenderer.invoke(IPC.ideDeleteEntry, req),
+    transferEntries: (req) => ipcRenderer.invoke(IPC.ideTransferEntries, req),
+    editorConfig: (cwd, rel) => ipcRenderer.invoke(IPC.ideEditorConfig, cwd, rel),
     setDirty: (dirty) => ipcRenderer.send(IPC.ideDirty, dirty),
     onCloseRequest: (cb) => {
       closeListeners.add(cb)

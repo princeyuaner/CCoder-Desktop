@@ -11,8 +11,8 @@ export default defineConfig({
       'process.env.WS_NO_BUFFER_UTIL': '"1"',
       'process.env.WS_NO_UTF_8_VALIDATE': '"1"'
     },
-    // micromatch / electron-updater / fzstd / MCP 格式库要跟着主进程 bundle 走：
-    // 打包配置排除了 node_modules，外部化它们会让安装包里缺依赖
+    // micromatch / electron-updater / fzstd / MCP 格式库 / 编码探测要跟着
+    // 主进程 bundle 走：打包配置排除了 node_modules，外部化它们会让安装包里缺依赖
     plugins: [
       externalizeDepsPlugin({
         exclude: [
@@ -23,7 +23,8 @@ export default defineConfig({
           'smol-toml',
           'yaml',
           'ws',
-          'iconv-lite'
+          'iconv-lite',
+          'chardet'
         ]
       })
     ],

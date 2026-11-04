@@ -18,6 +18,7 @@ import type {
   Settings
 } from './settings'
 import type { CliUpdateRunResult, CliUpdateState, CliUpdateStates } from './cli-update'
+import type { EditorConfigProperties } from './editorconfig'
 import type {
   DshHomeOption,
   McpListResult,
@@ -70,6 +71,7 @@ import type {
   IdeFsChanged,
   IdeFsResult,
   IdeImage,
+  IdeListDirOptions,
   IdeOpenResult,
   IdeRenameRequest,
   IdeReplaceRequest,
@@ -85,7 +87,11 @@ import type {
   IdeTerminalExitEvent,
   IdeTerminalStartRequest,
   IdeTerminalStartResult,
-  IdeTextFile
+  IdeUndoReplaceRequest,
+  IdeUndoReplaceResult,
+  IdeTextFile,
+  IdeTransferData,
+  IdeTransferRequest
 } from './ide'
 import type {
   ChatActiveInfo,
@@ -255,10 +261,13 @@ export const IPC = {
   ideSearchCancel: 'ide:search-cancel',
   ideSearchEvent: 'ide:search-event',
   ideReplaceInWorkspace: 'ide:replace-in-workspace',
+  ideUndoReplace: 'ide:undo-replace',
   ideSaveFile: 'ide:save-file',
   ideCreateEntry: 'ide:create-entry',
   ideRenameEntry: 'ide:rename-entry',
   ideDeleteEntry: 'ide:delete-entry',
+  ideTransferEntries: 'ide:transfer-entries',
+  ideEditorConfig: 'ide:editor-config',
   /** IDE 渲染进程 → 主进程：有没有未保存的文件 */
   ideDirty: 'ide:dirty',
   /** 主进程 → IDE 渲染进程：用户关窗口，但有未保存修改 */
@@ -757,7 +766,7 @@ export interface WindowApi {
     openDiffs(cwd: string, rels: string[]): Promise<IdeOpenResult>
     /** IDE 渲染进程订阅「打开这个文件」；返回取消订阅函数 */
     onReveal(cb: (target: IdeTarget) => void): () => void
-    listDir(cwd: string, rel: string): Promise<IdeEntry[]>
+    listDir(cwd: string, rel: string, options?: IdeListDirOptions): Promise<IdeEntry[]>
     readFile(cwd: string, rel: string, encoding?: IdeEncoding): Promise<IdeFsResult<IdeTextFile>>
     readImage(cwd: string, rel: string): Promise<IdeFsResult<IdeImage>>
     /** 在系统文件管理器中打开 rel 所在目录并选中它 */
@@ -771,10 +780,16 @@ export interface WindowApi {
     onSearchEvent(cb: (event: IdeSearchStreamEvent) => void): () => void
     /** 工作区全部替换；有未保存修改的文件由 dirtyRels 指定并跳过 */
     replaceInWorkspace(req: IdeReplaceRequest): Promise<IdeReplaceResult>
+    /** 撤销上一次全部替换；token 由 replaceInWorkspace 返回 */
+    undoReplace(req: IdeUndoReplaceRequest): Promise<IdeUndoReplaceResult>
     saveFile(req: IdeSaveRequest): Promise<IdeFsResult<IdeTextFile>>
     createEntry(req: IdeCreateRequest): Promise<IdeFsResult<IdeEntryChange>>
     renameEntry(req: IdeRenameRequest): Promise<IdeFsResult<IdeEntryChange>>
     deleteEntry(req: IdeDeleteRequest): Promise<IdeFsResult<IdeDeleteResult>>
+    /** 移动 / 复制一批文件或目录到目标目录（拖拽和复制粘贴共用） */
+    transferEntries(req: IdeTransferRequest): Promise<IdeFsResult<IdeTransferData>>
+    /** 某个文件最终生效的 `.editorconfig` 属性（沿目录向上合并） */
+    editorConfig(cwd: string, rel: string): Promise<EditorConfigProperties>
     /** 订阅工作区文件变化；返回取消订阅函数 */
     onFsChanged(cb: (batch: IdeFsChanged) => void): () => void
     /** 告诉主进程当前有没有未保存修改，关闭窗口时据此拦截 */

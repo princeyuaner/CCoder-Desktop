@@ -3,6 +3,7 @@ import { sessionMetaKey, type StoredSession } from '@shared/session'
 import { cliDef, sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
 import { disposeIdleNewChats, disposeStoredChat, forgetInputHistory } from './useChat'
 import { TitleBar } from './components/TitleBar'
+import { StarfieldBackground } from './components/StarfieldBackground'
 import { Sidebar } from './components/Sidebar'
 import { SessionSearch } from './components/SessionSearch'
 import { MainPane } from './components/MainPane'
@@ -42,6 +43,8 @@ import './styles/search.css'
 import './styles/newsession.css'
 /* 浅色覆盖必须最后加载（或靠选择器权重压过组件样式），这里放最后一行 */
 import './styles/theme-light.css'
+/* 星野主题的背景层和玻璃表面覆盖；只在 data-theme=starfield 下生效 */
+import './styles/starfield.css'
 
 type View = 'chat' | 'settings'
 
@@ -76,8 +79,27 @@ function groupByCwd(list: StoredSession[]): [string, StoredSession[]][] {
   return out
 }
 
+/**
+ * 星野背景跟的是 <html data-theme>，不是 settings 状态。
+ * 设置页预览主题时会先改 data-theme、还没落盘；只盯 settings 会让背景层
+ * 在切回深色后继续挂着。
+ */
+function useStarfieldTheme(): boolean {
+  const [on, setOn] = useState(() => document.documentElement.dataset.theme === 'starfield')
+  useEffect(() => {
+    const root = document.documentElement
+    const sync = (): void => setOn(root.dataset.theme === 'starfield')
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return on
+}
+
 export function App(): JSX.Element {
   const { t, tn } = useI18n()
+  const starfieldTheme = useStarfieldTheme()
   const [view, setView] = useState<View>('chat')
   const [active, setActive] = useState<Active>({ kind: 'new', n: 0 })
   /**
@@ -667,7 +689,9 @@ export function App(): JSX.Element {
   }, [pickedCwd, settings.openedCwds])
 
   return (
-    <div className="app">
+    <>
+      {starfieldTheme && <StarfieldBackground />}
+      <div className="app">
       <TitleBar update={updater} />
       <div className="app__body">
         {/*
@@ -895,6 +919,7 @@ export function App(): JSX.Element {
           onClose={whatsNew.dismiss}
         />
       )}
-    </div>
+      </div>
+    </>
   )
 }
