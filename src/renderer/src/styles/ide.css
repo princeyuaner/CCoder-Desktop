@@ -1146,6 +1146,16 @@
   font-size: 12px;
   color: var(--text-faint);
 }
+/*
+ * 加载新文件时编辑器保持挂载（不重建 model / 撤销栈），这层不透明的
+ * 提示盖在它上面，避免用户看到上一个文件的内容却以为是新文件。
+ */
+.ide-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--ide-editor);
+}
 .ide-status {
   flex: none;
   display: flex;

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent
+} from 'react'
 import type { OutlineKind, OutlineSymbol } from './outline'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '@shared/i18n'
@@ -87,7 +94,7 @@ interface MenuState {
   items: { label: string; kind: OutlineKind; line: number; current: boolean }[]
 }
 
-export function SymbolBreadcrumbs({
+export const SymbolBreadcrumbs = memo(function SymbolBreadcrumbs({
   symbols,
   line,
   onJump
@@ -196,4 +203,4 @@ export function SymbolBreadcrumbs({
       )}
     </>
   )
-}
+})

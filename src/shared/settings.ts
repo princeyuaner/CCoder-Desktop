@@ -130,6 +130,11 @@ export type ThemeMode =
   | 'coffee'
   | 'moss'
   | 'starfield'
+  | 'aurora'
+  | 'ember'
+  | 'abyss'
+  | 'sakura'
+  | 'prism'
   | 'contrast'
   | 'light'
   | 'paper'
@@ -139,7 +144,30 @@ export type ThemeMode =
   | 'rose'
   | 'sandstone'
   | 'sepia'
+  | 'glacier'
   | 'system'
+
+/**
+ * 带氛围背景层的主题。
+ *
+ * 这类主题除了换调色板，还会在窗口底层挂一张全屏背景（极光 / 火星 / 深海 /
+ * 落樱 / 虹彩 / 冰川）。渲染层把当前主题写进 `<html data-ambient>`，
+ * AmbientBackground 据此绘制；其余主题不挂这个属性，和原来完全一样。
+ */
+export const AMBIENT_THEMES = [
+  'aurora',
+  'ember',
+  'abyss',
+  'sakura',
+  'prism',
+  'glacier'
+] as const
+
+export type AmbientTheme = (typeof AMBIENT_THEMES)[number]
+
+export function isAmbientTheme(v: unknown): v is AmbientTheme {
+  return typeof v === 'string' && (AMBIENT_THEMES as readonly string[]).includes(v)
+}
 
 /** 主题的明暗底色。纯视觉主题都归入 dark / light 两个 scheme */
 export type ThemeScheme = 'dark' | 'light'
@@ -152,6 +180,11 @@ export const THEME_SCHEME: Record<Exclude<ThemeMode, 'system'>, ThemeScheme> = {
   coffee: 'dark',
   moss: 'dark',
   starfield: 'dark',
+  aurora: 'dark',
+  ember: 'dark',
+  abyss: 'dark',
+  sakura: 'dark',
+  prism: 'dark',
   contrast: 'dark',
   light: 'light',
   paper: 'light',
@@ -160,7 +193,8 @@ export const THEME_SCHEME: Record<Exclude<ThemeMode, 'system'>, ThemeScheme> = {
   lavender: 'light',
   rose: 'light',
   sandstone: 'light',
-  sepia: 'light'
+  sepia: 'light',
+  glacier: 'light'
 }
 
 export const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
@@ -171,6 +205,11 @@ export const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
   coffee: 'theme.coffee',
   moss: 'theme.moss',
   starfield: 'theme.starfield',
+  aurora: 'theme.aurora',
+  ember: 'theme.ember',
+  abyss: 'theme.abyss',
+  sakura: 'theme.sakura',
+  prism: 'theme.prism',
   contrast: 'theme.contrast',
   light: 'theme.light',
   paper: 'theme.paper',
@@ -180,19 +219,33 @@ export const THEME_LABEL_KEY: Record<ThemeMode, MessageKey> = {
   rose: 'theme.rose',
   sandstone: 'theme.sandstone',
   sepia: 'theme.sepia',
+  glacier: 'theme.glacier',
   system: 'theme.system'
 }
 
-/**
- * 设置页下拉里的分组顺序。
- * 深色系放前面（默认主题就在这里），浅色单独一组，跟随系统是行为而不是配色。
- */
 export const THEME_GROUPS: { labelKey: MessageKey; themes: ThemeMode[] }[] = [
   {
     labelKey: 'theme.group.dark',
-    themes: ['dark', 'midnight', 'forest', 'mist', 'coffee', 'moss', 'starfield', 'contrast']
+    themes: [
+      'dark',
+      'midnight',
+      'forest',
+      'mist',
+      'coffee',
+      'moss',
+      'starfield',
+      'aurora',
+      'ember',
+      'abyss',
+      'sakura',
+      'prism',
+      'contrast'
+    ]
   },
-  { labelKey: 'theme.group.light', themes: ['light', 'paper', 'frost', 'mint', 'lavender', 'rose', 'sandstone', 'sepia'] },
+  {
+    labelKey: 'theme.group.light',
+    themes: ['light', 'paper', 'frost', 'mint', 'lavender', 'rose', 'sandstone', 'sepia', 'glacier']
+  },
   { labelKey: 'theme.group.other', themes: ['system'] }
 ]
 
@@ -205,6 +258,11 @@ export const THEME_MODES: ThemeMode[] = [
   'coffee',
   'moss',
   'starfield',
+  'aurora',
+  'ember',
+  'abyss',
+  'sakura',
+  'prism',
   'contrast',
   'light',
   'paper',
@@ -214,6 +272,7 @@ export const THEME_MODES: ThemeMode[] = [
   'rose',
   'sandstone',
   'sepia',
+  'glacier',
   'system'
 ]
 
@@ -246,6 +305,11 @@ export const THEME_BG: Record<Exclude<ThemeMode, 'system'>, string> = {
   coffee: '#1b1713',
   moss: '#171a19',
   starfield: '#04070f',
+  aurora: '#04100f',
+  ember: '#0c0806',
+  abyss: '#020b14',
+  sakura: '#0d0712',
+  prism: '#09090f',
   contrast: '#000000',
   light: '#f6f6f7',
   paper: '#ffffff',
@@ -254,7 +318,8 @@ export const THEME_BG: Record<Exclude<ThemeMode, 'system'>, string> = {
   lavender: '#f7f5fb',
   rose: '#faf5f6',
   sandstone: '#f6f3ee',
-  sepia: '#f3eee3'
+  sepia: '#f3eee3',
+  glacier: '#e0ebf7'
 }
 
 /** 新消息的发送快捷键。enter = Enter 发送；ctrlEnter = Ctrl/Cmd+Enter 发送 */

@@ -53,6 +53,73 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.22',
+    date: '2026-11-04',
+    highlight: {
+      icon: 'sparkle',
+      title: {
+        zh: '六套带氛围的主题上线',
+        en: 'Six ambient themes arrive'
+      },
+      desc: {
+        zh: '极光、余烬、深渊、樱夜、全息棱镜、冰川晨曦。光晕和粒子只占空白处，玻璃面板把正文托住，长时间阅读也不费眼。',
+        en: 'Aurora, Ember, Abyss, Sakura Night, Holographic Prism, and Glacier Dawn. Glows and particles stay out of the way while glass panels keep the text readable.'
+      }
+    },
+    sections: [
+      {
+        kind: 'new',
+        items: [
+          {
+            icon: 'sparkle',
+            title: { zh: '极光 · 余烬 · 深渊 · 樱夜', en: 'Aurora, Ember, Abyss, Sakura Night' },
+            desc: {
+              zh: '四套动态深色主题：极光带缓慢流动、火星从底部升起、深海荧光漂浮、樱瓣在夜色里落下。每套都有独立的调色板和运行态颜色。',
+              en: 'Four animated dark themes: drifting aurora ribbons, embers rising from the bottom, deep-sea bioluminescence, and petals falling through the night. Each has its own palette and running-state color.'
+            }
+          },
+          {
+            icon: 'rich-text',
+            title: { zh: '全息棱镜 · 冰川晨曦', en: 'Holographic Prism, Glacier Dawn' },
+            desc: {
+              zh: '一套是石墨底上缓慢流动的虹彩，一套是冰蓝浅色配磨砂玻璃。前者克制，后者适合白天使用。',
+              en: 'One is slow iridescent light over graphite; the other is icy blue with frosted glass. The first stays restrained, the second is made for daytime.'
+            }
+          },
+          {
+            icon: 'collapse',
+            title: { zh: '玻璃面板与减少动态', en: 'Glass panels and reduced motion' },
+            desc: {
+              zh: '标题栏、侧栏、输入框、代码块和工具卡都换成半透明玻璃，背景只在空白处呼吸。开启「减少动态」后，光晕动画和粒子层会全部停止。',
+              en: 'The titlebar, sidebar, composer, code blocks, and tool cards become translucent glass so the background can breathe. With reduced motion enabled, animations and particle layers stop entirely.'
+            }
+          }
+        ]
+      },
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'sparkle',
+            title: { zh: '背景层会随主题正确卸载', en: 'Background layers unload with the theme' },
+            desc: {
+              zh: '切回普通主题后，氛围背景和 canvas 粒子会立即移除，不留残影，也不继续占用渲染资源。',
+              en: 'Switching back to a regular theme immediately removes the ambient layer and its canvas particles, with no leftovers and no wasted rendering work.'
+            }
+          },
+          {
+            icon: 'keyboard',
+            title: { zh: 'IDE 编辑体验改进', en: 'IDE editing refinements' },
+            desc: {
+              zh: '草稿改为按文件保存，重启后能恢复，旧版按工作区存储的草稿会自动迁移；状态栏显示光标行列，面包屑跟随光标更新；打开文件时的加载占位更稳定，切换页签不会丢失编辑器状态。',
+              en: 'Drafts are now stored per file and restored after a restart, with automatic migration from the old workspace-level format. The status bar shows the cursor line and column, breadcrumbs follow the cursor, and the loading placeholder no longer drops editor state when switching tabs.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.21',
     date: '2026-11-04',
     highlight: {

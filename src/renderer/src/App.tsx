@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sessionMetaKey, type StoredSession } from '@shared/session'
-import { cliDef, sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
+import { cliDef, isAmbientTheme, sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
 import { disposeIdleNewChats, disposeStoredChat, forgetInputHistory } from './useChat'
 import { TitleBar } from './components/TitleBar'
 import { StarfieldBackground } from './components/StarfieldBackground'
+import { AmbientBackground } from './components/AmbientBackground'
 import { Sidebar } from './components/Sidebar'
 import { SessionSearch } from './components/SessionSearch'
 import { MainPane } from './components/MainPane'
@@ -45,6 +46,8 @@ import './styles/newsession.css'
 import './styles/theme-light.css'
 /* 星野主题的背景层和玻璃表面覆盖；只在 data-theme=starfield 下生效 */
 import './styles/starfield.css'
+/* 六套氛围主题的玻璃表面覆盖；只在 data-ambient 存在时生效 */
+import './styles/ambient.css'
 
 type View = 'chat' | 'settings'
 
@@ -80,26 +83,26 @@ function groupByCwd(list: StoredSession[]): [string, StoredSession[]][] {
 }
 
 /**
- * 星野背景跟的是 <html data-theme>，不是 settings 状态。
+ * 背景层跟的是 <html data-theme>，不是 settings 状态。
  * 设置页预览主题时会先改 data-theme、还没落盘；只盯 settings 会让背景层
  * 在切回深色后继续挂着。
  */
-function useStarfieldTheme(): boolean {
-  const [on, setOn] = useState(() => document.documentElement.dataset.theme === 'starfield')
+function useActiveTheme(): string {
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? '')
   useEffect(() => {
     const root = document.documentElement
-    const sync = (): void => setOn(root.dataset.theme === 'starfield')
+    const sync = (): void => setTheme(root.dataset.theme ?? '')
     sync()
     const observer = new MutationObserver(sync)
     observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()
   }, [])
-  return on
+  return theme
 }
 
 export function App(): JSX.Element {
   const { t, tn } = useI18n()
-  const starfieldTheme = useStarfieldTheme()
+  const activeTheme = useActiveTheme()
   const [view, setView] = useState<View>('chat')
   const [active, setActive] = useState<Active>({ kind: 'new', n: 0 })
   /**
@@ -690,7 +693,8 @@ export function App(): JSX.Element {
 
   return (
     <>
-      {starfieldTheme && <StarfieldBackground />}
+      {activeTheme === 'starfield' && <StarfieldBackground />}
+      {isAmbientTheme(activeTheme) && <AmbientBackground theme={activeTheme} />}
       <div className="app">
       <TitleBar update={updater} />
       <div className="app__body">

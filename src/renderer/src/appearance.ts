@@ -1,5 +1,6 @@
 import {
   defaultSettings,
+  isAmbientTheme,
   isThemeMode,
   THEME_SCHEME,
   type Settings,
@@ -34,6 +35,8 @@ function resolveTheme(): Exclude<ThemeMode, 'system'> {
  * - data-theme 选 tokens.css 里的调色板（深色 / 午夜蓝 / 暖纸 …）；
  * - data-scheme 只有 dark / light 两个值，theme-light.css 和 ide.css 末尾的
  *   组件级覆盖挂在它上面 —— 这样「暖纸」和「浅色」能共用同一套浅色补丁。
+ * data-ambient 只在带氛围背景的主题上出现（极光 / 余烬 / 深渊 …），
+ * AmbientBackground 和 ambient.css 靠它决定画哪一层背景。
  * `color-scheme` 也跟着切 —— 原生滚动条、select 弹层、输入框光标都靠它。
  */
 function paintTheme(): void {
@@ -43,6 +46,8 @@ function paintTheme(): void {
   root.dataset.theme = resolved
   root.dataset.scheme = scheme
   root.style.colorScheme = scheme
+  if (isAmbientTheme(resolved)) root.dataset.ambient = resolved
+  else delete root.dataset.ambient
 }
 
 /** 跟随系统时只需要挂一次监听；切回固定主题后监听留着也无害（内部会判断） */

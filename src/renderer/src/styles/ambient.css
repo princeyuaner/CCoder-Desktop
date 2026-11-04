@@ -1,0 +1,788 @@
+/* ============================================================
+ * 氛围主题
+ *
+ * 极光 / 余烬 / 深渊 / 樱夜 / 全息棱镜 / 冰川晨曦 共用这一层：
+ *  1. AmbientBackground 在 fixed 底层画光晕（本文件）+ 粒子（canvas）
+ *  2. 把标题栏、侧栏、输入框、代码块这些实心表面换成能透出背景的玻璃
+ *
+ * 所有选择器都带 html[data-ambient]，只影响这六套主题；其余主题的
+ * 实心表面、滚动条和状态色保持原样。
+ * ============================================================ */
+
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bg-app);
+}
+
+.ambient__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/* ── 极光 ─────────────────────────────────────────────────── */
+
+.ambient--aurora {
+  background:
+    radial-gradient(950px 760px at 20% 28%, rgba(28, 118, 128, 0.22), transparent 66%),
+    radial-gradient(1000px 720px at 84% 8%, rgba(94, 70, 182, 0.24), transparent 66%),
+    linear-gradient(180deg, #030a0a 0%, #041210 58%, #020a09 100%);
+}
+
+.amb-aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(64px);
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.amb-aurora.a1 {
+  left: -9%;
+  top: -30%;
+  width: 50%;
+  height: 112%;
+  rotate: -8deg;
+  background: radial-gradient(
+    ellipse 48% 58% at 50% 42%,
+    rgba(94, 234, 212, 0.42),
+    rgba(45, 170, 164, 0.16) 46%,
+    transparent 74%
+  );
+  animation: amb-wave-a 28s ease-in-out infinite alternate;
+}
+
+.amb-aurora.a2 {
+  right: -13%;
+  top: -34%;
+  width: 56%;
+  height: 118%;
+  rotate: 8deg;
+  background: radial-gradient(
+    ellipse 48% 58% at 50% 40%,
+    rgba(167, 139, 250, 0.4),
+    rgba(96, 122, 222, 0.16) 48%,
+    transparent 74%
+  );
+  animation: amb-wave-b 34s ease-in-out infinite alternate-reverse;
+}
+
+.amb-aurora.a3 {
+  left: 16%;
+  top: -30%;
+  width: 42%;
+  height: 90%;
+  rotate: 4deg;
+  opacity: 0.6;
+  filter: blur(78px);
+  background: radial-gradient(
+    ellipse 42% 56% at 50% 38%,
+    rgba(125, 211, 252, 0.34),
+    rgba(88, 140, 200, 0.1) 50%,
+    transparent 74%
+  );
+  animation: amb-wave-c 40s ease-in-out infinite alternate;
+  animation-delay: -9s;
+}
+
+.amb-aurora-streaks {
+  position: absolute;
+  left: 1%;
+  top: -12%;
+  width: 54%;
+  height: 92%;
+  transform: skewX(-7deg);
+  filter: blur(15px);
+  mix-blend-mode: screen;
+  opacity: 0.16;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 9px,
+    rgba(152, 255, 224, 0.13) 9px 12px,
+    transparent 12px 27px,
+    rgba(143, 231, 255, 0.09) 27px 30px,
+    transparent 30px 46px
+  );
+  -webkit-mask-image: radial-gradient(ellipse 66% 64% at 42% 38%, #000 12%, transparent 82%);
+  mask-image: radial-gradient(ellipse 66% 64% at 42% 38%, #000 12%, transparent 82%);
+  animation: amb-streak 22s ease-in-out infinite alternate;
+}
+
+.amb-aurora-floor {
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  bottom: -34%;
+  height: 74%;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 100%, rgba(88, 210, 204, 0.2), rgba(157, 140, 255, 0.09) 42%, transparent 74%),
+    radial-gradient(ellipse 32% 40% at 22% 100%, rgba(127, 224, 188, 0.14), transparent 72%);
+  filter: blur(34px);
+}
+
+/* ── 余烬 ─────────────────────────────────────────────────── */
+
+.ambient--ember {
+  background:
+    radial-gradient(900px 640px at 18% 108%, rgba(160, 54, 10, 0.2), transparent 66%),
+    radial-gradient(760px 500px at 82% -6%, rgba(255, 150, 70, 0.08), transparent 62%),
+    linear-gradient(180deg, #0a0604 0%, #0c0806 58%, #080403 100%);
+}
+
+.amb-ember-glow {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  bottom: -28%;
+  height: 68%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 50% 72%,
+    rgba(255, 110, 40, 0.3),
+    rgba(255, 60, 20, 0.11) 48%,
+    transparent 72%
+  );
+  filter: blur(40px);
+  will-change: transform;
+  animation: amb-ember-pulse 9s ease-in-out infinite alternate;
+}
+
+.amb-ember-haze {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 78% 6%, rgba(255, 160, 80, 0.11), transparent 52%);
+  mix-blend-mode: screen;
+}
+
+/* ── 深渊 ─────────────────────────────────────────────────── */
+
+.ambient--abyss {
+  background:
+    radial-gradient(1000px 720px at 50% -12%, rgba(56, 140, 190, 0.18), transparent 66%),
+    linear-gradient(180deg, #01060c 0%, #02101c 55%, #01070d 100%);
+}
+
+.amb-abyss-beam {
+  position: absolute;
+  left: 50%;
+  top: -40%;
+  width: 76%;
+  height: 100%;
+  transform: translateX(-50%);
+  background: conic-gradient(
+    from 166deg at 50% 100%,
+    transparent 0deg,
+    rgba(56, 232, 255, 0.12) 13deg,
+    transparent 27deg,
+    transparent 33deg,
+    rgba(56, 232, 255, 0.08) 44deg,
+    transparent 58deg
+  );
+  filter: blur(20px);
+  opacity: 0.72;
+  animation: amb-beam-sway 18s ease-in-out infinite alternate;
+}
+
+.amb-abyss-glow {
+  position: absolute;
+  left: 50%;
+  top: -22%;
+  width: 74%;
+  height: 64%;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(56, 232, 255, 0.2), transparent 64%);
+  filter: blur(40px);
+  animation: amb-glow-breathe 10s ease-in-out infinite alternate;
+}
+
+.amb-abyss-floor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8%;
+  height: 42%;
+  background: radial-gradient(ellipse at 50% 120%, rgba(14, 90, 120, 0.34), transparent 68%);
+  filter: blur(26px);
+}
+
+/* ── 樱夜 ─────────────────────────────────────────────────── */
+
+.ambient--sakura {
+  background:
+    radial-gradient(900px 720px at 84% 8%, rgba(120, 70, 160, 0.18), transparent 64%),
+    radial-gradient(820px 620px at 10% 102%, rgba(150, 50, 110, 0.15), transparent 64%),
+    linear-gradient(180deg, #0b0510 0%, #0d0712 55%, #08040c 100%);
+}
+
+.amb-sakura-moon {
+  position: absolute;
+  right: 8%;
+  top: 6%;
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 38% 36%,
+    rgba(255, 240, 250, 0.9),
+    rgba(255, 190, 225, 0.28) 45%,
+    transparent 70%
+  );
+  filter: blur(2px);
+  opacity: 0.46;
+}
+
+.amb-sakura-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  mix-blend-mode: screen;
+  animation: amb-glow-breathe 12s ease-in-out infinite alternate;
+}
+
+.amb-sakura-glow.g1 {
+  width: 56%;
+  height: 50%;
+  left: -14%;
+  top: -16%;
+  background: radial-gradient(circle, rgba(255, 111, 174, 0.26), transparent 66%);
+}
+
+.amb-sakura-glow.g2 {
+  width: 50%;
+  height: 46%;
+  right: -12%;
+  bottom: -18%;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.24), transparent 66%);
+  animation-direction: alternate-reverse;
+  animation-duration: 15s;
+}
+
+/* ── 全息棱镜 ─────────────────────────────────────────────── */
+
+.ambient--prism {
+  background:
+    radial-gradient(900px 640px at 22% 8%, rgba(94, 70, 182, 0.12), transparent 64%),
+    linear-gradient(160deg, #07070d 0%, #0a0a12 50%, #08080e 100%);
+}
+
+.amb-prism-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(58px);
+  mix-blend-mode: screen;
+  opacity: 0.78;
+  will-change: filter;
+}
+
+.amb-prism-blob.b1 {
+  width: 64%;
+  height: 58%;
+  left: -16%;
+  top: -18%;
+  background: conic-gradient(
+    from 210deg,
+    rgba(255, 111, 174, 0.34),
+    rgba(167, 139, 250, 0.32),
+    rgba(103, 232, 249, 0.32),
+    rgba(110, 231, 183, 0.26),
+    rgba(255, 111, 174, 0.34)
+  );
+  animation: amb-hue 24s linear infinite;
+}
+
+.amb-prism-blob.b2 {
+  width: 56%;
+  height: 50%;
+  right: -14%;
+  bottom: -20%;
+  background: conic-gradient(
+    from 30deg,
+    rgba(103, 232, 249, 0.3),
+    rgba(167, 139, 250, 0.32),
+    rgba(244, 114, 182, 0.28),
+    rgba(103, 232, 249, 0.3)
+  );
+  animation: amb-hue 30s linear infinite reverse;
+}
+
+.amb-prism-sheen {
+  position: absolute;
+  inset: -20%;
+  background: linear-gradient(
+    115deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.05) 45%,
+    rgba(255, 255, 255, 0.012) 52%,
+    transparent 64%
+  );
+  animation: amb-sheen 14s ease-in-out infinite;
+}
+
+.amb-prism-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 111, 174, 0.62),
+    rgba(167, 139, 250, 0.72),
+    rgba(103, 232, 249, 0.62),
+    transparent
+  );
+  box-shadow: 0 0 20px rgba(167, 139, 250, 0.45);
+  opacity: 0.7;
+}
+
+/* ── 冰川晨曦（浅色） ─────────────────────────────────────── */
+
+.ambient--glacier {
+  background: linear-gradient(158deg, #d8e8f7 0%, #eaf3fc 44%, #dcebf8 100%);
+}
+
+.amb-glacier-band {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(56px);
+  opacity: 0.8;
+  will-change: transform;
+}
+
+.amb-glacier-band.b1 {
+  width: 124%;
+  height: 40%;
+  left: -20%;
+  top: -20%;
+  background: linear-gradient(
+    100deg,
+    rgba(56, 189, 248, 0.42),
+    rgba(139, 92, 246, 0.28) 48%,
+    rgba(45, 212, 191, 0.36)
+  );
+  animation: amb-wave-a 26s ease-in-out infinite alternate;
+}
+
+.amb-glacier-band.b2 {
+  width: 88%;
+  height: 30%;
+  right: -18%;
+  bottom: -4%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(45, 212, 191, 0.24),
+    rgba(96, 165, 250, 0.3),
+    transparent
+  );
+  animation: amb-wave-b 32s ease-in-out infinite alternate-reverse;
+}
+
+.amb-glacier-floor {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -34%;
+  height: 54%;
+  background: radial-gradient(ellipse at 50% 100%, rgba(56, 189, 248, 0.32), transparent 66%);
+  filter: blur(40px);
+}
+
+.amb-glacier-streak {
+  position: absolute;
+  inset: 0;
+  opacity: 0.45;
+  background:
+    linear-gradient(112deg, transparent 42%, rgba(255, 255, 255, 0.72) 47%, transparent 52%),
+    linear-gradient(112deg, transparent 60%, rgba(255, 255, 255, 0.46) 64%, transparent 69%),
+    linear-gradient(112deg, transparent 76%, rgba(255, 255, 255, 0.3) 79%, transparent 84%);
+}
+
+/* ── 动画 ─────────────────────────────────────────────────── */
+
+@keyframes amb-wave-a {
+  from {
+    transform: translate3d(-4%, -1%, 0) rotate(-8deg) scaleY(1);
+    opacity: 0.62;
+  }
+  to {
+    transform: translate3d(5%, 2%, 0) rotate(-2deg) scaleY(1.12);
+    opacity: 0.88;
+  }
+}
+
+@keyframes amb-wave-b {
+  from {
+    transform: translate3d(3%, 1%, 0) rotate(8deg) scaleY(1.06);
+    opacity: 0.55;
+  }
+  to {
+    transform: translate3d(-4%, -2%, 0) rotate(3deg) scaleY(0.94);
+    opacity: 0.8;
+  }
+}
+
+@keyframes amb-wave-c {
+  from {
+    transform: translate3d(0, 0, 0) rotate(4deg) scaleY(0.98);
+  }
+  to {
+    transform: translate3d(-4%, 3%, 0) rotate(7deg) scaleY(1.1);
+  }
+}
+
+@keyframes amb-streak {
+  from {
+    transform: skewX(-7deg) translateY(-1%);
+    opacity: 0.1;
+  }
+  to {
+    transform: skewX(-5deg) translateY(1.5%);
+    opacity: 0.2;
+  }
+}
+
+@keyframes amb-ember-pulse {
+  from {
+    opacity: 0.62;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes amb-beam-sway {
+  from {
+    transform: translateX(-50%) rotate(-10deg);
+    opacity: 0.52;
+  }
+  to {
+    transform: translateX(-50%) rotate(5deg);
+    opacity: 0.88;
+  }
+}
+
+@keyframes amb-glow-breathe {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0.95;
+  }
+}
+
+@keyframes amb-hue {
+  from {
+    filter: blur(58px) hue-rotate(0deg);
+  }
+  to {
+    filter: blur(58px) hue-rotate(360deg);
+  }
+}
+
+@keyframes amb-sheen {
+  0%,
+  100% {
+    transform: translateX(-12%);
+  }
+  50% {
+    transform: translateX(12%);
+  }
+}
+
+/* ── 应用表面：让氛围透出来 ─────────────────────────────── */
+
+html[data-ambient] body {
+  background: var(--bg-app);
+}
+
+html[data-ambient] .app {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+html[data-ambient] .titlebar {
+  background: color-mix(in srgb, var(--bg-app) 72%, transparent);
+  border-bottom-color: var(--border-soft);
+  backdrop-filter: blur(22px) saturate(1.12);
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+}
+
+html[data-ambient] .titlebar__brand-mark {
+  color: var(--accent);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 42%, transparent));
+}
+
+html[data-ambient] .sidebar {
+  background: color-mix(in srgb, var(--bg-sidebar) 78%, transparent);
+  border-right-color: var(--border-soft);
+  backdrop-filter: blur(28px) saturate(1.1);
+  -webkit-backdrop-filter: blur(28px) saturate(1.1);
+}
+
+html[data-ambient] .app__body {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-ambient] .mainpane {
+  position: relative;
+  background: transparent;
+}
+
+html[data-ambient] .mainpane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 54% 50% at 50% 42%, rgba(2, 6, 13, 0.42), transparent 78%),
+    linear-gradient(180deg, rgba(2, 6, 13, 0.18) 0%, transparent 16%, transparent 78%, rgba(2, 6, 13, 0.26) 100%);
+}
+
+html[data-ambient='glacier'] .mainpane::before {
+  background: radial-gradient(ellipse 58% 54% at 50% 42%, rgba(255, 255, 255, 0.42), transparent 80%);
+}
+
+html[data-ambient] .chatcol,
+html[data-ambient] .runpanel {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-ambient] .runpanel {
+  background: color-mix(in srgb, var(--bg-sidebar) 68%, transparent);
+  border-left-color: var(--border-soft);
+  backdrop-filter: blur(26px) saturate(1.08);
+  -webkit-backdrop-filter: blur(26px) saturate(1.08);
+}
+
+html[data-ambient] ::selection {
+  background: color-mix(in srgb, var(--accent) 36%, transparent);
+  color: var(--text);
+}
+
+html[data-ambient] ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+html[data-ambient] ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+  background-clip: content-box;
+}
+
+/* ── 侧栏选中 / 页签 ─────────────────────────────────────── */
+
+html[data-ambient] .session.is-active {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 14%, transparent),
+    color-mix(in srgb, var(--accent-2) 4%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 24px -18px var(--accent);
+}
+
+html[data-ambient] .session.is-active .session__title {
+  color: var(--text);
+}
+
+html[data-ambient] .tab.is-active::after {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2) 78%);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+/* ── 对话 ─────────────────────────────────────────────────── */
+
+html[data-ambient] .tl__me {
+  color: var(--text);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent) 15%, transparent),
+      color-mix(in srgb, var(--accent-2) 6%, transparent)
+    ),
+    var(--bg-raised);
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+  box-shadow:
+    0 0 38px -24px var(--accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+html[data-ambient] .tl__say,
+html[data-ambient] .md {
+  color: var(--text-dim);
+}
+
+html[data-ambient] .md .md-h,
+html[data-ambient] .md strong {
+  color: var(--text);
+}
+
+html[data-ambient] .md .lnk {
+  color: var(--accent);
+}
+
+html[data-ambient] .inline-code,
+html[data-ambient] .md .ic {
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+html[data-ambient] .md .codebox {
+  background: color-mix(in srgb, var(--bg-raised) 82%, transparent);
+  border: 1px solid var(--border-soft);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 20px 44px -36px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+html[data-ambient] .md .code {
+  color: var(--text-dim);
+}
+
+html[data-ambient] .md .codebox__lang,
+html[data-ambient] .md .codebox__cp {
+  color: var(--text-faint);
+}
+
+html[data-ambient] .md .codebox__cp:hover {
+  color: var(--text);
+}
+
+html[data-ambient] .md .tblwrap {
+  background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
+}
+
+html[data-ambient] .tl__thinkbody {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg-raised) 78%, transparent);
+  border-color: var(--border-soft);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+html[data-ambient] .tool {
+  background: color-mix(in srgb, var(--bg-raised) 86%, transparent);
+  border-color: var(--border-soft);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+
+  /* 运行态 / 成功态跟着主题走；错误态保留原来的红色语义 */
+  --st-ok: var(--ok);
+  --st-ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
+  --st-ok-line: color-mix(in srgb, var(--ok) 30%, transparent);
+  --st-ok-rail: color-mix(in srgb, var(--ok) 58%, transparent);
+  --st-den: var(--warn);
+  --st-den-soft: color-mix(in srgb, var(--warn) 10%, transparent);
+  --st-den-line: color-mix(in srgb, var(--warn) 28%, transparent);
+  --st-den-rail: var(--warn);
+  --st-run: var(--running);
+  --st-run-soft: color-mix(in srgb, var(--running) 11%, transparent);
+  --st-run-line: color-mix(in srgb, var(--running) 30%, transparent);
+  --st-run-rail: var(--running);
+}
+
+html[data-ambient] .tool__row:hover {
+  background: color-mix(in srgb, var(--text) 3.5%, transparent);
+}
+
+html[data-ambient] .resume-bar,
+html[data-ambient] .wtbar {
+  background: color-mix(in srgb, var(--bg-raised) 74%, transparent);
+  border-color: var(--border-soft);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* ── 输入区 ───────────────────────────────────────────────── */
+
+html[data-ambient] .composer__box {
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  border-color: var(--border);
+  box-shadow:
+    0 26px 60px -30px rgba(0, 0, 0, 0.85),
+    0 0 80px -46px var(--accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(26px) saturate(1.12);
+  -webkit-backdrop-filter: blur(26px) saturate(1.12);
+}
+
+html[data-ambient='glacier'] .composer__box {
+  box-shadow:
+    0 22px 54px -34px rgba(15, 40, 60, 0.42),
+    0 0 70px -44px var(--accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+html[data-ambient] .composer__box:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  box-shadow:
+    0 26px 60px -30px rgba(0, 0, 0, 0.85),
+    0 0 70px -34px color-mix(in srgb, var(--accent) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.065);
+}
+
+html[data-ambient] .composer__input::placeholder {
+  color: var(--text-faint);
+}
+
+html[data-ambient] .composer__cwd,
+html[data-ambient] .chip:not(.chip--eff),
+html[data-ambient] .badge {
+  background: color-mix(in srgb, var(--bg-raised) 74%, transparent);
+  border-color: var(--border-soft);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+html[data-ambient] .chip:not(.chip--eff):hover {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+html[data-ambient] .send {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-ambient] .send.is-ready {
+  color: var(--accent-fg);
+  background: var(--accent);
+  box-shadow: 0 0 24px -10px var(--accent);
+}
+
+html[data-ambient] .statusbar {
+  color: var(--text-faint);
+}
+
+/* 设置页也跟着用玻璃，切换主题时能立刻看到背后的氛围 */
+html[data-ambient] .settings--dialog {
+  background: color-mix(in srgb, var(--bg-app) 90%, transparent);
+  border-color: var(--border);
+  backdrop-filter: blur(30px) saturate(1.08);
+  -webkit-backdrop-filter: blur(30px) saturate(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient * {
+    animation: none !important;
+  }
+}

@@ -673,7 +673,7 @@ export const zh = {
   'settings.appearance': '外观',
   'settings.theme.label': '主题',
   'settings.theme.hint':
-    '主题只换配色，布局不变。「跟随系统」会随 Windows 的深浅色模式在深色 / 浅色之间切换。',
+    '主题换配色和背景氛围，布局不变。「极光」「余烬」等主题会在窗口底层加一层动态背景；「跟随系统」会随 Windows 的深浅色模式在深色 / 浅色之间切换。',
   'settings.zoom': '界面缩放',
   'settings.zoomHint':
     '缩放整个界面（含侧栏与设置页）。100% 为标准，觉得字小可以先调这个。',
@@ -2223,6 +2223,12 @@ export const zh = {
   'theme.coffee': '咖啡棕',
   'theme.moss': '苔原',
   'theme.starfield': '星野',
+  'theme.aurora': '极光',
+  'theme.ember': '余烬',
+  'theme.abyss': '深渊',
+  'theme.sakura': '樱夜',
+  'theme.prism': '全息棱镜',
+  'theme.glacier': '冰川晨曦',
   'theme.contrast': '高对比',
   'theme.light': '浅色',
   'theme.paper': '纯白',

@@ -290,6 +290,167 @@
   --br-border: rgba(120, 220, 232, 0.24);
 }
 
+/* ============================================================
+ * 氛围主题：换调色板，同时由 AmbientBackground 在窗口底层画氛围。
+ * --accent-2 专门给渐变（选中行、消息气泡、进度条）用，强调色只有一个
+ * 的话大面积渐变会显脏。
+ * ============================================================ */
+
+/* 极光：极地夜空 + 流动的青绿 / 紫罗兰光带 */
+:root[data-theme='aurora'] {
+  color-scheme: dark;
+
+  --bg-app: #04100f;
+  --bg-sidebar: #030c0b;
+  --bg-raised: rgba(9, 34, 32, 0.78);
+  --bg-hover: rgba(94, 234, 212, 0.075);
+  --bg-active: rgba(167, 139, 250, 0.15);
+
+  --border: rgba(94, 234, 212, 0.2);
+  --border-soft: rgba(94, 234, 212, 0.1);
+
+  --text: #e9fffb;
+  --text-dim: #abdcd3;
+  --text-muted: #81b9af;
+  --text-faint: #60918b;
+
+  --accent: #5eead4;
+  --accent-2: #a78bfa;
+  --accent-fg: #032420;
+  --ok: #86efac;
+  --warn: #fde68a;
+  --danger: #fb7185;
+  --running: #f0abfc;
+  --br-accent: #7dd3fc;
+  --br-text: #bae6fd;
+  --br-bg: rgba(125, 211, 252, 0.09);
+  --br-border: rgba(125, 211, 252, 0.26);
+}
+
+/* 余烬：暖黑底 + 上升火星与炉光 */
+:root[data-theme='ember'] {
+  color-scheme: dark;
+
+  --bg-app: #0c0806;
+  --bg-sidebar: #090604;
+  --bg-raised: rgba(36, 22, 14, 0.8);
+  --bg-hover: rgba(255, 138, 61, 0.07);
+  --bg-active: rgba(255, 93, 58, 0.15);
+
+  --border: rgba(255, 138, 61, 0.21);
+  --border-soft: rgba(255, 138, 61, 0.1);
+
+  --text: #ffefe2;
+  --text-dim: #deb89f;
+  --text-muted: #ba947c;
+  --text-faint: #8f6f5d;
+
+  --accent: #ff8a3d;
+  --accent-2: #ff3d81;
+  --accent-fg: #1e0a02;
+  --ok: #9fd48a;
+  --warn: #ffcf5c;
+  --danger: #ff5a5a;
+  --running: #ff5d3a;
+  --br-accent: #e5b07a;
+  --br-text: #f2d0aa;
+  --br-bg: rgba(229, 176, 122, 0.09);
+  --br-border: rgba(229, 176, 122, 0.26);
+}
+
+/* 深渊：深海黑蓝 + 荧光浮游生物 */
+:root[data-theme='abyss'] {
+  color-scheme: dark;
+
+  --bg-app: #020b14;
+  --bg-sidebar: #010811;
+  --bg-raised: rgba(5, 31, 49, 0.8);
+  --bg-hover: rgba(56, 232, 255, 0.065);
+  --bg-active: rgba(56, 189, 248, 0.14);
+
+  --border: rgba(56, 189, 248, 0.2);
+  --border-soft: rgba(56, 189, 248, 0.09);
+
+  --text: #e0f7ff;
+  --text-dim: #a5cddf;
+  --text-muted: #7da7bd;
+  --text-faint: #5b8196;
+
+  --accent: #38e8ff;
+  --accent-2: #818cf8;
+  --accent-fg: #00161e;
+  --ok: #5eead4;
+  --warn: #fcd34d;
+  --danger: #fb7185;
+  --running: #67e8f9;
+  --br-accent: #818cf8;
+  --br-text: #c7d2fe;
+  --br-bg: rgba(129, 140, 248, 0.09);
+  --br-border: rgba(129, 140, 248, 0.26);
+}
+
+/* 樱夜：靛紫夜色 + 落樱 / 霓虹粉 */
+:root[data-theme='sakura'] {
+  color-scheme: dark;
+
+  --bg-app: #0d0712;
+  --bg-sidebar: #0a050e;
+  --bg-raised: rgba(38, 18, 37, 0.78);
+  --bg-hover: rgba(255, 111, 174, 0.07);
+  --bg-active: rgba(240, 171, 252, 0.15);
+
+  --border: rgba(244, 114, 182, 0.22);
+  --border-soft: rgba(244, 114, 182, 0.11);
+
+  --text: #ffeef8;
+  --text-dim: #e3bad4;
+  --text-muted: #bf95ae;
+  --text-faint: #967087;
+
+  --accent: #ff6fae;
+  --accent-2: #a78bfa;
+  --accent-fg: #250315;
+  --ok: #86efac;
+  --warn: #fcd34d;
+  --danger: #fb7185;
+  --running: #f0abfc;
+  --br-accent: #c4b5fd;
+  --br-text: #ddd6fe;
+  --br-bg: rgba(196, 181, 253, 0.09);
+  --br-border: rgba(196, 181, 253, 0.26);
+}
+
+/* 全息棱镜：石墨底 + 缓慢流动的虹彩 */
+:root[data-theme='prism'] {
+  color-scheme: dark;
+
+  --bg-app: #09090f;
+  --bg-sidebar: #07070c;
+  --bg-raised: rgba(26, 26, 44, 0.8);
+  --bg-hover: rgba(167, 139, 250, 0.08);
+  --bg-active: rgba(103, 232, 249, 0.13);
+
+  --border: rgba(165, 180, 252, 0.2);
+  --border-soft: rgba(165, 180, 252, 0.1);
+
+  --text: #f2f3ff;
+  --text-dim: #c2c8e6;
+  --text-muted: #98a0c0;
+  --text-faint: #737b9b;
+
+  --accent: #a78bfa;
+  --accent-2: #f0abfc;
+  --accent-fg: #0d051c;
+  --ok: #6ee7b7;
+  --warn: #fde68a;
+  --danger: #fb7185;
+  --running: #67e8f9;
+  --br-accent: #67e8f9;
+  --br-text: #a5f3fc;
+  --br-bg: rgba(103, 232, 249, 0.08);
+  --br-border: rgba(103, 232, 249, 0.24);
+}
+
 /* 暖纸：米黄纸面 + 深褐文字，长时间阅读舒服（浅色 scheme） */
 :root[data-theme='sepia'] {
   color-scheme: light;
@@ -498,4 +659,35 @@
   --br-text: #46626f;
   --br-bg: rgba(95, 123, 136, 0.09);
   --br-border: rgba(95, 123, 136, 0.26);
+}
+
+/* 冰川晨曦：冰蓝浅色 + 磨砂玻璃 / 顶部极光（浅色 scheme） */
+:root[data-theme='glacier'] {
+  color-scheme: light;
+
+  --bg-app: #e0ebf7;
+  --bg-sidebar: #d5e4f2;
+  --bg-raised: rgba(255, 255, 255, 0.82);
+  --bg-hover: rgba(14, 116, 144, 0.07);
+  --bg-active: rgba(14, 116, 144, 0.14);
+
+  --border: #aec9e1;
+  --border-soft: #c8dcee;
+
+  --text: #0d2030;
+  --text-dim: #38536a;
+  --text-muted: #5c778e;
+  --text-faint: #8ba1b5;
+
+  --accent: #0b6f8c;
+  --accent-2: #6d5bd0;
+  --accent-fg: #ffffff;
+  --ok: #15803d;
+  --warn: #a16207;
+  --danger: #be123c;
+  --running: #b45309;
+  --br-accent: #2563eb;
+  --br-text: #1d4ed8;
+  --br-bg: rgba(37, 99, 235, 0.08);
+  --br-border: rgba(37, 99, 235, 0.26);
 }

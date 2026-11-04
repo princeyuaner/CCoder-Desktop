@@ -2,7 +2,23 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { IdeTextFile } from '@shared/ide'
 import { DEFAULT_EDITOR_SETTINGS, type EditorSettings } from '@shared/settings'
 import { applyMonacoTheme, monaco, monacoLanguage } from './monaco-setup'
+import {
+  forgetLiveEditorText,
+  markModelClosed,
+  markModelOpen,
+  registerEditorTextFlusher,
+  setLiveEditorText
+} from './editor-state'
 import { useI18n } from '../i18n'
+
+/**
+ * 打字时向 IdeApp 提交文本的节流间隔。
+ *
+ * 连续输入时每 200ms 才让上层重渲染一次；停手后最迟 200ms 内一定会有
+ * 一次提交，所以未保存标记、自动保存、草稿都只晚这一拍。需要立即拿到
+ * 最新文本的路径（保存 / 关闭 / 外部改动）走 flushEditorText()。
+ */
+const TEXT_EMIT_MS = 200
 
 export interface EditorSelection {
   startLine: number
@@ -47,6 +63,14 @@ const LARGE_LINES = 20_000
 const LARGE_UNITS = 1_000_000
 const HUGE_LINES = 50_000
 const HUGE_UNITS = 1_800_000
+
+/**
+ * 编辑器因 loading 占位短暂卸载时，仍开着页签的 model 先寄存在这里，
+ * 重新挂载后收回 modelsRef，关闭页签的回收逻辑才看得到它们。
+ */
+const carriedModels = new Map<string, monaco.editor.ITextModel>()
+/** 和 carriedModels 一起寄存的光标 / 滚动位置，重新挂载时恢复 */
+const carriedViews = new Map<string, monaco.editor.ICodeEditorViewState | null>()
 
 function tierForModel(model: monaco.editor.ITextModel): EditorTier {
   const lines = model.getLineCount()
@@ -234,6 +258,8 @@ export function MonacoEditor({
   prefs = DEFAULT_EDITOR_SETTINGS,
   languageId,
   indent,
+  openRels,
+  readOnly = false,
   onCursor,
   onChange,
   onSendSelection,
@@ -249,8 +275,12 @@ export function MonacoEditor({
   languageId?: string
   /** 当前文件生效的缩进（全局 / 按语言 / .editorconfig 合并后） */
   indent?: { tabSize: number; insertSpaces: boolean }
+  /** 当前还开着的文件 rel；关闭页签后对应 model 会被释放 */
+  openRels?: ReadonlySet<string>
+  /** 加载新文件期间沿用上一个文件占位，此时禁止编辑，避免改错缓冲区 */
+  readOnly?: boolean
   onCursor: (line: number, col: number) => void
-  onChange: (text: string) => void
+  onChange: (text: string, rel: string) => void
   onSendSelection: (sel: EditorSelection) => void
   onSendFile: () => void
 }): JSX.Element {
@@ -263,6 +293,14 @@ export function MonacoEditor({
   const applyingRef = useRef(false)
   const tierRef = useRef<EditorTier>(0)
   const tierTimer = useRef<number | null>(null)
+  const textTimer = useRef<number | null>(null)
+  /** 有尚未提交给上层的输入；timer 到点前始终为 true */
+  const textDirtyRef = useRef(false)
+  /** 最近一次提交 / 外部同步后的文本，用来快速判断 prop 变化是否来自自己 */
+  const lastEmittedRef = useRef(file.text)
+  /** 卸载清理要看最新的开页签集合（props 可能落后一帧） */
+  const openRelsRef = useRef(openRels)
+  openRelsRef.current = openRels
   const prefsRef = useRef(prefs)
   prefsRef.current = prefs
   const languageRef = useRef(languageId)
@@ -273,6 +311,36 @@ export function MonacoEditor({
   cwdRef.current = cwd
   const propsRef = useRef({ file, onCursor, onChange, onSendSelection, onSendFile })
   propsRef.current = { file, onCursor, onChange, onSendSelection, onSendFile }
+
+  /**
+   * 把编辑器当前文本同步给上层。只在确有待提交内容时读全文，
+   * 所以连续打字期间 getValue() 最多每 200ms 一次，而不是每个按键一次。
+   */
+  const flushText = useCallback((): void => {
+    if (textTimer.current !== null) {
+      window.clearTimeout(textTimer.current)
+      textTimer.current = null
+    }
+    const editor = editorRef.current
+    if (!editor || !textDirtyRef.current) return
+    const model = editor.getModel()
+    textDirtyRef.current = false
+    if (!model || model.isDisposed()) return
+    const text = model.getValue()
+    const rel = relRef.current
+    lastEmittedRef.current = text
+    setLiveEditorText(rel, text)
+    propsRef.current.onChange(text, rel)
+  }, [])
+
+  const scheduleText = useCallback((): void => {
+    textDirtyRef.current = true
+    if (textTimer.current !== null) return
+    textTimer.current = window.setTimeout(() => {
+      textTimer.current = null
+      flushText()
+    }, TEXT_EMIT_MS)
+  }, [flushText])
 
   const ensureModel = useCallback((next: IdeTextFile): monaco.editor.ITextModel => {
     const lang = languageRef.current ?? monacoLanguage(next.language, next.rel)
@@ -299,6 +367,8 @@ export function MonacoEditor({
       tabSize: ind?.tabSize ?? prefsRef.current.tabSize,
       insertSpaces: ind?.insertSpaces ?? prefsRef.current.insertSpaces
     })
+    setLiveEditorText(next.rel, next.text)
+    markModelOpen(model.uri.toString())
     return model
   }, [])
 
@@ -307,6 +377,20 @@ export function MonacoEditor({
     const host = hostRef.current
     if (!host) return
     applyMonacoTheme()
+    // 收回上次卸载时寄存的 model（页签还开着的），让页签关闭后的回收生效
+    for (const [rel, model] of [...carriedModels]) {
+      carriedModels.delete(rel)
+      const view = carriedViews.get(rel)
+      carriedViews.delete(rel)
+      if (!openRelsRef.current?.has(rel) || model.isDisposed()) {
+        forgetLiveEditorText(rel)
+        markModelClosed(model.uri.toString())
+        if (!model.isDisposed()) model.dispose()
+        continue
+      }
+      modelsRef.current.set(rel, model)
+      if (view !== undefined) viewsRef.current.set(rel, view)
+    }
     const initial = propsRef.current.file
     const initialModel = ensureModel(initial)
     const initialTier = tierForModel(initialModel)
@@ -317,6 +401,7 @@ export function MonacoEditor({
       automaticLayout: true,
       detectIndentation: false,
       largeFileOptimizations: true,
+      readOnly,
       ...mergedOptions(initialTier, prefsRef.current),
       lineNumbersMinChars: 3,
       lineDecorationsWidth: 6,
@@ -347,6 +432,9 @@ export function MonacoEditor({
     editorRef.current = editor
     host.__ccoderEditor = editor
     host.__ccoderMonaco = monaco
+    // 短暂卸载后重新挂载：恢复当前文件的光标 / 滚动位置
+    const initialView = viewsRef.current.get(initial.rel)
+    if (initialView) editor.restoreViewState(initialView)
 
     const p = editor.getPosition()
     if (p) propsRef.current.onCursor(p.lineNumber, p.column)
@@ -354,7 +442,8 @@ export function MonacoEditor({
     const disposables = [
       editor.onDidChangeModelContent(() => {
         if (applyingRef.current) return
-        propsRef.current.onChange(editor.getValue())
+        // 不在这里读全文：连续打字时只记一个脏标记，200ms 后统一提交
+        scheduleText()
 
         // 文件可能从普通变成超大（粘贴/生成）；1 秒防抖后只在跨档时重配
         if (tierTimer.current !== null) window.clearTimeout(tierTimer.current)
@@ -367,24 +456,49 @@ export function MonacoEditor({
       }),
       editor.onDidChangeCursorPosition((e) => {
         propsRef.current.onCursor(e.position.lineNumber, e.position.column)
-      })
+      }),
+      // 失焦时立即补一次：窗口关闭 / 自动保存都依赖此刻的文本是最新的
+      editor.onDidBlurEditorText(() => flushText())
     ]
 
+    const unregisterFlusher = registerEditorTextFlusher(flushText)
+
     return () => {
+      // 卸载前把最后一拍输入交给上层，避免切页签瞬间丢字
+      flushText()
+      unregisterFlusher()
       if (tierTimer.current !== null) window.clearTimeout(tierTimer.current)
       tierTimer.current = null
       for (const d of disposables) d.dispose()
       host.__ccoderEditor = undefined
       host.__ccoderMonaco = undefined
+      // 寄存前先记下当前文件的光标 / 滚动位置
+      if (editor.getModel()) viewsRef.current.set(relRef.current, editor.saveViewState())
       editor.dispose()
       editorRef.current = null
-      for (const model of modelsRef.current.values()) {
+      /*
+       * 打开新文件时 IdeApp 会先显示 loading 占位、短暂卸载编辑器。
+       * 还开着页签的 model 必须留着（撤销栈、滚动位置和未提交文本都在
+       * 里面），重新挂载时 ensureModel 会用 monaco.editor.getModel 接管；
+       * 只有已经关闭的页签才真正释放。
+       */
+      const stillOpen = openRelsRef.current
+      for (const [rel, model] of modelsRef.current) {
+        if (stillOpen?.has(rel) && !model.isDisposed()) {
+          carriedModels.set(rel, model)
+          if (viewsRef.current.has(rel)) {
+            carriedViews.set(rel, viewsRef.current.get(rel) ?? null)
+          }
+          continue
+        }
+        forgetLiveEditorText(rel)
+        markModelClosed(model.uri.toString())
         if (!model.isDisposed()) model.dispose()
       }
       modelsRef.current.clear()
       viewsRef.current.clear()
     }
-  }, [ensureModel])
+  }, [ensureModel, flushText, scheduleText])
 
   /*
    * 右键菜单里的「发送到聊天」。单独一个 effect，依赖当前语言：
@@ -428,6 +542,9 @@ export function MonacoEditor({
     // 文本变化统一交给下面的 effect 处理，这里再做一次 setValue 会先重置光标
     if (prev === file.rel) return
 
+    // 先把旧文件的最后一拍输入提交出去，再换 model；否则缓存会落后于
+    // 编辑器里的内容，切回来时 ensureModel 会用旧文本把它覆盖掉。
+    flushText()
     if (editor.getModel()) viewsRef.current.set(prev, editor.saveViewState())
     const model = ensureModel(file)
     applyingRef.current = true
@@ -441,13 +558,53 @@ export function MonacoEditor({
       editor.revealLine(1)
     }
     relRef.current = file.rel
-  }, [ensureModel, file])
+    lastEmittedRef.current = file.text
+    textDirtyRef.current = false
+    setLiveEditorText(file.rel, file.text)
+    // 新 model 的光标位置；状态栏 / 面包屑不要停留在上一个文件
+    const pos = editor.getPosition()
+    if (pos) propsRef.current.onCursor(pos.lineNumber, pos.column)
+  }, [ensureModel, file, flushText])
+
+  /*
+   * 页签关闭后释放对应的 model。
+   *
+   * 编辑器实例跨页签常驻，modelsRef 里会保留所有打开过的文件；如果不主动
+   * 清理，长会话里每个文件都会连同撤销栈和全文一直占着内存，直到整个 IDE
+   * 窗口关闭。这里只处理「已经不在任何页签里、也不是当前 model」的项，
+   * 隐藏的 import model 由 tsProject 自己按上限回收。
+   */
+  useEffect(() => {
+    if (!openRels) return
+    const current = editorRef.current?.getModel()
+    for (const [rel, model] of [...modelsRef.current]) {
+      if (openRels.has(rel) || model === current) continue
+      forgetLiveEditorText(rel)
+      markModelClosed(model.uri.toString())
+      viewsRef.current.delete(rel)
+      carriedViews.delete(rel)
+      modelsRef.current.delete(rel)
+      if (!model.isDisposed()) model.dispose()
+    }
+  }, [openRels])
 
   // 外部替换了文本（保存返回、VCS 还原、磁盘文件被外部进程改动等）
   useEffect(() => {
     const editor = editorRef.current
     const model = editor?.getModel()
-    if (!editor || !model || model.getValue() === file.text) return
+    if (!editor || !model || model.isDisposed()) return
+    // 自己刚提交的文本回流：不算外部改动，省掉每个按键一次 getValue 全文比较
+    if (file.text === lastEmittedRef.current) return
+    // 还有没提交的输入：先把用户内容送出去，绝不能用外部快照覆盖
+    if (textDirtyRef.current) {
+      flushText()
+      return
+    }
+    if (model.getValue() === file.text) {
+      lastEmittedRef.current = file.text
+      setLiveEditorText(file.rel, file.text)
+      return
+    }
 
     const view = editor.saveViewState()
     const pos = editor.getPosition()
@@ -455,6 +612,8 @@ export function MonacoEditor({
     applyingRef.current = true
     model.setValue(file.text)
     applyingRef.current = false
+    lastEmittedRef.current = file.text
+    setLiveEditorText(file.rel, file.text)
     applyEditorTier(editor, model, tierRef, prefsRef.current)
     if (view) editor.restoreViewState(view)
 
@@ -478,7 +637,7 @@ export function MonacoEditor({
         )
       )
     }
-  }, [file.text, file.rel])
+  }, [file.text, file.rel, flushText])
 
   // 手动切换语言模式 / 文件级缩进（.editorconfig、按语言配置）立即生效
   useEffect(() => {
@@ -492,6 +651,11 @@ export function MonacoEditor({
     // prefs 不在依赖里：字号 / 换行由下面的偏好 effect 处理
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [languageId, indent?.tabSize, indent?.insertSpaces, file.rel, file.language])
+
+  // 加载占位期间只读：焦点可能还留在编辑器里，别把输入写进上一个文件
+  useEffect(() => {
+    editorRef.current?.updateOptions({ readOnly })
+  }, [readOnly])
 
   // 设置页改了编辑器偏好：已打开的窗口立即跟上，不用重开
   useEffect(() => {

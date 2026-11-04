@@ -4,6 +4,7 @@ import {
   getTypeScriptWorker
 } from 'monaco-editor/languages/features/typescript/register'
 import { monaco, monacoLanguage } from './monaco-setup'
+import { isModelOpen } from './editor-state'
 
 /**
  * 给 Monaco 的 TypeScript worker 补上「没打开、但被 import 的文件」。
@@ -24,6 +25,14 @@ const IMPORT_RE =
 
 const MAX_FILES = 160
 const MAX_DEPTH = 2
+/**
+ * 隐藏 model 的全局上限。
+ *
+ * 每次扫描最多 160 个，但一个会话里会先后打开很多文件，累加起来仍可能
+ * 上千。这里按最后使用时间淘汰最老的；淘汰后下次扫描 / 打开文件会从磁盘
+ * 重建。挂在编辑器上的 model 永远不淘汰。
+ */
+const MAX_CACHED_MODELS = 480
 
 function posix(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\/+/, '')
@@ -122,9 +131,37 @@ async function resolveImport(
   return null
 }
 
-const loaded = new Set<string>()
+/** 已加载的隐藏 model：key = `${cwd}::${rel}`，value = 最后使用时间 */
+const loaded = new Map<string, number>()
 let scheduled: Promise<void> | null = null
 let pendingRoot: { cwd: string; rel: string; text: string; readFile: ReadFile } | null = null
+
+/** 超出上限时按 LRU 释放隐藏 model；挂载在编辑器上的不动 */
+function pruneHiddenModels(): void {
+  if (loaded.size <= MAX_CACHED_MODELS) return
+  const attached = new Set<string>()
+  for (const editor of monaco.editor.getEditors()) {
+    const model = editor.getModel()
+    if (model) attached.add(model.uri.toString())
+  }
+  const entries = [...loaded.entries()].sort((a, b) => a[1] - b[1])
+  for (const [key] of entries) {
+    if (loaded.size <= MAX_CACHED_MODELS) break
+    const sep = key.indexOf('::')
+    if (sep < 0) {
+      loaded.delete(key)
+      continue
+    }
+    const cwd = key.slice(0, sep)
+    const rel = key.slice(sep + 2)
+    const uri = uriOf(cwd, rel)
+    if (attached.has(uri.toString())) continue
+    if (isModelOpen(uri.toString())) continue
+    const model = monaco.editor.getModel(uri)
+    if (model) model.dispose()
+    loaded.delete(key)
+  }
+}
 
 async function run(): Promise<void> {
   const root = pendingRoot
@@ -151,6 +188,7 @@ async function run(): Promise<void> {
       // 已经加载过且 model 还在：不用重复读盘 / 递归，但要带上 URI，
       // 让两个 worker 都有机会补同步（比如上次同步时语言服务还没起来）。
       if (loaded.has(key) && existing) {
+        loaded.set(key, Date.now())
         if (existing.getLanguageId() === 'typescript') tsUris.push(existing.uri)
         else if (existing.getLanguageId() === 'javascript') jsUris.push(existing.uri)
         continue
@@ -161,12 +199,13 @@ async function run(): Promise<void> {
         if (lang === 'typescript') tsUris.push(uri)
         else if (lang === 'javascript') jsUris.push(uri)
       }
-      loaded.add(key)
+      loaded.set(key, Date.now())
       await visit(resolved.rel, resolved.file.text, depth + 1)
     }
   }
 
   await visit(rel, text, 0)
+  pruneHiddenModels()
 
   /*
    * eagerModelSync 只在 worker 首次创建时快照当时的 model 列表。隐藏 model
@@ -246,6 +285,7 @@ export async function refreshImportedModels(
     if (!model || attached.has(model)) continue
     try {
       const r = await readFile(cwd, rel)
+      if (model.isDisposed()) continue
       if (r.ok && !r.data.binary && !r.data.truncated && model.getValue() !== r.data.text) {
         model.setValue(r.data.text)
       }

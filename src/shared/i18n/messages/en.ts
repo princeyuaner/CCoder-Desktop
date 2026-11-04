@@ -693,7 +693,7 @@ export const en = {
   'settings.appearance': 'Appearance',
   'settings.theme.label': 'Theme',
   'settings.theme.hint':
-    'The theme changes colors only, not layout. "Follow system" switches between dark and light with Windows.',
+    'Themes change colors and ambient backgrounds, not layout. Aurora, Ember and friends add a dynamic layer behind the window; "Follow system" switches between dark and light with Windows.',
   'settings.zoom': 'UI scale',
   'settings.zoomHint':
     'Scales the entire UI, including the sidebar and settings. 100% is standard.',
@@ -2275,6 +2275,12 @@ export const en = {
   'theme.coffee': 'Coffee brown',
   'theme.moss': 'Moss',
   'theme.starfield': 'Starfield',
+  'theme.aurora': 'Aurora',
+  'theme.ember': 'Ember',
+  'theme.abyss': 'Abyss',
+  'theme.sakura': 'Sakura night',
+  'theme.prism': 'Holographic prism',
+  'theme.glacier': 'Glacier dawn',
   'theme.contrast': 'High contrast',
   'theme.light': 'Light',
   'theme.paper': 'Paper white',

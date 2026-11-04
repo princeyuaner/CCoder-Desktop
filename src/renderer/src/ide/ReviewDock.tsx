@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import type { VcsDiffData, VcsDiffSource, VcsStatus } from '@shared/vcs'
 import type { MessageKey } from '@shared/i18n'
 import { parseDiff, type DiffHunk } from './diff'
@@ -11,7 +11,7 @@ import { useI18n } from '../i18n'
  * 文件列表 → 选中文件 → 与 HEAD 比较的 hunk 摘要。点击 hunk 打开现有
  * diff 页签，真正的接受 / 拒绝仍然在源代码管理里完成。
  */
-export function ReviewDock({
+export const ReviewDock = memo(function ReviewDock({
   cwd,
   status,
   activeRel,
@@ -252,7 +252,7 @@ export function ReviewDock({
       </footer>
     </aside>
   )
-}
+})
 
 function hunkRange(hunk: DiffHunk): string {
   const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(hunk.header)

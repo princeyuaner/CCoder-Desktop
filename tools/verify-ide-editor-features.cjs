@@ -592,6 +592,92 @@ app.whenReady().then(async () => {
     check('tab renamed after Save As', tabTitle.includes('untitled-save.ts'), tabTitle)
   }
 
+  // ── 关闭页签释放 Monaco model ───────────────────────────
+  await openTreeFile(win, 'script.py')
+  await openTreeFile(win, 'format.ts')
+  await waitFor(win, `document.querySelector('.ide-monaco')?.__ccoderMonaco`, 3000)
+  await sleep(300)
+  const modelsBeforeClose = await evalJs(
+    win,
+    `document.querySelector('.ide-monaco')?.__ccoderMonaco?.editor.getModels().length ?? -1`
+  )
+  await evalJs(win, `document.querySelector('.ide-tab.on .ide-tab-x')?.click()`)
+  await sleep(300)
+  const modelsAfterClose = await evalJs(
+    win,
+    `document.querySelector('.ide-monaco')?.__ccoderMonaco?.editor.getModels().length ?? -1`
+  )
+  check(
+    'closing a tab disposes its Monaco model',
+    modelsAfterClose === modelsBeforeClose - 1,
+    `${modelsBeforeClose} -> ${modelsAfterClose}`
+  )
+
+  // ── 未保存草稿按文件落 localStorage ─────────────────────
+  const editorHandleStored = await evalJs(
+    win,
+    `(() => {
+      window.__verifyEditor = document.querySelector('.ide-monaco')?.__ccoderEditor
+      return !!window.__verifyEditor
+    })()`
+  )
+  // util.ts 此前没打开过，会走 loading 分支；编辑器实例必须原地保留
+  await openTreeFile(win, 'util.ts')
+  await waitFor(win, `document.querySelector('.ide-monaco')?.__ccoderEditor`, 3000)
+  const sameEditor = await evalJs(
+    win,
+    `document.querySelector('.ide-monaco')?.__ccoderEditor === window.__verifyEditor`
+  )
+  check('editor instance survives opening a new file', editorHandleStored && sameEditor)
+
+  const originalUtil = await evalJs(
+    win,
+    `document.querySelector('.ide-monaco').__ccoderEditor.getValue()`
+  )
+  await evalJs(
+    win,
+    `document.querySelector('.ide-monaco').__ccoderEditor.setValue(${JSON.stringify(
+      `${originalUtil}// draft-check\n`
+    )})`
+  )
+  await sleep(1000)
+  const draftValues = await evalJs(
+    win,
+    `(() => {
+      const out = []
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i)
+        if (key && key.includes(':draft:') && key.endsWith('src/util.ts')) {
+          out.push(localStorage.getItem(key))
+        }
+      }
+      return out
+    })()`
+  )
+  check(
+    'draft saved per file',
+    Array.isArray(draftValues) &&
+      draftValues.some((v) => typeof v === 'string' && v.includes('draft-check')),
+    JSON.stringify(draftValues)
+  )
+
+  await evalJs(
+    win,
+    `document.querySelector('.ide-monaco').__ccoderEditor.setValue(${JSON.stringify(originalUtil)})`
+  )
+  await sleep(1000)
+  const draftLeft = await evalJs(
+    win,
+    `(() => {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i)
+        if (key && key.includes(':draft:') && key.endsWith('src/util.ts')) return true
+      }
+      return false
+    })()`
+  )
+  check('draft removed after returning to disk text', draftLeft === false)
+
   /* ── 资源管理器：隐藏 / 忽略 / 多选 / 复制粘贴 / 拖拽 ── */
 
   const rowExists = async (name) =>

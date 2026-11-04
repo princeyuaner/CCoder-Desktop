@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -65,6 +66,13 @@ import { SettingsDialog, type SettingsSection } from './SettingsDialog'
 import { EncodingMenu, ENCODING_LABEL_KEY } from './EncodingMenu'
 import { TerminalView } from './TerminalView'
 import { activeEditor, formatActiveDocument, runEditorAction } from './editor-actions'
+import {
+  flushEditorText,
+  getIdeCursor,
+  liveEditorText,
+  setIdeCursor,
+  useIdeCursor
+} from './editor-state'
 import { parseOutline, type OutlineKind, type OutlineSymbol } from './outline'
 import { ensureImportedModels, refreshImportedModels } from './tsProject'
 import type { MessageKey } from '@shared/i18n'
@@ -96,35 +104,94 @@ function extKey(rel: string): string {
 
 /* ── 崩溃恢复：未保存草稿 ──────────────────────────────── */
 
-/** 每个工作区一份草稿；localStorage 在崩溃 / 断电后仍然可读 */
-const draftStoreKey = (cwd: string): string => `ccoder:ide:drafts:${cwd}`
+/**
+ * 草稿按「工作区 + 文件」分 key 存放。
+ *
+ * 旧版把整个工作区塞进一个 JSON 对象，每 400ms 就要把所有脏文件序列化
+ * 一次（最多 150 万字符，还是同步 API）。拆开之后只写真正变化的文件，
+ * 大文件编辑时的停顿会小很多。cwd 经过 encodeURIComponent，避免两个
+ * 工作区路径互为前缀时串读。
+ */
+const draftPrefix = (cwd: string): string =>
+  `ccoder:ide:draft:${encodeURIComponent(cwd)}:`
+const draftKey = (cwd: string, rel: string): string => `${draftPrefix(cwd)}${rel}`
+/** 旧版单键格式，启动时迁移一次 */
+const legacyDraftKey = (cwd: string): string => `ccoder:ide:drafts:${cwd}`
 /** 单个文件 / 整个工作区的草稿上限，避免把 localStorage 撑爆 */
 const DRAFT_FILE_MAX_CHARS = 300_000
 const DRAFT_TOTAL_MAX_CHARS = 1_500_000
 
-function readDrafts(cwd: string): Record<string, string> {
+function writeDraft(cwd: string, rel: string, text: string): boolean {
   try {
-    const raw = localStorage.getItem(draftStoreKey(cwd))
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== 'object') return {}
-    const out: Record<string, string> = {}
-    for (const [rel, text] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof text === 'string' && text.length <= DRAFT_FILE_MAX_CHARS) out[rel] = text
-    }
-    return out
+    localStorage.setItem(draftKey(cwd, rel), text)
+    return true
   } catch {
-    return {}
+    // 配额满了 / 隐私模式：草稿恢复失效，但不能影响正常编辑
+    return false
   }
 }
 
-function writeDrafts(cwd: string, drafts: Record<string, string>): void {
+function removeDraft(cwd: string, rel: string): void {
   try {
-    if (Object.keys(drafts).length === 0) localStorage.removeItem(draftStoreKey(cwd))
-    else localStorage.setItem(draftStoreKey(cwd), JSON.stringify(drafts))
+    localStorage.removeItem(draftKey(cwd, rel))
   } catch {
-    // 配额满了 / 隐私模式：草稿恢复失效，但不能影响正常编辑
+    // 忽略
   }
+}
+
+function clearDrafts(cwd: string): void {
+  const prefix = draftPrefix(cwd)
+  const keys: string[] = []
+  try {
+    // 先收集再删：边遍历边删会改变索引
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(prefix)) keys.push(key)
+    }
+    for (const key of keys) localStorage.removeItem(key)
+    localStorage.removeItem(legacyDraftKey(cwd))
+  } catch {
+    // 忽略
+  }
+}
+
+function readDrafts(cwd: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  try {
+    const prefix = draftPrefix(cwd)
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (!key?.startsWith(prefix)) continue
+      const rel = key.slice(prefix.length)
+      const text = localStorage.getItem(key)
+      if (typeof text === 'string' && text.length <= DRAFT_FILE_MAX_CHARS) out[rel] = text
+    }
+  } catch {
+    // 读不到就当没有草稿
+  }
+
+  // 从旧版的单键 JSON 迁移；写失败时保留旧键，下次启动再试
+  try {
+    const raw = localStorage.getItem(legacyDraftKey(cwd))
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (parsed && typeof parsed === 'object') {
+        let migrated = true
+        for (const [rel, text] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof text !== 'string' || text.length > DRAFT_FILE_MAX_CHARS) continue
+          // 已经有新版分文件草稿时以它为准，不要用旧 blob 覆盖更新的内容
+          if (out[rel] === undefined) {
+            out[rel] = text
+            if (!writeDraft(cwd, rel, text)) migrated = false
+          }
+        }
+        if (migrated) localStorage.removeItem(legacyDraftKey(cwd))
+      }
+    }
+  } catch {
+    // 旧格式坏数据：忽略并保留原键
+  }
+  return out
 }
 
 interface Tab {
@@ -183,12 +250,6 @@ interface PromptState {
   run: (value: string) => void | Promise<void>
   /** 取消 / Esc / 点遮罩；给需要返回值（另存为、覆盖确认）的调用方收尾 */
   onCancel?: () => void
-}
-
-interface CursorPos {
-  rel: string
-  line: number
-  col: number
 }
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'avif'])
@@ -359,6 +420,34 @@ function diffIsDeletion(data: VcsDiffData | undefined): boolean {
 }
 
 /* ── 小图标 ───────────────────────────────────────────── */
+
+/** 状态栏里的行列号：只订阅光标 store，不带着整个 IDE 重渲染 */
+function CursorReadout({ rel }: { rel: string }): JSX.Element | null {
+  const { t } = useI18n()
+  const cursor = useIdeCursor()
+  if (!cursor || cursor.rel !== rel) return null
+  return <span>{t('ide.cursor', { line: cursor.line, col: cursor.col })}</span>
+}
+
+/** 面包屑的光标行同样走外部 store，避免每次移动光标重渲染文件树 */
+function Breadcrumbs({
+  rel,
+  symbols,
+  onJump
+}: {
+  rel: string
+  symbols: OutlineSymbol[]
+  onJump: (line: number) => void
+}): JSX.Element {
+  const cursor = useIdeCursor()
+  return (
+    <SymbolBreadcrumbs
+      symbols={symbols}
+      line={cursor?.rel === rel ? cursor.line : 1}
+      onJump={onJump}
+    />
+  )
+}
 
 function Ico({ d, size = 15 }: { d: string; size?: number }): JSX.Element {
   return (
@@ -612,6 +701,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     index: -1
   })
   const [jump, setJump] = useState<{ rel: string; line: number } | null>(null)
+  /**
+   * 光标位置不放在这里：它变化太频繁，会让整个 IDE 重渲染。实际位置在
+   * editor-state 的外部 store 里，只有状态栏和面包屑订阅。
+   */
+  const activeFileRelRef = useRef<string | null>(null)
+  /** 加载新文件时继续显示上一个文件，避免卸载 / 重建整个 Monaco 编辑器 */
+  const lastEditorFileRef = useRef<IdeTextFile | null>(null)
+  const handleCursor = useCallback((line: number, col: number): void => {
+    const rel = activeFileRelRef.current
+    if (rel) setIdeCursor({ rel, line, col })
+  }, [])
   /** 资源管理器当前选中的文件 / 文件夹 */
   const [treeTarget, setTreeTarget] = useState<TreeTarget>({ rel: '', kind: 'dir' })
   /** 多选：rel 集合；普通点击只有一个，Ctrl / Shift 扩展 */
@@ -670,7 +770,6 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [menu, setMenu] = useState<TreeMenuState | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [prompt, setPrompt] = useState<PromptState | null>(null)
-  const [cursor, setCursor] = useState<CursorPos | null>(null)
   const restored = useRef(false)
   /** 发送确认层；null = 没开 */
   const [sendDraft, setSendDraft] = useState<SendDraft | null>(null)
@@ -698,6 +797,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const [lspEnabled, setLspEnabled] = useState(true)
   /** 崩溃恢复：启动时读一次，之后由 ensureTab 在打开文件时应用 */
   const pendingDraftsRef = useRef<Record<string, string>>({})
+  /** 已经写进 localStorage 的草稿，用来只更新真正变化的文件 */
+  const writtenDraftsRef = useRef<Record<string, string>>({})
   const draftsLoadedRef = useRef(false)
   /** 用户明确选择「不保存并关闭」后，beforeunload 不能再把草稿写回去 */
   const discardDraftsRef = useRef(false)
@@ -718,7 +819,46 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const syncAnnounced = useRef<number | null>(null)
   const syncReady = useRef(false)
   const activeTab = tabs.find((t) => t.key === activeKey) ?? null
+  /** 还开着的文件页签；MonacoEditor 用它回收已关闭文件的 model */
+  const openFileRels = useMemo(() => {
+    const rels = new Set<string>()
+    for (const tab of tabs) {
+      if (tab.kind === 'file') rels.add(tab.rel)
+    }
+    return rels
+  }, [tabs])
+  /**
+   * 编辑器的文本提交是 200ms 节流的。这里不放进 transition：保存 / 格式化
+   * 之后会直接写 fileCache，延迟提交的旧文本可能反过来覆盖刚保存的内容。
+   * 大块 UI 已经用 memo 挡住了，正常优先级的这一拍开销可以接受。
+   */
+  const handleEditorChange = useCallback((text: string, rel: string): void => {
+    setFileCache((m) => (m[rel] ? { ...m, [rel]: { ...m[rel], text } } : m))
+  }, [])
   const activeFile = activeTab?.kind === 'file' ? fileCache[activeTab.rel] : undefined
+  const loadingActive = !!activeTab && loadingKey === activeTab.key
+  /** 文件页签还没读到内容：可能还没开始 ensureTab，也可能正在读 */
+  const showFileLoading = !!activeTab && activeTab.kind === 'file' && !activeFile
+  if (activeFile) lastEditorFileRef.current = activeFile
+  /**
+   * 编辑区实际显示的文件。
+   *
+   * 打开新文件时 ensureTab 会先进入加载态；此时继续渲染上一个文件，
+   * 让 Monaco 编辑器实例保持挂载（model / 撤销栈 / 查找面板都不用重建），
+   * 加载完成后再切到新文件，上面盖一层 loading 提示。
+   *
+   * 注意不能只看 loadingKey：切页签后的第一帧 loadingKey 还是空的，
+   * 要等到 effect 里 ensureTab 才置位；这时也不能卸载编辑器。
+   */
+  const editorFile =
+    activeFile ??
+    (showFileLoading &&
+    lastEditorFileRef.current &&
+    lastEditorFileRef.current.rel !== activeTab?.rel &&
+    openFileRels.has(lastEditorFileRef.current.rel)
+      ? lastEditorFileRef.current
+      : undefined)
+  activeFileRelRef.current = editorFile?.rel ?? null
   const activeImage = activeTab?.kind === 'image' ? imageCache[activeTab.rel] : undefined
   const activeDiff = activeTab?.kind === 'diff' ? diffCache[activeTab.rel] : undefined
   const explorerListOptions = useMemo<IdeListDirOptions>(
@@ -805,7 +945,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       // 未命名缓冲区在落盘前始终算未保存（即使还是空文件）
       if (f.untitled) return true
       if (baseText[rel] === undefined) return false
-      if (f.text !== baseText[rel]) return true
+      // 编辑器可能已经产生比 fileCache 更新的文本（200ms 节流窗口内）；
+      // 关闭 / 保存前会先 flush，所以这里优先读旁路镜像，避免漏判。
+      const text = liveEditorText(rel) ?? f.text
+      if (text !== baseText[rel]) return true
       return (f.eol ?? 'lf') !== (baseEol[rel] ?? f.eol ?? 'lf')
     },
     [fileCache, baseText, baseEol]
@@ -840,6 +983,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   const revalidateFile = useCallback(
     async (rel: string): Promise<void> => {
       if (!api?.ide) return
+      // 先落掉节流中的输入，下面判断「脏 / 干净」才不会把刚敲的字当成没有
+      flushEditorText()
       const seq = (relSeqRef.current.get(rel) ?? 0) + 1
       relSeqRef.current.set(rel, seq)
 
@@ -873,10 +1018,12 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       const adopted = cfgEol ? { ...disk, eol: cfgEol } : disk
       const base = bases[rel]
       const baseEol = liveRef.current.baseEol[rel]
-      // await 期间用户可能已经开始输入，必须重新判断脏状态
+      // await 期间用户可能已经开始输入，必须重新判断脏状态；旁路镜像
+      // 可能比已提交的 fileCache 更新，优先用它。
+      const currentText = liveEditorText(rel) ?? current.text
       const dirtyNow =
         base !== undefined &&
-        (current.text !== base || (current.eol ?? 'lf') !== (baseEol ?? current.eol ?? 'lf'))
+        (currentText !== base || (current.eol ?? 'lf') !== (baseEol ?? current.eol ?? 'lf'))
 
       if (!dirtyNow) {
         setFileCache((m) => (m[rel] ? { ...m, [rel]: adopted } : m))
@@ -886,7 +1033,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         return
       }
 
-      if (disk.text === current.text) {
+      if (disk.text === currentText) {
         // 外部写入和草稿恰好一致：采纳磁盘元数据，缓冲区变成干净
         setFileCache((m) => (m[rel] ? { ...m, [rel]: adopted } : m))
         setBaseText((m) => ({ ...m, [rel]: disk.text }))
@@ -1155,6 +1302,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   // 草稿要在「恢复标签」之前读进 ref —— 否则 active tab 的首次读取会错过草稿
   useEffect(() => {
     pendingDraftsRef.current = readDrafts(cwd)
+    writtenDraftsRef.current = { ...pendingDraftsRef.current }
     draftsLoadedRef.current = true
   }, [cwd])
 
@@ -1505,6 +1653,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     [activeKey, openFile]
   )
 
+  /** 面包屑跳转：用 ref 取当前文件，避免每次渲染都生成新回调破坏 memo */
+  const jumpToActiveLine = useCallback(
+    (line: number): void => {
+      const rel = activeFileRelRef.current
+      if (rel) jumpTo(rel, line)
+    },
+    [jumpTo]
+  )
+
   const goBack = useCallback((): boolean => {
     const h = navHistoryRef.current
     if (h.index <= 0) return false
@@ -1718,6 +1875,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         // 明确丢弃的脏内容又带回来，草稿也会被下一次持久化写回去。
         delete pendingDraftsRef.current[tab.rel]
         if (tab.kind === 'file') {
+          // 立刻删掉磁盘上的草稿：不必等下一次 400ms 持久化，崩溃也不会复活
+          removeDraft(cwd, tab.rel)
+          delete writtenDraftsRef.current[tab.rel]
           setFileCache((m) => {
             if (!(tab.rel in m)) return m
             const next = { ...m }
@@ -1886,6 +2046,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     ): Promise<boolean> => {
       const file = fileCache[rel]
       if (!api?.ide || !file) return false
+      // 保存读的是「最新文本」，不是上一拍节流进 state 的文本
+      flushEditorText()
       if (file.binary) {
         setNotice(t('ide.binaryCannotSave'))
         return false
@@ -1916,14 +2078,16 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
        * 格式化动作是 Monaco 编辑器级的，后台文件没法在不切 model 的情况下
        * 跑。自动保存 / 保存全部里的非活动文件保持原样，等切过去再保存。
        */
-      let text = file.text
+      let text = liveEditorText(rel) ?? file.text
       if (editorPrefs.formatOnSave && activeKey === `file:${rel}`) {
         const editor = activeEditor()
         const model = editor?.getModel()
         if (editor && model && relFromUri(model.uri, cwd) === rel && model.getValue() === text) {
           const formatted = await formatActiveDocument()
           if (formatted) {
-            text = editor.getValue()
+            // 格式化改写 model 后先刷一拍，保证 live 镜像 / state 与 model 一致
+            flushEditorText()
+            text = liveEditorText(rel) ?? editor.getValue()
             if (text !== file.text) {
               setFileCache((m) => (m[rel] ? { ...m, [rel]: { ...m[rel], text } } : m))
             }
@@ -2017,6 +2181,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         setBaseText((m) => ({ ...m, [rel]: r.data.text }))
         setBaseEol((m) => ({ ...m, [rel]: r.data.eol ?? 'lf' }))
         delete pendingDraftsRef.current[rel]
+        removeDraft(cwd, rel)
+        delete writtenDraftsRef.current[rel]
         clearExternal(rel)
         ensureImportedModels(cwd, rel, r.data.text, api.ide.readFile)
         showFlash(t('ide.saved', { name: baseName(rel) }))
@@ -2111,13 +2277,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
       }
 
-      let text = file.text
+      flushEditorText()
+      let text = liveEditorText(fromRel) ?? file.text
       if (editorPrefs.formatOnSave && activeKey === sourceTab?.key) {
         const editor = activeEditor()
         const model = editor?.getModel()
         if (editor && model && model.getValue() === text) {
           const formatted = await formatActiveDocument()
-          if (formatted) text = editor.getValue()
+          if (formatted) {
+            flushEditorText()
+            text = liveEditorText(fromRel) ?? editor.getValue()
+          }
         }
       }
       if (targetCfg?.trimTrailingWhitespace ?? editorPrefs.trimTrailingWhitespace) {
@@ -2214,9 +2384,14 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             return next
           })
           delete pendingDraftsRef.current[fromRel]
+          removeDraft(cwd, fromRel)
+          delete writtenDraftsRef.current[fromRel]
           clearExternal(toRel)
           clearExternal(fromRel)
-          setCursor((c) => (c && c.rel === fromRel ? { ...c, rel: toRel } : c))
+          const cursorNow = getIdeCursor()
+          if (cursorNow && cursorNow.rel === fromRel) {
+            setIdeCursor({ ...cursorNow, rel: toRel })
+          }
           setJump((j) => (j && j.rel === fromRel ? { ...j, rel: toRel } : j))
           ensureImportedModels(cwd, toRel, savedData.text, api.ide.readFile)
         } else {
@@ -2368,12 +2543,15 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   )
 
   const saveAll = useCallback(async (): Promise<boolean> => {
+    // 先刷出节流中的输入，再按实时脏状态生成列表（render 里的 dirtyRels 可能慢一拍）
+    flushEditorText()
+    const rels = Object.keys(fileCache).filter((rel) => isDirty(rel))
     // 逐个保存：遇到外部改动时只弹一次确认，不把后面的文件也一起覆盖
-    for (const rel of dirtyRels) {
+    for (const rel of rels) {
       if (!(await saveDoc(rel))) return false
     }
     return true
-  }, [dirtyRels, saveDoc])
+  }, [fileCache, isDirty, saveDoc])
 
   /* ── 自动保存 / 崩溃恢复 ─────────────────────────────── */
 
@@ -2411,12 +2589,17 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   useEffect(() => {
     if (editorPrefs.autoSave !== 'onFocusChange') return
     const onBlur = (): void => {
-      void (async () => {
-        for (const rel of [...dirtyRelsRef.current]) {
-          if (!isDirty(rel) || liveRef.current.fileCache[rel]?.untitled) continue
-          if (!(await saveDocRef.current(rel))) break
-        }
-      })()
+      // 先同步刷出编辑器里的最后一拍输入，再等一拍让 React 提交
+      // dirtyRelsRef，否则「打完字立刻切窗口」可能漏掉这个文件。
+      flushEditorText()
+      window.setTimeout(() => {
+        void (async () => {
+          for (const rel of [...dirtyRelsRef.current]) {
+            if (!isDirty(rel) || liveRef.current.fileCache[rel]?.untitled) continue
+            if (!(await saveDocRef.current(rel))) break
+          }
+        })()
+      }, 0)
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
@@ -2429,6 +2612,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
    */
   const persistDrafts = useCallback((): void => {
     if (!draftsLoadedRef.current || discardDraftsRef.current) return
+    // 草稿要包含节流窗口里最后几个字符
+    flushEditorText()
     const { fileCache: cache, baseText: bases } = liveRef.current
     const candidates: Record<string, string> = {}
     // 还没被打开过的标签：保留上次读进来的草稿
@@ -2439,9 +2624,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     for (const [rel, file] of Object.entries(cache)) {
       if (!file || file.binary || file.truncated || file.untitled) continue
       const base = bases[rel]
-      if (base === undefined || file.text === base) continue
-      if (file.text.length > DRAFT_FILE_MAX_CHARS) continue
-      candidates[rel] = file.text
+      const text = liveEditorText(rel) ?? file.text
+      if (base === undefined || text === base) continue
+      if (text.length > DRAFT_FILE_MAX_CHARS) continue
+      candidates[rel] = text
     }
     const next: Record<string, string> = {}
     let total = 0
@@ -2450,8 +2636,23 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       next[rel] = text
       total += text.length
     }
+
+    // 只写文本真的变了的文件；已经不再脏 / 已关闭的文件把 key 删掉。
+    // 写失败（配额满）时不记入 written，下一次 persist 会自然重试。
+    const previous = writtenDraftsRef.current
+    const written: Record<string, string> = {}
+    for (const [rel, text] of Object.entries(next)) {
+      if (previous[rel] === text) {
+        written[rel] = text
+        continue
+      }
+      if (writeDraft(cwd, rel, text)) written[rel] = text
+    }
+    for (const rel of Object.keys(previous)) {
+      if (!(rel in written)) removeDraft(cwd, rel)
+    }
+    writtenDraftsRef.current = written
     pendingDraftsRef.current = next
-    writeDrafts(cwd, next)
   }, [cwd])
 
   useEffect(() => {
@@ -2524,6 +2725,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       const drafts: Record<string, string> = {}
       for (const [rel, text] of Object.entries(pendingDraftsRef.current)) {
         drafts[mapRel(rel)] = text
+        if (mapRel(rel) !== rel) {
+          // 旧路径的持久化草稿立即清掉，避免崩溃后被当成另一份文件恢复
+          removeDraft(cwd, rel)
+          delete writtenDraftsRef.current[rel]
+        }
       }
       pendingDraftsRef.current = drafts
 
@@ -2591,7 +2797,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       setDiffCache((m) =>
         Object.fromEntries(Object.entries(m).filter(([key]) => !underAny(key)))
       )
-      setCursor((c) => (c && underAny(c.rel) ? { ...c, rel: mapRel(c.rel) } : c))
+      const cursorNow = getIdeCursor()
+      if (cursorNow && underAny(cursorNow.rel)) {
+        setIdeCursor({ ...cursorNow, rel: mapRel(cursorNow.rel) })
+      }
       setJump((j) => (j && underAny(j.rel) ? { ...j, rel: mapRel(j.rel) } : j))
       setTreeTarget((t) => (underAny(t.rel) ? { ...t, rel: mapRel(t.rel) } : t))
       setTreeSelection((sel) => {
@@ -2797,6 +3006,25 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     setDropDir(null)
   }, [])
 
+  /**
+   * 文件树右键菜单。必须保持稳定引用：TreeDir 是 memo 组件，
+   * 内联箭头函数会让整棵树在每次输入提交时都重渲染。
+   */
+  const openTreeMenu = useCallback((target: TreeTarget, e: ReactMouseEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!treeSelectionRef.current.has(target.rel)) {
+      setTreeSelection(new Set(target.rel ? [target.rel] : []))
+      setTreeAnchor(target.rel || null)
+    }
+    setTreeTarget(target)
+    setMenu({ x: e.clientX, y: e.clientY, target })
+  }, [])
+
+  /** 审阅栏是 memo 组件，入口回调必须稳定 */
+  const openScmView = useCallback((): void => setView('vcs'), [])
+  const closeReviewDock = useCallback((): void => setReviewOpen(false), [])
+
   const canDropInto = useCallback((targetDir: string): boolean => {
     const rels = dragRelsRef.current
     if (rels.length === 0) return false
@@ -2896,7 +3124,11 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         return next
       })
       for (const rel of Object.keys(pendingDraftsRef.current)) {
-        if (underPath(rel, prefix)) delete pendingDraftsRef.current[rel]
+        if (underPath(rel, prefix)) {
+          delete pendingDraftsRef.current[rel]
+          removeDraft(cwd, rel)
+          delete writtenDraftsRef.current[rel]
+        }
       }
       const drop = <T,>(rec: Record<string, T>): Record<string, T> =>
         Object.fromEntries(Object.entries(rec).filter(([key]) => !underPath(key, prefix)))
@@ -2920,7 +3152,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
         return changed ? next : m
       })
-      setCursor((c) => (c && underPath(c.rel, prefix) ? null : c))
+      const cursorNow = getIdeCursor()
+      if (cursorNow && underPath(cursorNow.rel, prefix)) setIdeCursor(null)
       setJump((j) => (j && underPath(j.rel, prefix) ? null : j))
       setTreeTarget((t) => (underPath(t.rel, prefix) ? { rel: '', kind: 'dir' } : t))
       setTreeSelection((sel) => {
@@ -3026,6 +3259,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   const requestCloseTab = useCallback(
     (key: string) => {
+      // 节流窗口里的最后几个字符也要算进未保存判断
+      flushEditorText()
       const tab = tabs.find((t) => t.key === key)
       if (!tab || tab.kind !== 'file' || !isDirty(tab.rel)) {
         closeTab(key)
@@ -3083,6 +3318,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   /** 批量关闭：有脏文件时先问「保存 / 不保存」 */
   const closeManyWithPrompt = useCallback(
     (keys: string[]): void => {
+      // 批量关闭前也落一次节流中的输入，避免漏掉最后一个脏文件
+      flushEditorText()
       const targets = tabs.filter((t) => keys.includes(t.key))
       if (targets.length === 0) return
       const dirty = targets.filter((t) => t.kind === 'file' && isDirty(t.rel))
@@ -3131,13 +3368,16 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
   )
 
   const requestWindowClose = useCallback(() => {
-    if (dirtyCount === 0) {
+    // 先落掉节流中的输入，再按旁路镜像重新算脏文件数（不是上一帧的 dirtyCount）
+    flushEditorText()
+    const liveDirty = Object.keys(fileCache).filter((rel) => isDirty(rel)).length
+    if (liveDirty === 0) {
       api?.ide?.confirmClose()
       return
     }
     setDialog({
       title: t('ide.unsavedTitle'),
-      message: t('ide.unsavedMultiMessage', { n: dirtyCount }),
+      message: t('ide.unsavedMultiMessage', { n: liveDirty }),
       actions: [
         { label: t('common.cancel'), run: () => undefined },
         {
@@ -3147,7 +3387,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             // 明确选择「不保存」= 放弃草稿，下次打开不能再恢复出来
             discardDraftsRef.current = true
             pendingDraftsRef.current = {}
-            writeDrafts(cwd, {})
+            writtenDraftsRef.current = {}
+            clearDrafts(cwd)
             api?.ide?.confirmClose()
           }
         },
@@ -3162,7 +3403,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
         }
       ]
     })
-  }, [api, cwd, dirtyCount, saveAll])
+  }, [api, cwd, fileCache, isDirty, saveAll])
 
   useEffect(() => {
     api?.ide?.setDirty(dirtyCount > 0)
@@ -3250,6 +3491,9 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
   const activeFileLanguage = activeFile ? languageFor(activeFile) : undefined
   const activeFileIndent = activeFile ? indentFor(activeFile) : undefined
+  // 加载期间编辑器显示的是上一个文件，语言 / 缩进也要跟着它
+  const editorFileLanguage = editorFile ? languageFor(editorFile) : undefined
+  const editorFileIndent = editorFile ? indentFor(editorFile) : undefined
 
   // 切回一个已经缓存的文件时 ensureTab 不会再读盘，这里补一次 import 扫描。
   // 不在每次敲键时重扫：保存 / 切标签已经覆盖了 import 变化的场景。
@@ -3346,7 +3590,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
       setNotice(t('ide.binarySendUnsupported'))
       return
     }
-    setSendDraft({ refs: [buildIdeRef(file, cwd, 'file', file.text)], anchor })
+    // 可能刚敲完就点发送：先落掉节流中的输入
+    flushEditorText()
+    const text = liveEditorText(file.rel) ?? file.text
+    setSendDraft({ refs: [buildIdeRef(file, cwd, 'file', text)], anchor })
   }
 
   const openSelectionDraft = (sel: EditorSelection): void => {
@@ -3433,11 +3680,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             </span>
           )}
           {savingRel === activeTab.rel && <span>{t('ide.saving')}</span>}
-          {cursor?.rel === activeTab.rel && (
-            <span>
-              {t('ide.cursor', { line: cursor.line, col: cursor.col })}
-            </span>
-          )}
+          <CursorReadout rel={activeTab.rel} />
           <button
             type="button"
             className="ide-status-lang"
@@ -4139,16 +4382,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                   revealRel={reveal?.rel ?? null}
                   revealSeq={reveal?.nonce ?? 0}
                   onSelect={selectTreeTarget}
-                  onMenu={(target, e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (!treeSelectionRef.current.has(target.rel)) {
-                      setTreeSelection(new Set(target.rel ? [target.rel] : []))
-                      setTreeAnchor(target.rel || null)
-                    }
-                    setTreeTarget(target)
-                    setMenu({ x: e.clientX, y: e.clientY, target })
-                  }}
+                  onMenu={openTreeMenu}
                   onOpen={openFile}
                   onDragStart={beginTreeDrag}
                   onDragEnd={endTreeDrag}
@@ -4293,10 +4527,10 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                     ))}
               </span>
               {activeTab.kind === 'file' && !activeTab.untitled && activeFile && (
-                <SymbolBreadcrumbs
+                <Breadcrumbs
+                  rel={activeTab.rel}
                   symbols={outlineSymbols}
-                  line={cursor?.rel === activeTab.rel ? cursor.line : 1}
-                  onJump={(line) => jumpTo(activeTab.rel, line)}
+                  onJump={jumpToActiveLine}
                 />
               )}
               <span className="ide-crumb-right">
@@ -4340,39 +4574,36 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
                 searchKey={displayBindingOf('search.workspace')}
               />
             )}
-            {activeTab && loadingKey === activeTab.key && (
-              <div className="ide-loading">
+            {activeTab && showFileLoading && (
+              <div className={editorFile ? 'ide-loading ide-loading-overlay' : 'ide-loading'}>
                 {t('ide.loadingFile', { rel: activeTab.rel })}
               </div>
             )}
-            {activeTab && loadingKey !== activeTab.key && activeTab.kind === 'file' && activeFile && (
-              activeFile.binary || activeFile.truncated ? (
+            {activeTab && activeTab.kind !== 'file' && loadingActive && (
+              <div className="ide-loading">{t('ide.loadingFile', { rel: activeTab.rel })}</div>
+            )}
+            {activeTab && activeTab.kind === 'file' && editorFile && (
+              editorFile.binary || editorFile.truncated ? (
                 <TextViewer
-                  file={activeFile}
-                  jumpLine={jump?.rel === activeTab.rel ? jump.line : undefined}
+                  file={editorFile}
+                  jumpLine={jump?.rel === editorFile.rel ? jump.line : undefined}
                   onSendSelection={openSelectionDraft}
-                  onSendFile={() => sendDraftFromFile(activeFile, null)}
+                  onSendFile={() => sendDraftFromFile(editorFile, null)}
                 />
               ) : (
                 <MonacoEditor
                   cwd={cwd}
-                  file={activeFile}
-                  jumpLine={jump?.rel === activeTab.rel ? jump.line : undefined}
+                  file={editorFile}
+                  jumpLine={jump?.rel === editorFile.rel ? jump.line : undefined}
                   prefs={editorPrefs}
-                  languageId={activeFileLanguage}
-                  indent={activeFileIndent}
-                  onCursor={(line, col) =>
-                    setCursor({ rel: activeTab.rel, line, col })
-                  }
-                  onChange={(text) =>
-                    setFileCache((m) =>
-                      m[activeTab.rel]
-                        ? { ...m, [activeTab.rel]: { ...m[activeTab.rel], text } }
-                        : m
-                    )
-                  }
+                  languageId={editorFileLanguage}
+                  indent={editorFileIndent}
+                  openRels={openFileRels}
+                  readOnly={showFileLoading}
+                  onCursor={handleCursor}
+                  onChange={handleEditorChange}
                   onSendSelection={openSelectionDraft}
-                  onSendFile={() => sendDraftFromFile(activeFile, null)}
+                  onSendFile={() => sendDraftFromFile(editorFile, null)}
                 />
               )
             )}
@@ -4409,8 +4640,8 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
             status={vcs.status}
             activeRel={activeTab?.kind === 'file' ? activeTab.rel : undefined}
             onOpenDiff={openDiff}
-            onOpenScm={() => setView('vcs')}
-            onClose={() => setReviewOpen(false)}
+            onOpenScm={openScmView}
+            onClose={closeReviewDock}
           />
         )}
         </div>
@@ -4738,7 +4969,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
 
 /* ── 文件树 ───────────────────────────────────────────── */
 
-function TreeDir({
+function TreeDirView({
   cwd,
   rel,
   name,
@@ -4942,7 +5173,10 @@ function TreeDir({
   )
 }
 
-function FileRow({
+/** 文件树节点：props 稳定时整棵子树跳过重渲染（输入 / 光标变化都不再波及） */
+const TreeDir = memo(TreeDirView)
+
+function FileRowView({
   entry,
   depth,
   status,
@@ -4986,6 +5220,8 @@ function FileRow({
     </div>
   )
 }
+
+const FileRow = memo(FileRowView)
 
 /* ── 搜索 ─────────────────────────────────────────────── */
 
@@ -5112,7 +5348,7 @@ interface LastReplaceState {
   undoFiles: number
 }
 
-function SearchPanel({
+const SearchPanel = memo(function SearchPanel({
   cwd,
   onOpen,
   dirtyRels,
@@ -5880,7 +6116,7 @@ function SearchPanel({
         })()}
     </div>
   )
-}
+})
 
 /* ── 快速打开 ─────────────────────────────────────────── */
 
