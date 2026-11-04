@@ -8,6 +8,13 @@
   background: var(--bg-app);
   border-bottom: 1px solid var(--border-soft);
   -webkit-app-region: drag;
+  /*
+   * 标题栏必须自己是一个盖在正文之上的层。星野主题给 .chatcol 加了
+   * z-index: 1 来压住背景遮罩，标题栏如果不定位，会整条落在它下面 ——
+   * 更新面板虽然画得出来，点击却会被透明的转写区接走。
+   */
+  position: relative;
+  z-index: 10;
 }
 
 .titlebar__right {
