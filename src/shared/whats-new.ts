@@ -53,6 +53,36 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.21',
+    date: '2026-11-04',
+    highlight: {
+      icon: 'sparkle',
+      title: {
+        zh: '星野主题下，更新面板能正常点了',
+        en: 'The update panel is clickable again in the starfield theme'
+      },
+      desc: {
+        zh: '修掉一个层级问题：星野主题的正文层盖在标题栏上方，更新面板看得见却点不动。标题栏现在独立成层，下载和重启安装都能正常触发。',
+        en: 'Fixed a stacking issue in the starfield theme where the transcript sat above the titlebar, making the update panel visible but unclickable. The titlebar is now its own layer, so download and restart-to-install work again.'
+      }
+    },
+    sections: [
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'sparkle',
+            title: { zh: '标题栏不再被正文盖住', en: 'The titlebar stays above the content' },
+            desc: {
+              zh: '星野主题给正文层加了 z-index 来压背景遮罩，标题栏没有定位，整条落在它下面。现在标题栏有独立的层级，更新面板、窗口按钮的点击都不会再被透明的转写区接走。',
+              en: 'The starfield theme raised the transcript to cover its background scrim, which left the unpositioned titlebar underneath. The titlebar now has its own stacking level, so the update panel and window buttons no longer lose clicks to the transparent transcript.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.20',
     date: '2026-11-04',
     highlight: {
