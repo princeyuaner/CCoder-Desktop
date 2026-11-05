@@ -13,7 +13,7 @@ import type {
   VcsWorktree,
   VcsWorktreeListData
 } from '@shared/vcs'
-import { worktreeSlug } from '@shared/vcs'
+import { sameVcsDiff, worktreeSlug } from '@shared/vcs'
 import { VcsDiffView } from './VcsDiffView'
 import { formatRelativeTime } from '@shared/i18n'
 import { getLocale, tr, useI18n } from '../i18n'
@@ -135,6 +135,9 @@ export function VcsWorkspace({
   const [diff, setDiff] = useState<VcsDiffData | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [diffError, setDiffError] = useState<string | null>(null)
+  /** 当前 diff 的目标；后台刷新同一文件时不能把视图换成 loading 占位 */
+  const diffRef = useRef<VcsDiffData | null>(null)
+  diffRef.current = diff
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
   const [op, setOp] = useState<OpState | null>(null)
@@ -319,20 +322,32 @@ export function VcsWorkspace({
   const loadDiff = useCallback(
     async (target: Active): Promise<void> => {
       const id = ++diffSeq.current
-      setDiffLoading(true)
+      /*
+       * 状态刷新（文件监听 / VCS 轮询）会对同一个文件反复调用这里。
+       * 只有切换到另一个文件 / 另一个 source 时才显示 loading 占位；
+       * 同一目标的刷新在后台完成，旧 diff 一直留在屏幕上，等新数据到了
+       * 再原地更新。否则每次刷新都会闪一下「正在读取 diff」。
+       */
+      const sameTarget =
+        diffRef.current?.rel === target.rel && diffRef.current?.source === target.source
+      if (!sameTarget) {
+        setDiffLoading(true)
+        setDiff(null)
+      }
       setDiffError(null)
       try {
         const r = await window.api!.vcs.diff({
           cwd,
           rel: target.rel,
-          source: target.source
+          source: target.source,
+          fullText: true
         })
         if (id !== diffSeq.current) return
         if (!r.ok) {
           setDiff(null)
           setDiffError(r.error.message)
         } else {
-          setDiff(r.data)
+          setDiff((prev) => (prev && sameVcsDiff(prev, r.data) ? prev : r.data))
         }
       } catch (err) {
         if (id === diffSeq.current) setDiffError(errorOf(err))

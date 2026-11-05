@@ -77,6 +77,7 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - **资源管理器**：Ctrl / Shift 多选、全选、拖拽移动（按住 Ctrl / Alt 拖拽为复制）、内部复制 / 剪切 / 粘贴；`Delete` 可一次删除多项；点文件开头开关显示 / 隐藏隐藏文件，过滤按钮显示 / 隐藏 `node_modules`、`dist` 等忽略目录；还可以按工作区自定义忽略 glob（匹配文件名或相对路径）。
 - **编辑器偏好**：字号、字体（可覆盖全局代码字体）、连字、行高、字距、制表符宽度、缩进方式、自动换行与列宽、光标形状 / 闪烁 / 平滑移动、当前行高亮、空白与控制字符、行号（含相对行号）、缩进 / 括号对参考线、列标尺、代码缩略图、粘性滚动、平滑滚动、Ctrl + 滚轮缩放、保存时格式化、自动保存、保存时删除行尾空白；终端字号和行高单独可调。还可以按语言覆盖缩进。设置同时作用于所有 IDE 窗口。
 - **审阅栏**：右侧汇总工作区改动，按文件展开与 HEAD 比较的 hunk 摘要，点击打开对应 diff；没有改动或不是仓库时自动收起，也可以从活动栏手动开合。
+- **整文件差异**：diff 页签按整文件显示，顶部可跳到上一处 / 下一处（`Alt+↑/↓`、`F7 / Shift+F7`），支持并排 / 统一视图、折叠未修改，右侧改动导航条可直接跳转；长行可以拖动底部横向滚动条（或 `Shift + 滚轮`）查看；二进制、超过 2 MB、冲突 combined diff 或读不到完整文本时自动回落到差异块视图。
 - **命令与导航**：命令面板（`Ctrl+Shift+P`）、快速打开里的 `>` 命令 / `@` 当前文件符号 / `#` 工作区符号（`Ctrl+T`）、路径 + 符号面包屑、问题面板、跳转到行（`Ctrl+G`）、前进 / 后退、重开已关闭标签（`Ctrl+Shift+T`）、保存全部（`Ctrl+Shift+S`）、快速修复（`Ctrl+.`）、跳转声明 / 实现 / 类型定义。
 - **文件与编辑**：新建未命名缓冲区（`Ctrl+N`）、另存为、手动切换语言模式、切换 LF / CRLF；未命名缓冲区保存前一直标记为未保存。打开文件时自动识别编码（BOM、UTF-8、GBK / GB18030、Big5、Shift-JIS、EUC-JP / KR、UTF-16 / 32，以及常见的西欧 / 俄文单字节编码），状态栏可手动改写或恢复自动检测。
 - **工程约定**：读取工作区里的 `.editorconfig`（`indent_style` / `indent_size` / `tab_width` / `end_of_line` / `insert_final_newline` / `trim_trailing_whitespace`），优先级高于全局设置和按语言配置。
@@ -151,6 +152,7 @@ npm run build
 npm run verify:dsh      # 不花钱的 ACP 协议自检（隔离的 DSH_HOME，不需要 API Key）
 npm run verify:dsh:web  # 不花钱的 Web 协议自检（启动真实 dsh web，验证会话/历史/审批事件形状）
 npm run verify:changed-review  # 本轮改动 → IDE diff 的路径换算（纯函数断言，不碰磁盘）
+npm run verify:diff-fullfile   # 整文件 diff 行对齐：多 hunk / 新文件 / 全删 / CRLF
 npm run verify:session-store   # 会话记录异步读取：大文件只读尾部、缓存失效、列表扫描
 ```
 
@@ -361,6 +363,7 @@ src/
 - 编辑器尚未实现分屏 / 多编辑器组；切换工作区视图时编辑器和终端会保留，但同一文件不能并排编辑。
 - 外观设置里的缩略图、粘性滚动、缩进参考线、括号对参考线和语义着色仍受大文件性能档位约束：文件变大时会自动关闭，用户设置不能强制打开。
 - 审阅栏是只读汇总：按 hunk 的接受 / 拒绝仍在源代码管理里完成，审阅栏本身不会直接改盘。
+- 整文件 diff 依赖主进程读取两侧完整文本：文件超过 2 MB、被标记为二进制、是冲突的 combined diff 或读取失败时会回落到差异块视图；此时未修改行不会铺满整屏。
 - `.editorconfig` 只实现缩进、换行、行尾空白和末尾空行几项；`charset`、`max_line_length` 等暂不生效。未命名缓冲区只存在于当前窗口，关闭或重启后不会恢复。
 - 编码自动识别是统计式的（UTF-8 / BOM 走确定性判断，其余交给 chardet）：只有几个字的旧编码文件可能判错，识别不出来时按 GB18030 读。状态栏编码菜单可以手动重新打开、恢复自动检测，或另选一种编码保存。
 - 「撤销全部替换」只保存在主进程内存里，一次替换只能撤销一次；应用重启、或多开同一工作区的窗口再次替换后，旧的撤销令牌会失效。替换后又被外部修改过的文件会跳过，不会覆盖新内容。搜索历史按工作区存在 localStorage，最多 20 条。
@@ -460,6 +463,7 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - **Explorer**: Ctrl / Shift multi-select, select all, drag to move (hold Ctrl / Alt while dropping to copy), in-app copy / cut / paste, and multi-item delete with `Delete`; an eye button shows / hides dotfiles, a filter button shows / hides ignored folders such as `node_modules` and `dist`, and each workspace can define its own ignore globs (matched against file names or relative paths).
 - **Editor preferences**: font size, font family (overrides the global code font), ligatures, line height, letter spacing, tab size, indentation, word wrap and wrap column, cursor style / blinking / smooth movement, current-line highlight, whitespace and control characters, line numbers (including relative), indentation / bracket-pair guides, column ruler, minimap, sticky scroll, smooth scrolling, Ctrl + wheel zoom, format on save, auto-save, and trim-trailing-whitespace-on-save; terminal font size and line height are configured separately. Indentation can be overridden per language. Shared by every IDE window.
 - **Review panel**: a right-hand summary of workspace changes, with per-file hunks compared against HEAD and a click-through to the diff. It hides automatically when the workspace is clean or not a repository, and can be toggled from the activity rail.
+- **Whole-file diffs**: diff tabs render the complete file, with previous/next change (`Alt+↑/↓`, `F7 / Shift+F7`), split/unified views, collapse-unchanged, and a change navigator on the right. Long lines can be panned with the bottom horizontal scrollbar (or `Shift + wheel`). Binary files, files over 2 MB, combined conflict diffs, or unavailable full text fall back to the hunk view.
 - **Commands and navigation**: command palette (`Ctrl+Shift+P`), `>` commands / `@` symbols in the current file / `#` workspace symbols (`Ctrl+T`) in quick open, path + symbol breadcrumbs, problems panel, go to line (`Ctrl+G`), back/forward, reopen closed tab (`Ctrl+Shift+T`), save all (`Ctrl+Shift+S`), quick fix (`Ctrl+.`), and go to declaration / implementation / type definition.
 - **Files and editing**: new untitled buffers (`Ctrl+N`), Save As, manual language mode, and LF / CRLF switching; untitled buffers stay marked dirty until saved. Encodings are detected on open (BOM, UTF-8, GBK / GB18030, Big5, Shift-JIS, EUC-JP / KR, UTF-16 / 32, and common Western / Cyrillic single-byte encodings); the status bar lets you override it or return to auto-detect.
 - **Project conventions**: reads workspace `.editorconfig` (`indent_style` / `indent_size` / `tab_width` / `end_of_line` / `insert_final_newline` / `trim_trailing_whitespace`), overriding global and per-language settings.
@@ -534,6 +538,7 @@ npm run build
 npm run verify:dsh      # offline ACP self-check in an isolated DSH_HOME; no API key needed
 npm run verify:dsh:web  # offline Web self-check: real dsh web + sessions/history/approval shapes
 npm run verify:changed-review  # turn-changes → IDE diff path mapping (pure functions, no disk I/O)
+npm run verify:diff-fullfile   # whole-file diff row alignment: multi-hunk / new / deleted / CRLF
 npm run verify:session-store   # async transcript reads: tail-only for big files, cache invalidation, listing
 ```
 
@@ -735,6 +740,7 @@ src/
 - The editor does not implement split panes / multiple editor groups yet; editors and the terminal survive view switches, but the same file cannot be edited side by side.
 - Minimap, sticky scroll, indentation guides, bracket-pair guides, and semantic highlighting are still governed by the large-file performance tiers: they turn off automatically as files grow, and the user setting cannot force them back on.
 - The review panel is a read-only summary: accepting or rejecting individual hunks still happens in Source Control; the panel never writes to disk on its own.
+- Whole-file diffs rely on the main process reading both complete sides. Files over 2 MB, binary files, combined conflict diffs, or unreadable sides fall back to the hunk view, where unchanged lines are not expanded.
 - `.editorconfig` support covers indentation, line endings, trailing whitespace, and final newline; `charset` and `max_line_length` are ignored. Untitled buffers live only in the current window and are not restored after restart.
 - Encoding detection is statistical (UTF-8 and BOMs are deterministic; everything else goes through chardet). Very short legacy files can be misdetected, and undetected content falls back to GB18030. The status-bar encoding menu can reopen the file manually, switch back to auto-detect, or save with a chosen encoding.
 - Undo replace-all lives in main-process memory, works once per replace, and is lost after a restart or when another window on the same workspace replaces again. Files modified externally after the replace are skipped rather than overwritten. Search history is stored in localStorage per workspace, capped at 20 entries.

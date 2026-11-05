@@ -104,6 +104,101 @@ console.log('\n[1] stream-json → AgentEvent')
   check('  inputTokens', end?.usage?.inputTokens === 21000)
   check('  cacheReadTokens', end?.usage?.cacheReadTokens === 22058)
   check('  tokensPerSecond 已计算', end?.usage?.tokensPerSecond === 843, end?.usage?.tokensPerSecond)
+  // 这条 fixture 没有 stream usage：单请求轮次可以拿 result 的累计值当上下文
+  check(
+    '  单请求时上下文回退到 result',
+    end?.usage?.contextTokens === 21000 + 22058 + 1200 + 5900,
+    end?.usage?.contextTokens
+  )
+}
+
+// ── 1b) 多请求轮次：上下文必须取最后一次请求，而不是 result 的累计值
+console.log('\n[1b] 多请求轮次的上下文用量')
+{
+  const tr = new ClaudeStreamTranslator()
+  tr.translate({
+    type: 'system',
+    subtype: 'init',
+    session_id: 'sess-2',
+    model: 'deepseek-v4.1-flash[1m]',
+    cwd: '/',
+    tools: [],
+    permissionMode: 'default'
+  })
+
+  /*
+   * 真实渠道的形状：assistant 记录里的 usage 全是 0，真值只在 stream 事件里。
+   * 第一段模拟官方 API（输入侧在 message_start、输出侧在 message_delta），
+   * 第二段模拟网关（message_start 全 0、message_delta 给完整四项）。
+   */
+  tr.translate({
+    type: 'stream_event',
+    event: {
+      type: 'message_start',
+      message: {
+        usage: { input_tokens: 900, cache_read_input_tokens: 410000, cache_creation_input_tokens: 0 }
+      }
+    }
+  })
+  tr.translate({
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    }
+  })
+  tr.translate({ type: 'stream_event', event: { type: 'message_delta', usage: { output_tokens: 500 } } })
+
+  tr.translate({
+    type: 'stream_event',
+    event: {
+      type: 'message_start',
+      message: {
+        usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+      }
+    }
+  })
+  tr.translate({
+    type: 'stream_event',
+    event: {
+      type: 'message_delta',
+      usage: { input_tokens: 1000, output_tokens: 615, cache_read_input_tokens: 431000, cache_creation_input_tokens: 0 }
+    }
+  })
+
+  // result 是一轮累计：直接拿来当上下文会得到 84 万，远超真实值
+  const end = tr
+    .translate({
+      type: 'result',
+      duration_ms: 1000,
+      usage: {
+        input_tokens: 1900,
+        output_tokens: 1115,
+        cache_read_input_tokens: 841000,
+        cache_creation_input_tokens: 0
+      }
+    })
+    .find((e) => e.t === 'turn_end')
+
+  check('  取最后一次请求', end?.usage?.contextTokens === 1000 + 615 + 431000, end?.usage?.contextTokens)
+  check('  构成也是最后一次请求', end?.usage?.contextUsage?.cacheReadTokens === 431000, end?.usage?.contextUsage)
+  check('  输入侧不与 start 重复累加', end?.usage?.contextUsage?.inputTokens === 1000, end?.usage?.contextUsage)
+
+  // 多请求且完全没有 stream usage：宁可不出上下文数字，也不能报一个超过窗口的值
+  const blind = new ClaudeStreamTranslator()
+  for (let i = 0; i < 2; i += 1) {
+    blind.translate({
+      type: 'stream_event',
+      event: { type: 'message_start', message: { usage: {} } }
+    })
+  }
+  const blindEnd = blind
+    .translate({
+      type: 'result',
+      usage: { input_tokens: 2000, output_tokens: 1000, cache_read_input_tokens: 800000 }
+    })
+    .find((e) => e.t === 'turn_end')
+  check('  无流式 usage 时不编造上下文', blindEnd?.usage?.contextTokens === undefined, blindEnd?.usage?.contextTokens)
 }
 
 // ── 2) 控制协议

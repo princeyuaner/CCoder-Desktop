@@ -27,6 +27,7 @@ import type {
 import { mapCliError, runSvn, VcsOpError } from './exec'
 import { absPath, assertRealInside, countDiff, dirOf, nameOf, normRel, posix } from './paths'
 import { readCapped } from './read'
+import { combineFullTexts, readWorkingFullText, svnCatFullText } from './full-text'
 
 function decodeXml(s: string): string {
   return s
@@ -200,7 +201,8 @@ async function svnItem(repo: VcsRepo, rel: string): Promise<string | null> {
 async function untrackedDiff(
   repo: VcsRepo,
   rel: string,
-  source: VcsDiffSource = 'working'
+  source: VcsDiffSource = 'working',
+  fullText = false
 ): Promise<VcsDiffData> {
   const abs = absPath(repo, rel)
   await assertRealInside(repo.root, abs)
@@ -215,7 +217,8 @@ async function untrackedDiff(
       untracked: true,
       truncated: false,
       added: 0,
-      removed: 0
+      removed: 0,
+      ...(fullText ? { fullTextOmitted: 'unavailable' as const } : {})
     }
   }
   if (f.binary) {
@@ -228,7 +231,8 @@ async function untrackedDiff(
       untracked: true,
       truncated: f.truncated,
       added: 0,
-      removed: 0
+      removed: 0,
+      ...(fullText ? { fullTextOmitted: 'binary' as const } : {})
     }
   }
   const lines = f.text.replace(/\n$/, '').split('\n')
@@ -246,7 +250,12 @@ async function untrackedDiff(
     untracked: true,
     truncated: f.truncated || lines.length > cap,
     added: shown.length,
-    removed: 0
+    removed: 0,
+    ...(fullText
+      ? f.truncated || lines.length > cap
+        ? { fullTextOmitted: 'large' as const }
+        : { beforeText: '', afterText: f.text.replace(/\r\n?/g, '\n') }
+      : {})
   }
 }
 
@@ -260,7 +269,7 @@ export async function diffSvn(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
 
   if (req.source === 'working' || req.source === 'head') {
     const item = await svnItem(repo, rel)
-    if (item === 'unversioned') return untrackedDiff(repo, rel, req.source)
+    if (item === 'unversioned') return untrackedDiff(repo, rel, req.source, req.fullText === true)
   }
 
   const args =
@@ -274,6 +283,21 @@ export async function diffSvn(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
   const binary = /Cannot display: file marked as a binary type|^Binary files /m.test(diff)
   const propertyChange = /^Property changes on:/m.test(diff) && !/^@@ /m.test(diff)
   const stat = countDiff(diff)
+  const wantFullText =
+    req.fullText === true && !binary && !propertyChange && !r.stdoutTruncated && !!diff.trim()
+
+  const fullTexts = wantFullText
+    ? await svnFullTexts(repo, abs, req, rev)
+    : req.fullText === true
+      ? {
+          fullTextOmitted: binary
+            ? ('binary' as const)
+            : r.stdoutTruncated
+              ? ('large' as const)
+              : ('unavailable' as const)
+        }
+      : {}
+
   return {
     repoKind: 'svn',
     rel,
@@ -285,8 +309,32 @@ export async function diffSvn(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
     added: stat.added,
     removed: stat.removed,
     revision: req.source === 'revision' ? String(rev) : undefined,
-    propertyChange
+    propertyChange,
+    ...fullTexts
   }
+}
+
+/**
+ * SVN 的 BASE 是工作副本的基线；revision diff 则比较 rev-1 与 rev 两个快照。
+ * 这两个都不依赖工作区当前内容，所以整文件视图和 hunk 视图是同一对文件。
+ */
+async function svnFullTexts(
+  repo: VcsRepo,
+  abs: string,
+  req: VcsDiffRequest,
+  rev: number
+): Promise<Pick<VcsDiffData, 'beforeText' | 'afterText' | 'fullTextOmitted'>> {
+  if (req.source === 'revision') {
+    const before =
+      Number.isFinite(rev) && rev > 1
+        ? await svnCatFullText(repo, abs, String(rev - 1))
+        : { text: '' }
+    const after = await svnCatFullText(repo, abs, String(rev))
+    return combineFullTexts(before, after)
+  }
+  const before = await svnCatFullText(repo, abs, 'BASE')
+  const after = await readWorkingFullText(abs)
+  return combineFullTexts(before, after)
 }
 
 function parseLogEntry(attrs: string, body: string): VcsLogEntry {

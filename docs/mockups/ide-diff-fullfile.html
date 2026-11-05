@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>CCoder IDE · 整文件差异审阅方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0d0d0f; }
+body {
+  width: 1440px; height: 900px; overflow: hidden;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: #e8e8e8;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+svg { display: block; }
+.ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.mono { font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace; }
+
+:root {
+  --bg-app: #191919;
+  --bg-sidebar: #141414;
+  --bg-raised: #232323;
+  --bg-hover: #1f1f1f;
+  --bg-active: #2a2a2a;
+  --border: #2c2c2c;
+  --border-soft: #242424;
+  --text: #e8e8e8;
+  --text-dim: #a8a8a8;
+  --text-muted: #8a8a8a;
+  --text-faint: #6b6b6b;
+  --warn: #e0af68;
+  --add: #8bd88b;
+  --del: #ff9b94;
+  --ok: #4b9e5f;
+  --danger: #e5534b;
+  --brand: #d97757;
+}
+
+.app { width: 1440px; height: 900px; display: flex; flex-direction: column; background: var(--bg-app); }
+
+/* ── 标题栏 ───────────────────────────────────────────── */
+.titlebar {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  height: 38px; padding-left: 16px;
+  background: #161616; border-bottom: 1px solid #232323;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.logo { width: 17px; height: 17px; border-radius: 50%; background: #e8e8e8; color: #191919; display: grid; place-items: center; font-size: 9px; font-weight: 800; }
+.wspill { padding: 2px 7px; font-size: 10.5px; color: #a8a8a8; background: #1f1f1f; border: 1px solid #2e2e2e; border-radius: 4px; }
+.idepill { padding: 2px 6px; font-size: 9px; font-weight: 600; letter-spacing: .4px; color: var(--brand); background: rgba(217,119,87,.1); border: 1px solid rgba(217,119,87,.3); border-radius: 4px; }
+.tsearch {
+  margin-left: 14px; width: 330px; height: 26px; display: flex; align-items: center; gap: 7px;
+  padding: 0 9px; font-size: 11px; color: var(--text-faint);
+  background: #202020; border: 1px solid #2c2c2c; border-radius: 6px;
+}
+.tsearch .ic { width: 12px; height: 12px; }
+.tsearch kbd { margin-left: auto; padding: 0 4px; font-family: inherit; font-size: 9.5px; color: #8a8a8a; background: #2a2a2a; border: 1px solid #363636; border-radius: 3px; }
+.headright { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.branch { height: 23px; display: flex; align-items: center; gap: 5px; padding: 0 8px; font-size: 11px; color: var(--text-dim); background: #1f1f1f; border: 1px solid #2c2c2c; border-radius: 5px; }
+.branch .ic { width: 11px; height: 11px; color: var(--text-muted); }
+.chip-warn { display: flex; align-items: center; gap: 4px; height: 23px; padding: 0 7px; font-size: 10.5px; color: var(--warn); background: rgba(224,175,104,.08); border: 1px solid rgba(224,175,104,.22); border-radius: 5px; }
+.hbtn { display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-muted); border-radius: 5px; }
+.hbtn .ic { width: 14px; height: 14px; }
+.ready { padding-left: 4px; font-size: 10.5px; color: var(--text-faint); }
+.win { margin-left: 8px; display: flex; align-items: center; height: 100%; }
+.wbtn { display: grid; place-items: center; width: 44px; height: 38px; font-size: 12px; color: #8a8a8a; }
+.wbtn.close { color: #b0b0b0; }
+
+/* ── 主体 ─────────────────────────────────────────────── */
+.body { flex: 1; display: flex; min-height: 0; }
+.rail {
+  flex: none; width: 48px; display: flex; flex-direction: column; align-items: center;
+  padding-top: 5px; gap: 1px;
+  background: var(--bg-sidebar); border-right: 1px solid var(--border-soft);
+}
+.act { position: relative; display: grid; place-items: center; width: 48px; height: 38px; color: #6f6f78; }
+.act .ic { width: 18px; height: 18px; }
+.act.on { color: var(--text); background: #1e1e1e; }
+.act.on::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--warn); border-radius: 0 2px 2px 0; }
+.act .badge { position: absolute; right: 8px; top: 4px; min-width: 14px; height: 14px; padding: 0 3px; display: grid; place-items: center; font-size: 8.5px; font-weight: 700; color: #191919; background: var(--warn); border-radius: 7px; }
+
+.explorer { flex: none; width: 214px; display: flex; flex-direction: column; background: var(--bg-sidebar); border-right: 1px solid var(--border-soft); }
+.exp-head { flex: none; display: flex; align-items: center; height: 34px; padding: 0 8px 0 12px; font-size: 10.5px; letter-spacing: .4px; color: var(--text-faint); }
+.exp-acts { margin-left: auto; display: flex; gap: 1px; color: var(--text-faint); }
+.exp-acts .ib { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; }
+.exp-acts .ic { width: 12px; height: 12px; }
+.tree { flex: 1; min-height: 0; padding-top: 2px; overflow: hidden; }
+.trow { display: flex; align-items: center; gap: 5px; height: 23px; padding-right: 8px; font-size: 12px; color: #b4b4b8; white-space: nowrap; }
+.trow .chev { width: 10px; color: var(--text-faint); display: grid; place-items: center; }
+.trow .chev .ic { width: 9px; height: 9px; }
+.trow .fi { width: 14px; color: var(--text-muted); display: grid; place-items: center; }
+.trow .fi .ic { width: 13px; height: 13px; }
+.trow .nm { overflow: hidden; text-overflow: ellipsis; }
+.trow .st { margin-left: auto; font-family: var(--font-mono, Consolas, monospace); font-size: 9.5px; font-style: normal; color: var(--warn); }
+.trow.is-sel { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--warn); }
+.trow.is-root { font-weight: 600; color: var(--text); }
+.trow.dir { color: #c2c2c6; }
+.ind1 { padding-left: 10px; }
+.ind2 { padding-left: 24px; }
+.ind3 { padding-left: 38px; }
+
+/* ── 编辑区外壳 ───────────────────────────────────────── */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-app); }
+.tabs { flex: none; display: flex; align-items: stretch; height: 35px; background: #171717; border-bottom: 1px solid var(--border-soft); }
+.tab { position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 210px; padding: 0 10px 0 12px; font-size: 11.5px; color: var(--text-muted); background: #171717; border-right: 1px solid var(--border-soft); }
+.tab.on { color: var(--text); background: var(--bg-app); }
+.tab.on::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--warn); }
+.tab .ic { width: 13px; height: 13px; color: var(--warn); flex: none; }
+.tab .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .tag { flex: none; padding: 1px 4px; font-size: 8.5px; font-weight: 600; letter-spacing: .3px; color: var(--warn); background: rgba(224,175,104,.1); border: 1px solid rgba(224,175,104,.24); border-radius: 3px; }
+.tab .x { margin-left: auto; width: 16px; height: 16px; display: grid; place-items: center; color: var(--text-faint); }
+.tab .x .ic { width: 9px; height: 9px; color: currentColor; }
+
+.crumbs { flex: none; display: flex; align-items: center; gap: 7px; height: 27px; padding: 0 12px; font-size: 10.5px; color: var(--text-faint); border-bottom: 1px solid var(--border-soft); }
+.crumbs .sep { color: #4a4a50; }
+.crumbs .cur { color: var(--text-dim); }
+.crumbs .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.crumbs .link { color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px; }
+.crumbs .hint { color: var(--text-faint); }
+
+/* ── 差异工具栏 ───────────────────────────────────────── */
+.diffbar {
+  flex: none; display: flex; align-items: center; gap: 9px; height: 42px; padding: 0 12px;
+  background: #1b1b1b; border-bottom: 1px solid var(--border);
+}
+.scope { display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; font-size: 10px; color: var(--text-dim); background: #242424; border: 1px solid #323232; border-radius: 4px; }
+.scope .ic { width: 11px; height: 11px; color: var(--text-muted); }
+.meta { font-size: 10.5px; color: var(--text-faint); }
+.stats { display: flex; align-items: baseline; gap: 7px; margin-left: 2px; font-family: var(--font-mono, Consolas, monospace); font-size: 10.5px; }
+.stats .a { color: var(--add); }
+.stats .d { color: var(--del); }
+.spacer { flex: 1; }
+.seg { display: flex; height: 24px; padding: 2px; background: #202020; border: 1px solid #2e2e2e; border-radius: 5px; }
+.seg button { padding: 0 8px; font-size: 10.5px; color: var(--text-muted); border-radius: 3px; }
+.seg button.on { color: var(--text); background: #343434; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.tog { display: flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; font-size: 10.5px; color: var(--text-muted); border: 1px solid #2e2e2e; border-radius: 5px; }
+.tog .box { width: 11px; height: 11px; display: grid; place-items: center; border: 1px solid #454545; border-radius: 3px; }
+.tog.on { color: var(--text); border-color: #4a3a26; background: rgba(224,175,104,.06); }
+.tog.on .box { border-color: var(--warn); background: var(--warn); }
+.tog.on .box::after { content: ''; width: 5px; height: 3px; margin-top: -1px; border-left: 1.4px solid #191919; border-bottom: 1.4px solid #191919; transform: rotate(-45deg); }
+.vline { width: 1px; height: 20px; margin: 0 1px; background: #303030; }
+.navgroup { display: flex; align-items: center; gap: 2px; }
+.navbtn { display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-dim); background: #222; border: 1px solid #303030; border-radius: 5px; }
+.navbtn:hover { color: var(--text); background: #2b2b2b; }
+.navbtn .ic { width: 13px; height: 13px; }
+.counter { display: flex; align-items: baseline; gap: 2px; min-width: 52px; justify-content: center; font-family: var(--font-mono, Consolas, monospace); font-size: 10.5px; color: var(--text-faint); }
+.counter b { font-size: 12px; font-weight: 600; color: var(--warn); }
+.kbdhint { padding: 1px 5px; font-family: inherit; font-size: 9px; color: #8a8a8a; background: #262626; border: 1px solid #363636; border-radius: 3px; }
+
+/* ── 差异主体 ─────────────────────────────────────────── */
+.diffarea { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.colhead { flex: none; display: flex; height: 27px; background: #1c1c1c; border-bottom: 1px solid var(--border); }
+.colhead .sidehead { flex: 1; display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 9.5px; letter-spacing: .5px; color: var(--text-faint); }
+.colhead .sidehead + .sidehead { border-left: 1px solid var(--border); }
+.colhead .sidehead .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); }
+.colhead .sidehead.work .dot { background: var(--warn); }
+.colhead .sidehead .ref { color: var(--text-muted); font-family: var(--font-mono, Consolas, monospace); letter-spacing: 0; }
+.diffarea.uni .colhead { display: none; }
+.diffmain { flex: 1; min-height: 0; display: flex; }
+
+.scroller { flex: 1; min-width: 0; overflow: auto; background: var(--bg-app); }
+.content { position: relative; min-width: 1120px; padding-bottom: 16px; font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace; font-size: 11px; line-height: 19px; }
+
+.row { position: relative; display: grid; grid-template-columns: 1fr 1fr; height: 19px; }
+.half { min-width: 0; display: flex; height: 19px; white-space: pre; overflow: hidden; }
+.half.left { border-right: 1px solid #262626; }
+.ln { flex: none; width: 46px; padding-right: 9px; text-align: right; color: #55555d; background: rgba(255,255,255,.012); user-select: none; }
+.mk { flex: none; width: 14px; text-align: center; color: transparent; user-select: none; }
+.tx { flex: 1; min-width: 0; padding: 0 9px; overflow: hidden; color: #c9c4ba; }
+.half.add { background: rgba(224,175,104,.20); box-shadow: inset 2px 0 0 #e0af68; }
+.half.add .ln { color: #f0c987; background: rgba(224,175,104,.13); }
+.half.add .mk { color: var(--add); }
+.half.add .tx { color: #f6e2c4; }
+.half.del { background: rgba(224,175,104,.105); box-shadow: inset 2px 0 0 #c99a55; }
+.half.del .ln { color: #d9b57e; background: rgba(224,175,104,.07); }
+.half.del .mk { color: var(--del); }
+.half.del .tx { color: #c9b49a; }
+.half.empty { background: #141416; }
+.half.empty .ln { background: transparent; }
+
+mark { background: transparent; color: inherit; border-radius: 2px; padding: 0 1px; }
+.half.del mark { color: #ffb1aa; background: rgba(248,81,73,.28); }
+.half.add mark { color: #b7efb7; background: rgba(63,185,80,.28); }
+
+/* 当前差异：整块加亮 + 左右外缘竖条，扫读时一眼能定位 */
+.row.is-active .half.add { background: rgba(224,175,104,.31); }
+.row.is-active .half.del { background: rgba(224,175,104,.19); }
+.row.is-active::before,
+.row.is-active::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); z-index: 2; }
+.row.is-active::before { left: 0; }
+.row.is-active::after { right: 0; }
+.row.is-active-first { box-shadow: inset 0 1px 0 rgba(224,175,104,.45); }
+.row.is-active-last { box-shadow: inset 0 -1px 0 rgba(224,175,104,.45); }
+.row.is-active-first.is-active-last { box-shadow: inset 0 1px 0 rgba(224,175,104,.45), inset 0 -1px 0 rgba(224,175,104,.45); }
+
+/* ── 统一视图 ─────────────────────────────────────────── */
+.row.uni { grid-template-columns: none; display: grid; grid-template-columns: 46px 46px 14px 1fr; }
+.row.uni .ln { width: auto; }
+.row.uni .ln.old { background: rgba(255,255,255,.012); }
+.row.uni .ln.new { color: #5f5f68; }
+.row.uni.del { background: rgba(224,175,104,.105); box-shadow: inset 2px 0 0 #c99a55; }
+.row.uni.del .ln, .row.uni.del .tx { color: #c9b49a; }
+.row.uni.del .ln { color: #d9b57e; }
+.row.uni.del .mk { color: var(--del); }
+.row.uni.add { background: rgba(224,175,104,.20); box-shadow: inset 2px 0 0 #e0af68; }
+.row.uni.add .ln, .row.uni.add .tx { color: #f6e2c4; }
+.row.uni.add .ln { color: #f0c987; }
+.row.uni.add .mk { color: var(--add); }
+.row.uni.ctx .tx { color: #c9c4ba; }
+.row.uni.is-active::before { left: 0; }
+.row.uni.is-active::after { display: none; }
+.row.uni.del mark { color: #ffb1aa; background: rgba(248,81,73,.28); }
+.row.uni.add mark { color: #b7efb7; background: rgba(63,185,80,.28); }
+
+/* ── 折叠未修改 ───────────────────────────────────────── */
+.gap-row { display: flex; align-items: center; gap: 10px; height: 25px; padding: 0 12px 0 46px; font-family: system-ui, sans-serif; font-size: 10px; color: #77777f; background: #1a1a1a; border-top: 1px solid #252525; border-bottom: 1px solid #252525; cursor: pointer; }
+.gap-row:hover { color: var(--text-dim); background: #1e1e1e; }
+.gap-row .gline { flex: 1; height: 1px; background: #2a2a2a; }
+
+/* ── 右侧改动导航条 ───────────────────────────────────── */
+.minimap { flex: none; position: relative; width: 18px; background: rgba(255,255,255,.018); border-left: 1px solid var(--border-soft); cursor: pointer; }
+.minimap .viewport { position: absolute; left: 2px; right: 2px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.05); border-radius: 2px; pointer-events: none; }
+.tick { position: absolute; left: 4px; width: 9px; height: 2px; padding: 0; background: rgba(224,175,104,.65); border-radius: 2px; }
+.tick:hover { background: #f0c987; }
+.tick.on { left: 2px; width: 13px; height: 3px; background: var(--warn); box-shadow: 0 0 6px rgba(224,175,104,.55); }
+
+/* ── 状态栏 ───────────────────────────────────────────── */
+.statusbar { flex: none; display: flex; align-items: center; gap: 14px; height: 25px; padding: 0 12px; font-size: 10px; color: var(--text-faint); background: #151515; border-top: 1px solid var(--border-soft); }
+.statusbar .mitem { display: flex; align-items: center; gap: 5px; }
+.statusbar .ic { width: 11px; height: 11px; }
+.statusbar .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+.statusbar .ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 标题栏 -->
+  <header class="titlebar">
+    <div class="brand"><span class="logo">CC</span><span>CCoder</span></div>
+    <span class="wspill">ccoder-demo</span>
+    <span class="idepill">独立窗口</span>
+    <div class="tsearch">
+      <svg class="ic" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>
+      <span>搜索文件、符号或命令…</span>
+      <kbd>Ctrl+P</kbd>
+    </div>
+    <div class="headright">
+      <span class="branch"><svg class="ic" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.4"/><circle cx="4.5" cy="12.5" r="1.4"/><circle cx="11.5" cy="5.5" r="1.4"/><path d="M4.5 4.9v6.2M11.5 6.9v1.2a3 3 0 0 1-3 3h-4"/></svg>main</span>
+      <span class="chip-warn">7 处变更</span>
+      <button class="hbtn" title="刷新"><svg class="ic" viewBox="0 0 16 16"><path d="M13 6a5 5 0 1 0 .2 4"/><path d="M13 2.8V6H9.8"/></svg></button>
+      <button class="hbtn" title="设置"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/></svg></button>
+      <span class="ready">可编辑</span>
+      <div class="win">
+        <button class="wbtn" title="最小化">—</button>
+        <button class="wbtn" title="最大化">□</button>
+        <button class="wbtn close" title="关闭">×</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="body">
+    <!-- 活动栏 -->
+    <nav class="rail">
+      <button class="act on" title="资源管理器"><svg class="ic" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></button>
+      <button class="act" title="搜索"><svg class="ic" viewBox="0 0 16 16"><circle cx="7" cy="7" r="3.6"/><path d="M10 10l3 3"/></svg></button>
+      <button class="act" title="版本控制"><svg class="ic" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.4"/><circle cx="4.5" cy="12.5" r="1.4"/><circle cx="11.5" cy="5.5" r="1.4"/><path d="M4.5 4.9v6.2M11.5 6.9v1.2a3 3 0 0 1-3 3h-4"/></svg><span class="badge">7</span></button>
+      <button class="act" title="同步"><svg class="ic" viewBox="0 0 16 16"><path d="M3 6a5 5 0 0 1 8.5-2M13 10a5 5 0 0 1-8.5 2"/><path d="M11.5 1.8V4H9.2M4.5 14.2V12h2.3"/></svg></button>
+      <button class="act" title="审阅"><svg class="ic" viewBox="0 0 16 16"><path d="M2.8 3.2h10.4v7.4H7l-2.6 2.2v-2.2H2.8z"/><path d="M5.4 6.6h5.2M5.4 8.6h3.4"/></svg></button>
+    </nav>
+
+    <!-- 资源管理器 -->
+    <aside class="explorer">
+      <div class="exp-head">资源管理器
+        <span class="exp-acts">
+          <button class="ib" title="新建文件"><svg class="ic" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button>
+          <button class="ib" title="新建文件夹"><svg class="ic" viewBox="0 0 16 16"><path d="M2.5 4.5h4l1.2 1.5h5.8v6.5h-11z"/><path d="M8 7.5v3M6.5 9h3"/></svg></button>
+          <button class="ib" title="刷新"><svg class="ic" viewBox="0 0 16 16"><path d="M13 6a5 5 0 1 0 .2 4"/><path d="M13 2.8V6H9.8"/></svg></button>
+        </span>
+      </div>
+      <div class="tree">
+        <div class="trow is-root ind1"><span class="chev">▾</span><span class="fi"><svg class="ic" viewBox="0 0 16 16"><path d="M1.8 4h4.4l1.3 1.6h6.7v7.2H1.8z"/></svg></span><span class="nm">ccoder-demo</span></div>
+        <div class="trow dir ind2"><span class="chev">▾</span><span class="fi"><svg class="ic" viewBox="0 0 16 16"><path d="M1.8 4h4.4l1.3 1.6h6.7v7.2H1.8z"/></svg></span><span class="nm">src</span></div>
+        <div class="trow ind3"><span class="chev"></span><span class="fi"><svg class="ic" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="nm">routes.ts</span><em class="st">M</em></div>
+        <div class="trow is-sel ind3"><span class="chev"></span><span class="fi"><svg class="ic" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="nm">servers.ts</span><em class="st">M</em></div>
+        <div class="trow ind3"><span class="chev"></span><span class="fi"><svg class="ic" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="nm">utils.ts</span></div>
+        <div class="trow ind2"><span class="chev"></span><span class="fi"><svg class="ic" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="nm">package.json</span></div>
+        <div class="trow ind2"><span class="chev"></span><span class="fi"><svg class="ic" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="nm">README.md</span><em class="st">M</em></div>
+      </div>
+    </aside>
+
+    <!-- 编辑器 -->
+    <main class="main">
+      <div class="tabs">
+        <div class="tab on">
+          <svg class="ic" viewBox="0 0 16 16"><path d="M3 5.2h10M3 10.8h10"/><path d="M6 3v4.4M10 8.6V13"/></svg>
+          <span class="nm">servers.ts</span>
+          <span class="tag">差异</span>
+          <button class="x"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+        </div>
+        <div class="tab"><span class="nm">routes.ts</span><button class="x"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+      </div>
+
+      <div class="crumbs">
+        <span>src</span><span class="sep">/</span><span class="cur">servers.ts</span>
+        <span class="sep">·</span><span>与 HEAD 比较</span>
+        <span class="right">
+          <span class="hint">整文件显示</span>
+          <button class="link">打开文件</button>
+        </span>
+      </div>
+
+      <div class="diffbar">
+        <span class="scope">
+          <svg class="ic" viewBox="0 0 16 16"><path d="M2.8 3.5h10.4M2.8 8h10.4M2.8 12.5h10.4"/></svg>
+          整文件
+        </span>
+        <span class="meta"><span data-lines>—</span> · <b data-total>—</b> 处差异</span>
+        <span class="stats"><span class="a" data-add>—</span><span class="d" data-del>—</span></span>
+        <span class="spacer"></span>
+        <div class="seg">
+          <button class="on" id="btnSplit">并排</button>
+          <button id="btnUni">统一</button>
+        </div>
+        <button class="tog" id="btnCollapse"><span class="box"></span>折叠未修改</button>
+        <span class="vline"></span>
+        <div class="navgroup">
+          <button class="navbtn" id="btnPrev" title="上一处差异（Alt+↑）"><svg class="ic" viewBox="0 0 16 16"><path d="M8 12.5v-9M4.2 7.3 8 3.5l3.8 3.8"/></svg></button>
+          <span class="counter"><b id="cur">1</b> / <span id="total" data-total>—</span></span>
+          <button class="navbtn" id="btnNext" title="下一处差异（Alt+↓）"><svg class="ic" viewBox="0 0 16 16"><path d="M8 3.5v9M4.2 8.7 8 12.5l3.8-3.8"/></svg></button>
+        </div>
+      </div>
+
+      <div class="diffarea" id="diffarea">
+        <div class="colhead" id="colhead">
+          <div class="sidehead"><span class="dot"></span>HEAD · <span class="ref">基线</span></div>
+          <div class="sidehead work"><span class="dot"></span>工作区 · <span class="ref">当前文件</span></div>
+        </div>
+        <div class="diffmain">
+          <div class="scroller" id="scroller">
+            <div class="content" id="content"></div>
+          </div>
+          <div class="minimap" id="minimap" title="改动导航：点击跳转">
+            <div class="viewport" id="viewport"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer class="statusbar">
+    <span class="mitem"><svg class="ic" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.4"/><circle cx="4.5" cy="12.5" r="1.4"/><circle cx="11.5" cy="5.5" r="1.4"/><path d="M4.5 4.9v6.2M11.5 6.9v1.2a3 3 0 0 1-3 3h-4"/></svg>main</span>
+    <span class="mitem"><span data-total>—</span> 处变更</span>
+    <span class="mitem">Alt ↑ / ↓ 切换差异</span>
+    <span class="mitem ok">● 已同步</span>
+    <span class="right">
+      <span class="mitem">第 <b id="statusCur">1</b> / <span data-total>—</span> 处</span>
+      <span class="mitem">只读</span>
+      <span class="mitem">TypeScript</span>
+      <span class="mitem">UTF-8</span>
+      <span class="mitem">LF</span>
+    </span>
+  </footer>
+</div>
+<script>
+/*
+ * 静态稿数据：按「片段」描述整份文件。
+ * same = 两侧完全一致；change = 一组删除 / 新增，按行配对后左右并排。
+ * 用 {{...}} 标出词级差异，渲染时换成 <mark>。
+ */
+const SEGMENTS = [
+  { t: "same", lines: [
+    "import { createServer } from 'node:http'",
+    "import type { IncomingMessage, ServerResponse } from 'node:http'",
+    "import { readFile } from 'node:fs/promises'"
+  ] },
+  { t: "change", del: [], add: [
+    "import { join } from 'node:path'"
+  ] },
+  { t: "same", lines: [
+    "import { formatDuration } from './utils'",
+    ""
+  ] },
+  { t: "change",
+    del: ["const ROOT = process.cwd() + '/public'"],
+    add: ["const ROOT = {{join}}(process.cwd(), 'public')"] },
+  { t: "change",
+    del: ["const PORT = {{4173}}"],
+    add: ["const PORT = Number(process.env.PORT ?? {{4173}})"] },
+  { t: "same", lines: [
+    "",
+    "interface Route {",
+    "  method: 'GET' | 'POST'",
+    "  path: string",
+    "  handler(req: IncomingMessage, res: ServerResponse): Promise<void>",
+    "}",
+    ""
+  ] },
+  { t: "change", del: [], add: [
+    "interface Health {",
+    "  ok: boolean",
+    "  uptime: string",
+    "  routes: number",
+    "}",
+    ""
+  ] },
+  { t: "same", lines: ["const routes: Route[] = ["] },
+  { t: "change", del: [], add: [
+    "  {",
+    "    method: 'GET',",
+    "    path: '/health',",
+    "    async handler(_req, res) {",
+    "      const body: Health = {",
+    "        ok: true,",
+    "        uptime: formatDuration(process.uptime()),",
+    "        routes: routes.length",
+    "      }",
+    "      res.writeHead(200, { 'content-type': 'application/json' })",
+    "      res.end(JSON.stringify(body))",
+    "    }",
+    "  },"
+  ] },
+  { t: "same", lines: [
+    "  {",
+    "    method: 'GET',",
+    "    path: '/',",
+    "    async handler(_req, res) {",
+    "      const html = await readFile(join(ROOT, 'index.html'), 'utf8')",
+    "      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })",
+    "      res.end(html)",
+    "    }",
+    "  }",
+    "]",
+    "",
+    "const server = createServer((req, res) => {",
+    "  const route = routes.find((r) =>",
+    "    r.method === req.method && r.path === req.url",
+    "  )",
+    "  if (!route) {",
+    "    res.writeHead(404, { 'content-type': 'text/plain' })",
+    "    res.end('not found')",
+    "    return",
+    "  }",
+    "  route.handler(req, res).catch((err) => {"
+  ] },
+  { t: "change",
+    del: [
+      "    console.error('[servers] {{unhandled}}', err)",
+      "    res.writeHead(500, { 'content-type': '{{text/plain}}' })",
+      "    res.end('{{internal error}}')"
+    ],
+    add: [
+      "    console.error('[servers] {{handler failed}}', err)",
+      "    res.writeHead(500, { 'content-type': '{{application/json}}' })",
+      "    res.end({{JSON.stringify({ ok: false, error: 'internal error' })}})"
+    ] },
+  { t: "same", lines: [
+    "  })",
+    "})",
+    "",
+    "server.listen(PORT, () => {",
+    "  console.log(`[servers] listening on http://localhost:${PORT}`)",
+    "})",
+    ""
+  ] },
+  { t: "change", del: [], add: [
+    "const shutdown = (signal: NodeJS.Signals) => {",
+    "  console.log(`[servers] ${signal}, closing...`)",
+    "  server.close(() => process.exit(0))",
+    "}",
+    "",
+    "process.on('SIGINT', shutdown)",
+    "process.on('SIGTERM', shutdown)"
+  ] }
+]
+
+const state = { mode: "split", collapse: false, active: 0, model: null, changeFirst: {} }
+const $ = (id) => document.getElementById(id)
+const content = $("content")
+const scroller = $("scroller")
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+}
+function rich(s) {
+  return esc(s).replace(/\{\{([\s\S]*?)\}\}/g, "<mark>$1</mark>")
+}
+function setAll(sel, text) {
+  document.querySelectorAll(sel).forEach((el) => { el.textContent = text })
+}
+
+function buildSplit() {
+  let l = 1, r = 1
+  const rows = [], changes = []
+  for (const seg of SEGMENTS) {
+    if (seg.t === "same") {
+      for (const line of seg.lines) {
+        rows.push({ kind: "ctx", left: { no: l++, text: line }, right: { no: r++, text: line } })
+      }
+      continue
+    }
+    const ci = changes.length
+    changes.push({ ci, added: seg.add.length, removed: seg.del.length })
+    const n = Math.max(seg.del.length, seg.add.length)
+    for (let k = 0; k < n; k++) {
+      const hasL = k < seg.del.length, hasR = k < seg.add.length
+      rows.push({
+        kind: hasL && hasR ? "change" : hasL ? "del" : "add",
+        ci,
+        left: hasL ? { no: l++, text: seg.del[k] } : null,
+        right: hasR ? { no: r++, text: seg.add[k] } : null
+      })
+    }
+  }
+  return { rows, changes, totalLines: r - 1 }
+}
+
+function buildUnified() {
+  let l = 1, r = 1
+  const rows = [], changes = []
+  for (const seg of SEGMENTS) {
+    if (seg.t === "same") {
+      for (const line of seg.lines) rows.push({ kind: "ctx", oldNo: l++, newNo: r++, text: line })
+      continue
+    }
+    const ci = changes.length
+    changes.push({ ci, added: seg.add.length, removed: seg.del.length })
+    for (const d of seg.del) rows.push({ kind: "del", oldNo: l++, newNo: null, text: d, ci })
+    for (const a of seg.add) rows.push({ kind: "add", oldNo: null, newNo: r++, text: a, ci })
+  }
+  return { rows, changes, totalLines: r - 1 }
+}
+
+/** 折叠时每组改动前后各留 2 行上下文，中间压成一条可点击的「未修改」带 */
+function toDisplay(rows) {
+  if (!state.collapse) {
+    const items = rows.map((row) => ({ type: "row", row }))
+    const changeFirst = {}
+    items.forEach((it, i) => {
+      if (it.row.ci != null && changeFirst[it.row.ci] === undefined) changeFirst[it.row.ci] = i
+    })
+    return { items, changeFirst }
+  }
+  const keep = new Array(rows.length).fill(false)
+  rows.forEach((row, i) => {
+    if (row.ci == null) return
+    for (let d = -2; d <= 2; d++) {
+      const j = i + d
+      if (j >= 0 && j < rows.length) keep[j] = true
+    }
+  })
+  const items = [], changeFirst = {}
+  for (let i = 0; i < rows.length; i++) {
+    if (keep[i]) {
+      if (rows[i].ci != null && changeFirst[rows[i].ci] === undefined) changeFirst[rows[i].ci] = items.length
+      items.push({ type: "row", row: rows[i] })
+      continue
+    }
+    let j = i
+    while (j < rows.length && !keep[j]) j++
+    items.push({ type: "gap", count: j - i })
+    i = j - 1
+  }
+  return { items, changeFirst }
+}
+
+function splitRow(r, i) {
+  const ci = r.ci != null ? ` data-ci="${r.ci}"` : ""
+  const left = r.left
+    ? `<span class="ln">${r.left.no}</span><span class="mk">${r.kind === "ctx" ? "" : "−"}</span><span class="tx">${r.kind === "ctx" ? esc(r.left.text) : rich(r.left.text)}</span>`
+    : `<span class="ln"></span><span class="mk"></span><span class="tx"></span>`
+  const right = r.right
+    ? `<span class="ln">${r.right.no}</span><span class="mk">${r.kind === "ctx" ? "" : "+"}</span><span class="tx">${r.kind === "ctx" ? esc(r.right.text) : rich(r.right.text)}</span>`
+    : `<span class="ln"></span><span class="mk"></span><span class="tx"></span>`
+  const lcls = !r.left ? "empty" : r.kind === "ctx" ? "" : "del"
+  const rcls = !r.right ? "empty" : r.kind === "ctx" ? "" : "add"
+  return `<div class="row" data-idx="${i}"${ci}><div class="half left ${lcls}">${left}</div><div class="half right ${rcls}">${right}</div></div>`
+}
+
+function uniRow(r, i) {
+  const ci = r.ci != null ? ` data-ci="${r.ci}"` : ""
+  const mk = r.kind === "del" ? "−" : r.kind === "add" ? "+" : ""
+  const body = r.kind === "ctx" ? esc(r.text) : rich(r.text)
+  return `<div class="row uni ${r.kind}" data-idx="${i}"${ci}><span class="ln old">${r.oldNo ?? ""}</span><span class="ln new">${r.newNo ?? ""}</span><span class="mk">${mk}</span><span class="tx">${body}</span></div>`
+}
+
+function gapRow(g) {
+  return `<div class="gap-row"><span>⋯</span><span>${g.count} 行未修改</span><span class="gline"></span><span>点击展开</span></div>`
+}
+
+function render(opts) {
+  opts = opts || {}
+  state.model = state.mode === "split" ? buildSplit() : buildUnified()
+  if (state.active >= state.model.changes.length) state.active = Math.max(0, state.model.changes.length - 1)
+  const { items, changeFirst } = toDisplay(state.model.rows)
+  state.changeFirst = changeFirst
+  content.innerHTML = items
+    .map((it, i) => it.type === "gap" ? gapRow(it) : state.mode === "split" ? splitRow(it.row, i) : uniRow(it.row, i))
+    .join("")
+  $("diffarea").classList.toggle("uni", state.mode === "uni")
+
+  const added = state.model.changes.reduce((n, c) => n + c.added, 0)
+  const removed = state.model.changes.reduce((n, c) => n + c.removed, 0)
+  setAll("[data-lines]", state.model.totalLines + " 行")
+  setAll("[data-add]", "+" + added)
+  setAll("[data-del]", "−" + removed)
+  setAll("[data-total]", String(state.model.changes.length))
+
+  paintActive()
+  renderMinimap(items.length)
+  updateViewport()
+  if (opts.scroll) requestAnimationFrame(() => scrollToActive(true))
+}
+
+function paintActive() {
+  content.querySelectorAll(".is-active, .is-active-first, .is-active-last").forEach((el) => {
+    el.classList.remove("is-active", "is-active-first", "is-active-last")
+  })
+  const els = [...content.querySelectorAll(`.row[data-ci="${state.active}"]`)]
+  els.forEach((el, i) => {
+    el.classList.add("is-active")
+    if (i === 0) el.classList.add("is-active-first")
+    if (i === els.length - 1) el.classList.add("is-active-last")
+  })
+  $("cur").textContent = String(state.active + 1)
+  $("statusCur").textContent = String(state.active + 1)
+  document.querySelectorAll(".tick").forEach((t) => {
+    t.classList.toggle("on", Number(t.dataset.ci) === state.active)
+  })
+}
+
+function renderMinimap(total) {
+  const mm = $("minimap")
+  mm.querySelectorAll(".tick").forEach((n) => n.remove())
+  state.model.changes.forEach((c) => {
+    const idx = state.changeFirst[c.ci] ?? 0
+    const b = document.createElement("button")
+    b.className = "tick"
+    b.dataset.ci = String(c.ci)
+    b.style.top = `calc(${(idx / Math.max(1, total)) * 100}% - 1px)`
+    b.title = `第 ${c.ci + 1} 处 · +${c.added} −${c.removed}`
+    b.addEventListener("click", (e) => {
+      e.stopPropagation()
+      state.active = c.ci
+      paintActive()
+      scrollToActive(true)
+    })
+    mm.appendChild(b)
+  })
+}
+
+function scrollToActive(center) {
+  const els = [...content.querySelectorAll(`.row[data-ci="${state.active}"]`)]
+  if (!els.length) return
+  const first = els[0], last = els[els.length - 1]
+  const top = first.offsetTop
+  const bottom = last.offsetTop + last.offsetHeight
+  const viewTop = scroller.scrollTop
+  const viewH = scroller.clientHeight
+  const pad = 70
+  if (top >= viewTop + pad && bottom <= viewTop + viewH - pad) return
+  const block = bottom - top
+  scroller.scrollTop = Math.max(0, block < viewH - pad * 2 ? top - (viewH - block) / 2 : top - pad)
+}
+
+function go(delta) {
+  const n = state.model.changes.length
+  if (!n) return
+  state.active = (state.active + delta + n) % n
+  paintActive()
+  scrollToActive(true)
+}
+
+function setMode(mode) {
+  if (state.mode === mode) return
+  state.mode = mode
+  $("btnSplit").classList.toggle("on", mode === "split")
+  $("btnUni").classList.toggle("on", mode === "uni")
+  render({ scroll: true })
+}
+
+function updateViewport() {
+  const vp = $("viewport")
+  const ratio = scroller.scrollTop / Math.max(1, scroller.scrollHeight - scroller.clientHeight)
+  const h = Math.max(6, Math.min(100, (scroller.clientHeight / Math.max(1, scroller.scrollHeight)) * 100))
+  vp.style.height = h + "%"
+  vp.style.top = ratio * (100 - h) + "%"
+}
+
+$("btnPrev").addEventListener("click", () => go(-1))
+$("btnNext").addEventListener("click", () => go(1))
+$("btnSplit").addEventListener("click", () => setMode("split"))
+$("btnUni").addEventListener("click", () => setMode("uni"))
+$("btnCollapse").addEventListener("click", () => {
+  state.collapse = !state.collapse
+  $("btnCollapse").classList.toggle("on", state.collapse)
+  const ratio = scroller.scrollTop / Math.max(1, scroller.scrollHeight - scroller.clientHeight)
+  render()
+  scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight)
+  scrollToActive(true)
+})
+
+content.addEventListener("click", (e) => {
+  const gap = e.target.closest(".gap-row")
+  if (gap) {
+    state.collapse = false
+    $("btnCollapse").classList.remove("on")
+    render({ scroll: true })
+    return
+  }
+  const row = e.target.closest(".row[data-ci]")
+  if (row) {
+    state.active = Number(row.dataset.ci)
+    paintActive()
+  }
+})
+
+$("minimap").addEventListener("click", (e) => {
+  if (e.target.closest(".tick")) return
+  const r = e.currentTarget.getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))
+  scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight)
+})
+
+scroller.addEventListener("scroll", () => requestAnimationFrame(updateViewport))
+
+window.addEventListener("keydown", (e) => {
+  if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault()
+    go(e.key === "ArrowDown" ? 1 : -1)
+  } else if (e.key === "F7") {
+    e.preventDefault()
+    go(e.shiftKey ? -1 : 1)
+  }
+})
+
+render()
+</script>
+</body>
+</html>

@@ -39,6 +39,12 @@ import type {
 import { isSameOrInside, pathKey } from '../path-key'
 import { mapCliError, runGit, VcsOpError, type VcsExecResult } from './exec'
 import {
+  combineFullTexts,
+  gitBlobFullText,
+  readWorkingFullText,
+  type FullText
+} from './full-text'
+import {
   absPath,
   assertRealInside,
   checkRevision,
@@ -202,7 +208,8 @@ export async function statusGit(repo: VcsRepo, _req: VcsStatusRequest): Promise<
 async function untrackedDiff(
   repo: VcsRepo,
   rel: string,
-  source: VcsDiffSource = 'working'
+  source: VcsDiffSource = 'working',
+  fullText = false
 ): Promise<VcsDiffData> {
   const full = rootRel(repo, rel)
   const abs = absPath(repo, rel)
@@ -218,7 +225,8 @@ async function untrackedDiff(
       untracked: true,
       truncated: false,
       added: 0,
-      removed: 0
+      removed: 0,
+      ...(fullText ? { fullTextOmitted: 'unavailable' as const } : {})
     }
   }
   if (f.binary) {
@@ -231,7 +239,8 @@ async function untrackedDiff(
       untracked: true,
       truncated: f.truncated,
       added: 0,
-      removed: 0
+      removed: 0,
+      ...(fullText ? { fullTextOmitted: 'binary' as const } : {})
     }
   }
   const lines = f.text.replace(/\n$/, '').split('\n')
@@ -250,7 +259,28 @@ async function untrackedDiff(
     untracked: true,
     truncated: f.truncated || lines.length > cap,
     added: shown.length,
-    removed: 0
+    removed: 0,
+    ...(fullText
+      ? f.truncated || lines.length > cap
+        ? { fullTextOmitted: 'large' as const }
+        : { beforeText: '', afterText: f.text.replace(/\r\n?/g, '\n') }
+      : {})
+  }
+}
+
+/** 从 diff 头推断重命名前后的仓库相对路径；`/dev/null` 表示该侧不存在 */
+function gitDiffPaths(
+  diff: string,
+  full: string
+): { before: string | null; after: string | null } {
+  const newFile =
+    /^new file mode /m.test(diff) || /^--- \/dev\/null(?:\t.*)?$/m.test(diff)
+  const deleted =
+    /^deleted file mode /m.test(diff) || /^\+\+\+ \/dev\/null(?:\t.*)?$/m.test(diff)
+  const rename = /^rename from (.+)$/m.exec(diff)?.[1]?.trim()
+  return {
+    before: newFile ? null : rename || full,
+    after: deleted ? null : full
   }
 }
 
@@ -266,7 +296,7 @@ export async function diffGit(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
     const tracked = await runGit(repo.root, ['ls-files', '--error-unmatch', '--', full], {
       timeoutMs: 8_000
     })
-    if (tracked.code !== 0) return untrackedDiff(repo, rel, req.source)
+    if (tracked.code !== 0) return untrackedDiff(repo, rel, req.source, req.fullText === true)
   }
 
   const base = ['--no-color', '--no-ext-diff', '--no-textconv', '--unified=3']
@@ -285,6 +315,26 @@ export async function diffGit(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
   const diff = r.stdout
   const binary = /^Binary files /m.test(diff) || /^GIT binary patch/m.test(diff)
   const stat = countDiff(diff)
+  const wantFullText =
+    req.fullText === true &&
+    !binary &&
+    !r.stdoutTruncated &&
+    !!diff.trim() &&
+    !/^diff --cc /m.test(diff) &&
+    !/^@@@/m.test(diff)
+
+  const fullTexts = wantFullText
+    ? await gitFullTexts(repo, rel, req, diff, full)
+    : req.fullText === true
+      ? {
+          fullTextOmitted: binary
+            ? ('binary' as const)
+            : r.stdoutTruncated
+              ? ('large' as const)
+              : ('unavailable' as const)
+        }
+      : {}
+
   return {
     repoKind: 'git',
     rel,
@@ -295,8 +345,50 @@ export async function diffGit(repo: VcsRepo, req: VcsDiffRequest): Promise<VcsDi
     truncated: r.stdoutTruncated,
     added: stat.added,
     removed: stat.removed,
-    revision
+    revision,
+    ...fullTexts
   }
+}
+
+/**
+ * 按 diff 的 source 取两侧完整文本。
+ *
+ * - working：index ↔ 工作区（`git diff`）
+ * - staged：HEAD ↔ index（`git diff --cached`）
+ * - head：HEAD ↔ 工作区（`git diff HEAD`）
+ * - revision：第一父提交 ↔ 该提交（`git show rev`）
+ */
+async function gitFullTexts(
+  repo: VcsRepo,
+  rel: string,
+  req: VcsDiffRequest,
+  diff: string,
+  full: string
+): Promise<Pick<VcsDiffData, 'beforeText' | 'afterText' | 'fullTextOmitted'>> {
+  const paths = gitDiffPaths(diff, full)
+  const empty: FullText = { text: '' }
+  const before = (spec: string | null, make: (p: string) => Promise<FullText>): Promise<FullText> =>
+    spec === null ? Promise.resolve(empty) : make(spec)
+
+  let beforeP: Promise<FullText>
+  let afterP: Promise<FullText>
+
+  if (req.source === 'revision') {
+    const rev = req.revision as string
+    beforeP = before(paths.before, (p) => gitBlobFullText(repo, `${rev}^:${p}`))
+    afterP = before(paths.after, (p) => gitBlobFullText(repo, `${rev}:${p}`))
+  } else if (req.source === 'staged') {
+    beforeP = before(paths.before, (p) => gitBlobFullText(repo, `HEAD:${p}`))
+    afterP = before(paths.after, (p) => gitBlobFullText(repo, `:${p}`))
+  } else if (req.source === 'head') {
+    beforeP = before(paths.before, (p) => gitBlobFullText(repo, `HEAD:${p}`))
+    afterP = paths.after === null ? Promise.resolve(empty) : readWorkingFullText(absPath(repo, rel))
+  } else {
+    beforeP = before(paths.before, (p) => gitBlobFullText(repo, `:${p}`))
+    afterP = paths.after === null ? Promise.resolve(empty) : readWorkingFullText(absPath(repo, rel))
+  }
+
+  return combineFullTexts(await beforeP, await afterP)
 }
 
 function parseLogRecords(raw: string, limit: number, skip: number): VcsLogPage {

@@ -18,6 +18,20 @@ const obj = (v: unknown): Record<string, unknown> | undefined =>
 const arr = (v: unknown): Record<string, unknown>[] =>
   Array.isArray(v) ? (v.filter((x) => x && typeof x === 'object') as Record<string, unknown>[]) : []
 
+/** Anthropic 风格的 usage 对象 → 我们的四项构成；缺字段按 0 算 */
+function breakdownOf(v: unknown): UsageBreakdown {
+  const u = obj(v)
+  return {
+    inputTokens: num(u?.input_tokens),
+    outputTokens: num(u?.output_tokens),
+    cacheReadTokens: num(u?.cache_read_input_tokens),
+    cacheCreationTokens: num(u?.cache_creation_input_tokens)
+  }
+}
+
+const sumUsage = (u: UsageBreakdown): number =>
+  u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheCreationTokens
+
 /**
  * CLI 的权限模式名 → 我们自己的联合类型。
  *
@@ -82,6 +96,16 @@ export class ClaudeStreamTranslator {
   private lastContextTokens: number | null = null
   /** 与 lastContextTokens 同一条 assistant 消息的四项构成 */
   private lastContextUsage: UsageBreakdown | null = null
+  /**
+   * 本轮已经发出过几次 API 请求。
+   *
+   * result 里的 usage 是**一轮累计值**（每次工具往返都加一遍），只有在这轮
+   * 确实只请求过一次时，它才等于"当前上下文"。多请求轮次拿它当上下文会
+   * 得到远超窗口的数字（实测：13 步的轮次显示 4.3M / 1M）。
+   */
+  private requests = 0
+  /** 当前这条消息 message_start 给的输入侧用量；message_delta 到达时合并 */
+  private streamUsage: UsageBreakdown | null = null
   /**
    * 编辑类 tool_use id → 文件路径 / 是否 Write / 按 input 估的行数。
    *
@@ -203,11 +227,45 @@ export class ClaudeStreamTranslator {
     if (!ev) return []
 
     switch (ev.type) {
-      case 'message_start':
+      case 'message_start': {
         // 块序号每条消息都从 0 重新开始：清掉上一条消息的残留，
         // 否则两次调用会拼进同一个槽里。
         this.toolBlocks.clear()
+        this.requests += 1
+        /*
+         * 上下文用量真正的来源。
+         *
+         * 2.1.318 起的 assistant 记录里 usage 常常全是 0（渠道代理下的
+         * 流式响应尤其明显），只有 stream 事件里才是真值：
+         *  - 官方 API：message_start 给输入侧（input / cache_read / cache_write）
+         *  - 各家网关：message_delta 可能给完整四项
+         * 先按消息存住，delta 到了再合并出这一条请求的完整构成。
+         */
+        this.streamUsage = breakdownOf(obj(ev.message)?.usage)
+        this.noteContextUsage(this.streamUsage)
         return []
+      }
+
+      case 'message_delta': {
+        // 一条消息只有一个 delta 带 usage；没有 message_start 的孤立 delta
+        // 不能拿来算上下文（缺输入侧，会把 46 万算成 600）。
+        const start = this.streamUsage
+        if (!start) return []
+        const delta = breakdownOf(obj(ev.usage))
+        this.streamUsage = null
+        const merged: UsageBreakdown = {
+          inputTokens: delta.inputTokens || start.inputTokens,
+          outputTokens: delta.outputTokens || start.outputTokens,
+          cacheReadTokens: delta.cacheReadTokens || start.cacheReadTokens,
+          cacheCreationTokens: delta.cacheCreationTokens || start.cacheCreationTokens
+        }
+        // 只有输出侧、没有输入侧的值不完整（真实请求的 prompt 不可能为 0），
+        // 记下去会把上下文从 46 万缩成几百
+        if (merged.inputTokens + merged.cacheReadTokens + merged.cacheCreationTokens > 0) {
+          this.noteContextUsage(merged)
+        }
+        return []
+      }
 
       case 'content_block_start': {
         const cb = obj(ev.content_block)
@@ -260,29 +318,26 @@ export class ClaudeStreamTranslator {
     }
   }
 
+  /**
+   * 记下一次请求的上下文占用。
+   *
+   * 全 0 的 usage（代理渠道常见：assistant 记录里只有占位）不覆盖上一条 ——
+   * 否则最后一条空消息会把已经算好的数字冲掉。
+   */
+  private noteContextUsage(u: UsageBreakdown): void {
+    const ctx = sumUsage(u)
+    if (ctx <= 0) return
+    this.lastContextTokens = ctx
+    this.lastContextUsage = u
+  }
+
   private assistant(o: Record<string, unknown>, sidechain: boolean): AgentEvent[] {
     const out: AgentEvent[] = []
     // 子代理的请求不进主会话的上下文统计
     if (!sidechain) {
-      // assistant 消息自带本次 API 调用的 usage：输入 + 缓存 + 输出就是当前上下文
-      const u = obj(obj(o.message)?.usage)
-      if (u) {
-        const breakdown: UsageBreakdown = {
-          inputTokens: num(u.input_tokens),
-          outputTokens: num(u.output_tokens),
-          cacheReadTokens: num(u.cache_read_input_tokens),
-          cacheCreationTokens: num(u.cache_creation_input_tokens)
-        }
-        const ctx =
-          breakdown.inputTokens +
-          breakdown.cacheReadTokens +
-          breakdown.cacheCreationTokens +
-          breakdown.outputTokens
-        if (ctx > 0) {
-          this.lastContextTokens = ctx
-          this.lastContextUsage = breakdown
-        }
-      }
+      // 老版本 CLI 的 assistant 消息自带本次 API 调用的 usage；
+      // 新版本常常是 0，真正的值走 stream_event（见 message_delta）
+      this.noteContextUsage(breakdownOf(obj(o.message)?.usage))
     }
     for (const b of arr(obj(o.message)?.content)) {
       if (b.type === 'text') {
@@ -376,21 +431,26 @@ export class ClaudeStreamTranslator {
     const durationMs = num(o.duration_ms) || num(o.duration_api_ms)
     const outputTokens = num(u.output_tokens)
 
-    // result 里的 usage 是一轮的累计值（每次工具调用都算一遍）；
-    // 有最后一条 assistant 消息的 usage 时优先用它，那才是当前上下文。
+    /*
+     * result 里的 usage 是一轮的累计值（每次工具往返都加一遍）。
+     * 只有这轮真的只请求过一次时，它才等于当前上下文；多请求轮次拿它
+     * 当上下文会算出远超窗口的数字，界面就成了"100% / 4.3M / 1M"。
+     */
     const prompt = num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens)
     const fallbackCtx = prompt + outputTokens
-    const contextTokens = this.lastContextTokens ?? (fallbackCtx > 0 ? fallbackCtx : undefined)
-    // 没有 assistant 消息时（例如这一轮直接失败）退回累计值；有就用最后一次请求的构成
+    const canFallback = this.requests <= 1 && fallbackCtx > 0
     const fallbackUsage: UsageBreakdown = {
       inputTokens: num(u.input_tokens),
       outputTokens,
       cacheReadTokens: num(u.cache_read_input_tokens),
       cacheCreationTokens: num(u.cache_creation_input_tokens)
     }
-    const contextUsage = this.lastContextUsage ?? (fallbackCtx > 0 ? fallbackUsage : undefined)
+    const contextTokens = this.lastContextTokens ?? (canFallback ? fallbackCtx : undefined)
+    const contextUsage = this.lastContextUsage ?? (canFallback ? fallbackUsage : undefined)
     this.lastContextTokens = null
     this.lastContextUsage = null
+    this.requests = 0
+    this.streamUsage = null
     // 一轮结束了，没等到回执的编辑记录（被打断的调用）不再跨轮保留
     this.editFiles.clear()
 

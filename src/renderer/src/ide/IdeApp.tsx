@@ -22,7 +22,7 @@ import type {
   IdeSearchOptions,
   IdeTextFile
 } from '@shared/ide'
-import type { VcsChange, VcsDiffData } from '@shared/vcs'
+import { sameVcsDiff, type VcsChange, type VcsDiffData } from '@shared/vcs'
 import type { ChatTargetInfo } from '@shared/ide-chat'
 import type { FileMatch } from '@shared/workspace'
 import {
@@ -1072,9 +1072,13 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
     async (rel: string): Promise<void> => {
       if (!api?.vcs) return
       try {
-        const r = await api.vcs.diff({ cwd, rel, source: 'head' })
+        const r = await api.vcs.diff({ cwd, rel, source: 'head', fullText: true })
         if (!r.ok) return
-        setDiffCache((m) => (rel in m ? { ...m, [rel]: r.data } : m))
+        setDiffCache((m) => {
+          if (!(rel in m)) return m
+          // 内容没变就不换对象：避免 watcher / 状态刷新触发整棵 diff 树重渲染
+          return sameVcsDiff(m[rel], r.data) ? m : { ...m, [rel]: r.data }
+        })
       } catch {
         // 只读预览，读不到就保持原样
       }
@@ -1513,7 +1517,7 @@ export function IdeApp({ cwd }: { cwd: string }): JSX.Element {
           if (!r.ok) throw new Error(r.message || t('ide.openFailedUnknown'))
           setImageCache((m) => ({ ...m, [tab.rel]: r.data }))
         } else {
-          const r = await api.vcs.diff({ cwd, rel: tab.rel, source: 'head' })
+          const r = await api.vcs.diff({ cwd, rel: tab.rel, source: 'head', fullText: true })
           if (!r.ok) throw new Error(r.error.message || t('ide.openFailedUnknown'))
           setDiffCache((m) => ({ ...m, [tab.rel]: r.data }))
         }

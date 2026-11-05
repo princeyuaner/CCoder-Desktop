@@ -53,6 +53,65 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.23',
+    date: '2026-11-05',
+    highlight: {
+      icon: 'review',
+      title: {
+        zh: 'diff 按整文件显示',
+        en: 'Diffs now render the whole file'
+      },
+      desc: {
+        zh: '未修改的行也铺出来，行号连续可读；上一处 / 下一处、并排 / 统一、折叠未修改都在顶部，Alt + ↑ / ↓ 或 F7 直接跳转。',
+        en: 'Unchanged lines stay in place so line numbers are continuous. Previous/next change, split/unified, and collapse-unchanged live in the toolbar; jump with Alt + ↑ / ↓ or F7.'
+      }
+    },
+    sections: [
+      {
+        kind: 'new',
+        items: [
+          {
+            icon: 'review',
+            title: { zh: '整文件 diff 视图', en: 'Whole-file diff view' },
+            desc: {
+              zh: '差异页签按整文件渲染，支持并排 / 统一两种视图、折叠未修改和右侧改动导航条。长行可以用底部横向滚动条或 Shift + 滚轮左右拖动。',
+              en: 'Diff tabs render the complete file with split and unified modes, collapsible unchanged regions, and a change navigator. Long lines pan via the bottom scrollbar or Shift + wheel.'
+            }
+          },
+          {
+            icon: 'keyboard',
+            title: { zh: '差异导航', en: 'Change navigation' },
+            desc: {
+              zh: '顶部按钮、Alt + ↑ / ↓ 和 F7 / Shift + F7 可以跳到上一处 / 下一处差异；超过 2 MB、二进制、冲突 combined diff 或读不到完整文本时自动回落到原来的差异块视图。',
+              en: 'Toolbar buttons, Alt + ↑ / ↓, and F7 / Shift + F7 jump between changes. Binary files, files over 2 MB, combined conflict diffs, or unavailable text fall back to the hunk view.'
+            }
+          }
+        ]
+      },
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'collapse',
+            title: { zh: 'diff 面板不再周期性闪烁', en: 'The diff panel no longer flashes periodically' },
+            desc: {
+              zh: '后台 VCS 刷新失败时保留已有内容，不再把整块界面闪成错误页；diff 内容没变化时复用旧对象，避免整棵 diff 树重渲染。',
+              en: 'A failed background VCS refresh now keeps the existing content instead of flashing an error page, and unchanged diffs reuse the previous object so the diff tree no longer re-renders wholesale.'
+            }
+          },
+          {
+            icon: 'sparkle',
+            title: { zh: '上下文用量显示修正', en: 'Context usage is reported correctly' },
+            desc: {
+              zh: '长轮次里上下文胶囊不再把整轮累计 token 当成当前上下文（之前会显示 4.3M / 1M 并误报接近上限）。现在按最后一次请求的输入、缓存和输出计算。',
+              en: 'Long turns no longer show the whole turn’s cumulative tokens as the current context (previously 4.3M / 1M with a false near-limit warning). The meter now uses the last request’s input, cache, and output.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.22',
     date: '2026-11-04',
     highlight: {

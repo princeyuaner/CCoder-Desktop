@@ -21,6 +21,12 @@ export interface DiffRow {
 export interface DiffHunk {
   header: string
   rows: DiffRow[]
+  /** hunk 头里的旧文件起始行（1-based；新增文件为 0） */
+  oldStart: number
+  oldCount: number
+  /** hunk 头里的新文件起始行（1-based；删除文件为 0） */
+  newStart: number
+  newCount: number
 }
 
 const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
@@ -62,9 +68,13 @@ export function parseDiff(diff: string): DiffHunk[] {
 
     const m = HUNK.exec(line)
     if (m) {
-      oldNo = Number(m[1])
-      newNo = Number(m[3])
-      cur = { header: line, rows: [] }
+      const oldStart = Number(m[1])
+      const oldCount = m[2] === undefined ? 1 : Number(m[2])
+      const newStart = Number(m[3])
+      const newCount = m[4] === undefined ? 1 : Number(m[4])
+      oldNo = oldStart
+      newNo = newStart
+      cur = { header: line, rows: [], oldStart, oldCount, newStart, newCount }
       hunks.push(cur)
       i++
       continue
@@ -229,4 +239,205 @@ export function diffStat(diff: string): { added: number; removed: number } {
     else if (line.startsWith('-')) removed++
   }
   return { added, removed }
+}
+
+/* ── 整文件视图 ─────────────────────────────────────────── */
+
+export interface FullFileRow {
+  kind: DiffRow['kind']
+  left: DiffSide | null
+  right: DiffSide | null
+  /** 属于第几处差异；上下文行为 null */
+  change: number | null
+}
+
+export interface FullFileChange {
+  index: number
+  /** 在 rows 里的起始 / 结束下标（含） */
+  start: number
+  end: number
+  added: number
+  removed: number
+}
+
+export interface FullFileModel {
+  rows: FullFileRow[]
+  changes: FullFileChange[]
+  totalLeft: number
+  totalRight: number
+}
+
+export interface UnifiedRow {
+  kind: 'ctx' | 'add' | 'del'
+  oldNo: number | null
+  newNo: number | null
+  text: string
+  /** 一对改动词里另一侧的文字，用来懒算词级高亮；纯增 / 纯删没有 */
+  pairText?: string
+  change: number | null
+}
+
+/** 按行拆文本；末尾换行不算额外一行，CRLF 统一成 LF */
+export function splitFileLines(text: string): string[] {
+  const normalized = text.replace(/\r\n?/g, '\n')
+  if (!normalized) return []
+  const lines = normalized.split('\n')
+  if (normalized.endsWith('\n')) lines.pop()
+  return lines
+}
+
+/**
+ * 把两侧完整文本和 unified diff 拼成「整文件」行模型。
+ *
+ * 不做二次 diff：hunk 头里的 @@ -a,b +c,d @@ 已经把改动区间说清楚了，
+ * 未修改的区间按 1:1 从两侧数组直接铺。这样即使文件很大也不会在渲染层
+ * 再跑一遍 Myers。
+ */
+export function buildFullFile(
+  before: string,
+  after: string,
+  hunks: DiffHunk[]
+): FullFileModel {
+  const left = splitFileLines(before)
+  const right = splitFileLines(after)
+  const rows: FullFileRow[] = []
+  const changes: FullFileChange[] = []
+  let li = 0
+  let ri = 0
+  let current: number | null = null
+
+  const pushCtx = (): void => {
+    rows.push({
+      kind: 'ctx',
+      left: { no: li + 1, text: left[li] },
+      right: { no: ri + 1, text: right[ri] },
+      change: null
+    })
+    li++
+    ri++
+    current = null
+  }
+
+  const push = (r: DiffRow): void => {
+    const l = r.left
+      ? {
+          no: r.left.no,
+          text:
+            r.left.no != null && r.left.no > 0 ? left[r.left.no - 1] ?? r.left.text : r.left.text
+        }
+      : null
+    const rr = r.right
+      ? {
+          no: r.right.no,
+          text:
+            r.right.no != null && r.right.no > 0
+              ? right[r.right.no - 1] ?? r.right.text
+              : r.right.text
+        }
+      : null
+
+    if (r.kind === 'ctx') {
+      rows.push({ kind: 'ctx', left: l, right: rr, change: null })
+      current = null
+      return
+    }
+
+    if (current === null) {
+      current = changes.length
+      changes.push({
+        index: current,
+        start: rows.length,
+        end: rows.length,
+        added: 0,
+        removed: 0
+      })
+    }
+
+    rows.push({ kind: r.kind, left: l, right: rr, change: current })
+
+    const block = changes[current]
+    block.end = rows.length - 1
+    if (r.kind !== 'del') block.added++
+    if (r.kind !== 'add') block.removed++
+  }
+
+  for (const h of hunks) {
+    // 计数为 0 时，头部行号是「插入点前一行」；边界要往后挪一行
+    const oldBoundary = h.oldCount === 0 ? h.oldStart : h.oldStart - 1
+    const newBoundary = h.newCount === 0 ? h.newStart : h.newStart - 1
+    while (li < oldBoundary && ri < newBoundary && li < left.length && ri < right.length) {
+      pushCtx()
+    }
+    for (const r of h.rows) push(r)
+    li = Math.max(li, oldBoundary + h.oldCount)
+    ri = Math.max(ri, newBoundary + h.newCount)
+    current = null
+  }
+
+  while (li < left.length && ri < right.length) pushCtx()
+  // 完整 diff 不应剩下单边；真剩了也原样补上，绝不丢行
+  while (li < left.length) {
+    rows.push({ kind: 'del', left: { no: li + 1, text: left[li] }, right: null, change: null })
+    li++
+  }
+  while (ri < right.length) {
+    rows.push({ kind: 'add', left: null, right: { no: ri + 1, text: right[ri] }, change: null })
+    ri++
+  }
+
+  return { rows, changes, totalLeft: left.length, totalRight: right.length }
+}
+
+/** 并排行模型 → 统一视图的扁平行模型（删除行在前，新增行在后） */
+export function toUnifiedRows(rows: FullFileRow[]): UnifiedRow[] {
+  const out: UnifiedRow[] = []
+  for (const r of rows) {
+    if (r.kind === 'ctx') {
+      out.push({
+        kind: 'ctx',
+        oldNo: r.left?.no ?? null,
+        newNo: r.right?.no ?? null,
+        text: r.right?.text ?? r.left?.text ?? '',
+        change: null
+      })
+    } else if (r.kind === 'del') {
+      out.push({
+        kind: 'del',
+        oldNo: r.left?.no ?? null,
+        newNo: null,
+        text: r.left?.text ?? '',
+        change: r.change
+      })
+    } else if (r.kind === 'add') {
+      out.push({
+        kind: 'add',
+        oldNo: null,
+        newNo: r.right?.no ?? null,
+        text: r.right?.text ?? '',
+        change: r.change
+      })
+    } else {
+      if (r.left) {
+        out.push({
+          kind: 'del',
+          oldNo: r.left.no ?? null,
+          newNo: null,
+          text: r.left.text ?? '',
+          pairText: r.right?.text,
+          change: r.change
+        })
+      }
+      if (r.right) {
+        out.push({
+          kind: 'add',
+          oldNo: null,
+          newNo: r.right.no ?? null,
+          text: r.right.text ?? '',
+          pairText: r.left?.text,
+          change: r.change
+        })
+      }
+    }
+  }
+  return out
 }

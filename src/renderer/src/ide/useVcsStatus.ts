@@ -17,6 +17,9 @@ export function useVcsStatus(cwd: string): {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const seq = useRef(0)
+  /** 已有状态时，后台刷新失败要保留旧数据，不能把整块界面闪成错误页 */
+  const statusRef = useRef<VcsStatus | null>(null)
+  statusRef.current = status
 
   const refresh = useCallback(async (): Promise<void> => {
     const id = ++seq.current
@@ -26,9 +29,12 @@ export function useVcsStatus(cwd: string): {
       const d = await window.api!.vcs.detect(cwd)
       if (id !== seq.current) return
       if (!d.ok) {
-        setDetect(null)
-        setStatus(null)
-        setError(d.error.message)
+        // 已经有状态时忽略这次探测失败，下一轮刷新会重试
+        if (!statusRef.current) {
+          setDetect(null)
+          setStatus(null)
+          setError(d.error.message)
+        }
         return
       }
       setDetect(d.data)
@@ -39,8 +45,7 @@ export function useVcsStatus(cwd: string): {
       const s = await window.api!.vcs.status({ cwd })
       if (id !== seq.current) return
       if (!s.ok) {
-        setStatus(null)
-        setError(s.error.message)
+        if (!statusRef.current) setError(s.error.message)
         return
       }
       setStatus(s.data)

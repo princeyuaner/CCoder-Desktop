@@ -116,6 +116,46 @@ export interface VcsDiffData {
   revision?: string
   /** SVN 属性变更，diff 里没有 hunk */
   propertyChange?: boolean
+  /**
+   * 整文件 diff 用的两侧完整文本（LF 归一化）。
+   * 只有请求里带 `fullText: true`、文件不是二进制且两侧都读得到时才提供；
+   * 空字符串是合法值（新增 / 删除文件），undefined 表示这次拿不到。
+   */
+  beforeText?: string
+  afterText?: string
+  /** 完整文本没提供的原因；渲染层据此回落到差异块视图 */
+  fullTextOmitted?: 'binary' | 'large' | 'unavailable'
+}
+
+/**
+ * 两份 diff 是否完全一样。
+ *
+ * 文件监听 / VCS 状态刷新可能在内容没变时也重新取一次 diff；直接用
+ * 新对象 setState 会让整棵 diff 树重渲染。先比较，没变就保留旧对象。
+ */
+export function sameVcsDiff(
+  a: VcsDiffData | undefined,
+  b: VcsDiffData | undefined
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return (
+    a.repoKind === b.repoKind &&
+    a.rel === b.rel &&
+    a.oldRel === b.oldRel &&
+    a.source === b.source &&
+    a.revision === b.revision &&
+    a.diff === b.diff &&
+    a.binary === b.binary &&
+    a.untracked === b.untracked &&
+    a.truncated === b.truncated &&
+    a.added === b.added &&
+    a.removed === b.removed &&
+    a.propertyChange === b.propertyChange &&
+    a.beforeText === b.beforeText &&
+    a.afterText === b.afterText &&
+    a.fullTextOmitted === b.fullTextOmitted
+  )
 }
 
 export interface VcsLogEntry {
@@ -316,6 +356,8 @@ export interface VcsDiffRequest extends VcsRequestBase {
   source: VcsDiffSource
   /** source === 'revision' 时必填 */
   revision?: string
+  /** 同时返回两侧完整文本，供整文件 diff 视图使用 */
+  fullText?: boolean
 }
 
 export interface VcsLogRequest extends VcsRequestBase {
