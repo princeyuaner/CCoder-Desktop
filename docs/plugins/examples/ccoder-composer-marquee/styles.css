@@ -1,0 +1,74 @@
+/*
+ * 输入框追光跑马灯
+ *
+ * 只在会话运行中点亮：Composer 运行时的主按钮是 `.send.is-stop`，
+ * 这里用 `:has()` 把效果挂在它上面；运行结束按钮恢复成发送键，
+ * 边框会在 0.3s 内淡出。全部是 CSS，不运行 JavaScript。
+ */
+
+@property --ccoder-marquee-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.composer__box::before,
+.composer__box::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  box-sizing: border-box;
+  padding: 1.8px;
+  pointer-events: none;
+  border-radius: 15px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  background: conic-gradient(
+    from var(--ccoder-marquee-angle),
+    transparent 0deg 195deg,
+    color-mix(in srgb, #a78bfa 16%, transparent) 240deg,
+    color-mix(in srgb, #a78bfa 70%, transparent) 292deg,
+    #a78bfa 320deg,
+    #67e8f9 336deg,
+    #ffffff 346deg,
+    #67e8f9 353deg,
+    transparent 360deg
+  );
+  animation: ccoder-marquee-spin 3.2s linear infinite;
+  animation-play-state: paused;
+}
+
+.composer__box::after {
+  inset: -2px;
+  padding: 6px;
+  border-radius: 16px;
+  filter: blur(11px);
+}
+
+.composer__box:has(.send.is-stop)::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+.composer__box:has(.send.is-stop)::after {
+  opacity: 0.42;
+  animation-play-state: running;
+}
+
+@keyframes ccoder-marquee-spin {
+  to {
+    --ccoder-marquee-angle: 360deg;
+  }
+}
+
+/* 系统开了减少动态效果时保留静态光圈，不做追逐动画 */
+@media (prefers-reduced-motion: reduce) {
+  .composer__box:has(.send.is-stop)::before,
+  .composer__box:has(.send.is-stop)::after {
+    animation: none;
+  }
+}

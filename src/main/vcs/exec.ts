@@ -213,6 +213,46 @@ export function runGit(
   )
 }
 
+/**
+ * 在一个**独立 git 目录**里操作某个工作区。
+ *
+ * 检查点快照用它：仓库对象和索引都落在应用数据目录，不碰用户自己的
+ * `.git`（不改 HEAD、不改 index、不产生 stash）。工作区甚至不必是 Git 仓库。
+ *
+ * `core.bare=false` 是必需的：`git init --bare` 会把仓库标成 bare，
+ * 之后即使显式传 `--work-tree`，add / checkout 也会拒绝执行。
+ * `core.autocrlf=false` 保证快照与还原是字节级的，不会被全局换行配置改写。
+ */
+export function runGitShadow(
+  gitDir: string,
+  workTree: string,
+  args: string[],
+  opts: VcsExecOptions = {}
+): Promise<VcsExecResult> {
+  return exec(
+    'git',
+    [
+      '--no-pager',
+      '--literal-pathspecs',
+      '-c',
+      'core.quotepath=false',
+      '-c',
+      'core.bare=false',
+      '-c',
+      'core.autocrlf=false',
+      '-c',
+      'core.safecrlf=false',
+      '--git-dir',
+      gitDir,
+      '--work-tree',
+      workTree,
+      ...args
+    ],
+    workTree,
+    opts
+  )
+}
+
 /** SVN 全局参数：非交互，避免在无终端窗口里等密码/证书 */
 export function runSvn(
   cwd: string,

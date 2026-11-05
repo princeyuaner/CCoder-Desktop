@@ -30,3 +30,9 @@ runs:
       shell: bash
     - run: npm run verify:whats-new
       shell: bash
+    - run: npm run verify:checkpoints
+      shell: bash
+    - run: npm run verify:fork
+      shell: bash
+    - run: npm run verify:plugins
+      shell: bash

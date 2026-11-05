@@ -25,6 +25,12 @@ npmRebuild: false
 extraResources:
   - from: build/rg
     to: bin
+  # 插件市场的内置兜底：远程索引不可用时，打包版仍能打开市场并安装示例插件。
+  - from: docs/plugins
+    to: plugin-market
+    filter:
+      - index.json
+      - artifacts/**/*
   # dsh 会话解析 worker 放在 asar 外：worker_threads 直接加载 asar 内模块在
   # 部分 Electron 版本上不可靠，而且它按相对路径 require 自己的共享 chunk，
   # 需要保持 out/main 下的目录结构。

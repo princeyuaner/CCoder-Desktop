@@ -14,6 +14,8 @@ export interface Provider {
   id: string
   /** 是否装了对应的 CLI */
   detect(): Promise<{ installed: boolean; path: string }>
+  /** 是否支持从已有会话分叉；缺省 true，dsh 这类没有协议能力的显式设 false */
+  supportsFork?: boolean
   start(o: ProviderSessionOptions): ProviderSession
 }
 
@@ -69,6 +71,8 @@ export interface ProviderSessionOptions {
   mcpServers: RuntimeMcpServer[]
   /** 接着哪条已有会话跑；null 表示全新 */
   resumeId: string | null
+  /** resumeId 指向的会话历史要复制到新会话，而不是接着原会话 */
+  fork?: boolean
   onEvent: (e: AgentEvent) => void
   onExit: (code: number | null, stderr: string) => void
 }

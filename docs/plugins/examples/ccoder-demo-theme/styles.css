@@ -1,0 +1,4 @@
+/* 免代码插件也可以带自己的样式；这里只做一条低干扰的提示。 */
+.plugins-page .pl-badge--plugin {
+  letter-spacing: 0.15px;
+}

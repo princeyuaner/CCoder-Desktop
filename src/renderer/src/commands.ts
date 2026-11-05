@@ -33,8 +33,11 @@ export interface PopupCommand {
   warning?: string
   /** 额外搜索词 */
   keywords?: string[]
-  source: 'app' | 'cli'
-  kind: 'app' | 'command' | 'skill'
+  source: 'app' | 'cli' | 'plugin'
+  kind: 'app' | 'command' | 'skill' | 'plugin'
+  /** 插件命令的归属与执行体 id */
+  pluginId?: string
+  pluginCommandId?: string
   /** 原生指令的图标；CCoder 指令由 commandGlyph 的 switch 决定 */
   glyph?: string
 }
@@ -210,11 +213,21 @@ function nativeCommand(
 export function buildCommandItems(
   t: (key: MessageKey) => string,
   cli: CliId,
-  native: NativeCommand[]
+  native: NativeCommand[],
+  extra: PopupCommand[] = []
 ): PopupCommand[] {
   const app = appCommands(t)
   const seen = new Set<string>()
   for (const c of app) for (const k of commandKeys({ name: c.name })) seen.add(k)
+
+  // 插件命令排在系统指令之后、CLI 原生指令之前；同名以先到者为准
+  const pluginItems: PopupCommand[] = []
+  for (const item of extra) {
+    const keys = commandKeys({ name: item.name })
+    if (keys.some((k) => seen.has(k))) continue
+    for (const k of keys) seen.add(k)
+    pluginItems.push(item)
+  }
 
   const merged: PopupCommand[] = []
   const allNative = [...native, ...(STATIC_NATIVE_COMMANDS[cli] ?? [])]
@@ -225,6 +238,7 @@ export function buildCommandItems(
 
   return [
     ...app,
+    ...pluginItems,
     ...merged.filter((c) => c.kind === 'command'),
     ...merged.filter((c) => c.kind === 'skill')
   ]

@@ -16,6 +16,13 @@ export interface SessionStartOptions {
   /** 要接着哪条已有会话跑（CLI 的 --resume）。不传就是全新会话。 */
   resumeId?: string | null
   /**
+   * 分叉：保留 resumeId 的历史，但让 CLI 分配一个新会话 id。
+   *
+   * Claude 用 `--fork-session`，Codex 走 app-server 的 `thread/fork`。
+   * 只有实现了 fork 的 provider 支持；dsh 会拒绝。
+   */
+  fork?: boolean
+  /**
    * 这条会话自己的凭据来源。不传 = 跟随设置里的默认值。
    *
    * 渠道 / 官方登录是**会话级**选择：A 工作区的对话切了渠道，B 工作区的
@@ -214,6 +221,57 @@ export interface SessionSendInput {
 
 export interface SessionSendResult {
   ok: boolean
+  message?: string
+}
+
+/**
+ * 一轮开始前的文件检查点。
+ *
+ * 检查点只覆盖会话工作目录（cwd），不包含 `--add-dir` 的附加目录；
+ * 被 `.gitignore` / 应用忽略表排除的文件也不会进快照。会话记录本身
+ * 不会因为恢复文件而回退 —— 那是分叉会话要解决的事。
+ */
+export interface SessionCheckpointInfo {
+  id: string
+  /** 第几轮之前的状态。恢复备份也占一个序号，方便排序 */
+  turn: number
+  at: number
+  /** 触发这一轮的用户输入摘要；自动续跑时为空 */
+  prompt: string
+  kind: 'turn' | 'restore-backup'
+}
+
+export interface SessionCheckpointList {
+  ok: boolean
+  checkpoints: SessionCheckpointInfo[]
+  /** 检查点不可用的原因（例如找不到 git）；空 = 正常 */
+  message?: string
+}
+
+export interface CheckpointFileChange {
+  /** 相对工作目录的 POSIX 路径 */
+  path: string
+  /** 相对**恢复目标**的状态：modified = 还原，added = 删除，deleted = 找回 */
+  status: 'modified' | 'added' | 'deleted'
+}
+
+export interface SessionCheckpointPreview {
+  ok: boolean
+  /** 最多 PREVIEW_LIMIT 条；完整数量见 total */
+  files: CheckpointFileChange[]
+  /** 实际会改动的文件总数 */
+  total: number
+  /** 路径太多时只回前一批；恢复本身仍会处理全部 */
+  truncated: boolean
+  message?: string
+}
+
+export interface SessionCheckpointRestore {
+  ok: boolean
+  restored: number
+  deleted: number
+  /** 恢复前自动拍的那份备份，可再次恢复回来 */
+  backupId?: string
   message?: string
 }
 

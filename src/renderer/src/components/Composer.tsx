@@ -45,6 +45,7 @@ import type { RecentAddDir } from '@shared/add-dirs'
 import { CommandPopup, MentionPopup } from './ComposerPopups'
 import { createEffortFx, type EffortFx } from './effortFx'
 import { buildCommandItems, filterCommands, type PopupCommand } from '../commands'
+import { usePluginCommands } from '../plugins/hooks'
 import {
   IconBrain,
   IconChevronDown,
@@ -260,6 +261,7 @@ function ComposerImpl({
   onEditConsumed
 }: Props): JSX.Element {
   const { t, tn } = useI18n()
+  const pluginCommands = usePluginCommands()
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   /** IDE 发来的代码引用：发送前和图片一样挂在输入框上方 */
@@ -418,9 +420,28 @@ function ComposerImpl({
   /** @ 检索的请求序号：慢请求回来时如果已经不是最新一次，就丢掉 */
   const mentionSeq = useRef(0)
 
+  const extraCommands = useMemo<PopupCommand[]>(
+    () =>
+      pluginCommands.map((command) => ({
+        name: command.key.startsWith('/') ? command.key : `/${command.key}`,
+        label: command.title,
+        description: command.description || command.title,
+        detail: command.description || command.pluginName,
+        group: '插件',
+        run: 'app',
+        action: 'plugin',
+        source: 'plugin',
+        kind: 'plugin',
+        keywords: command.keywords,
+        pluginId: command.pluginId,
+        pluginCommandId: command.id,
+        glyph: '◇'
+      })),
+    [pluginCommands]
+  )
   const allCommands = useMemo(
-    () => buildCommandItems(t, cli, nativeCommands),
-    [t, cli, nativeCommands]
+    () => buildCommandItems(t, cli, nativeCommands, extraCommands),
+    [t, cli, nativeCommands, extraCommands]
   )
   const commandItems = useMemo(
     () => (command ? filterCommands(allCommands, command.query) : []),
@@ -743,6 +764,12 @@ function ComposerImpl({
         // dsh 自己的原生指令（/goal、/export、/feedback…）走 commands/execute
         runProviderCommand(c.name)
         break
+      case 'plugin': {
+        const command = pluginCommands.find((x) => x.id === c.pluginCommandId)
+        if (!command) showToast(t('composer.toast.commandUnsupported'))
+        else command.run()
+        break
+      }
       case 'model':
         setOpenPicker('model')
         break

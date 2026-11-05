@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { cliConfig, cliDef, type CliAuthMode, type CliId } from '@shared/settings'
+import { cliConfig, cliDef, type CliAuthMode, type CliId, type EffortLevel } from '@shared/settings'
+import type { PermissionMode } from '@shared/events'
 import type { RecentAddDir } from '@shared/add-dirs'
 import { sameModel } from '@shared/model'
 import type { ChatActiveInfo, IdeCodeRef } from '@shared/ide-chat'
@@ -26,6 +27,7 @@ import {
   IconArchive,
   IconArrowRight,
   IconBranch,
+  IconClock,
   IconCopy,
   IconDownload,
   IconFolder,
@@ -42,8 +44,10 @@ import { TabBar, type TabKey } from './TabBar'
 import { Transcript } from './Transcript'
 import { Composer, type ModelSelection } from './Composer'
 import { StatusBar } from './StatusBar'
+import { usePluginPanelTabs } from '../plugins/hooks'
 import { PermissionModal } from './PermissionModal'
 import { QuestionDrawer } from './QuestionDrawer'
+import { CheckpointModal } from './CheckpointModal'
 import { RunPanel } from './RunPanel'
 
 /** `recentAddDirs ?? []` 每次渲染都会造新数组，memo 子组件会因此失效 */
@@ -88,6 +92,15 @@ interface Props {
   metaReady?: boolean
   /** /clear：切到同目录下的一条新会话 */
   onNewSession: (cwd?: string) => void
+  /** 从当前会话分叉一条新对话；源会话的 provider id 与启动参数由调用方带回来 */
+  onForkSession: (source: {
+    cli: CliId
+    cwd: string
+    id: string
+    title: string
+    permissionMode: PermissionMode
+    effort: EffortLevel
+  }) => void
   /** 把当前会话（含真实 cwd / 标题）报给 App，再转给主进程 */
   onActiveInfo: (info: ChatActiveInfo) => void
   /** IDE 发来的代码引用，等 Composer 收下 */
@@ -124,6 +137,7 @@ export function MainPane({
   cwdReady,
   metaReady = true,
   onNewSession,
+  onForkSession,
   onActiveInfo,
   incomingRefs,
   onIncomingConsumed,
@@ -133,10 +147,22 @@ export function MainPane({
 }: Props): JSX.Element {
   const { t, text, tn, locale } = useI18n()
   const [tab, setTab] = useState<TabKey>('chat')
+  const pluginTabs = usePluginPanelTabs()
+  const activePluginTab =
+    pluginTabs.find((x) => `plugin:${x.id}` === tab) ?? null
+  const PluginPanel = activePluginTab?.component
+
+  // 插件被禁用 / 卸载后，停在它的页签上要退回对话
+  useEffect(() => {
+    if (tab === 'chat' || tab === 'trace') return
+    if (!pluginTabs.some((x) => `plugin:${x.id}` === tab)) setTab('chat')
+  }, [tab, pluginTabs])
   /** 标题右侧「•••」菜单的锚点；null = 没开 */
   const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number } | null>(null)
   /** 正在就地重命名标题 */
   const [renaming, setRenaming] = useState(false)
+  /** 文件检查点弹窗 */
+  const [checkpointsOpen, setCheckpointsOpen] = useState(false)
   /** 菜单刚收起的时间。用来吃掉触发按钮同一次点击里的 pointerdown + click */
   const menuClosedAt = useRef(0)
   /** 新会话用哪个 CLI。换 CLI 就是另一套 provider + 另一份会话记录，等于开新会话 */
@@ -147,7 +173,8 @@ export function MainPane({
    * 打开已有会话时**由那条会话自己决定** —— 会话身份是 (cli, cwd, id)，
    * 拿错的 CLI 去 --resume 是找不到的。新会话才用用户挑的那个。
    */
-  const cli: CliId = active.kind === 'stored' ? active.cli : pickedCli
+  const cli: CliId =
+    active.kind === 'stored' ? active.cli : (active.forkFrom?.cli ?? pickedCli)
   const { settings, loading } = useSettings()
 
   /**
@@ -241,7 +268,10 @@ export function MainPane({
     }
   }
 
-  const resumeId = active.kind === 'stored' ? active.id : null
+  const resumeId =
+    active.kind === 'stored' ? active.id : (active.forkFrom?.id ?? null)
+  const forkFrom = active.kind === 'new' ? active.forkFrom : undefined
+  const forking = !!forkFrom
   /** 这条会话的身份：已有会话是它的 id，新会话是序号。换会话时转写区靠它复位 */
   const sessionKey =
     active.kind === 'stored' ? `${active.cwd}\u0000${active.id}` : `new\u0000${active.n}`
@@ -255,8 +285,9 @@ export function MainPane({
   const chat = useChat({
     cli,
     cwd,
-    permissionMode: settings.permissionMode,
-    effort: cliConfig(settings, cli).effort,
+    // 分叉沿用源会话当前的权限模式与思考深度，而不是掉回全局默认
+    permissionMode: forkFrom?.permissionMode ?? settings.permissionMode,
+    effort: forkFrom?.effort ?? cliConfig(settings, cli).effort,
     // 打开已有会话时用它自己记下的模型；新会话交给选择器 / 默认值
     model: active.kind === 'stored' ? (initialModel ?? '') : '',
     // 渠道 / 来源同样是会话级的：已有会话带自己那份，新会话跟随设置默认值
@@ -269,6 +300,8 @@ export function MainPane({
     // 附加目录同样是会话级：已有会话带自己那份，新会话从空开始（不继承）
     addDirs: active.kind === 'stored' ? (initialAddDirs ?? []) : [],
     resumeId,
+    // 分叉要独立 controller：不能按 resumeId 复用源会话
+    fork: forking,
     // 新会话每次点都换一个序号，不然连点两次时依赖没变，会话不会重建
     freshKey: active.kind === 'new' ? active.n : undefined,
     // 设置、会话列表和会话元数据都加载完再建会话 —— 否则会用到默认的
@@ -530,6 +563,8 @@ export function MainPane({
    * 必须收掉 —— 否则它会挂在后台，而且没有侧栏行能再点回来。
    */
   const pickSelection = (sel: ModelSelection): void => {
+    // 分叉绑定了源会话的 CLI；换 CLI 等于丢掉分叉出来的历史，不允许
+    if (forking && sel.cli !== cli) return
     const targetCfg = cliConfig(settings, sel.cli)
     const labelOf = (cid: string | null): ChannelLabel => ({
       kind: 'channel',
@@ -738,7 +773,7 @@ export function MainPane({
           : firstUser.images?.length
             ? t('chat.title.imageMessage')
             : t('chat.title.newSession')
-        : t('chat.title.newSession')
+        : (active.forkFrom?.title ?? t('chat.title.newSession'))
 
   /*
    * IDE 的「发送到聊天」要知道主窗口现在停在哪个工作区 / 哪条会话。
@@ -763,6 +798,45 @@ export function MainPane({
    * 可写，所以只保留跟当前目录和转写有关的项。
    */
   const menuEntries: PopoverMenuEntry[] = []
+  /**
+   * 分叉入口。
+   *
+   * 需要 CLI 已经给出 session id —— 新会话在第一条消息之前没有可复制的历史。
+   * 分叉期间再点一次没有意义，运行中也应该等这一轮落盘再复制。
+   */
+  const forkCurrent = (): void => {
+    const id = chat.sessionId
+    if (!id) return
+    onForkSession({
+      cli,
+      cwd: chat.sessionCwd || cwd,
+      id,
+      title,
+      permissionMode: chat.permissionMode,
+      effort: chat.effort
+    })
+  }
+  // 分叉在第一条消息发出前，provider id 还是源会话的，不能拿源会话的检查点来恢复
+  const checkpointReady =
+    !!chat.sessionId && (!forking || chat.sessionId !== forkFrom?.id)
+  if (checkpointReady) {
+    menuEntries.push(
+      {
+        key: 'checkpoints',
+        label: t('chat.checkpoints'),
+        icon: <IconClock width={13} height={13} />,
+        onSelect: () => setCheckpointsOpen(true)
+      },
+      {
+        key: 'fork',
+        label: cli === 'dsh' ? t('chat.forkUnsupported') : t('chat.forkSession'),
+        icon: <IconBranch width={13} height={13} />,
+        disabled: cli === 'dsh' || running || backgroundRunning > 0,
+        onSelect: forkCurrent
+      },
+      { key: 'sep-checkpoints', separator: true }
+    )
+  }
   if (active.kind === 'stored') {
     menuEntries.push(
       {
@@ -866,6 +940,7 @@ export function MainPane({
         <ChatHeader
           title={title}
           branch={branch}
+          forked={forking}
           modeLabel={t(MODE_LABEL_KEY[chat.permissionMode])}
           hasRunInfo={hasRunInfo}
           panelOpen={panelOpen}
@@ -939,7 +1014,20 @@ export function MainPane({
           </div>
         )}
 
-        <TabBar active={tab} onChange={setTab} />
+        <TabBar
+          active={tab}
+          onChange={setTab}
+          pluginTabs={pluginTabs.map((x) => ({
+            id: x.id,
+            label: x.label,
+            icon: x.icon
+          }))}
+        />
+        {PluginPanel && activePluginTab ? (
+          <div className="plugin-panel-host">
+            <PluginPanel workspacePath={cwd} />
+          </div>
+        ) : (
         <Transcript
           items={chat.items}
           tab={tab}
@@ -957,6 +1045,7 @@ export function MainPane({
           onEditMessage={editUserMessage}
           onRetryTurn={retryLastTurn}
         />
+        )}
         {/*
           提问抽屉：贴在输入框上方，不遮转写区。
           输入框会被锁住 —— 答题和发新消息不能同时进行。
@@ -1023,6 +1112,7 @@ export function MainPane({
           usage={chat.usage}
           live={chat.busy}
           liveRate={chat.liveRate}
+          workspacePath={cwd}
         />
       </div>
 
@@ -1049,6 +1139,18 @@ export function MainPane({
       */}
       {pending[0] && (
         <PermissionModal item={pending[0]} pendingCount={pending.length} onRespond={chat.respond} />
+      )}
+
+      {checkpointsOpen && (
+        <CheckpointModal
+          // 后台子代理 / 命令还在写盘时也不能恢复
+          busy={running || backgroundRunning > 0}
+          onClose={() => setCheckpointsOpen(false)}
+          load={chat.listCheckpoints}
+          preview={chat.previewCheckpoint}
+          restore={chat.restoreCheckpoint}
+          onRestored={chat.noteCheckpointRestored}
+        />
       )}
 
       {mergeOpen && worktree && (

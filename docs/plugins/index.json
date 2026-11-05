@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-05T00:00:00Z",
+  "plugins": [
+    {
+      "id": "ccoder-demo-health",
+      "name": "项目健康面板",
+      "author": "CCoder",
+      "description": "示例插件：在状态栏、命令、设置页和主区页签里演示 v1 扩展点。",
+      "verified": true,
+      "latest": "0.1.0",
+      "category": "workflow",
+      "tags": ["示例", "面板"],
+      "installs": 128,
+      "rating": 4.8,
+      "versions": [
+        {
+          "version": "0.1.0",
+          "tier": "js",
+          "minAppVersion": "1.2.0",
+          "permissions": [
+            "ui:status-bar",
+            "ui:command",
+            "ui:settings-section",
+            "ui:panel-tab",
+            "storage",
+            "events",
+            "theme"
+          ],
+          "url": "artifacts/ccoder-demo-health-0.1.0.zip",
+          "sha256": "725965eaa71a7b0633c183a24a242d7b0f656ee08dccf77e9cdca97ab73bb904",
+          "size": 2076,
+          "publishedAt": "2026-11-05T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "ccoder-demo-theme",
+      "name": "演示主题",
+      "author": "CCoder",
+      "description": "免代码示例：覆盖分支色与状态栏标识，不运行 JavaScript。",
+      "verified": true,
+      "latest": "0.1.0",
+      "category": "theme",
+      "tags": ["示例", "主题"],
+      "installs": 86,
+      "rating": 4.6,
+      "versions": [
+        {
+          "version": "0.1.0",
+          "tier": "declarative",
+          "minAppVersion": "1.2.0",
+          "permissions": ["theme", "ui:status-bar"],
+          "url": "artifacts/ccoder-demo-theme-0.1.0.zip",
+          "sha256": "df29ad5878c4ced114046448470ccb3ada9ce074e569cccae806899f794361ca",
+          "size": 825,
+          "publishedAt": "2026-11-05T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "ccoder-composer-marquee",
+      "name": "输入框跑马灯",
+      "author": "CCoder",
+      "description": "会话运行中时给输入框加上一圈追光跑马灯，空闲时自动熄灭。纯 CSS，不运行 JavaScript。",
+      "verified": true,
+      "latest": "0.1.0",
+      "category": "theme",
+      "tags": ["跑马灯", "动画"],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "tier": "declarative",
+          "minAppVersion": "1.2.23",
+          "permissions": [],
+          "url": "artifacts/ccoder-composer-marquee-0.1.0.zip",
+          "sha256": "1b2a1de4d66a68edeac2b24eb166a59934ac36c755562fa4a848bc998b433954",
+          "size": 1369,
+          "publishedAt": "2026-11-05T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

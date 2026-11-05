@@ -57,6 +57,15 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - **停用不是写 `enabled:false`**：从 `settings.json` 移除并在应用侧记录指纹，启用时按原样写回；每次写入前自动备份。
 - 按事件分组，支持作用域筛选、搜索、只读标记与安全提示。入口：设置 → 能力 → Hooks 钩子。
 
+### 插件
+
+- 侧栏一级入口，支持**免代码**（manifest + CSS）和**需要运行代码**（单文件 ESM）两种插件。
+- 本地目录安装、热重载、启用 / 禁用 / 卸载；插件自己的存储隔离在 `userData/plugin-data`。
+- v1 扩展点：状态栏、命令面板、设置页、主区页签、主题 token / 受限 CSS、事件总线。
+- 市场页支持静态索引、zip 下载、sha256 校验与安装；开发模式可回退到仓库内的示例索引。
+- 权限按低 / 中 / 高风险分级展示，点开可查看“能访问什么 / 不会访问什么”。
+- Tier-1 目前与宿主同 renderer 世界，只应安装可信插件；沙箱隔离与发布者签名在后续版本。详见 [插件系统](docs/plugin-system.md)。
+
 ### 对话与执行台
 
 - 流式输出、思考块、工具卡片、代码高亮与 diff。
@@ -69,6 +78,8 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - **执行台**：任务清单（`TaskCreate` / `TaskUpdate` / `TodoWrite`）、子代理（`Agent` / `Task`）的运行状态、活动摘要、工具次数、token、耗时；子代理完成后可打开完整报告。
 - 本轮统计：步数、增删行数、上下文占用、缓存命中率、输出 token。
 - **本轮改动审阅**：输入框左上角的「N 个文件」弹层里，点任意一行直接在 IDE 打开该文件相对 HEAD 的 diff 页签；底部「在 IDE 中审阅」一次开一批。每行还带一个还原入口（悬停出现、二次确认）：Git 走 `restore --source=HEAD`，未跟踪文件直接删掉，SVN 走 `svn revert`；不是仓库时那个入口不出现。已经打开过的文件打一个对勾，方便判断这一轮有没有逐条看过。工作区外的文件会标出来并禁用点击。
+- **文件检查点**：每轮开始前自动给工作区拍一次快照。会话菜单 →「文件检查点」可以预览恢复会改动哪些文件，并回到任意一轮开始前的状态；恢复前自动拍一份备份，恢复错了还能再恢复回来。快照使用应用自己的 shadow git 仓库，不碰用户仓库的 HEAD / index / stash；`.gitignore` 和应用忽略表（`node_modules`、构建产物、`.env`、密钥等）里的文件不会进入快照。
+- **会话分叉**：会话菜单 →「分叉会话」把当前对话复制成一条新会话。Claude 走 `--fork-session`，Codex 走 app-server 的 `thread/fork`；新会话拥有自己的会话记录，后续修改和上下文都不会回写原会话。分叉在第一次发送前显示源会话的历史作为预览。
 
 ### 独立 IDE
 
@@ -345,6 +356,9 @@ src/
 - 会话内查找依赖 **CSS Custom Highlight API**（Chrome 105+）。Electron 33 自带的 Chromium 支持它；如果将来降级到更老的运行时，高亮会静默失效（查找本身、计数和跳转仍然可用）。
 - 拖入的文本文件按 UTF-8 读取。GBK / Shift-JIS 等编码的文本会出现乱码 —— 内置 IDE 的编码选择器不适用于这条路径。
 - 跑完提醒是**应用级**开关，不区分 CLI 或工作区；也不提供「只在窗口最小化时提醒」这类细分条件。
+- 文件检查点只覆盖会话的工作目录，`--add-dir` 附加目录不参与；`.gitignore` 和应用忽略表里的文件（`node_modules`、构建产物、`.env`、密钥等）不会进入快照，恢复时也不会被动到。首次快照需要 `git add` 扫描工作区，超大仓库的第一轮可能较慢；超时后该工作区在本次运行内不再拍检查点，重启应用可重试。恢复只还原文件，**不回退会话记录**；需要对话也回到那一轮请用分叉。恢复不会处理 IDE 里未保存的缓冲区，操作前请先保存或关闭。
+- 分叉是**整条会话复制**，暂不支持从某一条消息截断；dsh（ACP 0.2.1）没有 fork 能力，入口会禁用。分叉的第一条消息发出后才会写入新的会话记录，之前的标题栏显示源会话标题和「分叉」标记。
+- 检查点以 Git 对象形式保存在应用数据目录（`checkpoints/`），内容按 blob 去重但仍会占用额外磁盘；每个会话最多保留 60 个普通检查点和 5 个恢复备份，超出的元数据会清理，Git 对象不会立即回收。需要彻底清空时，退出应用后删除该目录即可。
 - 附加目录是应用层的会话元数据（`session-meta.json`）：从 CCoder 打开 / 继续会话时会带上，终端里直接 `claude --resume` 不会读这份记录。
 - Hooks 只覆盖 Claude Code；插件提供的 Hook 只读展示，CLI managed settings 里的 Hook 暂不列出。
 - 应用是 CLI 的 GUI 前端，**不内置模型、不代理请求**；没有安装或登录对应 CLI 时无法开始会话。
@@ -443,6 +457,15 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - **Disabling does not write `enabled:false`**: the entry is removed from `settings.json` and fingerprinted in app state, then restored on enable. Every write is backed up first.
 - Grouped by event, with scope filters, search, read-only markers, and a security warning. Settings → Capabilities → Hooks.
 
+### Plugins
+
+- A top-level sidebar page supporting **no-code** (manifest + CSS) and **code** (single-file ESM) plugins.
+- Install from a local directory, hot reload, enable / disable / uninstall; each plugin gets isolated storage under `userData/plugin-data`.
+- v1 extension points: status bar, command palette, settings sections, main-area tabs, theme tokens / scoped CSS, and an event bus.
+- The market page reads a static index, downloads a zip, verifies sha256, and installs; development falls back to the in-repo example index.
+- Permissions are grouped by low / medium / high risk and expand to show what data is and is not accessible.
+- Tier-1 plugins currently share the renderer world with the host, so only install trusted plugins. Sandboxing and publisher signatures are planned. See [plugin system](docs/plugin-system.md).
+
 ### Chat and run panel
 
 - Streaming output, thinking blocks, tool cards, syntax highlighting, and diffs.
@@ -455,6 +478,8 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - **Run panel**: task list (`TaskCreate` / `TaskUpdate` / `TodoWrite`), subagent (`Agent` / `Task`) status, activity summary, tool counts, tokens, and elapsed time; open the full report when a subagent finishes.
 - Per-turn stats: steps, added / removed lines, context usage, cache hit rate, and output tokens.
 - **Review this turn's changes**: in the "N files" popover above the composer, clicking a row opens that file's diff against HEAD as an IDE tab; "Review in IDE" at the bottom opens the whole batch. Each row also carries a revert action (shown on hover, with a confirmation): Git uses `restore --source=HEAD`, untracked files are deleted, SVN uses `svn revert`. The action is hidden when the workspace is not a repository. Files already opened this turn get a check mark, and paths outside the workspace are labelled and not clickable.
+- **File checkpoints**: a workspace snapshot is captured automatically before every turn. Session menu → “File checkpoints” previews which files a restore would change and can roll the working tree back to the state before any turn. A backup is captured first, so the restore itself can be undone. Snapshots use an app-owned shadow Git repository — the user's HEAD, index, and stash are never touched — and files covered by `.gitignore` or the app ignore list (`node_modules`, build output, `.env`, keys, etc.) are not captured.
+- **Fork session**: session menu → “Fork session” copies the current conversation into a new session. Claude uses `--fork-session`; Codex uses the app-server's `thread/fork`. The fork gets its own session record, so later edits and context never write back to the original. Before the first message, the fork shows the source transcript as a preview.
 
 ### Standalone IDE
 
@@ -725,6 +750,9 @@ src/
 - Find in conversation relies on the **CSS Custom Highlight API** (Chrome 105+). Electron 33's Chromium supports it; on an older runtime highlights silently disappear while search, counts, and jumping still work.
 - Dropped text files are read as UTF-8. Files in GBK / Shift-JIS and similar encodings come out garbled — the IDE's encoding picker does not apply to this path.
 - The finish alert is an **application-wide** switch: it is not per CLI or per workspace, and there is no narrower condition such as "only when minimized".
+- File checkpoints cover the session working directory only; `--add-dir` directories are not included, and files matched by `.gitignore` or the app ignore list (`node_modules`, build output, `.env`, keys, etc.) are neither captured nor touched. The first snapshot has to scan the workspace with `git add`, so very large repositories may take longer on the first turn; after a timeout, checkpoints are disabled for that workspace until the app restarts. Restore only rolls back files and **does not rewind the conversation** — use a fork for that. Unsaved IDE buffers are not handled; save or close them before restoring.
+- A fork copies the **entire conversation**; truncating at an individual message is not supported yet. dsh (ACP 0.2.1) has no fork capability, so its menu entry is disabled. The new session record is written after the first message; until then the title bar keeps the source title and shows the “Fork” badge.
+- Checkpoints live in the app data directory (`checkpoints/`) as Git objects. Blobs are deduplicated, but they still use extra disk space. Each session keeps at most 60 regular checkpoints and 5 restore backups; older metadata is pruned, but Git objects are not reclaimed immediately. To wipe them completely, quit the app and delete that directory.
 - Extra directories are application-level session metadata (`session-meta.json`): they are applied when a session is opened or continued from CCoder. Running `claude --resume` directly in a terminal does not read this record.
 - Hooks cover Claude Code only. Plugin hooks are read-only, and hooks in the CLI's managed settings are not listed yet.
 - The app is a GUI frontend for the CLIs. It **does not bundle models or proxy requests**; without an installed and signed-in CLI you cannot start a session.

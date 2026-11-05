@@ -117,6 +117,9 @@ interface SidebarProps {
   selectionReset: { nonce: number; keep: string[] }
   onRefresh: () => void
   onOpenSettings: () => void
+  /** 打开一级「插件」页 */
+  onOpenPlugins: () => void
+  pluginsActive: boolean
   /** 打开跨会话搜索 */
   onOpenSearch: () => void
   /** 本地元数据：重命名 / 置顶 / 归档 */
@@ -157,6 +160,8 @@ export function Sidebar({
   selectionReset,
   onRefresh,
   onOpenSettings,
+  onOpenPlugins,
+  pluginsActive,
   onOpenSearch,
   meta,
   onUpdateMeta,
@@ -285,7 +290,10 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <nav className="sidebar__nav">
-        <button className="navitem">
+        <button
+          className={`navitem ${pluginsActive ? 'is-active' : ''}`}
+          onClick={onOpenPlugins}
+        >
           <IconPlugin width={15} height={15} />
           <span>{t('nav.plugins')}</span>
         </button>

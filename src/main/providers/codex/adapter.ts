@@ -49,6 +49,26 @@ const MODES: PermissionMode[] = [
   'bypassPermissions'
 ]
 
+/**
+ * 启动 / 接回线程时该调哪个 app-server 方法。
+ *
+ * 分叉必须走 `thread/fork`：`thread/resume` 会继续写在原线程上，
+ * 不满足「原会话不受影响」的语义。
+ */
+export function codexThreadRequest(
+  resumeId: string | null,
+  fork: boolean,
+  params: Obj
+): { method: 'thread/start' | 'thread/resume' | 'thread/fork'; params: Obj } {
+  if (resumeId && fork) {
+    return { method: 'thread/fork', params: { threadId: resumeId, ...params, excludeTurns: true } }
+  }
+  if (resumeId) {
+    return { method: 'thread/resume', params: { threadId: resumeId, ...params, excludeTurns: true } }
+  }
+  return { method: 'thread/start', params }
+}
+
 function normalizeMode(v: string): PermissionMode {
   return (MODES as string[]).includes(v) ? (v as PermissionMode) : 'standard'
 }
@@ -281,18 +301,21 @@ class CodexSession implements ProviderSession {
     try {
       await initializeCodex(this.rpc)
 
+      const req = codexThreadRequest(
+        this.o.resumeId,
+        this.o.fork === true,
+        this.threadParams()
+      )
       let res: Obj
-      if (this.o.resumeId) {
+      if (req.method === 'thread/fork') {
+        /*
+         * 分叉失败不能悄悄回落到新会话：界面上已经显示了原会话的历史，
+         * 回落会让“分叉”变成一张空白对话，用户完全看不出来。
+         */
+        res = await this.rpc.request<Obj>(req.method, req.params, 30_000)
+      } else if (req.method === 'thread/resume') {
         try {
-          res = await this.rpc.request<Obj>(
-            'thread/resume',
-            {
-              threadId: this.o.resumeId,
-              ...this.threadParams(),
-              excludeTurns: true
-            },
-            30_000
-          )
+          res = await this.rpc.request<Obj>(req.method, req.params, 30_000)
         } catch (e) {
           this.o.onEvent({
             t: 'error',

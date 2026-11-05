@@ -18,6 +18,8 @@ export type CommandAction =
   | 'insert'
   /** 交给 ProviderSession.command() 执行（dsh 的 /goal、/export 等） */
   | 'provider'
+  /** 由插件注册的命令；渲染层按 pluginId + pluginCommandId 找到执行体 */
+  | 'plugin'
   | 'none'
 
 /**

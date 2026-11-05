@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.23",
+  "version": "1.2.24",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -37,6 +37,9 @@
     "verify:changed-review": "npx esbuild src/shared/path.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/path.cjs && npx esbuild src/shared/ide.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/ide.cjs && node tools/verify-changed-review.cjs",
     "verify:diff-fullfile": "npx esbuild src/renderer/src/ide/diff.ts --bundle --platform=node --format=cjs --outfile=tools/_diff-fullfile.cjs && node tools/verify-diff-fullfile.cjs",
     "verify:add-dirs": "npx esbuild src/shared/add-dirs.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/add-dirs.cjs && npx esbuild src/main/session-dirs.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/session-dirs.cjs && npx esbuild src/main/session-meta-store.ts --bundle --platform=node --format=cjs --external:electron --alias:electron=./tools/electron-stub-adddirs.cjs --outfile=.tmp-build/session-meta-store.cjs && node tools/verify-add-dirs.cjs",
+    "verify:checkpoints": "npx esbuild src/main/checkpoints.ts --bundle --platform=node --format=cjs --external:electron --alias:electron=./tools/electron-stub.cjs --outfile=.tmp-build/checkpoints.cjs && node tools/verify-checkpoints.cjs",
+    "verify:fork": "npx esbuild src/main/providers/claude/adapter.ts --bundle --platform=node --format=cjs --external:electron --alias:electron=./tools/electron-stub.cjs --outfile=.tmp-build/claude-adapter.cjs && npx esbuild src/main/providers/codex/adapter.ts --bundle --platform=node --format=cjs --external:electron --alias:electron=./tools/electron-stub.cjs --outfile=.tmp-build/codex-adapter.cjs && node tools/verify-fork.cjs",
+    "verify:plugins": "npx esbuild tools/_plugins-probe.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --alias:electron=./tools/electron-stub-plugins.cjs --outfile=.tmp-build/plugins-probe.cjs && node .tmp-build/plugins-probe.cjs",
     "verify:changed-review:ui": "node node_modules/electron/cli.js tools/verify-changed-review-ui.cjs",
     "verify:fonts": "npx esbuild src/main/system-fonts.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/system-fonts.cjs && node tools/verify-fonts.cjs",
     "verify:markdown": "npx esbuild tools/_render-markdown-fixture.tsx --bundle --platform=node --format=cjs --jsx=automatic --alias:@shared=./src/shared --external:react --external:react-dom --outfile=.tmp-build/md-fixture.cjs && node tools/verify-markdown-engine.cjs",

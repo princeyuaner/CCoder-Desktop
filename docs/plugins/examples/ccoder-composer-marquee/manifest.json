@@ -1,0 +1,10 @@
+{
+  "id": "ccoder-composer-marquee",
+  "name": "输入框跑马灯",
+  "version": "0.1.0",
+  "tier": "declarative",
+  "description": "会话运行中时，给输入框加上一圈追光跑马灯；空闲时自动熄灭。",
+  "author": "CCoder",
+  "minAppVersion": "1.2.23",
+  "permissions": []
+}

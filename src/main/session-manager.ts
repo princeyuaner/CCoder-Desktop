@@ -18,12 +18,16 @@ import {
 import type {
   PermissionDecision,
   QuestionAnswer,
+  SessionCheckpointList,
+  SessionCheckpointPreview,
+  SessionCheckpointRestore,
   SessionEventPayload,
   SessionSendInput,
   SessionSendResult,
   SessionStartOptions,
   SessionStatusPayload
 } from '../shared/session'
+import type { CheckpointStore } from './checkpoints'
 import { isSameOrInside, pathKey } from './path-key'
 import { logMain } from './crash-log'
 import { localizeText } from '../shared/i18n'
@@ -75,6 +79,13 @@ interface Live {
   officialModel: string
   /** CLI 自己的会话 id，供将来 --resume 恢复 */
   providerSessionId: string | null
+  /**
+   * 检查点归属的 provider id。
+   *
+   * 分叉在第一次启动前 `providerSessionId` 还是源会话的 id，但检查点
+   * 绝不能挂到源会话名下；这里在拿到分叉后的新 id 之前保持 null。
+   */
+  checkpointProviderId: string | null
   /** 打开时指定要接着跑的那条会话（--resume 的初值） */
   initialResumeId: string | null
   /** 长驻的 CLI 进程；首次发送时才拉起来 */
@@ -117,10 +128,16 @@ interface Live {
   lastAskedTool: string | null
   /** 模型/思考深度/MCP 改了，当前进程的启动参数已过期，下一轮要换一个 */
   needsRespawn: boolean
+  /** 这一条是不是「分叉会话」：启动 CLI 时要用 fork 语义接回原会话 */
+  fork: boolean
+  /** fork 只在第一次成功启动时用；拿到新 session id 后重启用普通 resume */
+  forkPending: boolean
   /** 本轮开始时的磁盘快照；轮末再拍一次，两次对比出工具事件漏掉的改动 */
   diskBefore: WorkspaceSnapshot | null
   /** 轮前快照正在异步计算；turn_end 要等它落定才能对比 */
   prep: Promise<WorkspaceSnapshot | null> | null
+  /** 轮前文件检查点；用户发送时会等它落定，保证快照早于模型改文件 */
+  checkpointPrep: Promise<unknown> | null
   /** 轮末结算中：期间到达的事件先按序存着，等 turn_end 发完再处理 */
   finishing: boolean
   /** CLI 进程已退出、正在结算；turn_end 交给退出收尾 */
@@ -199,7 +216,8 @@ export class SessionManager {
   constructor(
     private getSettings: () => Settings,
     private emitEvent: (p: SessionEventPayload) => void,
-    private emitStatus: (p: SessionStatusPayload) => void
+    private emitStatus: (p: SessionStatusPayload) => void,
+    private checkpoints: CheckpointStore | null = null
   ) {}
 
   private providerFor(id: CliId): Provider | null {
@@ -234,10 +252,12 @@ export class SessionManager {
         : requested && cfg.channels.some((c) => c.id === requested)
           ? requested
           : cfg.activeChannelId
+    const cwd = o.cwd?.trim() || homedir()
+    const fork = o.fork === true
     this.live.set(id, {
       id,
       cli,
-      cwd: o.cwd?.trim() || homedir(),
+      cwd,
       permissionMode: o.permissionMode,
       model: o.model ?? '',
       effort: o.effort ?? DEFAULT_EFFORT,
@@ -249,6 +269,8 @@ export class SessionManager {
       officialModel:
         cli === 'claude' || cli === 'dsh' ? cfg.officialModel : '',
       providerSessionId: o.resumeId ?? null,
+      // 分叉还没有自己的 id，检查点先不挂到源会话上
+      checkpointProviderId: fork ? null : (o.resumeId ?? null),
       initialResumeId: o.resumeId ?? null,
       session: null,
       toolCount: 0,
@@ -261,8 +283,11 @@ export class SessionManager {
       addDirs: sanitizeAddDirs(o.addDirs),
       lastAskedTool: null,
       needsRespawn: false,
+      fork: o.fork === true,
+      forkPending: o.fork === true,
       diskBefore: null,
       prep: null,
+      checkpointPrep: null,
       finishing: false,
       exiting: false,
       deferred: [],
@@ -270,6 +295,17 @@ export class SessionManager {
       claimSeq: 0
     })
     this.emitStatus({ sessionId: id, status: 'idle', providerSessionId: o.resumeId ?? null })
+    /*
+     * 已有会话打开时先把检查点记录绑到 CLI 的稳定 id 上；新会话要等
+     * session_started 才知道 id，届时在 onEvent 里再绑。
+     */
+    if (o.resumeId && !fork) {
+      void this.checkpoints
+        ?.bind(id, cli, cwd, o.resumeId)
+        .catch((e) => logMain('checkpoints.bind', e))
+    }
+    // 后台预热检查点索引，避免第一条消息卡在首次全量扫描上
+    void this.checkpoints?.warm(id, cwd).catch((e) => logMain('checkpoints.warm', e))
     return id
   }
 
@@ -643,6 +679,60 @@ export class SessionManager {
     return false
   }
 
+  /* ── 文件检查点 ───────────────────────────────────────────── */
+
+  private async bindCheckpoints(s: Live): Promise<void> {
+    if (!this.checkpoints || !s.providerSessionId) return
+    try {
+      await this.checkpoints.bind(s.id, s.cli, s.cwd, s.providerSessionId)
+    } catch (e) {
+      logMain('checkpoints.bind', e)
+    }
+  }
+
+  async listCheckpoints(sessionId: string): Promise<SessionCheckpointList> {
+    const s = this.live.get(sessionId)
+    if (!s || !this.checkpoints || s.forkPending) {
+      return { ok: false, checkpoints: [], message: t('checkpoint.error.noLive') }
+    }
+    await this.bindCheckpoints(s)
+    return this.checkpoints.list(s.id)
+  }
+
+  async previewCheckpoint(
+    sessionId: string,
+    checkpointId: string
+  ): Promise<SessionCheckpointPreview> {
+    const s = this.live.get(sessionId)
+    if (!s || !this.checkpoints || s.forkPending) {
+      return {
+        ok: false,
+        files: [],
+        total: 0,
+        truncated: false,
+        message: t('checkpoint.error.noLive')
+      }
+    }
+    await this.bindCheckpoints(s)
+    return this.checkpoints.preview(s.id, checkpointId)
+  }
+
+  async restoreCheckpoint(
+    sessionId: string,
+    checkpointId: string
+  ): Promise<SessionCheckpointRestore> {
+    const s = this.live.get(sessionId)
+    if (!s || !this.checkpoints || s.forkPending) {
+      return { ok: false, restored: 0, deleted: 0, message: t('checkpoint.error.noLive') }
+    }
+    // 恢复会直接改盘：正在跑 / 排队 / 已经退出时一律拒绝
+    if (s.busy || s.finishing || s.exiting || s.queue.length > 0) {
+      return { ok: false, restored: 0, deleted: 0, message: t('checkpoint.error.busy') }
+    }
+    await this.bindCheckpoints(s)
+    return this.checkpoints.restore(s.id, checkpointId)
+  }
+
   /**
    * 这条会话现在该用什么凭据。
    *
@@ -679,6 +769,18 @@ export class SessionManager {
       return false
     }
 
+    if (s.forkPending && provider.supportsFork === false) {
+      this.emitEvent({
+        sessionId: s.id,
+        event: {
+          t: 'error',
+          message: msg('session.forkUnsupported', { cli: cliDef(s.cli).name }),
+          fatal: true
+        }
+      })
+      return false
+    }
+
     try {
       // 官方登录没有渠道，模型回落到设置里的 officialModel（空 = CLI 默认）
       const fallbackModel =
@@ -705,6 +807,8 @@ export class SessionManager {
         mcpServers: getLegacyRuntimeMcpServers(s.cli, s.cwd),
         // 进程活着就用它自己的 id；进程重启后回落到最初要接的那条
         resumeId: resume,
+        // 分叉只在第一次启动时生效；后续重启用普通 --resume 接回分叉后的 id
+        fork: s.forkPending,
         onEvent: (e) => {
           if (s.sessionEpoch === epoch) this.onEvent(s, e)
         },
@@ -753,7 +857,8 @@ export class SessionManager {
    */
   private markTurnStarted(
     s: Live,
-    starting: boolean
+    starting: boolean,
+    prompt = ''
   ): Promise<WorkspaceSnapshot | null> {
     s.busy = true
     s.interrupted = false
@@ -769,6 +874,20 @@ export class SessionManager {
       status: starting ? 'starting' : 'running',
       providerSessionId: s.providerSessionId
     })
+
+    /*
+     * 检查点与磁盘快照并行拍。用户主动发送时必须等两者都落定再交给
+     * CLI —— 否则模型可能先改了文件，快照拍到的就是改完的状态。
+     * 自动续跑没有调用方可等，只能在后台尽快拍。
+     */
+    s.checkpointPrep =
+      this.checkpoints?.capture({
+        liveId: s.id,
+        cli: s.cli,
+        cwd: s.cwd,
+        providerId: s.checkpointProviderId,
+        prompt
+      }) ?? null
 
     const prep = this.snapshotForTurn(s)
     s.prep = prep
@@ -793,8 +912,12 @@ export class SessionManager {
     input: SessionSendInput,
     spawning: boolean
   ): Promise<'sent' | 'requeued' | 'gone' | 'aborted'> {
-    const prep = this.markTurnStarted(s, spawning)
+    const prep = this.markTurnStarted(s, spawning, input.text)
+    const checkpointPrep = s.checkpointPrep
     await prep
+    // 检查点失败不拦消息：capture 内部已经吞掉错误并返回 null
+    if (checkpointPrep) await checkpointPrep
+    if (s.checkpointPrep === checkpointPrep) s.checkpointPrep = null
 
     if (this.live.get(s.id) !== s) return 'gone'
 
@@ -924,7 +1047,18 @@ export class SessionManager {
 
     let ev = e
     if (ev.t === 'session_started') {
-      if (ev.sessionId) s.providerSessionId = ev.sessionId
+      const before = s.providerSessionId
+      if (ev.sessionId) {
+        s.providerSessionId = ev.sessionId
+        s.checkpointProviderId = ev.sessionId
+      }
+      // 分叉已经成功：后续换进程不能再次分叉
+      if (ev.sessionId && ev.sessionId !== before) s.forkPending = false
+      if (ev.sessionId && this.checkpoints) {
+        void this.checkpoints
+          .bind(s.id, s.cli, s.cwd, ev.sessionId)
+          .catch((e) => logMain('checkpoints.bind', e))
+      }
       // CLI 可能没按请求的模式启动（例如自动回落到 default），以它为准
       s.permissionMode = ev.permissionMode
       // CLI 起来了：把"连接中"换成"运行中"。这两段对用户是两件事，

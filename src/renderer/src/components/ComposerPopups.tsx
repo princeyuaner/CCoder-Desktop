@@ -225,7 +225,7 @@ export function CommandPopup({
             <div className="ccmd-detail">
               <div className="ccmd-detail__kicker">{selected.group}</div>
               <div className="ccmd-detail__name">{selected.name}</div>
-              {selected.source === 'cli' && selected.label && (
+              {selected.source !== 'app' && selected.label && (
                 <div className="ccmd-detail__label">{selected.label}</div>
               )}
               <p className="ccmd-detail__desc">{selected.detail ?? selected.description}</p>

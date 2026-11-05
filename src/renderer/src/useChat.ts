@@ -22,6 +22,9 @@ import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
 import type {
   QuestionAnswer,
+  SessionCheckpointList,
+  SessionCheckpointPreview,
+  SessionCheckpointRestore,
   SessionSendInput,
   SessionSendResult,
   SessionStatus,
@@ -274,6 +277,14 @@ export interface ChatApi {
    * `--resume` 接回；忙碌时由主进程延到本轮结束后生效。
    */
   applyAddDirs(dirs: string[]): void
+  /** 列出本会话的文件检查点（按时间倒序） */
+  listCheckpoints(): Promise<SessionCheckpointList>
+  /** 预览恢复会动哪些文件；不会改盘 */
+  previewCheckpoint(checkpointId: string): Promise<SessionCheckpointPreview>
+  /** 恢复到检查点；主进程会拒绝正在运行的会话 */
+  restoreCheckpoint(checkpointId: string): Promise<SessionCheckpointRestore>
+  /** 恢复成功后清掉「本轮改动」清单 —— 它描述的是恢复前的状态 */
+  noteCheckpointRestored(): void
   notice: LocalizedText | null
   clearNotice(): void
 }
@@ -762,6 +773,8 @@ interface ChatInit {
   permissionMode: PermissionMode
   effort: EffortLevel
   resumeId: string | null
+  /** 从 resumeId 的历史分叉出一条新会话（不会复用原 controller） */
+  fork?: boolean
   /** 这条会话自己选过的模型（来自 session-meta）；空 = 用默认值 */
   model: string
   /**
@@ -790,6 +803,14 @@ export const storedChatKey = (cli: CliId, cwd: string, id: string): string =>
  * 带上会让同一个新会话的 controller 被重建。
  */
 export const newChatKey = (cli: CliId, n: number): string => `new${SEP}${cli}${SEP}${n}`
+
+/**
+ * 分叉会话的 key。
+ *
+ * 分叉的 `resumeId` 指向源会话，但 controller 绝不能按 provider id 复用 ——
+ * 否则「分叉」只是把原会话再打开一次，第一条消息还是会写回原会话。
+ */
+export const forkChatKey = (cli: CliId, n: number): string => `fork${SEP}${cli}${SEP}${n}`
 
 /* ── 输入历史 ───────────────────────────────────────────────
  *
@@ -1187,6 +1208,7 @@ class ChatController {
         // 会话级模型选择：重开这条会话时接着用它自己的模型，而不是当时的全局默认
         model: this.init.model || undefined,
         resumeId: this.init.resumeId,
+        fork: this.init.fork,
         // 会话自己的渠道 / 来源；undefined 时主进程回落到设置里的默认值
         authMode: this.init.authMode,
         channelId: this.init.channelId,
@@ -1808,6 +1830,55 @@ class ChatController {
     this.reconfigure({ addDirs: next })
   }
 
+  /* ── 文件检查点 ─────────────────────────────────────────── */
+
+  listCheckpoints = async (): Promise<SessionCheckpointList> => {
+    const api = typeof window !== 'undefined' ? window.api : undefined
+    if (!api?.session) return { ok: true, checkpoints: [] }
+    // 打开弹窗可能早于 session.start 落定，等一次再查
+    if (!this.liveId) await this.ensureStarted()
+    if (!this.liveId) return { ok: true, checkpoints: [] }
+    try {
+      return await api.session.checkpoints(this.liveId)
+    } catch {
+      return { ok: false, checkpoints: [] }
+    }
+  }
+
+  previewCheckpoint = async (checkpointId: string): Promise<SessionCheckpointPreview> => {
+    const api = typeof window !== 'undefined' ? window.api : undefined
+    if (!api?.session) return { ok: false, files: [], total: 0, truncated: false }
+    if (!this.liveId) await this.ensureStarted()
+    if (!this.liveId) {
+      return { ok: false, files: [], total: 0, truncated: false }
+    }
+    try {
+      return await api.session.previewCheckpoint(this.liveId, checkpointId)
+    } catch {
+      return { ok: false, files: [], total: 0, truncated: false }
+    }
+  }
+
+  restoreCheckpoint = async (checkpointId: string): Promise<SessionCheckpointRestore> => {
+    const api = typeof window !== 'undefined' ? window.api : undefined
+    if (!api?.session) return { ok: false, restored: 0, deleted: 0 }
+    if (!this.liveId) await this.ensureStarted()
+    if (!this.liveId) {
+      return { ok: false, restored: 0, deleted: 0 }
+    }
+    try {
+      return await api.session.restoreCheckpoint(this.liveId, checkpointId)
+    } catch {
+      return { ok: false, restored: 0, deleted: 0 }
+    }
+  }
+
+  /** 恢复后「本轮改动」不再代表磁盘状态；让用户重新跑一轮自然刷新 */
+  noteCheckpointRestored = (): void => {
+    this.discardFileChanges()
+    this.patch({ files: [] })
+  }
+
   clearNotice = (): void => {
     this.patch({ notice: null })
   }
@@ -1847,7 +1918,13 @@ function uniqueControllers(): ChatController[] {
  * 同一个 Live，否则会一边还在跑、一边又 --resume 开一条，转写会打架。
  */
 function findByProvider(id: string, cwd?: string): ChatController | null {
-  const matches = uniqueControllers().filter((c) => !c.isDisposed && c.providerId === id)
+  /*
+   * 分叉在启动前 providerId 仍指向源会话，但它不是源会话的“主人”。
+   * 按 provider id 查找（打开/删除源会话）必须跳过它，否则会误用分叉的 controller。
+   */
+  const matches = uniqueControllers().filter(
+    (c) => !c.isDisposed && !c.init.fork && c.providerId === id
+  )
   if (matches.length === 0) return null
   if (cwd) {
     const exact = matches.find((c) => sameCwd(c.providerCwd || c.init.cwd, cwd))
@@ -1896,7 +1973,8 @@ export function acquireChat(key: string, init: ChatInit): ChatController {
     return existing
   }
 
-  if (init.resumeId) {
+  // 分叉必须拥有独立的 controller：按 provider id 复用会让 fork 变成“打开原会话”
+  if (init.resumeId && !init.fork) {
     const reuse = findByProvider(init.resumeId, init.cwd)
     if (reuse) {
       reuse.lastUsedAt = Date.now()
@@ -1929,7 +2007,9 @@ export function disposeStoredChat(cli: CliId, cwd: string, id: string): void {
 }
 
 export function disposeNewChat(cli: CliId, n: number): void {
+  // 同一个序号可能属于新会话，也可能属于分叉；两个 key 各清一次
   disposeChat(newChatKey(cli, n))
+  disposeChat(forkChatKey(cli, n))
 }
 
 /**
@@ -1956,6 +2036,20 @@ export function forgetInputHistory(cli: CliId, cwd: string, id: string): void {
  */
 export function disposeIdleNewChats(): void {
   for (const c of uniqueControllers()) {
+    /*
+     * 还没发出第一条消息的分叉：CLI 侧根本还没建会话，离开就回收。
+     * 一旦 provider id 变了，说明分叉已经真正启动，和普通会话一样保留。
+     */
+    if (c.init.fork) {
+      if (
+        c.providerId === c.init.resumeId &&
+        c.snapshot.status === 'idle' &&
+        c.snapshot.queue.length === 0
+      ) {
+        disposeController(c)
+      }
+      continue
+    }
     if (c.init.resumeId !== null) continue
     // 队列里有东西就不能丢 —— 它们是用户已经打好的字
     if (
@@ -2014,6 +2108,21 @@ const noopEffort = (_level: EffortLevel): void => undefined
 const noopChannel = (_from: ChannelLabel, _to: ChannelTarget): void => undefined
 const noopAuth = (_from: ChannelLabel, _to: ChannelTarget): void => undefined
 const noopAddDirs = (_dirs: string[]): void => undefined
+const noopCheckpoints = async (): Promise<SessionCheckpointList> => ({
+  ok: true,
+  checkpoints: []
+})
+const noopPreview = async (): Promise<SessionCheckpointPreview> => ({
+  ok: false,
+  files: [],
+  total: 0,
+  truncated: false
+})
+const noopRestore = async (): Promise<SessionCheckpointRestore> => ({
+  ok: false,
+  restored: 0,
+  deleted: 0
+})
 
 export function useChat(opts: {
   /** 用哪个 CLI 跑；缺省 claude */
@@ -2037,6 +2146,8 @@ export function useChat(opts: {
   addDirs?: string[]
   /** 接着哪条已有会话跑；变化时会复用/重建对应 controller */
   resumeId?: string | null
+  /** 把 resumeId 的历史复制成一条新会话；必须配合 freshKey 使用 */
+  fork?: boolean
   /**
    * 新会话的序号，每点一次「新会话」换一个。
    * 它是新会话的身份：同一个 n 就是同一条会话。
@@ -2054,11 +2165,14 @@ export function useChat(opts: {
    * cwd / 权限模式 / effort 是**创建参数**，只影响第一次建 controller；
    * 它们变化不应该让一个已经在后台跑的会话重启。
    */
-  const key = resumeId
-    ? storedChatKey(cli, opts.cwd, resumeId)
-    : opts.freshKey !== undefined
-      ? newChatKey(cli, opts.freshKey)
-      : null
+  const key =
+    opts.fork && opts.freshKey !== undefined
+      ? forkChatKey(cli, opts.freshKey)
+      : resumeId
+        ? storedChatKey(cli, opts.cwd, resumeId)
+        : opts.freshKey !== undefined
+          ? newChatKey(cli, opts.freshKey)
+          : null
 
   const enabled = opts.enabled !== false
 
@@ -2078,7 +2192,8 @@ export function useChat(opts: {
       authMode: opts.authMode,
       channelId: opts.channelId,
       addDirs: opts.addDirs,
-      resumeId
+      resumeId,
+      fork: opts.fork === true
     })
     // 创建参数故意不进依赖：key 已经代表会话身份，默认设置变化不该重建会话
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2139,6 +2254,10 @@ export function useChat(opts: {
       applyChannel: controller ? controller.applyChannel : noopChannel,
       applyAuth: controller ? controller.applyAuth : noopAuth,
       applyAddDirs: controller ? controller.applyAddDirs : noopAddDirs,
+      listCheckpoints: controller ? controller.listCheckpoints : noopCheckpoints,
+      previewCheckpoint: controller ? controller.previewCheckpoint : noopPreview,
+      restoreCheckpoint: controller ? controller.restoreCheckpoint : noopRestore,
+      noteCheckpointRestored: controller ? controller.noteCheckpointRestored : noop,
       notice: s.notice,
       clearNotice: controller ? controller.clearNotice : noop
     }

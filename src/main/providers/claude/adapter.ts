@@ -36,6 +36,8 @@ export function buildClaudeArgs(o: {
   effort?: EffortLevel
   addDirs: string[]
   resumeId?: string | null
+  /** 接着已有会话时复制成新会话，而不是共用原会话 */
+  fork?: boolean
   /**
    * 官方登录模式。此时**不加载用户级 settings.json** —— 用户全局那套
    * ANTHROPIC_BASE_URL / AUTH_TOKEN 会盖过官方 OAuth 凭据，让"官方登录"
@@ -85,6 +87,8 @@ export function buildClaudeArgs(o: {
 
   // 接着已有会话跑。cwd 必须和原会话一致，否则 CLI 找不到那份记录。
   if (o.resumeId) args.push('--resume', o.resumeId)
+  // 分叉：历史照常加载，但 CLI 会分配一个新的 session id，原会话不受影响
+  if (o.resumeId && o.fork) args.push('--fork-session')
 
   // 官方登录：绕开 ~/.claude/settings.json 里的全局 provider env。
   // 只保留项目级 / local 配置（MCP、hooks 等仍按目录生效）。
@@ -224,6 +228,7 @@ class ClaudeSession implements ProviderSession {
       effort: o.effort,
       addDirs: o.addDirs,
       resumeId: o.resumeId,
+      fork: o.fork,
       // channel 为 null = 官方登录
       official: !o.channel,
       mcpConfigPath

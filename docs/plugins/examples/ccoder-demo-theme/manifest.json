@@ -1,0 +1,33 @@
+{
+  "id": "ccoder-demo-theme",
+  "name": "演示主题",
+  "version": "0.1.0",
+  "tier": "declarative",
+  "description": "免代码示例：覆盖分支色与状态栏标识，不运行 JavaScript。",
+  "author": "CCoder",
+  "permissions": ["theme", "ui:status-bar"],
+  "contributes": {
+    "themes": [
+      {
+        "name": "Demo Violet",
+        "tokens": {
+          "dark": {
+            "--br-accent": "#b8a1e0",
+            "--br-text": "#d4c5f0",
+            "--br-bg": "rgba(184,161,224,.10)",
+            "--br-border": "rgba(184,161,224,.28)"
+          },
+          "light": {
+            "--br-accent": "#6b4fa0",
+            "--br-text": "#5a3d91",
+            "--br-bg": "rgba(107,79,160,.08)",
+            "--br-border": "rgba(107,79,160,.26)"
+          }
+        }
+      }
+    ],
+    "statusBarItems": [
+      { "text": "Demo 主题", "tone": "accent", "align": "end" }
+    ]
+  }
+}

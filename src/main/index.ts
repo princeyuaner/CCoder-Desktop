@@ -112,6 +112,7 @@ import {
   updateSessionMeta
 } from './session-meta-store'
 import { SessionManager } from './session-manager'
+import { CheckpointStore } from './checkpoints'
 import { SessionEventBatcher } from './session-event-batcher'
 import { validateSessionDir } from './session-dirs'
 import { searchWorkspaceFiles } from './workspace-search'
@@ -229,6 +230,7 @@ import { isSameOrInside, pathKey } from './path-key'
 import { applyNativeTheme, windowBg } from './window-theme'
 import { createUpdater, registerUpdaterIpc } from './updater'
 import { installCrashHandlers, logFilePath, logMain } from './crash-log'
+import { registerPluginIpc } from './plugins'
 import { labelOf, labelWindow } from './window-log'
 import { safeSend } from './safe-send'
 import { configureSyncHost } from './sync/host'
@@ -243,6 +245,23 @@ import {
 import type { RendererLogReport } from '../shared/log'
 import { resolveLanguage } from '../shared/i18n'
 import { applyLanguageSetting, initMainI18n, mainLocaleInfo, t } from './i18n'
+
+/*
+ * 便携版默认会和安装版共用 %APPDATA%/ccoder-desktop。安装版正在跑时，
+ * Chromium 的 profile 单例锁会让后启动的便携版直接退出 —— 用户看到的就是
+ * 双击后闪一下没了。把便携版数据放 exe 同级的 CCoderData，两边彻底分开。
+ *
+ * 必须在 installCrashHandlers() / 任何 app.getPath('userData') 之前执行。
+ */
+if (process.env.PORTABLE_EXECUTABLE_DIR) {
+  try {
+    const portableData = join(process.env.PORTABLE_EXECUTABLE_DIR, 'CCoderData')
+    mkdirSync(portableData, { recursive: true })
+    app.setPath('userData', portableData)
+  } catch {
+    // exe 所在目录不可写（例如放在 Program Files）时退回默认 userData
+  }
+}
 
 /*
  * 崩溃现场：主进程的 JS 异常、渲染进程 / GPU 进程消失都会写进
@@ -1469,16 +1488,40 @@ function broadcast(channel: string, payload: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) safeSend(w, channel, payload)
 }
 
-function registerSessionIpc(sessions: SessionManager): void {
+function registerSessionIpc(sessions: SessionManager, checkpoints: CheckpointStore): void {
   // 删会话要连进程一起收 —— 放在这里是因为它需要 SessionManager
   ipcMain.handle(IPC.sessionsDelete, async (_e, cwd: string, id: string) => {
     // 正在跑的那条先把进程收掉，否则 Windows 上文件被占着 unlink 会 EPERM
     sessions.stopByProviderId(id)
     const r = await deleteStoredSession(cwd, id)
     // 记录都删了，重命名 / 置顶 / 归档也没有存在的意义
-    if (r.ok) forgetSessionMeta(cwd, id)
+    if (r.ok) {
+      forgetSessionMeta(cwd, id)
+      // 检查点也跟着清掉，不然重建同名会话会看到别人的历史
+      void checkpoints.forgetProvider(id, cwd).catch((e) => logMain('checkpoints.forget', e))
+    }
     return r
   })
+
+  ipcMain.handle(IPC.sessionCheckpoints, (_e, id: unknown) =>
+    sessions.listCheckpoints(typeof id === 'string' ? id : '')
+  )
+  ipcMain.handle(
+    IPC.sessionCheckpointPreview,
+    (_e, id: unknown, checkpointId: unknown) =>
+      sessions.previewCheckpoint(
+        typeof id === 'string' ? id : '',
+        typeof checkpointId === 'string' ? checkpointId : ''
+      )
+  )
+  ipcMain.handle(
+    IPC.sessionCheckpointRestore,
+    (_e, id: unknown, checkpointId: unknown) =>
+      sessions.restoreCheckpoint(
+        typeof id === 'string' ? id : '',
+        typeof checkpointId === 'string' ? checkpointId : ''
+      )
+  )
 
   // 重命名 / 置顶 / 归档只动应用自己的那一份元数据，不碰 CLI 的记录文件
   ipcMain.handle(IPC.sessionsMeta, () => getSessionMeta())
@@ -1668,6 +1711,7 @@ app.whenReady().then(() => {
 
   // 按 16ms 合并 token 级增量，减少 IPC 与渲染层整段 Markdown 重解析
   const sessionEvents = new SessionEventBatcher((p) => sendToChatMain(IPC.sessionEvent, p))
+  const checkpoints = new CheckpointStore(join(app.getPath('userData'), 'checkpoints'))
   const sessions = new SessionManager(
     loadSettings,
     (p) => sessionEvents.push(p),
@@ -1675,7 +1719,8 @@ app.whenReady().then(() => {
       // 先送完挂起的正文，再推 idle / exited，保证最后一个字不会晚到
       sessionEvents.flush(p.sessionId)
       sendToChatMain(IPC.sessionStatus, p)
-    }
+    },
+    checkpoints
   )
 
   // 登录状态机不直接碰 electron：事件出口和"打开浏览器"都从这里注入
@@ -1698,12 +1743,21 @@ app.whenReady().then(() => {
   registerMcpIpc(sessions)
   registerSkillsIpc()
   registerHooksIpc()
+  registerPluginIpc({
+    changed: () => broadcast(IPC.pluginsChanged, null),
+    // 开发模式先读仓库里的示例索引；打包版带一份 plugin-market 兜底，
+    // 远程索引不可用时市场页仍然可打开。
+    devMarketIndex: app.isPackaged
+      ? join(process.resourcesPath, 'plugin-market', 'index.json')
+      : join(process.cwd(), 'docs', 'plugins', 'index.json'),
+    preferDevMarket: !app.isPackaged
+  })
   registerClaudeAuthIpc()
   // CLI 版本检查 / 更新：状态归主进程，设置页与导航标记都订它
   initCliUpdate({ emit: (e) => broadcast(IPC.cliUpdateEvent, e) })
   startCliUpdateAutoCheck(() => loadSettings().cliUpdate.autoCheck)
   registerCliUpdateIpc()
-  registerSessionIpc(sessions)
+  registerSessionIpc(sessions, checkpoints)
   registerWorkspaceIpc()
   registerIdeIpc()
   registerVcsIpc(sessions)

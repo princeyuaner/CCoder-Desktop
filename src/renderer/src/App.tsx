@@ -1,6 +1,14 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sessionMetaKey, type StoredSession } from '@shared/session'
-import { cliDef, isAmbientTheme, sameCwd, type CliAuthMode, type CliId } from '@shared/settings'
+import {
+  cliDef,
+  isAmbientTheme,
+  sameCwd,
+  type CliAuthMode,
+  type CliId,
+  type EffortLevel
+} from '@shared/settings'
+import type { PermissionMode } from '@shared/events'
 import { disposeIdleNewChats, disposeStoredChat, forgetInputHistory } from './useChat'
 import { TitleBar } from './components/TitleBar'
 import { StarfieldBackground } from './components/StarfieldBackground'
@@ -16,6 +24,11 @@ import { NewSessionDialog } from './components/NewSessionDialog'
 const SettingsPage = lazy(() =>
   import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 )
+const PluginsManagerPage = lazy(() =>
+  import('./components/PluginsManagerPage').then((m) => ({
+    default: m.PluginsManagerPage
+  }))
+)
 import { ConfirmModal } from './components/ConfirmModal'
 import { WhatsNewModal } from './components/WhatsNewModal'
 import { baseName, cwdKey } from '@shared/path'
@@ -30,6 +43,7 @@ import { useUpdater } from './useUpdater'
 import { applyAppearance } from './appearance'
 import { applyLanguageSetting, useI18n } from './i18n'
 import { onNotice } from './notice'
+import { initPluginHost } from './plugins/host'
 import type { ChatActiveInfo, IdeCodeRef, IdeSendPayload } from '@shared/ide-chat'
 import './styles/shell.css'
 import './styles/chat.css'
@@ -42,6 +56,8 @@ import './styles/update.css'
 import './styles/whats-new.css'
 import './styles/search.css'
 import './styles/newsession.css'
+import './styles/checkpoints.css'
+import './styles/plugins.css'
 /* 浅色覆盖必须最后加载（或靠选择器权重压过组件样式），这里放最后一行 */
 import './styles/theme-light.css'
 /* 星野主题的背景层和玻璃表面覆盖；只在 data-theme=starfield 下生效 */
@@ -49,7 +65,7 @@ import './styles/starfield.css'
 /* 六套氛围主题的玻璃表面覆盖；只在 data-ambient 存在时生效 */
 import './styles/ambient.css'
 
-type View = 'chat' | 'settings'
+type View = 'chat' | 'settings' | 'plugins'
 
 /**
  * 当前打开的是新会话，还是磁盘上某条已有会话。
@@ -62,8 +78,19 @@ type View = 'chat' | 'settings'
  * `cwd` 是「在某个工作区下开新会话」时指定的目录；不指定就走
  * 「默认工作目录 → 上次打开的目录」那条链。
  */
+/** 分叉来源：源会话的稳定身份 + 标题，用来做预览和初始设置 */
+export interface ForkSource {
+  cli: CliId
+  cwd: string
+  id: string
+  title: string
+  /** 源会话当前的权限模式 / 思考深度，分叉后沿用 */
+  permissionMode: PermissionMode
+  effort: EffortLevel
+}
+
 export type Active =
-  | { kind: 'new'; n: number; cwd?: string }
+  | { kind: 'new'; n: number; cwd?: string; forkFrom?: ForkSource }
   | { kind: 'stored'; id: string; cwd: string; title: string; cli: CliId }
 
 /**
@@ -105,6 +132,11 @@ export function App(): JSX.Element {
   const activeTheme = useActiveTheme()
   const [view, setView] = useState<View>('chat')
   const [active, setActive] = useState<Active>({ kind: 'new', n: 0 })
+
+  // 插件宿主在启动时就加载：状态栏 / 命令等贡献不等用户打开插件页
+  useEffect(() => {
+    void initPluginHost()
+  }, [])
   /**
    * 新会话序号。**只增不减**，且不能从当前 active 推导 ——
    * 否则从已有会话点回「新会话」时 n 会重置，可能撞上一条仍在后台跑的
@@ -460,6 +492,26 @@ export function App(): JSX.Element {
   }
 
   /**
+   * 从当前会话分叉一条新对话。
+   *
+   * 界面上仍然用 `kind: 'new'`：分叉在 CLI 侧还没有 id，等第一条消息发出后
+   * 才会拿到新会话记录。`forkFrom` 让 MainPane 用源会话的历史做预览，
+   * 并让 useChat 使用独立 controller，避免写回原会话。
+   */
+  const forkSession = (source: ForkSource): void => {
+    disposeIdleNewChats()
+    newSeq.current += 1
+    setActive({
+      kind: 'new',
+      n: newSeq.current,
+      cwd: source.cwd,
+      forkFrom: source
+    })
+    setPickedCwd(source.cwd)
+    setView('chat')
+  }
+
+  /**
    * 点了通知 → 切到那条会话。
    *
    * 会话可能已经不在磁盘上了（被删 / 工作区被收起来）：这时什么都不做 ——
@@ -691,6 +743,22 @@ export function App(): JSX.Element {
     }
   }, [pickedCwd, settings.openedCwds])
 
+  /**
+   * 会话级元数据（模型 / 渠道 / 附加目录）从哪条会话取。
+   *
+   * 分叉在拿到自己的 id 之前，应该继承源会话的设置 —— 否则用户刚分叉
+   * 就掉回全局默认模型，和原对话的行为对不上。
+   */
+  const metaSource =
+    active.kind === 'stored'
+      ? active
+      : active.kind === 'new' && active.forkFrom
+        ? active.forkFrom
+        : null
+  const activeMeta = metaSource
+    ? meta[sessionMetaKey(metaSource.cli, metaSource.cwd, metaSource.id)]
+    : undefined
+
   return (
     <>
       {activeTheme === 'starfield' && <StarfieldBackground />}
@@ -724,6 +792,8 @@ export function App(): JSX.Element {
           selectionReset={selectionReset}
           onRefresh={() => void refresh()}
           onOpenSettings={() => setView('settings')}
+          onOpenPlugins={() => setView('plugins')}
+          pluginsActive={view === 'plugins'}
           onOpenSearch={() => setSearchOpen(true)}
           meta={meta}
           onUpdateMeta={updateSessionMeta}
@@ -740,28 +810,12 @@ export function App(): JSX.Element {
               ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.title ?? null)
               : null
           }
-          // 这条会话自己记下的模型。和标题一样，只有已有会话才有
-          initialModel={
-            active.kind === 'stored'
-              ? (meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.model ?? '')
-              : ''
-          }
+          // 这条会话自己记下的模型。分叉在拿到新 id 前继承源会话
+          initialModel={activeMeta?.model ?? ''}
           // 渠道 / 来源同样按会话取：别的对话切了渠道不该带过来
-          initialAuthMode={
-            active.kind === 'stored'
-              ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.authMode
-              : undefined
-          }
-          initialChannelId={
-            active.kind === 'stored'
-              ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.channelId
-              : undefined
-          }
-          initialAddDirs={
-            active.kind === 'stored'
-              ? meta[sessionMetaKey(active.cli, active.cwd, active.id)]?.addDirs
-              : undefined
-          }
+          initialAuthMode={activeMeta?.authMode}
+          initialChannelId={activeMeta?.channelId}
+          initialAddDirs={activeMeta?.addDirs}
           onPersistModel={persistSessionModel}
           onPersistAuth={persistSessionAuth}
           onPersistAddDirs={persistSessionAddDirs}
@@ -772,6 +826,7 @@ export function App(): JSX.Element {
           cwdReady={!loading}
           metaReady={!metaLoading}
           onNewSession={newSession}
+          onForkSession={forkSession}
           onActiveInfo={reportActive}
           incomingRefs={incomingRefs}
           onIncomingConsumed={() => setIncomingRefs(null)}
@@ -792,6 +847,13 @@ export function App(): JSX.Element {
           }}
         />
       </div>
+
+      {/* 插件一级页：只盖住主区，侧栏保持可切换 */}
+      {view === 'plugins' && (
+        <Suspense fallback={null}>
+          <PluginsManagerPage onBack={() => setView('chat')} />
+        </Suspense>
+      )}
 
       {/* 设置弹窗：盖住侧栏和主区，但不卸载当前对话 */}
       {view === 'settings' && (

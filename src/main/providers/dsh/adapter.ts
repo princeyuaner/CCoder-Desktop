@@ -1036,6 +1036,8 @@ class DshSession implements ProviderSession {
 
 export class DshProvider implements Provider {
   id = 'dsh'
+  /** ACP 0.2.1 没有 fork 方法；先禁用，别让界面给出一个必然失败的分叉入口 */
+  supportsFork = false
 
   async detect(): Promise<{ installed: boolean; path: string }> {
     const status = await checkDshStatus()

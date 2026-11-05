@@ -40,8 +40,21 @@ import type {
   HookWritableScope
 } from '../shared/hooks'
 import type {
+  PluginListResult,
+  PluginLocalInspectResult,
+  PluginMarketInstallResult,
+  PluginMarketListResult,
+  PluginMutationResult,
+  PluginRuntimeAssets,
+  PluginSetStorageResult,
+  PluginStorageValue
+} from '../shared/plugins'
+import type {
   PermissionDecision,
   QuestionAnswer,
+  SessionCheckpointList,
+  SessionCheckpointPreview,
+  SessionCheckpointRestore,
   SessionEventPayload,
   SessionMetaMap,
   SessionMetaUpdate,
@@ -308,6 +321,41 @@ const api: WindowApi = {
       ipcRenderer.invoke(IPC.hooksOpenBackups)
   },
 
+  plugins: {
+    list: (): Promise<PluginListResult> => ipcRenderer.invoke(IPC.pluginsList),
+    inspectLocal: (): Promise<PluginLocalInspectResult> =>
+      ipcRenderer.invoke(IPC.pluginsInspectLocal),
+    installLocal: (token: string): Promise<PluginMutationResult> =>
+      ipcRenderer.invoke(IPC.pluginsInstallLocal, token),
+    setEnabled: (id: string, enabled: boolean): Promise<PluginMutationResult> =>
+      ipcRenderer.invoke(IPC.pluginsSetEnabled, id, enabled),
+    uninstall: (id: string): Promise<PluginMutationResult> =>
+      ipcRenderer.invoke(IPC.pluginsUninstall, id),
+    reveal: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.pluginsReveal, id),
+    runtime: (id: string): Promise<PluginRuntimeAssets | null> =>
+      ipcRenderer.invoke(IPC.pluginsReadRuntime, id),
+    storage: {
+      get: (id: string, key: string): Promise<PluginStorageValue> =>
+        ipcRenderer.invoke(IPC.pluginsStorageGet, id, key),
+      set: (id: string, key: string, value: unknown): Promise<PluginSetStorageResult> =>
+        ipcRenderer.invoke(IPC.pluginsStorageSet, id, key, value),
+      delete: (id: string, key: string): Promise<PluginSetStorageResult> =>
+        ipcRenderer.invoke(IPC.pluginsStorageDelete, id, key)
+    },
+    market: {
+      list: (force?: boolean): Promise<PluginMarketListResult> =>
+        ipcRenderer.invoke(IPC.pluginsMarketList, force === true),
+      install: (id: string, version?: string): Promise<PluginMarketInstallResult> =>
+        ipcRenderer.invoke(IPC.pluginsMarketInstall, id, version)
+    },
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.pluginsChanged, listener)
+      return () => ipcRenderer.off(IPC.pluginsChanged, listener)
+    }
+  },
+
   codex: {
     status: (): Promise<CodexStatus> => ipcRenderer.invoke(IPC.codexStatus)
   },
@@ -375,6 +423,12 @@ const api: WindowApi = {
     respondQuestion: (id: string, requestId: string, answer: QuestionAnswer) =>
       ipcRenderer.send(IPC.sessionRespondQuestion, id, requestId, answer),
     reconfigure: (id, patch) => ipcRenderer.send(IPC.sessionReconfigure, id, patch),
+    checkpoints: (id: string): Promise<SessionCheckpointList> =>
+      ipcRenderer.invoke(IPC.sessionCheckpoints, id),
+    previewCheckpoint: (id: string, checkpointId: string): Promise<SessionCheckpointPreview> =>
+      ipcRenderer.invoke(IPC.sessionCheckpointPreview, id, checkpointId),
+    restoreCheckpoint: (id: string, checkpointId: string): Promise<SessionCheckpointRestore> =>
+      ipcRenderer.invoke(IPC.sessionCheckpointRestore, id, checkpointId),
     running: (): Promise<string[]> => ipcRenderer.invoke(IPC.sessionRunning),
     onEvent: (cb) => {
       const listener = (_e: Electron.IpcRendererEvent, p: SessionEventPayload): void => cb(p)

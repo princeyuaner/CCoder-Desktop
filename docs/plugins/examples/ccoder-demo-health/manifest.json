@@ -1,0 +1,17 @@
+{
+  "id": "ccoder-demo-health",
+  "name": "项目健康面板",
+  "version": "0.1.0",
+  "tier": "js",
+  "description": "示例插件：状态栏、命令、设置页和主区页签。",
+  "author": "CCoder",
+  "permissions": [
+    "ui:status-bar",
+    "ui:command",
+    "ui:settings-section",
+    "ui:panel-tab",
+    "storage",
+    "events",
+    "theme"
+  ]
+}

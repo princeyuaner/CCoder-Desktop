@@ -48,6 +48,9 @@ import type { DirCheckResult } from './add-dirs'
 import type {
   PermissionDecision,
   QuestionAnswer,
+  SessionCheckpointList,
+  SessionCheckpointPreview,
+  SessionCheckpointRestore,
   SessionEventPayload,
   SessionFocusTarget,
   SessionMetaMap,
@@ -113,6 +116,16 @@ import type { SyncApi } from './sync'
 import type { UpdateInstallResult, UpdateState } from './update'
 import type { RendererLogReport } from './log'
 import type { LocaleInfo } from './i18n/locale'
+import type {
+  PluginListResult,
+  PluginLocalInspectResult,
+  PluginMarketInstallResult,
+  PluginMarketListResult,
+  PluginMutationResult,
+  PluginRuntimeAssets,
+  PluginSetStorageResult,
+  PluginStorageValue
+} from './plugins'
 
 export const IPC = {
   winMinimize: 'win:minimize',
@@ -214,6 +227,10 @@ export const IPC = {
   sessionRespondPermission: 'session:respond-permission',
   sessionRespondQuestion: 'session:respond-question',
   sessionReconfigure: 'session:reconfigure',
+  /** 文件检查点：列出 / 预览 / 恢复 */
+  sessionCheckpoints: 'session:checkpoints',
+  sessionCheckpointPreview: 'session:checkpoint-preview',
+  sessionCheckpointRestore: 'session:checkpoint-restore',
   /** 此刻哪些会话在跑（CLI 的 session id 列表） */
   sessionRunning: 'session:running',
 
@@ -349,6 +366,22 @@ export const IPC = {
   syncStatus: 'sync:status',
   /** 主进程 → IDE 渲染进程：系统通知点击后切到同步视图 */
   syncFocus: 'sync:focus',
+
+  /* ── 插件 ─────────────────────────────────────────── */
+  pluginsList: 'plugins:list',
+  pluginsInspectLocal: 'plugins:inspect-local',
+  pluginsInstallLocal: 'plugins:install-local',
+  pluginsSetEnabled: 'plugins:set-enabled',
+  pluginsUninstall: 'plugins:uninstall',
+  pluginsReveal: 'plugins:reveal',
+  pluginsReadRuntime: 'plugins:read-runtime',
+  pluginsStorageGet: 'plugins:storage-get',
+  pluginsStorageSet: 'plugins:storage-set',
+  pluginsStorageDelete: 'plugins:storage-delete',
+  pluginsMarketList: 'plugins:market-list',
+  pluginsMarketInstall: 'plugins:market-install',
+  /** 主进程 → 渲染层：插件列表 / 状态变了，重新拉一遍 */
+  pluginsChanged: 'plugins:changed',
 
   /* ── 工作树 → 新会话 ───────────────────────────────── */
   /** IDE → 主进程：请求在主窗口里用这个目录开一条新会话 */
@@ -618,6 +651,13 @@ export interface WindowApi {
         addDirs?: string[]
       }
     ): void
+    /**
+     * 文件检查点。`sessionId` 是 `session.start` 返回的内部 Live id，
+     * 主进程会校验它属于当前会话，不会接受任意工作区路径。
+     */
+    checkpoints(sessionId: string): Promise<SessionCheckpointList>
+    previewCheckpoint(sessionId: string, checkpointId: string): Promise<SessionCheckpointPreview>
+    restoreCheckpoint(sessionId: string, checkpointId: string): Promise<SessionCheckpointRestore>
     onEvent(cb: (payload: SessionEventPayload) => void): () => void
     onStatus(cb: (payload: SessionStatusPayload) => void): () => void
     /**
@@ -817,5 +857,36 @@ export interface WindowApi {
     notifyDone(payload: SessionNotifyPayload): void
     /** 主窗口：用户点了通知，切到那条会话 */
     onFocusSession(cb: (target: SessionFocusTarget) => void): () => void
+  }
+
+  /**
+   * 插件系统。
+   *
+   * 安装 / 卸载 / 启停都由主进程落地；渲染层只拿稳定 id，不传路径。
+   * `runtime` 返回插件代码文本，渲染层用 Blob URL 动态 import，避免
+   * file:// 在打包后的 CSP / 跨源限制。
+   */
+  plugins: {
+    list(): Promise<PluginListResult>
+    /** 弹系统目录选择器并解析 manifest；取消时 error='canceled' */
+    inspectLocal(): Promise<PluginLocalInspectResult>
+    /** 用 inspectLocal 返回的 token 确认安装；token 由主进程发放 */
+    installLocal(token: string): Promise<PluginMutationResult>
+    setEnabled(id: string, enabled: boolean): Promise<PluginMutationResult>
+    uninstall(id: string): Promise<PluginMutationResult>
+    reveal(id: string): Promise<{ ok: boolean; error?: string }>
+    /** 只有 enabled=true 的插件才允许读运行时资源 */
+    runtime(id: string): Promise<PluginRuntimeAssets | null>
+    storage: {
+      get(id: string, key: string): Promise<PluginStorageValue>
+      set(id: string, key: string, value: unknown): Promise<PluginSetStorageResult>
+      delete(id: string, key: string): Promise<PluginSetStorageResult>
+    }
+    market: {
+      list(force?: boolean): Promise<PluginMarketListResult>
+      install(id: string, version?: string): Promise<PluginMarketInstallResult>
+    }
+    /** 主进程侧插件目录 / 状态变化，返回取消订阅函数 */
+    onChanged(cb: () => void): () => void
   }
 }

@@ -6,6 +6,8 @@ interface Props {
   title: string
   /** 当前工作目录检出的 Git 分支；空串 = 不是仓库 / 还没读到 */
   branch?: string
+  /** 这条会话是从别的会话分叉出来的 */
+  forked?: boolean
   modeLabel: string
   /** 当前会话有任务或子代理 —— 有才显示执行台的开合按钮 */
   hasRunInfo: boolean
@@ -27,6 +29,7 @@ interface Props {
 function ChatHeaderImpl({
   title,
   branch,
+  forked,
   modeLabel,
   hasRunInfo,
   panelOpen,
@@ -55,6 +58,7 @@ function ChatHeaderImpl({
             {branch}
           </span>
         )}
+        {forked && <span className="chip chathead__fork">{t('chat.forked')}</span>}
         <span className="badge">{modeLabel}</span>
       </div>
       <div className="chathead__right">

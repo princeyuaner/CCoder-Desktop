@@ -53,6 +53,65 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.24',
+    date: '2026-11-05',
+    highlight: {
+      icon: 'sparkle',
+      title: {
+        zh: '插件系统上线',
+        en: 'Plugins arrive'
+      },
+      desc: {
+        zh: '侧栏新增插件页。免代码插件只需要 manifest 和 CSS，需要逻辑的插件用单文件 ESM；本地目录安装、热重载、启停和市场安装都已打通。',
+        en: 'A new Plugins page in the sidebar. No-code plugins need only a manifest and CSS; code plugins are a single ESM file. Local install, hot reload, enable/disable, and market install all work.'
+      }
+    },
+    sections: [
+      {
+        kind: 'new',
+        items: [
+          {
+            icon: 'sparkle',
+            title: { zh: '插件与市场', en: 'Plugins and market' },
+            desc: {
+              zh: '支持状态栏、命令面板、设置页、主区页签、主题 token 和受限 CSS；权限按风险分级并在安装前展示。市场读取静态索引、校验 sha256 后安装，远程不可用时回退到内置索引。',
+              en: 'Plugins can extend the status bar, command palette, settings, main-area tabs, theme tokens, and scoped CSS. Permissions are risk-rated and shown before install. The market validates sha256 and falls back to a bundled index when the remote is unavailable.'
+            }
+          },
+          {
+            icon: 'review',
+            title: { zh: '文件检查点', en: 'File checkpoints' },
+            desc: {
+              zh: '每轮开始前自动给工作区拍快照，可以从会话菜单预览并恢复到任意一轮开始前的状态；恢复前会再拍一份备份，恢复错了还能退回来。快照使用应用自己的 shadow git 仓库，不碰用户仓库的 HEAD / index / stash。',
+              en: 'A workspace snapshot is captured before every turn. Preview and restore to the state before any turn from the session menu; a backup is captured first so the restore itself can be undone. Snapshots use an app-owned shadow Git repository and never touch the user’s HEAD, index, or stash.'
+            }
+          },
+          {
+            icon: 'batch',
+            title: { zh: '会话分叉', en: 'Session fork' },
+            desc: {
+              zh: '从会话菜单把当前对话复制成一条新会话。Claude 走 --fork-session，Codex 走 thread/fork；新会话拥有自己的记录，后续修改不会回写原会话。',
+              en: 'Copy the current conversation into a new session from the session menu. Claude uses --fork-session and Codex uses thread/fork; the fork gets its own record, so later changes never write back to the original.'
+            }
+          }
+        ]
+      },
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'collapse',
+            title: { zh: '便携版配置隔离', en: 'Portable build keeps its own data' },
+            desc: {
+              zh: '便携版把数据写到 exe 同级的 CCoderData，不再和安装版共用 %APPDATA%，同时启动时不会再因为配置锁互相挤掉。',
+              en: 'The portable build now stores data in CCoderData next to the executable instead of sharing %APPDATA% with the installed build, so the two no longer knock each other out over the profile lock.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.23',
     date: '2026-11-05',
     highlight: {

@@ -48,6 +48,7 @@ import { useClaudeAuth } from '../useClaudeAuth'
 import { useCliUpdate } from '../useCliUpdate'
 import { useDshStatus } from '../useDshStatus'
 import { useUpdater } from '../useUpdater'
+import { usePluginSettingsSections } from '../plugins/hooks'
 import { AboutPanel } from './AboutPanel'
 import { ChannelForm } from './ChannelForm'
 import { ClaudeAuthPanel } from './ClaudeAuthPanel'
@@ -114,6 +115,7 @@ type Page =
   | { kind: 'mcp' }
   | { kind: 'hooks' }
   | { kind: 'skills' }
+  | { kind: 'plugin'; pluginId: string; key: string }
   | { kind: 'about' }
 
 export function SettingsPage({
@@ -125,6 +127,7 @@ export function SettingsPage({
   initialPage?: 'mcp' | 'skills'
 }): JSX.Element {
   const { t } = useI18n()
+  const pluginSections = usePluginSettingsSections()
   const { settings, loading, save, test } = useSettings()
   const [page, setPage] = useState<Page>(() =>
     initialPage === 'mcp'
@@ -583,6 +586,30 @@ export function SettingsPage({
               label={t('settings.nav.skills')}
             />
 
+            {pluginSections.length > 0 && (
+              <>
+                <div className="settings__navgroup">插件</div>
+                {pluginSections.map((section) => (
+                  <NavItem
+                    key={section.id}
+                    active={
+                      page.kind === 'plugin' &&
+                      page.pluginId === section.pluginId &&
+                      page.key === section.key
+                    }
+                    onClick={() =>
+                      setPage({
+                        kind: 'plugin',
+                        pluginId: section.pluginId,
+                        key: section.key
+                      })
+                    }
+                    label={section.label}
+                  />
+                ))}
+              </>
+            )}
+
             <div className="settings__navgroup">{t('settings.nav.cli')}</div>
             {CLIS.map((d) => (
               <NavItem
@@ -832,6 +859,22 @@ export function SettingsPage({
                 />
               </Suspense>
             )}
+
+            {page.kind === 'plugin' && (() => {
+              const section = pluginSections.find(
+                (x) => x.pluginId === page.pluginId && x.key === page.key
+              )
+              if (!section) {
+                return <p className="settings__empty">插件设置已不可用。</p>
+              }
+              const Component = section.component
+              return (
+                <section className="plugin-settings-section">
+                  <h2 className="chform__title">{section.label}</h2>
+                  <Component />
+                </section>
+              )
+            })()}
 
             {page.kind === 'general' && (
               <>

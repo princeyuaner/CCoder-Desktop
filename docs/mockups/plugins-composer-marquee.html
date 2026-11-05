@@ -1,0 +1,912 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CCoder · 输入框跑马灯效果审核</title>
+<style>
+  @property --fx-angle {
+    syntax: "<angle>";
+    initial-value: 0deg;
+    inherits: false;
+  }
+
+  :root {
+    --app: #0a0a0d;
+    --sidebar: #101014;
+    --raised: #17171c;
+    --raised-2: #1d1d23;
+    --hover: #22222a;
+    --border: #2a2a32;
+    --border-strong: #3a3a44;
+    --text: #e9e9ee;
+    --text-dim: #a6a6b0;
+    --text-muted: #7c7c88;
+    --text-faint: #5c5c68;
+    --accent: #e9e9ee;
+    --fx-a: #67e8f9;
+    --fx-b: #a78bfa;
+    --fx-c: #f472b6;
+    --fx-glow: 0.75;
+    --fx-dur: 3.2s;
+    --radius: 14px;
+    --panel: rgba(22, 22, 28, 0.92);
+  }
+
+  html[data-theme="light"] {
+    --app: #f3f3f5;
+    --sidebar: #ececef;
+    --raised: #ffffff;
+    --raised-2: #f6f6f8;
+    --hover: #eeeef2;
+    --border: #dcdce1;
+    --border-strong: #c3c3cb;
+    --text: #1c1c20;
+    --text-dim: #4d4d57;
+    --text-muted: #71717c;
+    --text-faint: #9a9aa4;
+    --accent: #1c1c20;
+    --panel: rgba(255, 255, 255, 0.94);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    overflow: hidden;
+    color: var(--text);
+    background: var(--app);
+    font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.25s, color 0.25s;
+  }
+
+  button, textarea { font: inherit; }
+  button { color: inherit; cursor: pointer; }
+
+  .frame {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) 306px;
+    height: 100vh;
+    min-width: 1080px;
+  }
+
+  /* ── 左侧栏（仅提供真实语境） ─────────────────────────── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 14px 10px 0;
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .brand__dot {
+    width: 16px;
+    height: 16px;
+    background: var(--text);
+    border-radius: 5px;
+    box-shadow: inset 0 0 0 3px var(--sidebar);
+  }
+  .newchat {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    margin: 18px 2px 12px;
+    font-size: 12.5px;
+    background: var(--raised-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+  }
+  .newchat:hover { background: var(--hover); }
+  .nav { display: flex; flex-direction: column; gap: 2px; padding: 0 2px; }
+  .nav__item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    height: 32px;
+    padding: 0 9px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    border-radius: 7px;
+  }
+  .nav__item.is-active { color: var(--text); background: var(--raised-2); }
+  .nav__ico { width: 14px; text-align: center; opacity: 0.8; }
+  .section-label {
+    margin: 22px 9px 9px;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  .wsrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 9px;
+    font-size: 12px;
+    color: var(--text-dim);
+    border-radius: 7px;
+  }
+  .wsrow span:first-child { opacity: 0.65; }
+  .wsrow__count { margin-left: auto; font-size: 10px; color: var(--text-faint); }
+  .sidebar__foot {
+    margin-top: auto;
+    padding: 14px 9px 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-soft, var(--border));
+  }
+
+  /* ── 主区 ─────────────────────────────────────────────── */
+  .main {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background:
+      radial-gradient(120% 70% at 55% 25%, rgba(120, 140, 255, 0.035), transparent 60%),
+      var(--app);
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    height: 48px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar__title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .badge {
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .topbar__more { margin-left: auto; color: var(--text-faint); letter-spacing: 2px; }
+  .tabs {
+    display: flex;
+    gap: 22px;
+    height: 40px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .tab.is-active { color: var(--text); }
+  .tab.is-active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: var(--text);
+  }
+
+  .stage {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 40px 18px;
+  }
+  .empty {
+    margin: auto;
+    padding-bottom: 12vh;
+    font-size: 12.5px;
+    color: var(--text-faint);
+  }
+
+  .dock {
+    width: min(760px, 100%);
+    margin: 0 auto;
+  }
+  .cwd {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    margin: 0 0 6px 2px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  /* ── 输入框本体 ───────────────────────────────────────── */
+  .composer-box {
+    position: relative;
+    padding: 12px 12px 10px;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color 0.2s, box-shadow 0.3s;
+  }
+  .composer-box:focus-within { border-color: var(--border-strong); }
+
+  .composer-box textarea {
+    display: block;
+    width: 100%;
+    min-height: 26px;
+    max-height: 180px;
+    margin: 0;
+    padding: 2px 4px 10px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    background: none;
+    border: 0;
+    outline: none;
+    resize: none;
+    caret-color: var(--fx-a);
+  }
+  .composer-box textarea::placeholder { color: var(--text-faint); }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ibtn,
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 9px;
+    font-size: 11px;
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+  }
+  .ibtn:hover, .pill:hover { background: var(--hover); }
+  .ibtn--plus {
+    justify-content: center;
+    width: 28px;
+    padding: 0;
+    font-size: 18px;
+    font-weight: 300;
+    color: var(--text-muted);
+  }
+  .pill--model { min-width: 0; max-width: 260px; }
+  .pill--model b {
+    overflow: hidden;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--fx-b);
+    border-radius: 50%;
+    box-shadow: 0 0 6px color-mix(in srgb, var(--fx-b) 60%, transparent);
+  }
+  .caret { font-size: 8px; color: var(--text-faint); }
+  .spacer { flex: 1; }
+  .send {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin-left: 2px;
+    color: #111116;
+    background: var(--text-dim);
+    border: 0;
+    border-radius: 50%;
+    transition: background 0.15s, transform 0.12s;
+  }
+  .send.is-ready { background: var(--text); }
+  .send.is-stop { background: var(--text); }
+  .send__stop {
+    width: 9px;
+    height: 9px;
+    background: #111116;
+    border-radius: 2px;
+  }
+  .send:active { transform: scale(0.93); }
+  .send:disabled { opacity: 0.45; cursor: default; }
+  .statusline {
+    display: flex;
+    gap: 14px;
+    padding: 7px 4px 0;
+    font-size: 10.5px;
+    color: var(--text-faint);
+  }
+
+  /* ── 跑马灯：所有效果只用 ::before / ::after，方便原样封成 CSS 插件 ── */
+  .composer-box.fx-on::before,
+  .composer-box.fx-on::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    padding: 1.8px;
+    pointer-events: none;
+    border-radius: calc(var(--radius) + 1px);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: fx-spin var(--fx-dur) linear infinite;
+    animation-play-state: paused;
+    transition: opacity 0.3s ease;
+  }
+  .composer-box.fx-on::before { opacity: 0; }
+  .composer-box.fx-on::after {
+    inset: -2px;
+    padding: 6px;
+    opacity: 0;
+    filter: blur(11px);
+  }
+  .composer-box.fx-on.is-running { box-shadow: 0 0 26px -18px var(--fx-b); }
+  .composer-box.fx-on.is-running::before {
+    opacity: 1;
+    animation-play-state: running;
+  }
+  .composer-box.fx-on.is-running::after {
+    opacity: calc(var(--fx-glow) * 0.55);
+    animation-play-state: running;
+  }
+
+  @keyframes fx-spin { to { --fx-angle: 360deg; } }
+
+  /* 追光：一段亮头拖长尾，沿边框追逐 */
+  .fx-comet::before,
+  .fx-comet::after {
+    background: conic-gradient(
+      from var(--fx-angle),
+      transparent 0deg 195deg,
+      color-mix(in srgb, var(--fx-b) 16%, transparent) 240deg,
+      color-mix(in srgb, var(--fx-b) 70%, transparent) 292deg,
+      var(--fx-b) 320deg,
+      var(--fx-a) 336deg,
+      #ffffff 346deg,
+      var(--fx-a) 353deg,
+      transparent 360deg
+    );
+  }
+
+  /* 灯珠：一圈小灯珠匀速转，像老式跑马灯招牌 */
+  .fx-bulbs::before,
+  .fx-bulbs::after {
+    background:
+      repeating-conic-gradient(
+        from var(--fx-angle),
+        var(--fx-a) 0deg 2.2deg,
+        color-mix(in srgb, var(--fx-a) 65%, transparent) 2.8deg,
+        transparent 3.6deg 15deg
+      ),
+      linear-gradient(
+        color-mix(in srgb, var(--fx-a) 11%, transparent),
+        color-mix(in srgb, var(--fx-a) 11%, transparent)
+      );
+  }
+
+  /* 极光：整圈彩色流光缓慢旋转，边缘带柔光 */
+  .fx-aurora::before,
+  .fx-aurora::after {
+    background: conic-gradient(
+      from var(--fx-angle),
+      var(--fx-a),
+      var(--fx-b) 28%,
+      var(--fx-c) 52%,
+      var(--fx-b) 76%,
+      var(--fx-a)
+    );
+  }
+  /* 只在聚焦时增强（仍然只在运行中生效） */
+  body.boost .composer-box.fx-on.is-running::before { opacity: 0.4; }
+  body.boost .composer-box.fx-on.is-running::after { opacity: calc(var(--fx-glow) * 0.16); }
+  body.boost .composer-box.fx-on.is-running:focus-within::before { opacity: 1; }
+  body.boost .composer-box.fx-on.is-running:focus-within::after {
+    opacity: calc(var(--fx-glow) * 0.55);
+  }
+
+  /* 暂停 */
+  body.paused .composer-box.fx-on.is-running::before,
+  body.paused .composer-box.fx-on.is-running::after { animation-play-state: paused; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .composer-box.fx-on::before,
+    .composer-box.fx-on::after { animation: none; }
+  }
+
+  /* ── 右侧审核面板 ─────────────────────────────────────── */
+  .review {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 18px 18px 16px;
+    overflow-y: auto;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    backdrop-filter: blur(14px);
+  }
+  .review__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .review__head h1 {
+    margin: 0 0 5px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .review__head p {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--text-muted);
+  }
+  .theme-toggle {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    margin-left: auto;
+    background: var(--raised-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .theme-toggle:hover { background: var(--hover); }
+
+  .group { padding: 15px 0 0; }
+  .group__label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 9px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .group__value {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+  }
+
+  .seg {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3px;
+    padding: 3px;
+    background: var(--raised-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+  }
+  .seg button {
+    height: 28px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .seg button:hover { color: var(--text-dim); }
+  .seg button.is-active {
+    color: var(--text);
+    background: var(--hover);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+
+  .fx-desc {
+    min-height: 34px;
+    margin: 9px 0 0;
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: var(--text-faint);
+  }
+
+  .palettes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .palette {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 2px 6px;
+    font-size: 9.5px;
+    color: var(--text-faint);
+    background: var(--raised-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .palette:hover { background: var(--hover); }
+  .palette.is-active {
+    color: var(--text-dim);
+    border-color: var(--border-strong);
+  }
+  .palette i {
+    width: 26px;
+    height: 6px;
+    border-radius: 999px;
+  }
+  .palette[data-palette="aurora"] i { background: linear-gradient(90deg, #67e8f9, #a78bfa, #f472b6); }
+  .palette[data-palette="neon"] i { background: linear-gradient(90deg, #fb7185, #f59e0b, #f472b6); }
+  .palette[data-palette="ice"] i { background: linear-gradient(90deg, #7dd3fc, #e0f2fe, #a5b4fc); }
+  .palette[data-palette="lime"] i { background: linear-gradient(90deg, #a3e635, #22d3ee, #facc15); }
+
+  input[type="range"] {
+    width: 100%;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--fx-b);
+    background: transparent;
+  }
+
+  .switch-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0 0;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .switch-row small {
+    display: block;
+    margin-top: 2px;
+    font-size: 9.5px;
+    color: var(--text-faint);
+  }
+  .switch {
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 17px;
+    margin-left: auto;
+  }
+  .switch input {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .switch i {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: var(--border-strong);
+    border-radius: 999px;
+    transition: background 0.15s;
+  }
+  .switch i::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 13px;
+    height: 13px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .switch input:checked + i { background: color-mix(in srgb, var(--fx-b) 55%, var(--border)); }
+  .switch input:checked + i::after { background: #fff; transform: translateX(13px); }
+
+  .review__note {
+    margin-top: auto;
+    padding-top: 18px;
+    font-size: 10px;
+    line-height: 1.65;
+    color: var(--text-faint);
+  }
+  .review__note b { color: var(--text-muted); font-weight: 500; }
+  .kbd {
+    padding: 1px 4px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 9px;
+    color: var(--text-muted);
+    background: var(--raised-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    top: 22px;
+    z-index: 20;
+    padding: 8px 13px;
+    font-size: 11px;
+    color: var(--text);
+    background: var(--raised-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -8px);
+    transition: opacity 0.18s, transform 0.18s;
+  }
+  .toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 1180px) {
+    .frame { grid-template-columns: 190px minmax(0, 1fr) 286px; }
+    .stage { padding: 0 24px 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand__dot"></span>CCoder</div>
+    <button class="newchat">＋ 新会话</button>
+    <nav class="nav">
+      <div class="nav__item"><span class="nav__ico">◇</span>插件</div>
+      <div class="nav__item"><span class="nav__ico">◷</span>自动化任务</div>
+    </nav>
+    <div class="section-label">工作区</div>
+    <div class="wsrow"><span>▱</span><span>ccoder-ide-chat-6P…</span><b class="wsrow__count">0</b></div>
+    <div class="sidebar__foot">✳ 设置</div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar__title">新会话 <span class="badge">标准模式</span></div>
+      <div class="topbar__more">···</div>
+    </header>
+    <div class="tabs">
+      <span class="tab is-active">对话</span>
+      <span class="tab">轨迹</span>
+    </div>
+
+    <section class="stage">
+      <div class="empty">发一条消息开始 —— 渠道配好后这里就会出字。</div>
+
+      <div class="dock">
+        <div class="cwd">ccoder-ide-chat-6PXaAW</div>
+
+        <div class="composer-box fx-comet fx-on is-running" id="composerBox">
+          <textarea id="input" rows="1" placeholder="发消息或创建任务，/ 调用指令，@ 文件或对话"></textarea>
+          <div class="bar">
+            <button class="ibtn ibtn--plus" title="添加附件">＋</button>
+            <button class="pill pill--model"><span class="dot"></span><b>DeepSeek V4.1 [1m]</b><span class="caret">▾</span></button>
+            <div class="spacer"></div>
+            <button class="pill">标准模式 <span class="caret">▾</span></button>
+            <button class="send is-stop" id="send" title="停止"><span class="send__stop"></span></button>
+          </div>
+        </div>
+
+        <div class="statusline"><span>0 轮</span><span>0 步</span></div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="review">
+    <div class="review__head">
+      <div>
+        <h1>输入框跑马灯</h1>
+        <p>CSS 插件效果预览 · 三种候选，选一个继续打磨</p>
+      </div>
+      <button class="theme-toggle" id="themeBtn" title="切换深色 / 浅色">☾</button>
+    </div>
+
+    <div class="group">
+      <div class="group__label">效果</div>
+      <div class="seg" id="preset">
+        <button data-fx="comet" class="is-active">追光</button>
+        <button data-fx="bulbs">灯珠</button>
+        <button data-fx="aurora">极光</button>
+        <button data-fx="off">关闭</button>
+      </div>
+      <p class="fx-desc" id="fxDesc">一段高亮沿边框追逐，尾迹渐隐；焦点在输入框时完全点亮。</p>
+    </div>
+
+    <div class="group">
+      <div class="group__label">光色</div>
+      <div class="palettes" id="palettes">
+        <button class="palette is-active" data-palette="aurora"><i></i>极光</button>
+        <button class="palette" data-palette="neon"><i></i>霓虹</button>
+        <button class="palette" data-palette="ice"><i></i>冷白</button>
+        <button class="palette" data-palette="lime"><i></i>青柠</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group__label">速度 <span class="group__value" id="speedVal">1.0×</span></div>
+      <input type="range" id="speed" min="0.4" max="2" step="0.1" value="1" />
+    </div>
+
+    <div class="group">
+      <div class="group__label">光晕强度 <span class="group__value" id="glowVal">75%</span></div>
+      <input type="range" id="glow" min="0" max="100" step="5" value="75" />
+    </div>
+
+    <div class="group">
+      <div class="switch-row">
+        <div>模拟运行中<small>运行结束跑马灯自动熄灭</small></div>
+        <label class="switch"><input type="checkbox" id="running" checked /><i></i></label>
+      </div>
+      <div class="switch-row">
+        <div>仅在聚焦时增强<small>离开输入框后自动变暗</small></div>
+        <label class="switch"><input type="checkbox" id="boost" /><i></i></label>
+      </div>
+      <div class="switch-row">
+        <div>暂停动画<small>随时停下对比静态效果</small></div>
+        <label class="switch"><input type="checkbox" id="pause" /><i></i></label>
+      </div>
+    </div>
+
+    <div class="review__note">
+      <b>运行中才亮：</b>切换上面的「模拟运行中」可以看点亮 / 熄灭效果。实际插件用
+      <span class="kbd">:has(.send.is-stop)</span> 判断会话是否在运行。<br />
+      确认后封成 <span class="kbd">declarative</span> 插件，只注入 CSS，不运行 JavaScript。
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const box = document.getElementById('composerBox');
+  const input = document.getElementById('input');
+  const send = document.getElementById('send');
+  const toast = document.getElementById('toast');
+
+  const palettes = {
+    aurora: ['#67e8f9', '#a78bfa', '#f472b6'],
+    neon: ['#fb7185', '#f59e0b', '#f472b6'],
+    ice: ['#7dd3fc', '#e0f2fe', '#a5b4fc'],
+    lime: ['#a3e635', '#22d3ee', '#facc15']
+  };
+  const baseDur = { comet: 3.2, bulbs: 2.4, aurora: 7, off: 3.2 };
+  const desc = {
+    comet: '运行中时一段高亮沿边框追逐，尾迹渐隐；停止后自动熄灭。',
+    bulbs: '运行中时一圈小灯珠匀速跑动，更像传统跑马灯招牌。',
+    aurora: '运行中时整圈彩色流光缓慢旋转，边缘带柔光。',
+    off: '保留原生边框，用作对照。'
+  };
+
+  let fx = 'comet';
+  let palette = 'aurora';
+  let speed = 1;
+  let isRunning = true;
+
+  function apply() {
+    box.className =
+      'composer-box fx-' + fx + (fx === 'off' ? '' : ' fx-on') + (isRunning ? ' is-running' : '');
+    box.style.setProperty('--fx-a', palettes[palette][0]);
+    box.style.setProperty('--fx-b', palettes[palette][1]);
+    box.style.setProperty('--fx-c', palettes[palette][2]);
+    box.style.setProperty('--fx-dur', (baseDur[fx] / speed).toFixed(2) + 's');
+    document.getElementById('fxDesc').textContent = desc[fx];
+    document.getElementById('speedVal').textContent = speed.toFixed(1) + '×';
+  }
+
+  let toastTimer;
+  function showToast(text) {
+    toast.textContent = text;
+    toast.classList.add('is-on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('is-on'), 1600);
+  }
+
+  document.getElementById('preset').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-fx]');
+    if (!btn) return;
+    fx = btn.dataset.fx;
+    [...e.currentTarget.children].forEach((b) => b.classList.toggle('is-active', b === btn));
+    apply();
+    showToast('已切换为「' + btn.textContent.trim() + '」');
+  });
+
+  document.getElementById('palettes').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-palette]');
+    if (!btn) return;
+    palette = btn.dataset.palette;
+    [...e.currentTarget.children].forEach((b) => b.classList.toggle('is-active', b === btn));
+    apply();
+  });
+
+  document.getElementById('speed').addEventListener('input', (e) => {
+    speed = Number(e.target.value);
+    apply();
+  });
+
+  document.getElementById('glow').addEventListener('input', (e) => {
+    const v = Number(e.target.value) / 100;
+    box.style.setProperty('--fx-glow', v);
+    document.getElementById('glowVal').textContent = Math.round(v * 100) + '%';
+  });
+
+  function syncRunning() {
+    box.classList.toggle('is-running', isRunning);
+    document.getElementById('running').checked = isRunning;
+    if (isRunning) {
+      send.disabled = false;
+      send.classList.add('is-stop');
+      send.classList.remove('is-ready');
+      send.innerHTML = '<span class="send__stop"></span>';
+      send.title = '停止';
+    } else {
+      const has = input.value.trim().length > 0;
+      send.classList.remove('is-stop');
+      send.classList.toggle('is-ready', has);
+      send.disabled = !has;
+      send.innerHTML = '↑';
+      send.title = '发送';
+    }
+  }
+
+  document.getElementById('running').addEventListener('change', (e) => {
+    isRunning = e.target.checked;
+    syncRunning();
+    showToast(isRunning ? '运行中：跑马灯点亮' : '运行结束：跑马灯熄灭');
+  });
+
+  document.getElementById('boost').addEventListener('change', (e) => {
+    document.body.classList.toggle('boost', e.target.checked);
+  });
+
+  document.getElementById('pause').addEventListener('change', (e) => {
+    document.body.classList.toggle('paused', e.target.checked);
+  });
+
+  document.getElementById('themeBtn').addEventListener('click', () => {
+    const light = document.documentElement.dataset.theme === 'light';
+    document.documentElement.dataset.theme = light ? 'dark' : 'light';
+    document.getElementById('themeBtn').textContent = light ? '☾' : '☀';
+  });
+
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(180, input.scrollHeight) + 'px';
+    if (!isRunning) {
+      const has = input.value.trim().length > 0;
+      send.classList.toggle('is-ready', has);
+      send.disabled = !has;
+    }
+  });
+
+  send.addEventListener('click', () => {
+    if (isRunning) {
+      isRunning = false;
+      syncRunning();
+      showToast('模拟停止：跑马灯熄灭');
+      return;
+    }
+    if (!input.value.trim()) return;
+    isRunning = true;
+    syncRunning();
+    showToast('模拟发送：跑马灯点亮');
+  });
+
+  apply();
+  syncRunning();
+  requestAnimationFrame(() => input.focus());
+</script>
+</body>
+</html>
