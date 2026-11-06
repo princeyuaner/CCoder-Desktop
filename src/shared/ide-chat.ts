@@ -7,6 +7,7 @@
  *
  * 这里只放**跨进程**的数据，UI 专用的解析/格式化在 renderer 里。
  */
+import type { IdeEncoding } from './ide'
 import type { CliId } from './settings'
 
 /** 一条代码引用：选区或整个文件 */
@@ -38,6 +39,11 @@ export interface IdeCodeRef {
   totalLines: number
   /** 文件读取被 2MB 上限截断 */
   truncated?: boolean
+  /**
+   * 拖入文件时自动识别出的源编码；UTF-8（默认）时省略。
+   * 只用于卡片提示和 `<ide_reference>` 回显，不影响发给模型的正文。
+   */
+  encoding?: IdeEncoding
   cwd: string
 }
 

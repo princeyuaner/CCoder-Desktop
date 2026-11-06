@@ -44,6 +44,7 @@ import { baseName } from '@shared/path'
 import { parseIdeRefs, userMessagePlainText, refRangeLabel, type ParsedIdeRef } from '../ideRef'
 import { MODE_LABEL_KEY } from '../constants'
 import { useI18n } from '../i18n'
+import { ENCODING_LABEL_KEY } from '../ide/EncodingMenu'
 import { useFindInConversation, type FindApi } from '../useFind'
 
 /** 离底部多近算"贴着底部"（像素） */
@@ -1098,6 +1099,7 @@ function UserBubble({ text }: { text: string }): JSX.Element | null {
 
 /** 转写区里的引用卡：默认只露两行，点开后最多展开 500 行 */
 function UserRefCard({ item }: { item: ParsedIdeRef }): JSX.Element {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const lines = item.code.split('\n')
   const limit = open ? 500 : 2
@@ -1109,7 +1111,12 @@ function UserRefCard({ item }: { item: ParsedIdeRef }): JSX.Element {
         <span className="tl__ref-ico">&lt;/&gt;</span>
         <span className="tl__ref-name">{baseName(item.rel) || item.rel}</span>
         <span className="tl__ref-path">{item.rel}</span>
-        <span className="tl__ref-range">{refRangeLabel(item)}</span>
+        <span className="tl__ref-range">
+          {refRangeLabel(item)}
+          {item.encoding
+            ? ` · ${t(ENCODING_LABEL_KEY[item.encoding])}`
+            : ''}
+        </span>
         {open ? (
           <IconChevronDown width={11} height={11} />
         ) : (

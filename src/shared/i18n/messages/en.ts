@@ -509,6 +509,7 @@ export const en = {
   'composer.queue.removeAria': 'Remove this queued message',
   'composer.ref.whole': { one: 'Whole file · {n} line', other: 'Whole file · {n} lines' },
   'composer.ref.truncated': 'truncated',
+  'composer.ref.encoding': 'Source encoding: {name}',
   'composer.ref.fromIde': 'From IDE',
   'composer.ref.remove': 'Remove reference',
   'composer.ref.removeAria': 'Remove reference {name}',

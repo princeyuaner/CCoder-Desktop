@@ -28,6 +28,8 @@ runs:
       shell: bash
     - run: npm run verify:input-history
       shell: bash
+    - run: npm run verify:file-decode
+      shell: bash
     - run: npm run verify:whats-new
       shell: bash
     - run: npm run verify:checkpoints

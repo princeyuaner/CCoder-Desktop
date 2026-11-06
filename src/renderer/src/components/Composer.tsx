@@ -37,6 +37,7 @@ import type { FileMatch } from '@shared/workspace'
 import { composeIdeMessage } from '../ideRef'
 import { MODE_HINT_KEY, MODE_LABEL_KEY, PERMISSION_MODES } from '../constants'
 import { useI18n } from '../i18n'
+import { ENCODING_LABEL_KEY } from '../ide/EncodingMenu'
 import { baseName } from '@shared/path'
 import type { ChangedFile } from '../changedFiles'
 import { ChangedFiles } from './ChangedFiles'
@@ -1216,6 +1217,16 @@ function ComposerImpl({
                           ? `L${r.startLine}`
                           : `L${r.startLine}–${r.endLine}`}
                     </span>
+                    {r.encoding && (
+                      <span
+                        className="composer__ref-encoding"
+                        title={t('composer.ref.encoding', {
+                          name: t(ENCODING_LABEL_KEY[r.encoding])
+                        })}
+                      >
+                        {t(ENCODING_LABEL_KEY[r.encoding])}
+                      </span>
+                    )}
                     <span className="composer__ref-tag">
                       {r.origin === 'file'
                         ? t('composer.attach.fromFile')

@@ -1,3 +1,4 @@
+import { isIdeEncoding, type IdeEncoding } from '@shared/ide'
 import type { IdeCodeRef } from '@shared/ide-chat'
 import { tr } from './i18n'
 
@@ -64,7 +65,9 @@ export function formatIdeRef(ref: IdeCodeRef): string {
     `path="${escapeAttr(ref.rel)}"`,
     `lines="${range}"`,
     `lang="${escapeAttr(lang)}"`,
-    ...(ref.kind === 'file' ? ['whole="1"'] : [])
+    ...(ref.kind === 'file' ? ['whole="1"'] : []),
+    // 非 UTF-8 的拖入文件把源编码一起带上，历史回放才能还原那张卡片的提示
+    ...(ref.encoding ? [`encoding="${escapeAttr(ref.encoding)}"`] : [])
   ].join(' ')
   const body = ref.code.replace(/\r\n?/g, '\n').replace(/\s+$/, '')
   return `<ide_reference ${attrs}>\n${fence}${lang}\n${body}\n${fence}\n</ide_reference>`
@@ -86,6 +89,8 @@ export interface ParsedIdeRef {
   lang: string
   whole: boolean
   code: string
+  /** 引用来源文件的原始编码；只对非 UTF-8 的拖入文件存在 */
+  encoding?: IdeEncoding
 }
 
 /**
@@ -104,7 +109,8 @@ export function parseIdeRefs(text: string): { text: string; refs: ParsedIdeRef[]
       lines: attrs.lines || 'full',
       lang: (attrs.lang || m[3] || 'text').trim(),
       whole: attrs.whole === '1' || attrs.lines === 'full',
-      code: m[4]
+      code: m[4],
+      ...(isIdeEncoding(attrs.encoding) ? { encoding: attrs.encoding } : {})
     })
   }
   const clean = src.replace(re, '').replace(/\n{3,}/g, '\n\n').trim()
@@ -157,6 +163,7 @@ export function draftFromUserText(
       lang: r.lang,
       code: r.code,
       totalLines: r.code.split('\n').length,
+      ...(r.encoding ? { encoding: r.encoding } : {}),
       cwd
     }
   })

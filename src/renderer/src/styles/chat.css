@@ -3017,6 +3017,17 @@
   border: 1px solid rgba(138, 180, 248, 0.14);
   border-radius: 4px;
 }
+/* 非 UTF-8 拖入文件的源编码：和行数徽标区分开，用中性色 */
+.composer__ref-encoding {
+  flex: none;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: #c0a678;
+  background: rgba(214, 178, 106, 0.08);
+  border: 1px solid rgba(214, 178, 106, 0.18);
+  border-radius: 4px;
+}
 .composer__ref-x {
   flex: none;
   display: grid;

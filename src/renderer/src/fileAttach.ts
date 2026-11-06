@@ -1,4 +1,5 @@
 import type { IdeCodeRef } from '@shared/ide-chat'
+import { decodeTextBytes } from './text-decode'
 
 /**
  * 拖进 / 选进输入框的**文本文件** → 一条代码引用。
@@ -95,13 +96,6 @@ function langOf(name: string): string {
   return FENCE[ext] ?? (/^[a-z0-9+#-]+$/.test(ext) ? ext : 'text')
 }
 
-/** 二进制探测：前 8KB 里出现 NUL 就当二进制（和 git / grep 一个判据） */
-function looksBinary(bytes: Uint8Array): boolean {
-  const n = Math.min(bytes.length, 8192)
-  for (let i = 0; i < n; i++) if (bytes[i] === 0) return true
-  return false
-}
-
 function readBytes(file: File, max: number): Promise<Uint8Array | null> {
   return new Promise((resolve) => {
     const r = new FileReader()
@@ -144,13 +138,19 @@ export async function readFileAttachments(
       out.skipped.push({ kind: 'unreadable', name })
       continue
     }
-    if (looksBinary(bytes)) {
+    // 编码识别同时负责二进制探测：GBK / Big5 / UTF-16 都能正常解出来，
+    // 头 8KB 里真有 NUL 且不像宽字符编码时才按二进制跳过。
+    const decoded = decodeTextBytes(bytes)
+    if (!decoded) {
       out.skipped.push({ kind: 'binary', name })
       continue
     }
 
     const truncated = file.size > MAX_BYTES
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes).replace(/\r\n?/g, '\n')
+    // 截断点正好落在多字节 UTF-8 字符中间时，末尾会多出一个 U+FFFD；
+    // 这不是文件内容，别让它出现在引用卡里。
+    const text =
+      truncated && decoded.text.endsWith('�') ? decoded.text.slice(0, -1) : decoded.text
     const allLines = text.split('\n')
     const kept = allLines.slice(0, MAX_LINES)
     const didTrim = truncated || allLines.length > MAX_LINES
@@ -168,6 +168,9 @@ export async function readFileAttachments(
       code: kept.join('\n'),
       totalLines: allLines.length,
       ...(didTrim ? { truncated: true } : {}),
+      // UTF-8 是默认值，卡片上不用特意标；其余编码标出来，
+      // 用户能看到「这个文件本来不是 UTF-8，是被正确转换过的」
+      ...(decoded.encoding === 'utf8' ? {} : { encoding: decoded.encoding }),
       cwd: root
     })
 

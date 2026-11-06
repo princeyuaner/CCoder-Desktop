@@ -494,6 +494,7 @@ export const zh = {
   'composer.queue.removeAria': '撤回这条排队消息',
   'composer.ref.whole': '全文 · {n} 行',
   'composer.ref.truncated': '已截断',
+  'composer.ref.encoding': '原编码：{name}',
   'composer.ref.fromIde': '来自 IDE',
   'composer.ref.remove': '移除引用',
   'composer.ref.removeAria': '移除 {name} 引用',
