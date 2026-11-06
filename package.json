@@ -1,6 +1,6 @@
 {
   "name": "ccoder-desktop",
-  "version": "1.2.24",
+  "version": "1.2.25",
   "private": true,
   "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",
   "author": "CCoder",
@@ -50,6 +50,7 @@
     "verify:input-history": "npx esbuild tools/_input-history-probe.ts --bundle --platform=node --format=cjs --alias:@shared=./src/shared --external:react --outfile=.tmp-build/input-history-probe.cjs && node .tmp-build/input-history-probe.cjs",
     "verify:editorconfig": "npx esbuild src/shared/editorconfig.ts --bundle --platform=node --format=cjs --outfile=.tmp-build/editorconfig.cjs && node tools/verify-editorconfig.cjs",
     "verify:encoding": "npx esbuild src/main/ide-fs.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-fs.cjs && node tools/verify-encoding.cjs",
+    "verify:file-decode": "npx esbuild src/renderer/src/text-decode.ts --bundle --platform=node --format=cjs --alias:@shared=./src/shared --outfile=tools/_text-decode.cjs && node tools/verify-file-decode.cjs",
     "verify:ide-editor": "npx esbuild src/main/ide-fs.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-fs.cjs && npx esbuild src/main/ide-editorconfig.ts --bundle --platform=node --format=cjs --outfile=tools/_ide-editorconfig.cjs && node node_modules/electron/cli.js --no-sandbox --disable-gpu tools/verify-ide-editor-features.cjs",
     "package": "npm run package:win",
     "package:win": "node tools/stage-rg.cjs --platform win32 --arch x64 && electron-vite build && electron-builder --win --x64 --publish never --config.electronDist=node_modules/electron/dist",

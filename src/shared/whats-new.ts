@@ -53,6 +53,36 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.25',
+    date: '2026-11-07',
+    highlight: {
+      icon: 'rich-text',
+      title: {
+        zh: '拖入文件自动识别编码',
+        en: 'Encoding detection for dropped files'
+      },
+      desc: {
+        zh: '拖进输入框的文本文件不再一律按 UTF-8 读取。GBK、Big5、Shift-JIS、EUC-KR、UTF-16 / 32 等编码会自动识别，非 UTF-8 的源编码会标在引用卡上。',
+        en: 'Text files dropped into the composer are no longer read as UTF-8 only. GBK, Big5, Shift-JIS, EUC-KR, and UTF-16 / 32 are detected automatically, and non-UTF-8 source encodings are shown on the reference card.'
+      }
+    },
+    sections: [
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'rich-text',
+            title: { zh: '拖入文件与二进制判定', en: 'Dropped files and binary detection' },
+            desc: {
+              zh: '无 BOM 的 UTF-16 / 32 文件不再被当成二进制跳过；真正含 NUL 的二进制仍会跳过。截断到 512 KB 时，落在多字节字符中间的半个字符不会再以替换符的形式出现在引用卡里。',
+              en: 'BOM-less UTF-16 / 32 files are no longer skipped as binary, while real binaries containing NUL bytes still are. When truncating at 512 KB, a multi-byte character cut in half no longer shows up as a replacement character on the reference card.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.24',
     date: '2026-11-05',
     highlight: {
