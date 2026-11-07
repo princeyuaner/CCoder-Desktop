@@ -347,25 +347,24 @@ html[data-scheme='light'] .inline-code {
 
 /* ── 思考 / 工具 ─────────────────────────────────────────── */
 
+/* 星核在浅色下压深一档，渐变标题和计时才够对比度 */
+html[data-scheme='light'] .tl__thinkwrap {
+  --fx-a-rgb: 109, 40, 217;
+  --fx-b-rgb: 8, 145, 178;
+  --fx-core-rgb: 76, 29, 149;
+  --fx-a: #6d28d9;
+}
 html[data-scheme='light'] .tl__think {
   color: #6f6f78;
 }
 html[data-scheme='light'] .tl__think:hover {
   color: #4a4a52;
 }
-html[data-scheme='light'] .tl__think b {
-  color: #55555f;
-}
 html[data-scheme='light'] .tl__peek {
   color: #8a8a92;
 }
-html[data-scheme='light'] .tl__wait i {
-  background: #8a8a92;
-}
 html[data-scheme='light'] .tl__thinkbody {
   color: var(--text-dim);
-  background: color-mix(in srgb, var(--text) 5%, var(--bg-raised));
-  border-color: var(--border-soft);
 }
 
 html[data-scheme='light'] .tool {
@@ -479,9 +478,27 @@ html[data-scheme='light'] .tool__cmd + .tool__out {
   border-top-color: var(--border-soft);
 }
 
-html[data-scheme='light'] .pulse {
-  color: #a97b0b;
+/* 悬停浮层：浅色下状态字压深一档，阴影收轻 */
+html[data-scheme='light'] .tpop {
+  --tp-ok: #2f8a45;
+  --tp-err: #a82e27;
+  --tp-den: #8a6408;
+  --tp-run: #b04a28;
+  box-shadow:
+    0 24px 56px -18px rgba(20, 20, 30, 0.24),
+    0 6px 16px -8px rgba(20, 20, 30, 0.12);
 }
+html[data-scheme='light'] .tpop__chip.is-add {
+  color: #2f8a45;
+  border-color: rgba(47, 138, 69, 0.26);
+  background: rgba(47, 138, 69, 0.07);
+}
+html[data-scheme='light'] .tpop__chip.is-del {
+  color: #c83b32;
+  border-color: rgba(200, 59, 50, 0.26);
+  background: rgba(200, 59, 50, 0.07);
+}
+
 html[data-scheme='light'] .tl__sep {
   color: #95959e;
 }
@@ -1537,7 +1554,6 @@ html[data-theme='sepia'] .md .ic {
 }
 
 html[data-theme='sepia'] .tool__body,
-html[data-theme='sepia'] .tl__thinkbody,
 html[data-theme='sepia'] .ragent__live,
 html[data-theme='sepia'] .cfbtn__stat,
 html[data-theme='sepia'] .cfrow__ico,

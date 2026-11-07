@@ -7,8 +7,10 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  type RefObject
 } from 'react'
+import { createPortal } from 'react-dom'
 import type { PermissionMode } from '@shared/events'
 import type { SessionStatus } from '@shared/session'
 import { EFFORT_LABEL_KEY, type EffortLevel, type ToolDetail } from '@shared/settings'
@@ -224,6 +226,41 @@ function lastLine(s: string, max = 90): string {
   const lines = s.split('\n').filter((l) => l.trim())
   const t = (lines[lines.length - 1] ?? '').trim()
   return t.length > max ? `…${t.slice(-max)}` : t
+}
+
+/* ── 工具卡悬停预览的数据整理 ───────────────────────────── */
+
+/** 单行最多带多少字符进浮层；再长就截断，别把一行几万字的日志塞进 DOM */
+const HOVER_LINE_MAX = 240
+
+/**
+ * 悬停预览只取前几行。
+ *
+ * `content` 可能是几十 KB 的构建日志 / 整个文件；浮层只做“一眼预览”，
+ * 完整内容仍然点开卡片看。行数按原始内容算，给标签用。
+ */
+function hoverPreview(
+  text: string | undefined,
+  maxLines: number
+): { text: string; total: number } | null {
+  const raw = (text ?? '').replace(/\r\n/g, '\n').replace(/\n+$/, '')
+  if (!raw.trim()) return null
+  const lines = raw.split('\n')
+  while (lines.length > 0 && !lines[0].trim()) lines.shift()
+  if (lines.length === 0) return null
+  return {
+    text: lines
+      .slice(0, maxLines)
+      .map((l) => (l.length > HOVER_LINE_MAX ? `${l.slice(0, HOVER_LINE_MAX)}…` : l))
+      .join('\n'),
+    total: lines.length
+  }
+}
+
+/** 路径拆成“父目录 + 文件名”，浮层里只把文件名提亮 */
+function splitPath(path: string): { dir: string; base: string } {
+  const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return i >= 0 ? { dir: path.slice(0, i + 1), base: path.slice(i + 1) } : { dir: '', base: path }
 }
 
 interface Props {
@@ -796,6 +833,31 @@ function FindBar({
   )
 }
 
+/* ── 等待 / 思考的星核 ──────────────────────────────────── */
+
+/**
+ * 等待行和思考行共用的动效标记。
+ *
+ * 纯装饰，`aria-hidden` —— 状态由旁边的文字说清楚，读屏不用念一串空节点。
+ * 结构保持极简：光晕、两条轨道、一颗核心。轨道上的卫星靠 offset-path
+ * 沿椭圆走；mini 只是把尺寸变量调小，不另写一套。
+ */
+function StateOrb({ mini = false }: { mini?: boolean }): JSX.Element {
+  return (
+    <span className={mini ? 'tl__orb tl__orb--mini' : 'tl__orb'} aria-hidden="true">
+      <span className="tl__orb-halo" />
+      <span className="tl__orb-ring tl__orb-ring--a">
+        <i className="tl__orb-sat" />
+      </span>
+      <span className="tl__orb-ring tl__orb-ring--b">
+        <i className="tl__orb-sat" />
+      </span>
+      <span className="tl__orb-ring tl__orb-ring--c" />
+      <span className="tl__orb-core" />
+    </span>
+  )
+}
+
 /* ── 等模型开口时的占位 ─────────────────────────────────── */
 function PendingRow({
   connecting,
@@ -833,12 +895,8 @@ function PendingRow({
   return (
     <div className="tl__row">
       <div className="tl__thinkwrap">
-        <div className="tl__think">
-          <span className="tl__wait">
-            <i />
-            <i />
-            <i />
-          </span>
+        <div className="tl__think tl__think--wait">
+          <StateOrb />
           {/*
             这几种状态不能混，也不能写成"思考中"。
             连进程、等子代理、等模型是三件事；而"等模型"那段我们**并不知道它在想** ——
@@ -846,7 +904,7 @@ function PendingRow({
             模型压根不会出现「思考」卡，写"思考中"就是凭空说了句假话）。
             只说我们确定的事实：请求发出去了，还没回来。
           */}
-          <b className="pulse">{label}</b>
+          <b className="tl__fxlabel">{label}</b>
           <span className="tl__waittime" title={t('transcript.waitedFor')}>
             {fmtClock(Math.max(0, now - startedAt))}
           </span>
@@ -1182,19 +1240,34 @@ function ThinkingLine({ item }: { item: Extract<ChatItem, { kind: 'thinking' }> 
 
   return (
     <div className="tl__thinkwrap">
-      <button className="tl__think" onClick={() => setOpen((o) => !o)}>
+      <button
+        className={open ? 'tl__think is-open' : 'tl__think'}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
         {open ? (
           <IconChevronDown width={11} height={11} />
         ) : (
           <IconChevronRight width={11} height={11} />
         )}
-        <b>{item.streaming ? t('transcript.thinking') : t('transcript.thought')}</b>
-        {!open && preview && <span className="tl__peek"> · {preview}</span>}
+        <StateOrb mini />
+        <b className="tl__fxlabel">
+          {item.streaming ? t('transcript.thinking') : t('transcript.thought')}
+        </b>
+        {!open && preview && (
+          <span className="tl__peek">
+            {preview}
+            {item.streaming && <span className="tl__peek-caret" aria-hidden="true" />}
+          </span>
+        )}
       </button>
       {open && (
-        <pre className="tl__thinkbody selectable" ref={bodyRef}>
-          {item.text}
-        </pre>
+        <div className="tl__thinkcard">
+          <span className="tl__thinkcard-scan" aria-hidden="true" />
+          <pre className="tl__thinkbody selectable" ref={bodyRef}>
+            {item.text}
+          </pre>
+        </div>
       )}
     </div>
   )
@@ -1202,13 +1275,320 @@ function ThinkingLine({ item }: { item: Extract<ChatItem, { kind: 'thinking' }> 
 
 /* ── 工具 ───────────────────────────────────────────────── */
 
+/* ── 工具卡悬停预览 ─────────────────────────────────────── */
+
+interface ToolHoverCardProps {
+  item: Extract<ChatItem, { kind: 'tool' }>
+  /** 悬停的那一行；浮层贴在它上沿（或下沿） */
+  anchorRef: RefObject<HTMLDivElement>
+  expandable: boolean
+  stateLabel: string
+  time: string
+  cwd: string
+  onDismiss: () => void
+}
+
+/**
+ * 工具卡的悬停浮层 —— 替代原生 `title`。
+ *
+ * 只做预览，`pointer-events: none`：这样鼠标可以一路扫过工具列，不会被
+ * 浮层挡住；完整内容仍然点开卡片看。Portal 到 body，避开转写区
+ * `content-visibility` 的裁剪与 containing block。
+ */
+function ToolHoverCard({
+  item,
+  anchorRef,
+  expandable,
+  stateLabel,
+  time,
+  cwd,
+  onDismiss
+}: ToolHoverCardProps): JSX.Element {
+  const { t, tn } = useI18n()
+  const ref = useRef<HTMLDivElement>(null)
+  const dismissRef = useRef(onDismiss)
+  dismissRef.current = onDismiss
+
+  const family = toolFamily(item.name)
+  const title =
+    item.subject ||
+    item.summary ||
+    (item.fallback ? t(TOOL_FALLBACK_KEY[item.fallback]) : item.name)
+  const kind = FAMILY_LABEL[family] || item.name.toUpperCase()
+  const meta = family === 'bash' ? cwd : item.dir || ''
+  const pathParts = item.path ? splitPath(item.path) : null
+  const err = item.status === 'error' ? errorSummaryOf(item.content) : null
+  const hasError = !!err && (!!err.code || !!err.text)
+  /** Read 显示文件头，Bash/搜索显示输出；Edit / Write 的回执没什么看头，不铺 */
+  const preview = useMemo(
+    () => (item.content ? hoverPreview(item.content, family === 'read' ? 4 : 5) : null),
+    [item.content, family]
+  )
+  const showCommand = !!item.command
+  /** 命令 / 请求太长时截到三行，完整内容留给展开区 */
+  const tooLong = (s: string): boolean => s.length > 240 || s.split('\n').length > 3
+  const commandClipped = !!item.command && tooLong(item.command)
+  /** 有些工具没有命令/路径，但 summary 比行上的主题更具体（WebFetch 的 URL 等） */
+  const showRequest = !showCommand && !item.path && !!item.summary && item.summary !== title
+  const requestClipped = showRequest && tooLong(item.summary)
+  const showFileHead = family === 'read' && !hasError && !!preview
+  const showBashOutput = family === 'bash' && !hasError && !!preview
+  const showOtherOutput =
+    family !== 'bash' && family !== 'read' && family !== 'edit' && family !== 'write' && !hasError && !!preview
+
+  const stat = item.stat
+  const net = stat ? stat.added - stat.removed : 0
+  const showChips = (!!stat && (stat.added > 0 || stat.removed > 0)) || !!item.created
+
+  const hint = expandable
+    ? hasError
+      ? t('transcript.toolHover.expandError')
+      : showBashOutput
+        ? t('transcript.toolHover.expandOutput')
+        : item.path
+          ? t('transcript.toolHover.fileHint')
+          : t('transcript.toolHover.expandHint')
+    : item.path
+      ? t('transcript.toolHover.fileHintOnly')
+      : ''
+  const footPath = family === 'bash' ? cwd : ''
+
+  /**
+   * 定位。以转写区可视范围为边界：上方放不下就翻到下方；左右夹在栏内。
+   * 行滚出可视区就收起，免得浮层悬空。
+   */
+  const place = useCallback(() => {
+    const el = ref.current
+    const anchor = anchorRef.current
+    if (!el || !anchor) return
+    const scroller = anchor.closest('.transcript') as HTMLElement | null
+    const view = scroller
+      ? scroller.getBoundingClientRect()
+      : new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+    const r = anchor.getBoundingClientRect()
+    if (r.bottom < view.top || r.top > view.bottom) {
+      dismissRef.current()
+      return
+    }
+
+    const gap = 12
+    const pad = 8
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    const topBound = Math.max(8, view.top + pad)
+    const bottomBound = Math.min(window.innerHeight - 8, view.bottom - pad)
+
+    let side: 'top' | 'bottom' = 'top'
+    let top = r.top - h - gap
+    if (top < topBound) {
+      side = 'bottom'
+      top = r.bottom + gap
+      if (top + h > bottomBound) {
+        // 两侧都放不下：哪边空间大就贴哪边，至少别整块跑到窗口外
+        const above = r.top - topBound
+        const below = bottomBound - r.bottom
+        if (above >= below) {
+          side = 'top'
+          top = Math.max(topBound, r.top - h - gap)
+        } else {
+          top = Math.min(top, bottomBound - h)
+        }
+      }
+    }
+
+    let left = r.left
+    const minLeft = Math.max(12, view.left + pad)
+    const maxLeft = Math.min(window.innerWidth - w - 12, view.right - w - pad)
+    left = Math.max(minLeft, Math.min(left, Math.max(minLeft, maxLeft)))
+
+    el.dataset.side = side
+    el.style.left = `${Math.round(left)}px`
+    el.style.top = `${Math.round(top)}px`
+    const caretX = Math.max(18, Math.min(r.left + 25 - left, w - 18))
+    el.style.setProperty('--caret-x', `${Math.round(caretX)}px`)
+  }, [anchorRef])
+
+  // 每次渲染都重新量一次：状态 / 输出在流式变化时高度会变
+  useLayoutEffect(() => {
+    place()
+  })
+
+  useEffect(() => {
+    const anchor = anchorRef.current
+    const scroller = (anchor?.closest('.transcript') ?? null) as HTMLElement | null
+    const el = ref.current
+    const ro =
+      el && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => place()) : null
+    if (el && ro) ro.observe(el)
+    const onScroll = (): void => place()
+    scroller?.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      ro?.disconnect()
+      scroller?.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [anchorRef, place])
+
+  return (
+    <div ref={ref} className="tpop" data-side="top" role="tooltip" aria-hidden="true">
+      <span className="tpop__caret" aria-hidden="true" />
+
+      <div className="tpop__head">
+        <span className={`tpop__ico tool__ico--${family}`} aria-hidden="true">
+          {FAMILY_GLYPH[family]}
+        </span>
+        <div className="tpop__htext">
+          <div className="tpop__title">{title}</div>
+          {meta || kind ? (
+            <div className="tpop__meta">
+              <span className={`tpop__kind tool__ico--${family}`}>{kind}</span>
+              {meta ? (
+                <>
+                  <span className="tpop__dot">·</span>
+                  <span className="tpop__metapath">{meta}</span>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div className="tpop__right">
+          <span className={`tpop__state is-${item.status}`}>
+            {item.status === 'ok' && <IconCheck width={9} height={9} />}
+            {item.status === 'error' && <IconX width={9} height={9} />}
+            {item.status === 'denied' && <IconSlash width={9} height={9} />}
+            {item.status === 'running' && <span className="tpop__spin" aria-hidden="true" />}
+            {stateLabel}
+          </span>
+          {time ? <span className="tpop__time">{time}</span> : null}
+        </div>
+      </div>
+
+      <div className="tpop__body">
+        {showCommand && item.command ? (
+          <div className="tpop__sect">
+            <div className="tpop__label">{t('transcript.toolHover.command')}</div>
+            <pre className={`tpop__code${commandClipped ? ' is-clipped' : ''}`}>
+              <span className="tpop__prompt">$</span> {item.command}
+            </pre>
+          </div>
+        ) : null}
+
+        {showRequest ? (
+          <div className="tpop__sect">
+            <div className="tpop__label">{t('transcript.toolHover.request')}</div>
+            <pre className={`tpop__code${requestClipped ? ' is-clipped' : ''}`}>{item.summary}</pre>
+          </div>
+        ) : null}
+
+        {pathParts ? (
+          <div className="tpop__sect">
+            <div className="tpop__label">{t('transcript.toolHover.path')}</div>
+            <div className="tpop__path">
+              {pathParts.dir}
+              <b>{pathParts.base}</b>
+              {item.line ? <span className="tpop__ln">:{item.line}</span> : null}
+            </div>
+            {showChips && stat ? (
+              <div className="tpop__chips">
+                {stat.added > 0 ? <span className="tpop__chip is-add">+{stat.added}</span> : null}
+                {stat.removed > 0 ? (
+                  <span className="tpop__chip is-del">−{stat.removed}</span>
+                ) : null}
+                {net > 0 ? (
+                  <span className="tpop__chip">
+                    {tn('transcript.toolHover.netLines', net, { n: net })}
+                  </span>
+                ) : null}
+                {item.created ? (
+                  <span className="tpop__chip">{t('transcript.toolHover.newFile')}</span>
+                ) : null}
+              </div>
+            ) : item.created ? (
+              <div className="tpop__chips">
+                <span className="tpop__chip">{t('transcript.toolHover.newFile')}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {hasError && err ? (
+          <div className="tpop__sect">
+            <div className="tpop__label">{t('transcript.toolHover.error')}</div>
+            <div className="tpop__err">
+              {err.code ? (
+                <span className="tpop__errcode">
+                  {t('transcript.exitCode', { code: err.code })}
+                </span>
+              ) : null}
+              <span className="tpop__errmsg">{err.text || stateLabel}</span>
+            </div>
+          </div>
+        ) : null}
+
+        {showFileHead && preview ? (
+          <div className="tpop__sect">
+            <div className="tpop__label">
+              {t('transcript.toolHover.fileHead')}
+              <span className="tpop__count">
+                {tn('transcript.toolHover.totalLines', preview.total, { n: preview.total })}
+              </span>
+            </div>
+            <pre className={`tpop__out${preview.total > 2 ? ' is-clipped' : ''}`}>
+              {preview.text}
+            </pre>
+          </div>
+        ) : null}
+
+        {showBashOutput && preview ? (
+          <div className="tpop__sect">
+            <div className="tpop__label">
+              {t('transcript.toolHover.output')}
+              <span className="tpop__count">
+                {tn('transcript.toolHover.lines', preview.total, { n: preview.total })}
+              </span>
+            </div>
+            <pre className={`tpop__out${preview.total > 2 ? ' is-clipped' : ''}`}>
+              {preview.text}
+            </pre>
+          </div>
+        ) : null}
+
+        {showOtherOutput && preview ? (
+          <div className="tpop__sect">
+            <div className="tpop__label">
+              {t('transcript.toolHover.output')}
+              <span className="tpop__count">
+                {tn('transcript.toolHover.lines', preview.total, { n: preview.total })}
+              </span>
+            </div>
+            <pre className={`tpop__out${preview.total > 2 ? ' is-clipped' : ''}`}>
+              {preview.text}
+            </pre>
+          </div>
+        ) : null}
+      </div>
+
+      {hint || footPath ? (
+        <div className={`tpop__foot${footPath ? '' : ' is-solo'}`}>
+          {footPath ? <span className="tpop__footpath">{footPath}</span> : null}
+          {hint ? (
+            <span className={`tpop__hint${hasError ? ' is-danger' : ''}`}>
+              {hint} <b>›</b>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /**
  * 一条工具调用。
  *
  * 折叠行**不摊命令原文**：Bash 显示模型写的 `description`，文件工具显示
- * 文件名 + 父目录 + 增删行数。命令 / 完整路径都还在，悬停看 title，
- * 点开看展开区 —— 长会话里一半以上的行都是工具调用，让命令占主角
- * 会把整条转写刷成终端日志。
+ * 文件名 + 父目录 + 增删行数。命令 / 完整路径进悬停浮层和展开区 ——
+ * 长会话里一半以上的行都是工具调用，让命令占主角会把整条转写刷成终端日志。
  *
  * 文件名本身是「在 IDE 中打开」的入口：Read / Write / Edit 都带绝对路径，
  * 图片文件由 IDE 的图片查看器接手；右侧 chevron 才是展开详情。
@@ -1217,6 +1597,10 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
   const { t } = useI18n()
   const { toolDetail, cwd, live } = useContext(DisplayContext)
   const [open, setOpen] = useState(false)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [hoverOpen, setHoverOpen] = useState(false)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>()
   const family = toolFamily(item.name)
   // Bash 永远有命令可看；文件工具要等结果回来才有内容
   const hasBody = !!item.command || !!item.content
@@ -1253,6 +1637,57 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
   const showStat = !!stat && (stat.added > 0 || stat.removed > 0)
   /** 文件类工具（Read / Write / Edit…）才有 path；点击去 IDE 里看 */
   const openable = !!item.path && !!cwd
+  /** 没有额外信息的工具（例如刚开始跑的 Grep）不弹空浮层 */
+  const hoverTitle = item.subject || item.summary || ''
+  const hasHoverContent =
+    !!item.command ||
+    !!item.path ||
+    !!item.content ||
+    (!!item.summary && item.summary !== hoverTitle)
+
+  const clearHoverTimers = useCallback(() => {
+    if (hoverTimer.current !== undefined) {
+      clearTimeout(hoverTimer.current)
+      hoverTimer.current = undefined
+    }
+    if (closeTimer.current !== undefined) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = undefined
+    }
+  }, [])
+
+  /** 悬停 90ms 才出，快速扫过整列不会闪；展开状态下不重复弹预览 */
+  const openHover = useCallback(() => {
+    if (open || !hasHoverContent) return
+    if (closeTimer.current !== undefined) {
+      clearTimeout(closeTimer.current)
+      closeTimer.current = undefined
+    }
+    if (hoverOpen || hoverTimer.current !== undefined) return
+    hoverTimer.current = setTimeout(() => {
+      hoverTimer.current = undefined
+      setHoverOpen(true)
+    }, 90)
+  }, [open, hoverOpen, hasHoverContent])
+
+  const closeHover = useCallback(() => {
+    if (hoverTimer.current !== undefined) {
+      clearTimeout(hoverTimer.current)
+      hoverTimer.current = undefined
+    }
+    if (!hoverOpen || closeTimer.current !== undefined) return
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = undefined
+      setHoverOpen(false)
+    }, 120)
+  }, [hoverOpen])
+
+  const dismissHover = useCallback(() => {
+    clearHoverTimers()
+    setHoverOpen(false)
+  }, [clearHoverTimers])
+
+  useEffect(() => () => clearHoverTimers(), [clearHoverTimers])
 
   /**
    * 在 IDE 里打开这个文件。图片（png/jpg…）由 IDE 自己的查看器接手 ——
@@ -1281,21 +1716,33 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         嵌套按钮是非法 HTML，点哪个都会触发外层的展开。
       */}
       <div
+        ref={rowRef}
         className={`tool__row${expandable ? ' is-clickable' : ''}`}
-        onClick={expandable ? () => setOpen((o) => !o) : undefined}
-        title={item.command || item.path || item.subject}
+        onClick={
+          expandable
+            ? () => {
+                setOpen((o) => !o)
+                dismissHover()
+              }
+            : undefined
+        }
+        onMouseEnter={openHover}
+        onMouseLeave={closeHover}
+        onFocus={openHover}
+        onBlur={closeHover}
       >
         <span className={`tool__ico tool__ico--${family}`}>{FAMILY_GLYPH[family]}</span>
         {openable ? (
           <button
             className="tool__subject tool__subject--open"
-            title={
+            aria-label={
               item.line
                 ? t('transcript.openInIde', { path: item.path!, line: item.line! })
                 : t('transcript.openInIdeNoLine', { path: item.path! })
             }
             onClick={(e) => {
               e.stopPropagation()
+              dismissHover()
               openInIde()
             }}
           >
@@ -1323,7 +1770,6 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         {showMeta && <span className="tool__name">{label}</span>}
         <span
           className={`tool__state tool__state--${item.status}`}
-          title={stateLabel}
           role={item.status === 'ok' ? 'img' : undefined}
           {...(item.status === 'ok' ? { 'aria-label': stateLabel } : {})}
         >
@@ -1351,11 +1797,12 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         {expandable && (
           <button
             className="tool__chev"
-            title={open ? t('transcript.collapseDetail') : t('transcript.expandDetail')}
+            aria-label={open ? t('transcript.collapseDetail') : t('transcript.expandDetail')}
             aria-expanded={open}
             onClick={(e) => {
               e.stopPropagation()
               setOpen((o) => !o)
+              dismissHover()
             }}
           >
             {open ? (
@@ -1370,10 +1817,10 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         <button
           type="button"
           className="tool__err"
-          title={t('transcript.expandError')}
           onClick={(e) => {
             e.stopPropagation()
             setOpen(true)
+            dismissHover()
           }}
         >
           {err.code && (
@@ -1389,6 +1836,20 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
           {item.content && <pre className="tool__out selectable">{item.content}</pre>}
         </div>
       )}
+      {hoverOpen && !open
+        ? createPortal(
+            <ToolHoverCard
+              item={item}
+              anchorRef={rowRef}
+              expandable={expandable}
+              stateLabel={stateLabel}
+              time={time}
+              cwd={cwd}
+              onDismiss={dismissHover}
+            />,
+            document.body
+          )
+        : null}
     </div>
   )
 }

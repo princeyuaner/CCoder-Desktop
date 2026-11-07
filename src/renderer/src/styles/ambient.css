@@ -669,12 +669,13 @@ html[data-ambient] .md .tblwrap {
   background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
 }
 
-html[data-ambient] .tl__thinkbody {
-  color: var(--text-dim);
-  background: color-mix(in srgb, var(--bg-raised) 78%, transparent);
-  border-color: var(--border-soft);
+html[data-ambient] .tl__thinkcard {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+html[data-ambient] .tl__thinkbody {
+  color: var(--text-dim);
 }
 
 html[data-ambient] .tool {

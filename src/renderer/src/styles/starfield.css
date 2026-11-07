@@ -394,6 +394,13 @@
   background: rgba(6, 13, 25, 0.45);
 }
 
+:root[data-theme='starfield'] .tl__thinkwrap {
+  --fx-a-rgb: 157, 140, 255;
+  --fx-b-rgb: 120, 220, 232;
+  --fx-core-rgb: 59, 44, 143;
+  --fx-a: #9d8cff;
+}
+
 :root[data-theme='starfield'] .tl__think {
   color: #7084a2;
 }
@@ -402,19 +409,12 @@
   color: #a9bcd8;
 }
 
-:root[data-theme='starfield'] .tl__think b {
-  color: #94a7c3;
-}
-
-:root[data-theme='starfield'] .tl__peek,
-:root[data-theme='starfield'] .tl__waittime {
+:root[data-theme='starfield'] .tl__peek {
   color: #637693;
 }
 
 :root[data-theme='starfield'] .tl__thinkbody {
   color: #9fb1ca;
-  background: rgba(4, 10, 20, 0.55);
-  border-color: var(--border);
 }
 
 :root[data-theme='starfield'] .tool {

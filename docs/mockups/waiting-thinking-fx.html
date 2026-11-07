@@ -1,0 +1,1679 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>等待 / 思考 · 动效方案</title>
+<style>
+/* ============================================================
+ * 设计稿：等待响应 + 思考中 两态的动效方向
+ * 四个方案彼此独立，仅用于评审视觉，不参与打包。
+ * ============================================================ */
+
+@property --ang {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+:root {
+  --bg: #0a0a0f;
+  --panel: #111118;
+  --panel-2: #0d0d13;
+  --text: #e9e9f2;
+  --dim: #9393a6;
+  --faint: #5c5c6e;
+  --line: rgba(255, 255, 255, 0.07);
+  --strong-line: rgba(255, 255, 255, 0.12);
+
+  --violet: #a78bfa;
+  --violet-rgb: 167, 139, 250;
+  --cyan: #67e8f9;
+  --cyan-rgb: 34, 211, 238;
+  --blue-rgb: 96, 165, 250;
+  --pink-rgb: 244, 114, 182;
+  --hud: #7dd3fc;
+
+  --card-deep: #070b12;
+  --code-tx: #a8a8c0;
+  --bubble-bg: rgba(34, 211, 238, 0.08);
+  --bubble-bd: rgba(34, 211, 238, 0.22);
+  --bubble-tx: #d8f8ff;
+  --veil: rgba(10, 10, 16, 0.72);
+  --avatar-bg: linear-gradient(145deg, #2a2a3a, #17171f);
+  --avatar-bd: rgba(255, 255, 255, 0.12);
+
+  --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  --content: 760px;
+}
+
+html[data-theme='light'] {
+  --bg: #f1f2f6;
+  --panel: #ffffff;
+  --panel-2: #f7f8fb;
+  --text: #1b1b25;
+  --dim: #55556a;
+  --faint: #8a8a9c;
+  --line: rgba(20, 20, 45, 0.09);
+  --strong-line: rgba(20, 20, 45, 0.16);
+
+  --violet: #6d28d9;
+  --violet-rgb: 109, 40, 217;
+  --cyan: #0891b2;
+  --cyan-rgb: 8, 145, 178;
+  --blue-rgb: 37, 99, 235;
+  --pink-rgb: 219, 39, 119;
+  --hud: #0284c7;
+
+  --card-deep: #f6fafc;
+  --code-tx: #3f3f56;
+  --bubble-bg: rgba(8, 145, 178, 0.07);
+  --bubble-bd: rgba(8, 145, 178, 0.24);
+  --bubble-tx: #0e4e63;
+  --veil: rgba(248, 250, 253, 0.8);
+  --avatar-bg: linear-gradient(145deg, #ffffff, #e6e8f0);
+  --avatar-bd: rgba(20, 20, 45, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  min-height: 100vh;
+  color: var(--text);
+  background:
+    radial-gradient(900px 480px at 15% -8%, rgba(var(--violet-rgb), 0.13), transparent 60%),
+    radial-gradient(760px 420px at 92% 4%, rgba(var(--cyan-rgb), 0.07), transparent 62%),
+    var(--bg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme='light'] body {
+  background:
+    radial-gradient(900px 480px at 15% -8%, rgba(var(--violet-rgb), 0.08), transparent 60%),
+    radial-gradient(760px 420px at 92% 4%, rgba(var(--cyan-rgb), 0.06), transparent 62%),
+    var(--bg);
+}
+
+.page {
+  max-width: 1020px;
+  margin: 0 auto;
+  padding: 44px 26px 96px;
+}
+
+/* ── 页头 ─────────────────────────────────────────────── */
+
+.masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  background: linear-gradient(92deg, var(--text) 20%, var(--violet) 48%, var(--cyan) 70%, var(--text) 96%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sheen 9s linear infinite;
+}
+
+.masthead .sub {
+  margin: 9px 0 0;
+  max-width: 560px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--dim);
+}
+
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 8px 13px;
+  font: 500 12px/1 var(--font-ui);
+  color: var(--dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.theme-btn:hover {
+  color: var(--text);
+  border-color: var(--strong-line);
+  transform: translateY(-1px);
+}
+
+.theme-btn .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, var(--violet), var(--cyan));
+  box-shadow: 0 0 8px rgba(var(--violet-rgb), 0.7);
+}
+
+.jumpbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 20px 0 30px;
+}
+
+.jumpbar a {
+  padding: 6px 11px;
+  font-size: 11.5px;
+  color: var(--faint);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.jumpbar a:hover {
+  color: var(--text);
+  background: var(--panel);
+  border-color: var(--strong-line);
+}
+
+/* ── 方案容器 ─────────────────────────────────────────── */
+
+.concept {
+  margin-top: 26px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px -30px rgba(0, 0, 0, 0.9);
+}
+
+.concept__head {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+  padding: 17px 22px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.concept__num {
+  flex: none;
+  padding-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+}
+
+.concept__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.concept__desc {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
+.tag {
+  padding: 2px 7px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--violet);
+  background: rgba(var(--violet-rgb), 0.1);
+  border: 1px solid rgba(var(--violet-rgb), 0.3);
+  border-radius: 999px;
+}
+
+.stage {
+  position: relative;
+  padding: 26px 30px 30px;
+  background:
+    radial-gradient(120% 140% at 18% 0%, rgba(var(--fx, 167, 139, 250), 0.07), transparent 58%),
+    var(--panel-2);
+}
+
+.stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  opacity: 0.15;
+  mask-image: radial-gradient(80% 120% at 50% 0%, #000, transparent 78%);
+}
+
+.convo {
+  position: relative;
+  max-width: var(--content);
+  margin: 0 auto;
+}
+
+/* 用户气泡 */
+.msg-user {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.bubble {
+  display: inline-block;
+  max-width: 78%;
+  padding: 7px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--bubble-tx);
+  background: var(--bubble-bg);
+  border: 1px solid var(--bubble-bd);
+  border-radius: 9px;
+}
+
+/* 助手行 */
+.assistant {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--dim);
+  background: var(--avatar-bg);
+  border: 1px solid var(--avatar-bd);
+  border-radius: 50%;
+}
+
+.assistant__body { flex: 1; min-width: 0; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+}
+
+.think-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.think-btn:hover .fx-label { color: var(--text); }
+.think-btn:hover .think-chev { color: var(--dim); }
+
+.think-chev {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  color: var(--faint);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), color 0.16s ease;
+}
+
+.think-btn.is-open .think-chev { transform: rotate(90deg); }
+
+.fx-label {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--dim);
+  transition: color 0.16s ease;
+}
+
+.peek {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.caret {
+  display: inline-block;
+  width: 1px;
+  height: 11px;
+  margin-left: 2px;
+  background: currentColor;
+  vertical-align: -1px;
+  animation: blink 1.05s steps(1) infinite;
+}
+
+.timer {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.1em;
+}
+
+/* 展开区：用 grid 0fr → 1fr，避免 max-height 猜值 */
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: 5px;
+  transition: grid-template-rows 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal.is-open { grid-template-rows: 1fr; }
+
+.thinkcard {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.face {
+  position: relative;
+  padding: 11px 14px 12px;
+  overflow: hidden;
+  border-radius: 11px;
+}
+
+.face pre {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--code-tx);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ============================================================
+ * 01 星核轨道
+ * ============================================================ */
+
+.orb {
+  --r: 30px;
+  --ry: 12px;
+  position: relative;
+  flex: none;
+  width: var(--r);
+  height: var(--r);
+}
+
+.orb--mini {
+  --r: 18px;
+  --ry: 7px;
+}
+
+.orb__halo {
+  position: absolute;
+  inset: -8%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--violet-rgb), 0.38), transparent 66%);
+  filter: blur(4px);
+  animation: halo 2.6s ease-in-out infinite;
+}
+
+.orb__core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--r) * 0.42);
+  height: calc(var(--r) * 0.42);
+  margin: calc(var(--r) * -0.21) 0 0 calc(var(--r) * -0.21);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #fff 0%, #e4d8ff 18%, #a78bfa 48%, #6d28d9 76%, #2e1065 100%);
+  box-shadow:
+    0 0 7px rgba(var(--violet-rgb), 0.95),
+    0 0 16px rgba(var(--violet-rgb), 0.62),
+    0 0 30px rgba(var(--violet-rgb), 0.3);
+  animation: coreBreathe 2.6s ease-in-out infinite;
+  z-index: 2;
+}
+
+.orb__ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--r);
+  height: var(--ry);
+  margin-top: calc(var(--ry) / -2);
+  margin-left: calc(var(--r) / -2);
+  border: 1px solid rgba(var(--violet-rgb), 0.42);
+  border-radius: 50%;
+  transform: rotate(-18deg);
+}
+
+.orb__ring--b {
+  width: calc(var(--r) * 0.82);
+  height: calc(var(--ry) * 0.74);
+  margin-top: calc(var(--ry) * -0.37);
+  margin-left: calc(var(--r) * -0.41);
+  border-color: rgba(var(--cyan-rgb), 0.42);
+  transform: rotate(52deg);
+}
+
+.orb__ring--c {
+  width: calc(var(--r) * 1.12);
+  height: calc(var(--ry) * 1.14);
+  margin-top: calc(var(--ry) * -0.57);
+  margin-left: calc(var(--r) * -0.56);
+  border-color: rgba(var(--violet-rgb), 0.18);
+  border-style: dashed;
+  transform: rotate(8deg);
+  animation: ringDrift 12s linear infinite;
+}
+
+.orb__ring .sat {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #efe6ff;
+  box-shadow: 0 0 5px rgba(var(--violet-rgb), 0.95), 0 0 11px rgba(var(--violet-rgb), 0.8);
+  offset-path: ellipse(calc(var(--r) / 2) calc(var(--ry) / 2) at 50% 50%);
+  offset-anchor: center;
+  animation: orbit 4.6s linear infinite;
+}
+
+.orb__ring--b .sat {
+  width: 3px;
+  height: 3px;
+  background: #d9fbff;
+  box-shadow: 0 0 5px rgba(var(--cyan-rgb), 0.95), 0 0 10px rgba(var(--cyan-rgb), 0.8);
+  offset-path: ellipse(calc(var(--r) * 0.41) calc(var(--ry) * 0.37) at 50% 50%);
+  animation-duration: 3.4s;
+  animation-direction: reverse;
+}
+
+.orb__ring--c .sat { display: none; }
+
+.c1-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  background: linear-gradient(
+    92deg,
+    rgba(var(--violet-rgb), 0.85) 0%,
+    var(--text) 26%,
+    rgba(var(--cyan-rgb), 0.95) 46%,
+    rgba(var(--violet-rgb), 0.85) 68%,
+    rgba(var(--violet-rgb), 0.85) 100%
+  );
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sheen 4.2s linear infinite;
+}
+
+.c1-timer {
+  color: var(--violet);
+  padding: 3px 9px;
+  background: rgba(var(--violet-rgb), 0.07);
+  border: 1px solid rgba(var(--violet-rgb), 0.22);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 0 12px rgba(var(--violet-rgb), 0.1),
+    0 0 14px rgba(var(--violet-rgb), 0.12);
+}
+
+.c1face {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(var(--violet-rgb), 0.1), rgba(var(--violet-rgb), 0) 58%) padding-box,
+    linear-gradient(180deg, var(--panel-2), var(--card-deep)) padding-box,
+    conic-gradient(
+      from var(--ang),
+      rgba(var(--violet-rgb), 0) 0%,
+      rgba(var(--violet-rgb), 0.85) 12%,
+      rgba(var(--cyan-rgb), 0.55) 24%,
+      rgba(var(--violet-rgb), 0) 40%,
+      rgba(var(--violet-rgb), 0) 100%
+    ) border-box;
+  animation: angSpin 7s linear infinite;
+}
+
+.c1face::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(var(--violet-rgb), 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--violet-rgb), 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(90% 120% at 22% 0%, #000, transparent 82%);
+}
+
+.c1face__scan {
+  position: absolute;
+  top: -45%;
+  left: 0;
+  right: 0;
+  height: 45%;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(var(--violet-rgb), 0.14), transparent);
+  animation: scanY 5.4s ease-in-out infinite;
+}
+
+/* ============================================================
+ * 02 流光导管
+ * ============================================================ */
+
+.flux {
+  position: relative;
+  flex: none;
+  width: 116px;
+  height: 20px;
+}
+
+.flux__track {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--cyan-rgb), 0.04),
+    rgba(var(--cyan-rgb), 0.28) 22%,
+    rgba(var(--cyan-rgb), 0.28) 78%,
+    rgba(var(--cyan-rgb), 0.04)
+  );
+}
+
+.flux__comet {
+  position: absolute;
+  top: 50%;
+  left: -46px;
+  width: 46px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(var(--cyan-rgb), 0.55) 60%, #eafeff);
+  filter: drop-shadow(0 0 5px rgba(var(--cyan-rgb), 0.95));
+  animation: fluxRun 1.9s cubic-bezier(0.6, 0, 0.4, 1) infinite;
+}
+
+.flux__comet::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 7px rgba(var(--cyan-rgb), 0.95), 0 0 14px rgba(var(--cyan-rgb), 0.7);
+}
+
+.flux__comet--2 {
+  opacity: 0.5;
+  filter: drop-shadow(0 0 3px rgba(var(--cyan-rgb), 0.6));
+  animation-delay: 0.95s;
+  animation-duration: 2.4s;
+}
+
+html[data-theme='light'] .flux__comet {
+  background: linear-gradient(90deg, transparent, rgba(var(--cyan-rgb), 0.5) 60%, var(--cyan));
+}
+
+html[data-theme='light'] .flux__comet::after {
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(var(--cyan-rgb), 0.55);
+}
+
+.c2-label {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.c2-label i {
+  font-style: normal;
+  color: var(--dim);
+  animation: charGlow 2.6s ease-in-out infinite;
+}
+
+.c2-label i:nth-child(1) { animation-delay: 0s; }
+.c2-label i:nth-child(2) { animation-delay: 0.13s; }
+.c2-label i:nth-child(3) { animation-delay: 0.26s; }
+.c2-label i:nth-child(4) { animation-delay: 0.39s; }
+
+.c2-label .ellip { color: var(--faint); }
+
+.c2-timer {
+  color: var(--cyan);
+  text-shadow: 0 0 9px rgba(var(--cyan-rgb), 0.6);
+}
+
+.eq {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  width: 22px;
+  height: 17px;
+}
+
+.eq i {
+  flex: 1;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--cyan), rgba(var(--blue-rgb), 0.85));
+  box-shadow: 0 0 5px rgba(var(--cyan-rgb), 0.65);
+  transform-origin: center;
+  animation: eqBounce 0.85s ease-in-out infinite alternate;
+}
+
+.eq i:nth-child(1) { animation-delay: 0s; animation-duration: 0.7s; }
+.eq i:nth-child(2) { animation-delay: 0.12s; animation-duration: 0.95s; }
+.eq i:nth-child(3) { animation-delay: 0.05s; animation-duration: 0.62s; }
+.eq i:nth-child(4) { animation-delay: 0.2s; animation-duration: 1.05s; }
+.eq i:nth-child(5) { animation-delay: 0.09s; animation-duration: 0.8s; }
+
+.c2-label--think i {
+  animation: charGlowCyan 2.2s ease-in-out infinite;
+}
+
+.peek--flux {
+  background: linear-gradient(90deg, var(--faint) 0%, var(--faint) 35%, var(--cyan) 50%, var(--faint) 65%, var(--faint) 100%);
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: peekSheen 4.5s linear infinite;
+}
+
+.c2face {
+  border: 1px solid rgba(var(--cyan-rgb), 0.2);
+  background-color: var(--card-deep);
+  background-image:
+    linear-gradient(rgba(var(--cyan-rgb), 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--cyan-rgb), 0.055) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(var(--cyan-rgb), 0.1), rgba(var(--cyan-rgb), 0) 55%);
+  background-size: 18px 18px, 18px 18px, auto;
+  box-shadow: inset 0 0 26px rgba(var(--cyan-rgb), 0.05);
+}
+
+.c2face::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -18px;
+  width: 46px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(var(--cyan-rgb), 0.08), transparent);
+  transform: skewX(-12deg);
+  animation: xSweep 5s ease-in-out infinite;
+}
+
+.c2face__scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -30%;
+  height: 30%;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(var(--cyan-rgb), 0.12), rgba(var(--cyan), 0.22), transparent);
+  animation: scanY 3.8s linear infinite;
+}
+
+.c2face pre { color: #9fc7d6; }
+html[data-theme='light'] .c2face pre { color: #35566a; }
+
+/* ============================================================
+ * 03 全息雷达
+ * ============================================================ */
+
+.radar {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--cyan-rgb), 0.1), transparent 68%);
+  box-shadow:
+    inset 0 0 12px rgba(var(--cyan-rgb), 0.16),
+    0 0 14px rgba(var(--cyan-rgb), 0.16);
+}
+
+.radar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(var(--hud), 0.45);
+  border-radius: 50%;
+}
+
+.radar__sweep {
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(var(--cyan-rgb), 0.6), rgba(var(--cyan-rgb), 0.18) 42deg, transparent 86deg);
+  mask-image: radial-gradient(circle, transparent 20%, #000 26%);
+  animation: spin 2.1s linear infinite;
+}
+
+.radar__ticks {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(rgba(var(--hud), 0.5) 0deg 1.2deg, transparent 1.2deg 30deg);
+  mask-image: radial-gradient(circle, transparent 62%, #000 64%, #000 74%, transparent 76%);
+  animation: spin 16s linear infinite;
+}
+
+.radar__ring {
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(var(--hud), 0.32);
+  border-radius: 50%;
+  animation: spin 9s linear infinite reverse;
+}
+
+.radar__core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: #d9fbff;
+  box-shadow: 0 0 6px rgba(var(--cyan-rgb), 1), 0 0 14px rgba(var(--cyan-rgb), 0.8);
+  animation: coreBreathe 1.8s ease-in-out infinite;
+}
+
+.radar__blip {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #eafeff;
+  box-shadow: 0 0 7px rgba(var(--cyan-rgb), 0.95);
+  animation: blip 3s ease-out infinite;
+}
+
+.radar__blip.b1 { top: 7px; right: 6px; animation-delay: 0.4s; }
+.radar__blip.b2 { bottom: 8px; left: 5px; animation-delay: 1.7s; }
+
+.c3-label {
+  position: relative;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: #d9f6ff;
+  text-shadow: 0 0 12px rgba(var(--cyan-rgb), 0.5);
+}
+
+html[data-theme='light'] .c3-label {
+  color: #075985;
+  text-shadow: 0 0 12px rgba(var(--cyan-rgb), 0.18);
+}
+
+.c3-label::before,
+.c3-label::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.c3-label::before { color: #ff4d8d; animation: glitchA 5.4s steps(1) infinite; }
+.c3-label::after { color: #4dd6ff; animation: glitchB 5.4s steps(1) infinite; }
+
+.c3-timer {
+  color: var(--hud);
+  padding: 2px 8px;
+  border: 1px solid rgba(var(--cyan-rgb), 0.25);
+  border-radius: 3px;
+  background: rgba(var(--cyan-rgb), 0.05);
+  box-shadow: inset 0 0 10px rgba(var(--cyan-rgb), 0.08);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+
+.cube-wrap {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 30px;
+  perspective: 110px;
+}
+
+.cube {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  transform-style: preserve-3d;
+  animation: cubeSpin 7s linear infinite;
+  filter: drop-shadow(0 0 5px rgba(var(--cyan-rgb), 0.75));
+}
+
+.cube i {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(var(--hud), 0.62);
+  background: rgba(var(--cyan-rgb), 0.05);
+  box-shadow: inset 0 0 6px rgba(var(--cyan-rgb), 0.22);
+}
+
+.cube i:nth-child(1) { transform: translateZ(8px); }
+.cube i:nth-child(2) { transform: rotateY(180deg) translateZ(8px); }
+.cube i:nth-child(3) { transform: rotateY(90deg) translateZ(8px); }
+.cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(8px); }
+.cube i:nth-child(5) { transform: rotateX(90deg) translateZ(8px); }
+.cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(8px); }
+
+.c3face {
+  border: 1px solid rgba(var(--cyan-rgb), 0.19);
+  background:
+    radial-gradient(90% 140% at 20% 0%, rgba(var(--cyan-rgb), 0.09), transparent 62%),
+    linear-gradient(180deg, rgba(7, 24, 37, 0.96), rgba(5, 10, 18, 0.97));
+  box-shadow: inset 0 0 32px rgba(var(--cyan-rgb), 0.06);
+}
+
+html[data-theme='light'] .c3face {
+  background:
+    radial-gradient(90% 140% at 20% 0%, rgba(var(--cyan-rgb), 0.07), transparent 62%),
+    linear-gradient(180deg, #f8fcfe, #eef7fb);
+}
+
+.c3face__corner {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border: 0 solid rgba(var(--hud), 0.72);
+  pointer-events: none;
+}
+
+.c3face__corner.tl { top: 5px; left: 5px; border-top-width: 1px; border-left-width: 1px; }
+.c3face__corner.tr { top: 5px; right: 5px; border-top-width: 1px; border-right-width: 1px; }
+.c3face__corner.bl { bottom: 5px; left: 5px; border-bottom-width: 1px; border-left-width: 1px; }
+.c3face__corner.br { bottom: 5px; right: 5px; border-bottom-width: 1px; border-right-width: 1px; }
+
+.c3face__scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -32%;
+  height: 32%;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(var(--cyan-rgb), 0.1), rgba(var(--hud), 0.2), transparent);
+  animation: scanY 4.2s linear infinite;
+}
+
+.c3face__rail {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 10px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(var(--cyan-rgb), 0.55), transparent);
+  box-shadow: 0 0 7px rgba(var(--cyan-rgb), 0.6);
+}
+
+.c3face pre { color: #a9d6e6; padding-left: 7px; }
+html[data-theme='light'] .c3face pre { color: #285a70; }
+
+/* ============================================================
+ * 04 神经星云
+ * ============================================================ */
+
+.nebula {
+  position: relative;
+  flex: none;
+  width: 62px;
+  height: 34px;
+}
+
+.nebula canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.nebula--think { width: 44px; height: 28px; }
+
+.c4-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: var(--text);
+  text-shadow: 0 0 14px rgba(var(--violet-rgb), 0.38);
+}
+
+.c4-timer {
+  color: var(--violet);
+  text-shadow: 0 0 10px rgba(var(--violet-rgb), 0.55);
+}
+
+.c4face {
+  border: 1px solid rgba(var(--violet-rgb), 0.2);
+  background: var(--card-deep);
+  box-shadow:
+    inset 0 0 36px rgba(var(--violet-rgb), 0.06),
+    0 0 24px -12px rgba(var(--violet-rgb), 0.5);
+}
+
+.c4face .nebula-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.c4face__veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--veil) 0%, transparent 30%, transparent 72%, var(--veil) 100%);
+}
+
+.c4face pre {
+  z-index: 2;
+  color: var(--code-tx);
+  text-shadow: 0 0 12px rgba(var(--violet-rgb), 0.18);
+}
+
+/* ============================================================
+ * 页脚 + 动画
+ * ============================================================ */
+
+.footnote {
+  max-width: var(--content);
+  margin: 34px auto 0;
+  padding: 16px 18px;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.footnote b { color: var(--text); font-weight: 600; }
+
+.footnote code {
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--violet);
+  background: rgba(var(--violet-rgb), 0.09);
+  border-radius: 4px;
+}
+
+@keyframes sheen {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+
+@keyframes peekSheen {
+  from { background-position: 130% 0; }
+  to { background-position: -130% 0; }
+}
+
+@keyframes halo {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.18); }
+}
+
+@keyframes coreBreathe {
+  0%, 100% { transform: scale(0.92); filter: brightness(0.95); }
+  50% { transform: scale(1.12); filter: brightness(1.2); }
+}
+
+@keyframes orbit {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+
+@keyframes ringDrift {
+  from { transform: rotate(8deg) rotateZ(0deg); }
+  to { transform: rotate(8deg) rotateZ(360deg); }
+}
+
+@keyframes angSpin {
+  to { --ang: 360deg; }
+}
+
+@keyframes scanY {
+  0% { transform: translateY(0); opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translateY(420%); opacity: 0; }
+}
+
+@keyframes xSweep {
+  0% { transform: translateX(-20px) skewX(-12deg); opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 0.8; }
+  100% { transform: translateX(820px) skewX(-12deg); opacity: 0; }
+}
+
+@keyframes fluxRun {
+  0% { transform: translateX(0); opacity: 0; }
+  12% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { transform: translateX(170px); opacity: 0; }
+}
+
+@keyframes charGlow {
+  0%, 55%, 100% { color: var(--dim); text-shadow: none; }
+  24% { color: var(--cyan); text-shadow: 0 0 9px rgba(var(--cyan-rgb), 0.65); }
+}
+
+@keyframes charGlowCyan {
+  0%, 60%, 100% { color: var(--dim); text-shadow: none; }
+  26% { color: var(--cyan); text-shadow: 0 0 9px rgba(var(--cyan-rgb), 0.65); }
+}
+
+@keyframes eqBounce {
+  from { transform: scaleY(0.25); opacity: 0.55; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes blip {
+  0%, 55%, 100% { opacity: 0; transform: scale(0.4); }
+  62% { opacity: 1; transform: scale(1); }
+  82% { opacity: 0; transform: scale(2.4); }
+}
+
+@keyframes cubeSpin {
+  from { transform: rotateX(-22deg) rotateY(0deg); }
+  to { transform: rotateX(-22deg) rotateY(360deg); }
+}
+
+@keyframes glitchA {
+  0%, 91%, 100% { opacity: 0; transform: translate(0); clip-path: inset(0 0 0 0); }
+  92% { opacity: 0.85; transform: translate(-1.5px, 0); clip-path: inset(8% 0 62% 0); }
+  93% { opacity: 0.6; transform: translate(1.5px, 0); clip-path: inset(52% 0 22% 0); }
+  94% { opacity: 0; }
+  96% { opacity: 0.7; transform: translate(-1px, 0); clip-path: inset(28% 0 42% 0); }
+  97% { opacity: 0; }
+}
+
+@keyframes glitchB {
+  0%, 91%, 100% { opacity: 0; transform: translate(0); clip-path: inset(0 0 0 0); }
+  92% { opacity: 0.7; transform: translate(1.5px, 0); clip-path: inset(64% 0 12% 0); }
+  93.5% { opacity: 0.55; transform: translate(-1.5px, 0); clip-path: inset(18% 0 55% 0); }
+  95% { opacity: 0; }
+  96.5% { opacity: 0.6; transform: translate(1px, 0); clip-path: inset(44% 0 30% 0); }
+  98% { opacity: 0; }
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* 浅色下所有 glow 都收一档，避免糊成一片 */
+html[data-theme='light'] .orb__core { box-shadow: 0 0 6px rgba(var(--violet-rgb), 0.55), 0 0 14px rgba(var(--violet-rgb), 0.3); }
+html[data-theme='light'] .radar,
+html[data-theme='light'] .radar__core { box-shadow: none; }
+html[data-theme='light'] .cube { filter: none; }
+
+@media (max-width: 720px) {
+  .page { padding: 28px 14px 60px; }
+  .stage { padding: 20px 16px 24px; }
+  .masthead { flex-direction: column; }
+  .concept__head { padding: 15px 16px; }
+  .assistant { gap: 9px; }
+  .avatar { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">CCoder · transcript states</p>
+      <h1>等待 / 思考 · 动效方向</h1>
+      <p class="sub">
+        四个方向，每个都覆盖「等待响应」和「思考中」两态。点击任意「思考中」行可以展开 / 收起正文卡片。
+        右上角可切换浅色预览。
+      </p>
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button">
+      <span class="swatch"></span>
+      <span id="themeLabel">浅色预览</span>
+    </button>
+  </header>
+
+  <nav class="jumpbar" aria-label="方案导航">
+    <a href="#c1">01 星核轨道</a>
+    <a href="#c2">02 流光导管</a>
+    <a href="#c3">03 全息雷达</a>
+    <a href="#c4">04 神经星云</a>
+  </nav>
+
+  <!-- ══════════ 01 ══════════ -->
+  <section class="concept" id="c1" style="--fx: 167, 139, 250">
+    <header class="concept__head">
+      <span class="concept__num">01</span>
+      <div>
+        <h2 class="concept__title">星核轨道 <span class="tag">推荐 · 平衡</span></h2>
+        <p class="concept__desc">
+          会呼吸的等离子核心，两条轨道错速环绕；标题走缓慢的紫青渐变，思考卡边框是一圈旋转的光弧。
+          动效强但不吵，和现有深色主题最贴。
+        </p>
+      </div>
+    </header>
+    <div class="stage">
+      <div class="convo">
+        <div class="msg-user"><span class="bubble">帮我看看这个项目的结构</span></div>
+        <div class="assistant">
+          <span class="avatar">C</span>
+          <div class="assistant__body">
+            <div class="row">
+              <span class="orb" aria-hidden="true">
+                <span class="orb__halo"></span>
+                <span class="orb__ring orb__ring--a"><i class="sat"></i></span>
+                <span class="orb__ring orb__ring--b"><i class="sat"></i></span>
+                <span class="orb__ring orb__ring--c"></span>
+                <span class="orb__core"></span>
+              </span>
+              <span class="c1-label">等待响应…</span>
+              <span class="timer c1-timer js-timer">00:01</span>
+            </div>
+
+            <button class="think-btn is-open" type="button" data-think="tc1" aria-expanded="true">
+              <svg class="think-chev" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M4.2 2.2 8 6l-3.8 3.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="orb orb--mini" aria-hidden="true">
+                <span class="orb__halo"></span>
+                <span class="orb__ring orb__ring--a"><i class="sat"></i></span>
+                <span class="orb__ring orb__ring--b"><i class="sat"></i></span>
+                <span class="orb__core"></span>
+              </span>
+              <span class="fx-label c1-label">思考中…</span>
+              <span class="peek">先读一下 Transcript.tsx，确认等待行挂在哪个主题变量上<span class="caret"></span></span>
+            </button>
+
+            <div class="reveal is-open" id="tc1">
+              <div class="thinkcard">
+                <div class="face c1face">
+                  <span class="c1face__scan" aria-hidden="true"></span>
+                  <pre>先确认一下现状：等待行只有三点 + 文字 + 计时，思考行只有一行预览。
+这次改动要同时覆盖两处，而且不能在流式输出时闪。
+把动效挂到会话状态上，切走再回来的时候，动画和计时都能接住。</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 02 ══════════ -->
+  <section class="concept" id="c2" style="--fx: 34, 211, 238">
+    <header class="concept__head">
+      <span class="concept__num">02</span>
+      <div>
+        <h2 class="concept__title">流光导管</h2>
+        <p class="concept__desc">
+          把「等待」画成一条能量导管：光弹单向流过，标题逐字点亮；思考态换成一组频谱条，
+          正文卡片有网格和扫描光带。偏数据流 / 终端感。
+        </p>
+      </div>
+    </header>
+    <div class="stage">
+      <div class="convo">
+        <div class="msg-user"><span class="bubble">帮我看看这个项目的结构</span></div>
+        <div class="assistant">
+          <span class="avatar">C</span>
+          <div class="assistant__body">
+            <div class="row">
+              <span class="flux" aria-hidden="true">
+                <span class="flux__track"></span>
+                <span class="flux__comet"></span>
+                <span class="flux__comet flux__comet--2"></span>
+              </span>
+              <span class="c2-label">
+                <i>等</i><i>待</i><i>响</i><i>应</i><span class="ellip">…</span>
+              </span>
+              <span class="timer c2-timer js-timer">T+00:01</span>
+            </div>
+
+            <button class="think-btn is-open" type="button" data-think="tc2" aria-expanded="true">
+              <svg class="think-chev" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M4.2 2.2 8 6l-3.8 3.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+              <span class="fx-label c2-label c2-label--think">
+                <i>思</i><i>考</i><i>中</i><span class="ellip">…</span>
+              </span>
+              <span class="peek peek--flux">先读一下 Transcript.tsx，确认等待行挂在哪个主题变量上<span class="caret"></span></span>
+            </button>
+
+            <div class="reveal is-open" id="tc2">
+              <div class="thinkcard">
+                <div class="face c2face">
+                  <span class="c2face__scan" aria-hidden="true"></span>
+                  <pre>先确认一下现状：等待行只有三点 + 文字 + 计时，思考行只有一行预览。
+这次改动要同时覆盖两处，而且不能在流式输出时闪。
+把动效挂到会话状态上，切走再回来的时候，动画和计时都能接住。</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 03 ══════════ -->
+  <section class="concept" id="c3" style="--fx: 125, 211, 252">
+    <header class="concept__head">
+      <span class="concept__num">03</span>
+      <div>
+        <h2 class="concept__title">全息雷达</h2>
+        <p class="concept__desc">
+          等待态是一枚声呐扫描盘，标题偶发 RGB 错位；思考态换成旋转线框立方体，
+          正文卡片带 HUD 四角括号和扫描线。最「科幻」，辨识度也最高。
+        </p>
+      </div>
+    </header>
+    <div class="stage">
+      <div class="convo">
+        <div class="msg-user"><span class="bubble">帮我看看这个项目的结构</span></div>
+        <div class="assistant">
+          <span class="avatar">C</span>
+          <div class="assistant__body">
+            <div class="row">
+              <span class="radar" aria-hidden="true">
+                <span class="radar__sweep"></span>
+                <span class="radar__ticks"></span>
+                <span class="radar__ring"></span>
+                <span class="radar__blip b1"></span>
+                <span class="radar__blip b2"></span>
+                <span class="radar__core"></span>
+              </span>
+              <span class="c3-label" data-text="等待响应…">等待响应…</span>
+              <span class="timer c3-timer js-timer">[ 00:01 ]</span>
+            </div>
+
+            <button class="think-btn is-open" type="button" data-think="tc3" aria-expanded="true">
+              <svg class="think-chev" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M4.2 2.2 8 6l-3.8 3.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="cube-wrap" aria-hidden="true">
+                <span class="cube"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              </span>
+              <span class="fx-label c3-label" data-text="思考中…">思考中…</span>
+              <span class="peek">先读一下 Transcript.tsx，确认等待行挂在哪个主题变量上<span class="caret"></span></span>
+            </button>
+
+            <div class="reveal is-open" id="tc3">
+              <div class="thinkcard">
+                <div class="face c3face">
+                  <span class="c3face__corner tl" aria-hidden="true"></span>
+                  <span class="c3face__corner tr" aria-hidden="true"></span>
+                  <span class="c3face__corner bl" aria-hidden="true"></span>
+                  <span class="c3face__corner br" aria-hidden="true"></span>
+                  <span class="c3face__rail" aria-hidden="true"></span>
+                  <span class="c3face__scan" aria-hidden="true"></span>
+                  <pre>先确认一下现状：等待行只有三点 + 文字 + 计时，思考行只有一行预览。
+这次改动要同时覆盖两处，而且不能在流式输出时闪。
+把动效挂到会话状态上，切走再回来的时候，动画和计时都能接住。</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 04 ══════════ -->
+  <section class="concept" id="c4" style="--fx: 167, 139, 250">
+    <header class="concept__head">
+      <span class="concept__num">04</span>
+      <div>
+        <h2 class="concept__title">神经星云 <span class="tag">最炫</span></h2>
+        <p class="concept__desc">
+          Canvas 粒子网络：邻近节点自动连线，随机有光点沿连线脉冲。思考正文直接浮在星云上。
+          观感最重，需要控制粒子数，并遵循「减少动效」系统设置。
+        </p>
+      </div>
+    </header>
+    <div class="stage">
+      <div class="convo">
+        <div class="msg-user"><span class="bubble">帮我看看这个项目的结构</span></div>
+        <div class="assistant">
+          <span class="avatar">C</span>
+          <div class="assistant__body">
+            <div class="row">
+              <span class="nebula" aria-hidden="true">
+                <canvas data-nebula></canvas>
+              </span>
+              <span class="c4-label">等待响应…</span>
+              <span class="timer c4-timer js-timer">00:01</span>
+            </div>
+
+            <button class="think-btn is-open" type="button" data-think="tc4" aria-expanded="true">
+              <svg class="think-chev" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M4.2 2.2 8 6l-3.8 3.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="nebula nebula--think" aria-hidden="true">
+                <canvas data-nebula data-dense="1"></canvas>
+              </span>
+              <span class="fx-label c4-label">思考中…</span>
+              <span class="peek">先读一下 Transcript.tsx，确认等待行挂在哪个主题变量上<span class="caret"></span></span>
+            </button>
+
+            <div class="reveal is-open" id="tc4">
+              <div class="thinkcard">
+                <div class="face c4face" style="min-height: 92px">
+                  <canvas class="nebula-bg" data-nebula data-dense="1" data-big="1" aria-hidden="true"></canvas>
+                  <span class="c4face__veil" aria-hidden="true"></span>
+                  <pre>先确认一下现状：等待行只有三点 + 文字 + 计时，思考行只有一行预览。
+这次改动要同时覆盖两处，而且不能在流式输出时闪。
+把动效挂到会话状态上，切走再回来的时候，动画和计时都能接住。</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footnote">
+    <b>实现备注</b>：四个方案都是纯 CSS 动效为主，只有 04 用 Canvas；落到组件时，
+    等待/思考的公共结构可以直接复用现有的 <code>PendingRow</code> 和 <code>ThinkingLine</code>，
+    动效层抽成一个 <code>&lt;StateFx kind="waiting|thinking" /&gt;</code>，颜色全部走主题变量。
+    所有无限动画在 <code>prefers-reduced-motion: reduce</code> 时静止。
+  </div>
+</div>
+
+<script>
+/* ── 主题切换 ─────────────────────────────────────────── */
+const themeBtn = document.getElementById('themeBtn')
+const themeLabel = document.getElementById('themeLabel')
+/* 截图脚本用 ?v=light 直接以浅色加载，方便两种主题都过一遍 */
+if (new URLSearchParams(location.search).get('v') === 'light') {
+  document.documentElement.dataset.theme = 'light'
+  themeLabel.textContent = '深色预览'
+}
+themeBtn.addEventListener('click', () => {
+  const light = document.documentElement.dataset.theme === 'light'
+  document.documentElement.dataset.theme = light ? 'dark' : 'light'
+  themeLabel.textContent = light ? '浅色预览' : '深色预览'
+})
+
+/* ── 计时（模拟真实等待） ─────────────────────────────── */
+const started = Date.now() - 1000
+function fmtClock(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const mm = String(Math.floor(s / 60)).padStart(2, '0')
+  const ss = String(s % 60).padStart(2, '0')
+  return `${mm}:${ss}`
+}
+const timers = [...document.querySelectorAll('.js-timer')]
+setInterval(() => {
+  const text = fmtClock(Date.now() - started)
+  for (const el of timers) {
+    el.textContent = el.dataset.bracket ? `[ ${text} ]` : (el.dataset.prefix || '') + text
+  }
+}, 1000)
+for (const el of timers) {
+  if (el.textContent.startsWith('[')) el.dataset.bracket = '1'
+  else if (el.textContent.startsWith('T+')) el.dataset.prefix = 'T+'
+}
+
+/* ── 思考卡展开 / 收起 ───────────────────────────────── */
+for (const btn of document.querySelectorAll('[data-think]')) {
+  btn.addEventListener('click', () => {
+    const reveal = document.getElementById(btn.dataset.think)
+    const open = btn.classList.toggle('is-open')
+    btn.setAttribute('aria-expanded', String(open))
+    reveal.classList.toggle('is-open', open)
+  })
+}
+
+/* ── 04 神经星云 ─────────────────────────────────────── */
+const TAU = Math.PI * 2
+const nebulaCanvases = [...document.querySelectorAll('canvas[data-nebula]')]
+const scenes = []
+
+function palette() {
+  const light = document.documentElement.dataset.theme === 'light'
+  return light
+    ? { a: [109, 40, 217], b: [8, 145, 178], c: [219, 39, 119], alpha: 1 }
+    : { a: [167, 139, 250], b: [103, 232, 249], c: [244, 114, 182], alpha: 1 }
+}
+
+function createScene(canvas) {
+  const ctx = canvas.getContext('2d')
+  const big = canvas.hasAttribute('data-big')
+  const dense = canvas.hasAttribute('data-dense')
+  let w = 1
+  let h = 1
+  let dpr = 1
+  let link = 24
+  let nodes = []
+  let pulses = []
+  let spawn = 0
+
+  const resize = () => {
+    const rect = canvas.getBoundingClientRect()
+    dpr = Math.min(2, window.devicePixelRatio || 1)
+    w = Math.max(1, rect.width)
+    h = Math.max(1, rect.height)
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    link = big ? 54 : w > 90 ? 30 : 22
+    const target = Math.max(10, Math.min(big ? 58 : dense ? 26 : 20, Math.round((w * h) / (big ? 1700 : 1200))))
+    while (nodes.length < target) {
+      nodes.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.09,
+        vy: (Math.random() - 0.5) * 0.09,
+        r: Math.random() < 0.18 ? 1.7 : 0.8 + Math.random() * 0.8,
+        hue: Math.random() < 0.7 ? 'a' : 'b'
+      })
+    }
+    nodes.length = target
+    nodes.forEach((n) => {
+      if (n.x > w) n.x = Math.random() * w
+      if (n.y > h) n.y = Math.random() * h
+    })
+  }
+
+  const spawnPulse = () => {
+    if (nodes.length < 2) return
+    const a = (Math.random() * nodes.length) | 0
+    let b = -1
+    let best = Infinity
+    for (let i = 0; i < nodes.length; i++) {
+      if (i === a) continue
+      const dx = nodes[i].x - nodes[a].x
+      const dy = nodes[i].y - nodes[a].y
+      const d = Math.hypot(dx, dy)
+      if (d < best && d < link * 2.1) {
+        best = d
+        b = i
+      }
+    }
+    if (b < 0) return
+    pulses.push({ a, b, t: 0, speed: 0.0022 + Math.random() * 0.0022 })
+    if (pulses.length > 8) pulses.shift()
+  }
+
+  const update = (dt) => {
+    for (const n of nodes) {
+      n.x += n.vx * dt
+      n.y += n.vy * dt
+      if (n.x < 0 || n.x > w) n.vx *= -1
+      if (n.y < 0 || n.y > h) n.vy *= -1
+      n.x = Math.max(0, Math.min(w, n.x))
+      n.y = Math.max(0, Math.min(h, n.y))
+    }
+    spawn += dt
+    if (spawn > (big ? 380 : 1100)) {
+      spawn = 0
+      spawnPulse()
+    }
+    for (let i = pulses.length - 1; i >= 0; i--) {
+      pulses[i].t += pulses[i].speed * dt
+      if (pulses[i].t >= 1) pulses.splice(i, 1)
+    }
+  }
+
+  const draw = () => {
+    const p = palette()
+    ctx.clearRect(0, 0, w, h)
+    ctx.globalCompositeOperation = 'lighter'
+
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i]
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j]
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const d = Math.hypot(dx, dy)
+        if (d > link) continue
+        const alpha = (1 - d / link) * (big ? 0.34 : 0.42)
+        const c = a.hue === 'a' ? p.a : p.b
+        ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${alpha})`
+        ctx.lineWidth = 0.6
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
+    }
+
+    for (const pulse of pulses) {
+      const a = nodes[pulse.a]
+      const b = nodes[pulse.b]
+      if (!a || !b) continue
+      const x = a.x + (b.x - a.x) * pulse.t
+      const y = a.y + (b.y - a.y) * pulse.t
+      const fade = Math.sin(Math.PI * pulse.t)
+      ctx.fillStyle = `rgba(${p.c[0]},${p.c[1]},${p.c[2]},${0.16 * fade})`
+      ctx.beginPath()
+      ctx.arc(x, y, 4, 0, TAU)
+      ctx.fill()
+      ctx.fillStyle = `rgba(255,255,255,${0.85 * fade})`
+      ctx.beginPath()
+      ctx.arc(x, y, 1.2, 0, TAU)
+      ctx.fill()
+    }
+
+    for (const n of nodes) {
+      const c = n.hue === 'a' ? p.a : p.b
+      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},0.16)`
+      ctx.beginPath()
+      ctx.arc(n.x, n.y, n.r * 3.2, 0, TAU)
+      ctx.fill()
+      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},0.92)`
+      ctx.beginPath()
+      ctx.arc(n.x, n.y, n.r, 0, TAU)
+      ctx.fill()
+    }
+
+    ctx.globalCompositeOperation = 'source-over'
+  }
+
+  const observer = new ResizeObserver(resize)
+  observer.observe(canvas)
+  resize()
+
+  return { update, draw }
+}
+
+if (nebulaCanvases.length) {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  for (const canvas of nebulaCanvases) scenes.push(createScene(canvas))
+
+  if (reduced) {
+    for (const scene of scenes) scene.draw()
+  } else {
+    let last = performance.now()
+    const loop = (now) => {
+      const dt = Math.min(34, now - last)
+      last = now
+      for (const scene of scenes) {
+        scene.update(dt)
+        scene.draw()
+      }
+      requestAnimationFrame(loop)
+    }
+    requestAnimationFrame(loop)
+  }
+}
+</script>
+</body>
+</html>

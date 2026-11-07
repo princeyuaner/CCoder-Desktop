@@ -1,0 +1,1195 @@
+<!doctype html>
+<html lang="zh" data-theme="dark" data-variant="a">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>工具卡悬停浮层 · 审批稿</title>
+<style>
+/* ══════════════════════════════════════════════════════════
+ * token —— 与 app 的 tokens.css 对齐
+ * ══════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #191919;
+  --pane: #1b1b1b;
+  --raised: #232323;
+  --pop-bg: #272727;
+  --pop-border: #3b3b3b;
+
+  --border: #2c2c2c;
+  --border-soft: #242424;
+  --text: #e8e8e8;
+  --text-dim: #d2d2dc;
+  --muted: #8a8a8c;
+  --faint: #6b6b73;
+
+  --ok: #4b9e5f;
+  --ok-text: #8fd39a;
+  --warn: #c9a227;
+  --danger: #e5534b;
+  --danger-text: #ffb3ac;
+  --run: #d97757;
+  --add: #7fbf7f;
+  --del: #d98a8a;
+
+  --card-rgb: 255, 255, 255;
+  --line: rgba(255, 255, 255, 0.075);
+  --body-bg: rgba(0, 0, 0, 0.18);
+  --code-text: #c8c8d4;
+
+  --pop-shadow:
+    0 24px 64px -16px rgba(0, 0, 0, 0.66),
+    0 8px 20px -8px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045);
+
+  --font: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-theme='light'] {
+  --bg: #f6f6f7;
+  --pane: #fbfbfc;
+  --raised: #ffffff;
+  --pop-bg: #ffffff;
+  --pop-border: #d5d5db;
+
+  --border: #d7d7dc;
+  --border-soft: #e5e5e8;
+  --text: #1d1d1f;
+  --text-dim: #3a3a40;
+  --muted: #6c6c75;
+  --faint: #95959e;
+
+  --ok: #2f8a45;
+  --ok-text: #2f8a45;
+  --warn: #a97b0b;
+  --danger: #c83b32;
+  --danger-text: #a82e27;
+  --run: #b04a28;
+  --add: #3f7d46;
+  --del: #b8442f;
+
+  --card-rgb: 15, 15, 20;
+  --line: rgba(15, 15, 20, 0.085);
+  --body-bg: rgba(15, 15, 20, 0.035);
+  --code-text: #33333c;
+
+  --pop-shadow:
+    0 24px 56px -18px rgba(20, 20, 30, 0.24),
+    0 6px 16px -8px rgba(20, 20, 30, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* 工具族配色：只染图标 / 主色，正文一律中性 */
+[data-family='bash']   { --fam: #9ece6a; }
+[data-family='read']   { --fam: #7aa2f7; }
+[data-family='edit']   { --fam: #e0af68; }
+[data-family='write']  { --fam: #c4a7f7; }
+[data-family='search'] { --fam: #7dcfff; }
+[data-family='task']   { --fam: #a8a8c0; }
+[data-family='ask']    { --fam: #d0a0e0; }
+[data-family='other']  { --fam: #8a8a9c; }
+html[data-theme='light'] [data-family='bash']   { --fam: #3f7d46; }
+html[data-theme='light'] [data-family='read']   { --fam: #2f5fbf; }
+html[data-theme='light'] [data-family='edit']   { --fam: #a06b0b; }
+html[data-theme='light'] [data-family='write']  { --fam: #6b4fa8; }
+html[data-theme='light'] [data-family='search'] { --fam: #1f6f8b; }
+html[data-theme='light'] [data-family='task']   { --fam: #5c5c6e; }
+html[data-theme='light'] [data-family='ask']    { --fam: #8a4d9e; }
+
+html, body { min-height: 100%; }
+/* 稿件页本身不滚：避免截图右侧多出一条滚动条 */
+html { scrollbar-width: none; }
+html::-webkit-scrollbar { width: 0; height: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 56px;
+  transition: background-color 0.3s var(--ease), color 0.3s var(--ease);
+}
+button {
+  font: inherit; color: inherit; background: none; border: none; cursor: pointer;
+}
+pre, code { font-family: var(--mono); }
+button:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text) 32%, transparent);
+  outline-offset: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════
+ * 顶部审批控制条（只属于稿件，不属于 app）
+ * ══════════════════════════════════════════════════════════ */
+.bar {
+  position: sticky; top: 0; z-index: 80;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 28px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.bar h1 { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.bar h1 span { font-weight: 400; color: var(--faint); margin-left: 6px; }
+.bar .sp { flex: 1; }
+.seg {
+  display: flex; gap: 2px; padding: 3px;
+  background: rgba(var(--card-rgb), 0.045);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+}
+.seg button {
+  padding: 5px 12px; border-radius: 7px;
+  font-size: 12.5px; color: var(--muted); white-space: nowrap;
+  transition: color 0.18s var(--ease), background-color 0.18s var(--ease);
+}
+.seg button:hover { color: var(--text); }
+.seg button.on {
+  color: var(--text);
+  background: var(--raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.seg button.on.now { color: var(--danger-text); }
+.bar .hint { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+.iconbtn {
+  display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  color: var(--muted);
+  border: 1px solid var(--border-soft);
+  background: rgba(var(--card-rgb), 0.035);
+  transition: color 0.18s var(--ease), background-color 0.18s var(--ease);
+}
+.iconbtn:hover { color: var(--text); background: rgba(var(--card-rgb), 0.075); }
+
+/* ══════════════════════════════════════════════════════════
+ * 转写区（还原 app 的列宽与留白）
+ * ══════════════════════════════════════════════════════════ */
+.chat {
+  width: min(820px, calc(100% - 48px));
+  margin: 0 auto;
+  padding-top: 34px;
+}
+.turn { display: flex; flex-direction: column; gap: 6px; }
+
+.msg-me {
+  align-self: flex-end;
+  max-width: 78%;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  background: rgba(34, 211, 238, 0.07);
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  border-radius: 10px 10px 3px 10px;
+}
+.msg-ai {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+.msg-ai .dim { color: var(--faint); }
+.msg-ai code, .msg-think code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: rgba(var(--card-rgb), 0.06);
+}
+
+.msg-think {
+  display: flex; align-items: center; gap: 7px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.msg-think .ico {
+  color: #9b8bd0;
+  font-size: 11px;
+}
+.msg-think .dot { opacity: 0.5; }
+
+/* ── 工具卡（与现有 .tool 一致） ─────────────────────────── */
+.tool {
+  position: relative;
+  background: var(--raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.16s var(--ease);
+}
+.tool::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+.tool.is-ok::before { background: rgba(127, 191, 127, 0.34); }
+.tool.is-error::before { background: var(--danger); }
+.tool.is-running::before { background: var(--run); }
+.tool.is-error {
+  border-color: color-mix(in srgb, var(--danger) 36%, transparent);
+  background: color-mix(in srgb, var(--danger) 5.5%, var(--raised));
+}
+.tool.is-running { border-color: color-mix(in srgb, var(--run) 28%, transparent); }
+
+.tool__row {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 7px 10px;
+  text-align: left;
+  transition: background-color 0.12s var(--ease);
+}
+.tool__row:hover { background: rgba(var(--card-rgb), 0.035); }
+.tool__ico {
+  flex: none;
+  display: grid; place-items: center;
+  width: 20px; height: 20px;
+  border-radius: 6px;
+  background: rgba(var(--card-rgb), 0.055);
+  font-family: var(--font);
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--fam);
+}
+.tool.is-running .tool__ico { color: var(--run); }
+.tool.is-error .tool__ico { color: var(--danger); }
+
+.tool__subject {
+  flex: 1; min-width: 0;
+  font-size: 12.5px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tool.is-error .tool__subject { color: var(--danger-text); }
+.tool__subject.is-open {
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--card-rgb), 0.22);
+  text-underline-offset: 2.5px;
+}
+.tool__stat {
+  flex: none; display: inline-flex; gap: 4px;
+  font-family: var(--mono); font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.tool__stat .add { color: var(--add); }
+.tool__stat .del { color: var(--del); }
+.tool__dir {
+  flex: none; max-width: 170px;
+  font-size: 10.5px; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tool__name {
+  flex: none; max-width: 72px;
+  font-size: 10px; letter-spacing: 0.06em; color: var(--faint);
+  opacity: 0.72;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tool__state {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  height: 18px; padding: 0 6px;
+  border-radius: 5px;
+  font-size: 10.5px; font-weight: 500; line-height: 1; white-space: nowrap;
+}
+.tool__state.is-ok { width: 18px; padding: 0; color: var(--ok-text); }
+.tool__state.is-error {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+}
+.tool__state.is-running {
+  color: var(--run);
+  background: color-mix(in srgb, var(--run) 11%, transparent);
+}
+.tool__spin {
+  width: 8px; height: 8px;
+  border: 1.4px solid currentColor; border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+.tool__time {
+  flex: none; min-width: 34px; text-align: right;
+  font-size: 10.5px; color: var(--faint);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+.tool.is-running .tool__time { color: var(--run); }
+.tool__chev { flex: none; color: var(--faint); font-size: 13px; opacity: 0.65; }
+
+/* 演示用：给定 tabindex 的卡片可键盘聚焦 */
+.tool[data-pop] { cursor: default; }
+.tool[data-pop]:focus-visible { outline-offset: 3px; }
+
+/* ══════════════════════════════════════════════════════════
+ * 悬停浮层 —— 单一 overlay，不挂在每张卡片里
+ * ══════════════════════════════════════════════════════════ */
+.pop-layer {
+  position: fixed; inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.pop {
+  position: fixed;
+  width: min(500px, calc(100vw - 32px));
+  background: var(--pop-bg);
+  border: 1px solid var(--pop-border);
+  border-radius: 12px;
+  box-shadow: var(--pop-shadow);
+  /* 纯预览：不接管鼠标，才能一路扫过整列工具行而不被浮层卡住 */
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(5px) scale(0.985);
+  transform-origin: var(--caret-x, 28px) 100%;
+  transition:
+    opacity 0.14s var(--ease),
+    transform 0.16s var(--ease);
+}
+.pop[data-side='bottom'] {
+  transform: translateY(-5px) scale(0.985);
+  transform-origin: var(--caret-x, 28px) 0;
+}
+.pop.is-in { opacity: 1; transform: none; }
+html[data-anim='off'] .pop { transition: none; }
+
+/* 指向工具行的那个小三角 */
+.pop__caret {
+  position: absolute;
+  left: var(--caret-x, 28px);
+  width: 11px; height: 11px;
+  background: var(--pop-bg);
+  border-radius: 2.5px;
+  pointer-events: none;
+}
+.pop[data-side='top'] .pop__caret {
+  bottom: -6px;
+  border-right: 1px solid var(--pop-border);
+  border-bottom: 1px solid var(--pop-border);
+  transform: rotate(45deg);
+}
+.pop[data-side='bottom'] .pop__caret {
+  top: -6px;
+  border-left: 1px solid var(--pop-border);
+  border-top: 1px solid var(--pop-border);
+  transform: rotate(45deg);
+}
+
+/* ── 头部 ─────────────────────────────────────────────── */
+.pop__head {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px 10px;
+}
+.pop__ico {
+  flex: none;
+  display: grid; place-items: center;
+  width: 28px; height: 28px;
+  margin-top: 1px;
+  border-radius: 8px;
+  font-size: 12px; line-height: 1;
+  color: var(--fam);
+  background: color-mix(in srgb, var(--fam) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fam) 22%, transparent);
+}
+.pop__htext { min-width: 0; flex: 1; }
+.pop__title {
+  font-size: 13px; font-weight: 560; line-height: 1.4;
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pop__meta {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 2px;
+  font-size: 10.5px; color: var(--faint);
+  min-width: 0;
+}
+.pop__kind {
+  font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.085em;
+  color: color-mix(in srgb, var(--fam) 82%, var(--muted));
+}
+.pop__metapath {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pop__dot { opacity: 0.5; }
+.pop__right {
+  flex: none;
+  display: flex; align-items: center; gap: 9px;
+  margin-top: 2px;
+}
+.pop__state {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 19px; padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10.5px; font-weight: 500;
+  white-space: nowrap;
+}
+.pop__state.is-ok {
+  color: var(--ok-text);
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.pop__state.is-error {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+}
+.pop__state.is-running {
+  color: var(--run);
+  background: color-mix(in srgb, var(--run) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--run) 22%, transparent);
+}
+.pop__state .sp {
+  width: 8px; height: 8px;
+  border: 1.4px solid currentColor; border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+.pop__time {
+  font-family: var(--mono);
+  font-size: 10.5px; color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 主体 ─────────────────────────────────────────────── */
+.pop__body { padding: 0 14px 12px; }
+.pop__sect + .pop__sect { margin-top: 10px; }
+.pop__label {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 5px;
+  font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.09em;
+  color: var(--faint);
+}
+.pop__label .count {
+  font-weight: 400;
+  letter-spacing: 0;
+  color: color-mix(in srgb, var(--faint) 75%, transparent);
+}
+
+.pop__code {
+  padding: 7px 10px;
+  background: var(--body-bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 11.5px; line-height: 1.6;
+  color: var(--code-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pop__prompt { color: var(--faint); user-select: none; margin-right: 1px; }
+
+.pop__out {
+  max-height: 58px;
+  overflow: hidden;
+  padding: 7px 10px;
+  background: var(--body-bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 11px; line-height: 1.62;
+  color: color-mix(in srgb, var(--code-text) 84%, var(--faint));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pop__out.is-clipped {
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+}
+.pop__out .ok { color: var(--ok-text); }
+.pop__out .err { color: var(--danger-text); }
+.pop__out .q { color: var(--faint); }
+
+/* ── 文件路径 ─────────────────────────────────────────── */
+.pop__path {
+  padding: 8px 10px;
+  background: var(--body-bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-family: var(--mono);
+  font-size: 11px; line-height: 1.55;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+.pop__path b { font-weight: 500; color: var(--code-text); }
+.pop__path .ln { color: var(--faint); }
+.pop__chips { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.pop__chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 20px; padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: rgba(var(--card-rgb), 0.025);
+  font-family: var(--mono);
+  font-size: 10.5px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pop__chip.add { color: var(--add); border-color: color-mix(in srgb, var(--add) 24%, transparent); background: color-mix(in srgb, var(--add) 7%, transparent); }
+.pop__chip.del { color: var(--del); border-color: color-mix(in srgb, var(--del) 24%, transparent); background: color-mix(in srgb, var(--del) 7%, transparent); }
+
+/* ── 错误块 ───────────────────────────────────────────── */
+.pop__err {
+  padding: 8px 10px;
+  font-size: 11px; line-height: 1.6;
+  color: color-mix(in srgb, var(--danger-text) 82%, var(--text));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
+  border-radius: 7px;
+}
+.pop__err .code {
+  display: inline-block;
+  margin-right: 5px; padding: 0 4px;
+  border-radius: 3px;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.pop__err .msg { font-family: var(--mono); overflow-wrap: anywhere; }
+
+/* ── 搜索命中 ─────────────────────────────────────────── */
+.pop__matches {
+  background: var(--body-bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.pop__match {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 5px 10px;
+  font-family: var(--mono); font-size: 10.5px;
+  white-space: nowrap;
+}
+.pop__match + .pop__match { border-top: 1px solid var(--line); }
+.pop__match .file {
+  flex: none; max-width: 118px;
+  color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.pop__match .ln { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
+.pop__match .snip {
+  min-width: 0;
+  color: color-mix(in srgb, var(--code-text) 78%, var(--faint));
+  overflow: hidden; text-overflow: ellipsis;
+}
+.pop__match .snip b {
+  font-weight: 500;
+  color: var(--text);
+  background: color-mix(in srgb, var(--fam) 16%, transparent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ── 底部 ─────────────────────────────────────────────── */
+.pop__foot {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 32px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 12px 12px;
+  background: rgba(var(--card-rgb), 0.018);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.pop__footpath {
+  min-width: 0;
+  font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pop__hint {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.pop__foot.is-solo .pop__hint { margin-left: 0; }
+.pop__hint b { font-weight: 400; color: var(--muted); }
+.pop__hint.is-danger { color: color-mix(in srgb, var(--danger-text) 72%, var(--faint)); }
+
+/* 搜索进行中的跑马灯 */
+.pop__progress {
+  position: relative;
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--run) 12%, transparent);
+  overflow: hidden;
+}
+.pop__progress i {
+  position: absolute; inset: 0;
+  width: 36%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--run), transparent);
+  animation: race 1.35s var(--ease) infinite;
+}
+.pop__progresstext { flex: none; }
+
+/* ══════════════════════════════════════════════════════════
+ * 方案 B：极简速览 —— 去掉标签层，收紧留白
+ * ══════════════════════════════════════════════════════════ */
+html[data-variant='b'] .pop {
+  width: min(430px, calc(100vw - 32px));
+  border-radius: 10px;
+}
+html[data-variant='b'] .pop__head { padding: 9px 11px 7px; gap: 8px; }
+html[data-variant='b'] .pop__ico {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+html[data-variant='b'] .pop__title { font-size: 12.5px; }
+html[data-variant='b'] .pop__meta { display: none; }
+html[data-variant='b'] .pop__right { margin-top: 0; }
+html[data-variant='b'] .pop__body { padding: 0 11px 9px; }
+html[data-variant='b'] .pop__label { display: none; }
+html[data-variant='b'] .pop__sect + .pop__sect { margin-top: 6px; }
+html[data-variant='b'] .pop__code { padding: 5px 8px; font-size: 11px; }
+html[data-variant='b'] .pop__out { max-height: 36px; padding: 5px 8px; font-size: 10.5px; }
+html[data-variant='b'] .pop__path { padding: 6px 8px; font-size: 10.5px; }
+html[data-variant='b'] .pop__chips { margin-top: 6px; }
+html[data-variant='b'] .pop__matches .pop__match:nth-child(n + 3) { display: none; }
+html[data-variant='b'] .pop__foot {
+  min-height: 28px;
+  padding: 4px 11px;
+  border-top: none;
+  background: none;
+  border-radius: 0 0 10px 10px;
+}
+html[data-variant='b'] .pop__caret { border-radius: 2px; }
+
+/* ══════════════════════════════════════════════════════════
+ * 「现在」对照：系统原生 title 提示
+ * ══════════════════════════════════════════════════════════ */
+.native-tip {
+  position: fixed;
+  z-index: 90;
+  max-width: 420px;
+  padding: 2px 6px;
+  background: #f2f2f2;
+  color: #111;
+  border: 1px solid #9a9a9a;
+  box-shadow: 2px 2px 3px rgba(0, 0, 0, 0.28);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* ══════════════════════════════════════════════════════════
+ * 稿件页脚说明
+ * ══════════════════════════════════════════════════════════ */
+.spec {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  width: min(820px, calc(100% - 48px));
+  margin: 34px auto 0;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.spec div {
+  padding: 10px 12px;
+  background: var(--pane);
+  font-size: 11px; line-height: 1.55;
+  color: var(--faint);
+}
+.spec b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.spec code { font-size: 10.5px; color: var(--text-dim); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes race {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(300%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop, .pop__hint b, .tool, .tool__row { transition: none !important; }
+  .pop { opacity: 1; transform: none; }
+  .pop__progress i, .tool__spin, .pop__state .sp { animation: none; }
+}
+
+@media (max-width: 720px) {
+  .bar { padding: 10px 14px; gap: 8px; }
+  .bar .hint { display: none; }
+  .chat, .spec { width: calc(100% - 24px); }
+  .spec { grid-template-columns: 1fr 1fr; }
+  .tool__dir, .tool__name { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>工具卡悬停浮层 <span>审批稿</span></h1>
+  <div class="seg" id="variantSeg">
+    <button data-v="now" class="now">现在</button>
+    <button data-v="a" class="on">A · 贴卡详情</button>
+    <button data-v="b">B · 极简速览</button>
+  </div>
+  <div class="sp"></div>
+  <span class="hint" id="segHint">悬停工具行 · 点击固定 · 深浅色可切</span>
+  <button class="iconbtn" id="themeBtn" title="切换深浅色" aria-label="切换深浅色">☀</button>
+</div>
+
+<main class="chat">
+  <div class="msg-me">工具卡悬停出来的那条提示太丑了，重做一下。</div>
+  <p class="msg-ai">
+    先看现有实现。折叠行只挂了原生 title，长命令、完整路径全塞进系统提示里，深色界面下尤其突兀。<br />
+    <span class="dim">新浮层只做预览，不改变卡片的展开状态。</span>
+  </p>
+  <div class="msg-think"><span class="ico">✳</span> 已定位 <code>ToolLine</code> 的 title 属性 <span class="dot">·</span> 2.1s</div>
+  <p class="msg-ai">
+    <span class="dim">方案：复用 <code>ChatItem</code> 已有字段，悬停 90ms 后再出，顶部空间不足时翻到卡片下方。</span>
+  </p>
+
+  <div class="turn">
+    <!-- ── Read：完成态 ─────────────────────────────────── -->
+    <div class="tool is-ok" data-family="read" data-status="ok" data-pop tabindex="0"
+         data-title="E:\CCoder-Desktop\package.json">
+      <div class="tool__row">
+        <span class="tool__ico">▤</span>
+        <span class="tool__subject is-open">package.json</span>
+        <span class="tool__dir">E:\CCoder-Desktop</span>
+        <span class="tool__name">READ</span>
+        <span class="tool__state is-ok" title="完成">✓</span>
+        <span class="tool__time">3ms</span>
+        <span class="tool__chev">›</span>
+      </div>
+      <template>
+        <div class="pop" data-family="read" data-status="ok">
+          <span class="pop__caret"></span>
+          <div class="pop__head">
+            <span class="pop__ico">▤</span>
+            <div class="pop__htext">
+              <div class="pop__title">package.json</div>
+              <div class="pop__meta">
+                <span class="pop__kind">READ</span>
+                <span class="pop__dot">·</span>
+                <span class="pop__metapath">E:\CCoder-Desktop</span>
+              </div>
+            </div>
+            <div class="pop__right">
+              <span class="pop__state is-ok">✓ 完成</span>
+              <span class="pop__time">3ms</span>
+            </div>
+          </div>
+          <div class="pop__body">
+            <div class="pop__sect">
+              <div class="pop__label">完整路径</div>
+              <div class="pop__path">E:\CCoder-Desktop\<b>package.json</b></div>
+            </div>
+            <div class="pop__sect">
+              <div class="pop__label">开头 <span class="count">共 312 行</span></div>
+              <pre class="pop__out is-clipped">{
+  "name": "ccoder-desktop",
+  "version": "1.2.25",
+  "description": "Desktop client that drives Claude Code CLI, Codex CLI and friends",</pre>
+            </div>
+          </div>
+          <div class="pop__foot is-solo">
+            <span class="pop__hint">点击卡片展开 · 文件名打开 IDE <b>›</b></span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ── Edit：完成态 ─────────────────────────────────── -->
+    <div class="tool is-ok" data-family="edit" data-status="ok" data-pop tabindex="0"
+         data-title="E:\CCoder-Desktop\src\renderer\src\components\Transcript.tsx">
+      <div class="tool__row">
+        <span class="tool__ico">✎</span>
+        <span class="tool__subject is-open">Transcript.tsx</span>
+        <span class="tool__stat"><span class="add">+8</span><span class="del">−3</span></span>
+        <span class="tool__dir">src/renderer/src/components</span>
+        <span class="tool__name">EDIT</span>
+        <span class="tool__state is-ok" title="完成">✓</span>
+        <span class="tool__time">46ms</span>
+        <span class="tool__chev">›</span>
+      </div>
+      <template>
+        <div class="pop" data-family="edit" data-status="ok">
+          <span class="pop__caret"></span>
+          <div class="pop__head">
+            <span class="pop__ico">✎</span>
+            <div class="pop__htext">
+              <div class="pop__title">Transcript.tsx</div>
+              <div class="pop__meta">
+                <span class="pop__kind">EDIT</span>
+                <span class="pop__dot">·</span>
+                <span class="pop__metapath">src/renderer/src/components</span>
+              </div>
+            </div>
+            <div class="pop__right">
+              <span class="pop__state is-ok">✓ 完成</span>
+              <span class="pop__time">46ms</span>
+            </div>
+          </div>
+          <div class="pop__body">
+            <div class="pop__sect">
+              <div class="pop__label">完整路径</div>
+              <div class="pop__path">E:\CCoder-Desktop\src\renderer\src\components\<b>Transcript.tsx</b><span class="ln">:1252</span></div>
+              <div class="pop__chips">
+                <span class="pop__chip add">+8</span>
+                <span class="pop__chip del">−3</span>
+                <span class="pop__chip">净增 5 行</span>
+              </div>
+            </div>
+          </div>
+          <div class="pop__foot is-solo">
+            <span class="pop__hint">点击卡片展开 · 文件名打开 IDE <b>›</b></span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ── Read：失败态 ─────────────────────────────────── -->
+    <div class="tool is-error" data-family="read" data-status="error" data-pop tabindex="0"
+         data-title="C:\Users\Lenovo\.claude\settings.local.json">
+      <div class="tool__row">
+        <span class="tool__ico">▤</span>
+        <span class="tool__subject">settings.local.json</span>
+        <span class="tool__dir">C:\Users\Lenovo\.claude</span>
+        <span class="tool__name">READ</span>
+        <span class="tool__state is-error">✕ 失败</span>
+        <span class="tool__time">12ms</span>
+        <span class="tool__chev">›</span>
+      </div>
+      <template>
+        <div class="pop" data-family="read" data-status="error">
+          <span class="pop__caret"></span>
+          <div class="pop__head">
+            <span class="pop__ico">▤</span>
+            <div class="pop__htext">
+              <div class="pop__title">settings.local.json</div>
+              <div class="pop__meta">
+                <span class="pop__kind">READ</span>
+                <span class="pop__dot">·</span>
+                <span class="pop__metapath">C:\Users\Lenovo\.claude</span>
+              </div>
+            </div>
+            <div class="pop__right">
+              <span class="pop__state is-error">✕ 失败</span>
+              <span class="pop__time">12ms</span>
+            </div>
+          </div>
+          <div class="pop__body">
+            <div class="pop__sect">
+              <div class="pop__label">完整路径</div>
+              <div class="pop__path">C:\Users\Lenovo\.claude\<b>settings.local.json</b></div>
+            </div>
+            <div class="pop__sect">
+              <div class="pop__label">错误</div>
+              <div class="pop__err">
+                <span class="code">ENOENT</span><span class="msg">no such file or directory, open 'C:\Users\Lenovo\.claude\settings.local.json'</span>
+              </div>
+            </div>
+          </div>
+          <div class="pop__foot is-solo">
+            <span class="pop__hint is-danger">点击展开错误详情 <b>›</b></span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ── Bash：完成态（默认固定） ─────────────────────── -->
+    <div class="tool is-ok" data-family="bash" data-status="ok" data-pop tabindex="0"
+         data-title="npm run typecheck 2>&amp;1 | tail -40">
+      <div class="tool__row">
+        <span class="tool__ico">▸_</span>
+        <span class="tool__subject">运行类型检查</span>
+        <span class="tool__dir">E:\CCoder-Desktop</span>
+        <span class="tool__name">BASH</span>
+        <span class="tool__state is-ok" title="完成">✓</span>
+        <span class="tool__time">32.4s</span>
+        <span class="tool__chev">›</span>
+      </div>
+      <template>
+        <div class="pop" data-family="bash" data-status="ok">
+          <span class="pop__caret"></span>
+          <div class="pop__head">
+            <span class="pop__ico">▸_</span>
+            <div class="pop__htext">
+              <div class="pop__title">运行类型检查</div>
+              <div class="pop__meta">
+                <span class="pop__kind">BASH</span>
+                <span class="pop__dot">·</span>
+                <span class="pop__metapath">E:\CCoder-Desktop</span>
+              </div>
+            </div>
+            <div class="pop__right">
+              <span class="pop__state is-ok">✓ 完成</span>
+              <span class="pop__time">32.4s</span>
+            </div>
+          </div>
+          <div class="pop__body">
+            <div class="pop__sect">
+              <div class="pop__label">命令</div>
+              <pre class="pop__code"><span class="pop__prompt">$</span> npm run typecheck 2&gt;&amp;1 | tail -40</pre>
+            </div>
+            <div class="pop__sect">
+              <div class="pop__label">输出 <span class="count">6 行</span></div>
+              <pre class="pop__out is-clipped">&gt; ccoder-desktop@1.2.25 typecheck
+&gt; tsc --noEmit -p tsconfig.node.json &amp;&amp; tsc --noEmit -p tsconfig.web.json
+
+<span class="ok">✓</span> node   0 errors
+<span class="ok">✓</span> web    0 errors</pre>
+            </div>
+          </div>
+          <div class="pop__foot">
+            <span class="pop__footpath">E:\CCoder-Desktop</span>
+            <span class="pop__hint">点击展开完整输出 <b>›</b></span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ── Grep：运行中 ─────────────────────────────────── -->
+    <div class="tool is-running" data-family="search" data-status="running" data-pop tabindex="0"
+         data-title="toolDetail">
+      <div class="tool__row">
+        <span class="tool__ico">⌕</span>
+        <span class="tool__subject">toolDetail</span>
+        <span class="tool__dir">src/renderer/src</span>
+        <span class="tool__name">SEARCH</span>
+        <span class="tool__state is-running"><span class="tool__spin"></span>运行中</span>
+        <span class="tool__time">1.8s</span>
+        <span class="tool__chev">›</span>
+      </div>
+      <template>
+        <div class="pop" data-family="search" data-status="running">
+          <span class="pop__caret"></span>
+          <div class="pop__head">
+            <span class="pop__ico">⌕</span>
+            <div class="pop__htext">
+              <div class="pop__title">toolDetail</div>
+              <div class="pop__meta">
+                <span class="pop__kind">GREP</span>
+                <span class="pop__dot">·</span>
+                <span class="pop__metapath">src/renderer/src</span>
+              </div>
+            </div>
+            <div class="pop__right">
+              <span class="pop__state is-running"><span class="sp"></span>运行中</span>
+              <span class="pop__time">1.8s</span>
+            </div>
+          </div>
+          <div class="pop__body">
+            <div class="pop__sect">
+              <div class="pop__label">模式</div>
+              <pre class="pop__code">toolDetail</pre>
+            </div>
+            <div class="pop__sect">
+              <div class="pop__label">命中 <span class="count">12 处</span></div>
+              <div class="pop__matches">
+                <div class="pop__match">
+                  <span class="file">Transcript.tsx</span><span class="ln">:1254</span>
+                  <span class="snip">const { <b>toolDetail</b>, cwd, live } = useContext(…)</span>
+                </div>
+                <div class="pop__match">
+                  <span class="file">Transcript.tsx</span><span class="ln">:1262</span>
+                  <span class="snip">const showMeta = <b>toolDetail</b> === 'full'</span>
+                </div>
+                <div class="pop__match">
+                  <span class="file">Transcript.tsx</span><span class="ln">:1314</span>
+                  <span class="snip">&lt;div className={`tool … tool--${<b>toolDetail</b>}`}&gt;</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pop__foot">
+            <span class="pop__progresstext">正在扫描 128 个文件</span>
+            <span class="pop__progress"><i></i></span>
+            <span class="pop__hint">点击展开实时输出 <b>›</b></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <p class="msg-ai" style="margin-top:16px">
+    悬停只做“预览”，不改变展开状态；点击卡片仍然展开，两条路径互不抢点击。
+  </p>
+</main>
+
+<section class="spec">
+  <div><b>延迟</b>悬停 <code>90ms</code> 打开，离开 <code>120ms</code> 关闭；浮层不接管鼠标。</div>
+  <div><b>动效</b>淡入 + 位移 <code>5px</code>，<code>140ms</code>；只做一次，不跟随鼠标。</div>
+  <div><b>定位</b>默认贴卡片上沿；顶部空间不足自动翻到下方，左右夹在视口内。</div>
+  <div><b>数据</b>只读现有 <code>ChatItem</code> 字段，不新增 IPC、不预取输出。</div>
+</section>
+
+<div class="pop-layer" id="layer"></div>
+
+<script>
+(() => {
+  const html = document.documentElement
+  const layer = document.getElementById('layer')
+  const cards = Array.from(document.querySelectorAll('[data-pop]'))
+  const segBtns = Array.from(document.querySelectorAll('#variantSeg button'))
+  const segHint = document.getElementById('segHint')
+  const themeBtn = document.getElementById('themeBtn')
+
+  const query = new URLSearchParams(location.search)
+  let variant = query.get('v') || 'a'
+  let pinned = document.querySelector('[data-family="bash"]')
+  const pin = query.get('pin')
+  if (pin === 'none') pinned = null
+  else if (pin && /^\d+$/.test(pin)) pinned = cards[Number(pin)] || null
+  const instant = query.get('anim') === 'off'
+  if (instant) html.dataset.anim = 'off'
+  if (query.get('theme') === 'light') {
+    html.dataset.theme = 'light'
+    themeBtn.textContent = '☾'
+  }
+  let current = null
+  let popEl = null
+  let openTimer = 0
+  let closeTimer = 0
+
+  const hintFor = (v) =>
+    v === 'now' ? '这是现在的系统原生 title 提示'
+      : v === 'a' ? '悬停任意工具行 · Esc 关闭固定示例'
+        : '极简版：只留一眼要看的命令与结果'
+
+  function clearTimers() {
+    clearTimeout(openTimer)
+    clearTimeout(closeTimer)
+  }
+
+  function build(card) {
+    if (variant === 'now') {
+      const el = document.createElement('div')
+      el.className = 'native-tip'
+      el.textContent = card.dataset.title || ''
+      return el
+    }
+    const tpl = card.querySelector('template')
+    return tpl.content.firstElementChild.cloneNode(true)
+  }
+
+  function place(card, el) {
+    const pad = 16
+    const gap = 12
+    const barSafe = 58
+    const r = card.getBoundingClientRect()
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+
+    let side = 'top'
+    let top = r.top - h - gap
+    if (top < barSafe) {
+      side = 'bottom'
+      top = r.bottom + gap
+    }
+
+    let left = r.left + 2
+    left = Math.max(pad, Math.min(left, innerWidth - w - pad))
+
+    el.dataset.side = side
+    el.style.left = Math.round(left) + 'px'
+    el.style.top = Math.round(top) + 'px'
+
+    const caretX = Math.max(18, Math.min(r.left + 25 - left, w - 18))
+    el.style.setProperty('--caret-x', Math.round(caretX) + 'px')
+  }
+
+  function show(card) {
+    if (!card) return
+    clearTimers()
+    current = card
+
+    if (popEl) {
+      popEl.remove()
+      popEl = null
+    }
+
+    popEl = build(card)
+    popEl.style.visibility = 'hidden'
+    layer.appendChild(popEl)
+    place(card, popEl)
+    popEl.style.visibility = ''
+
+    // rAF 在后台 / 离屏窗口里可能不跑；截图稿用 ?anim=off 直接落到终态
+    const el = popEl
+    if (instant) {
+      el.classList.add('is-in')
+    } else {
+      requestAnimationFrame(() => el.classList.add('is-in'))
+      setTimeout(() => el.classList.add('is-in'), 40)
+    }
+  }
+
+  function hide() {
+    clearTimers()
+    if (!popEl) return
+    const el = popEl
+    el.classList.remove('is-in')
+    popEl = null
+    current = null
+    setTimeout(() => el.remove(), 170)
+  }
+
+  function showPinnedSoon() {
+    closeTimer = setTimeout(() => {
+      if (!pinned) hide()
+      else if (current !== pinned) show(pinned)
+    }, 120)
+  }
+
+  cards.forEach((card) => {
+    card.addEventListener('mouseenter', () => {
+      clearTimers()
+      openTimer = setTimeout(() => show(card), 90)
+    })
+    card.addEventListener('mouseleave', showPinnedSoon)
+    card.addEventListener('focusin', () => show(card))
+  })
+
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      pinned = null
+      hide()
+    }
+  })
+
+  function reposition() {
+    if (popEl && current) place(current, popEl)
+  }
+  addEventListener('scroll', reposition, true)
+  addEventListener('resize', reposition)
+
+  function setVariant(v) {
+    variant = v
+    html.dataset.variant = v
+    segBtns.forEach((b) => b.classList.toggle('on', b.dataset.v === v))
+    segHint.textContent = hintFor(v)
+    if (pinned) show(pinned)
+  }
+  segBtns.forEach((b) => b.addEventListener('click', () => setVariant(b.dataset.v)))
+
+  themeBtn.addEventListener('click', () => {
+    const light = html.dataset.theme === 'light'
+    html.dataset.theme = light ? 'dark' : 'light'
+    themeBtn.textContent = light ? '☀' : '☾'
+    if (pinned) show(pinned)
+  })
+
+  // 初始：把默认卡片固定在稿子里，方便直接截图 / 评审
+  html.dataset.variant = variant
+  segBtns.forEach((b) => b.classList.toggle('on', b.dataset.v === variant))
+  segHint.textContent = hintFor(variant)
+  const start = () => show(pinned)
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(start)
+  else setTimeout(start, 60)
+})()
+</script>
+</body>
+</html>
