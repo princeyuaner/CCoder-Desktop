@@ -79,7 +79,7 @@ jobs:
 
   macos:
     needs: verify
-    runs-on: macos-14
+    runs-on: macos-latest
     env:
       # 配了 MAC_CSC_LINK 就启用签名；没配则关掉钥匙串自动发现，照常出未签名包。
       #
