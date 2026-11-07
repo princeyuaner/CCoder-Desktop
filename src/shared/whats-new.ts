@@ -53,6 +53,50 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.26',
+    date: '2026-11-07',
+    highlight: {
+      icon: 'terminal',
+      title: {
+        zh: '工具卡悬停预览',
+        en: 'Hover previews for tool calls'
+      },
+      desc: {
+        zh: '鼠标停在工具行上，就会浮出命令、输出、完整路径、增删行或错误摘要。浮层只做预览、不挡鼠标，滚出视野自动收起；完整内容仍然点开卡片看。',
+        en: 'Hover a tool call to see its command, output, full path, diff stats, or error summary. The popup is preview-only and never blocks the pointer; it dismisses when scrolled away, while the full details stay behind a click.'
+      }
+    },
+    sections: [
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'sparkle',
+            title: {
+              zh: '等待与思考的星核动效',
+              en: 'Orb animation for waiting and thinking'
+            },
+            desc: {
+              zh: '等待响应和思考行的标记换成星核：核心呼吸、卫星沿椭圆轨道、标题渐变流光；展开的思考卡带扫描光带。浅色与星野主题有单独配色，系统开启「减少动态效果」时自动停下。',
+              en: 'Waiting and thinking rows now use an orb: a breathing core, satellites on elliptical orbits, and a flowing gradient label; the expanded thinking card gets a scan line. It has dedicated light and starfield palettes and stops when reduced motion is requested.'
+            }
+          },
+          {
+            icon: 'rich-text',
+            title: {
+              zh: '拖入文件自动识别编码',
+              en: 'Encoding detection for dropped files'
+            },
+            desc: {
+              zh: '拖进输入框的文本文件不再一律按 UTF-8 读取：BOM、UTF-16 / 32、严格 UTF-8 都能识别，识别不出时回落到 GB18030；非 UTF-8 的源编码标在引用卡上，无 BOM 的宽字符文件也不再被当成二进制。',
+              en: 'Text files dropped into the composer are no longer read as UTF-8 only: BOM, UTF-16 / 32, and strict UTF-8 are detected, with GB18030 as a fallback. Non-UTF-8 source encodings show on the reference card, and BOM-less wide-character files are no longer treated as binary.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.25',
     date: '2026-11-07',
     highlight: {
