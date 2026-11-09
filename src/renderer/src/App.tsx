@@ -9,6 +9,7 @@ import {
   type EffortLevel
 } from '@shared/settings'
 import type { PermissionMode } from '@shared/events'
+import type { AutomationRun } from '@shared/automation'
 import { disposeIdleNewChats, disposeStoredChat, forgetInputHistory } from './useChat'
 import { TitleBar } from './components/TitleBar'
 import { StarfieldBackground } from './components/StarfieldBackground'
@@ -28,6 +29,9 @@ const PluginsManagerPage = lazy(() =>
   import('./components/PluginsManagerPage').then((m) => ({
     default: m.PluginsManagerPage
   }))
+)
+const AutomationPage = lazy(() =>
+  import('./components/AutomationPage').then((m) => ({ default: m.AutomationPage }))
 )
 import { ConfirmModal } from './components/ConfirmModal'
 import { WhatsNewModal } from './components/WhatsNewModal'
@@ -58,6 +62,7 @@ import './styles/search.css'
 import './styles/newsession.css'
 import './styles/checkpoints.css'
 import './styles/plugins.css'
+import './styles/automation.css'
 /* 浅色覆盖必须最后加载（或靠选择器权重压过组件样式），这里放最后一行 */
 import './styles/theme-light.css'
 /* 星野主题的背景层和玻璃表面覆盖；只在 data-theme=starfield 下生效 */
@@ -65,7 +70,7 @@ import './styles/starfield.css'
 /* 六套氛围主题的玻璃表面覆盖；只在 data-ambient 存在时生效 */
 import './styles/ambient.css'
 
-type View = 'chat' | 'settings' | 'plugins'
+type View = 'chat' | 'settings' | 'plugins' | 'automation'
 
 /**
  * 当前打开的是新会话，还是磁盘上某条已有会话。
@@ -279,6 +284,26 @@ export function App(): JSX.Element {
   /** 启动时发现旧 MCP 条目 → 轻量确认弹窗；确认后直接打开 MCP 页 */
   const [migrationPrompt, setMigrationPrompt] = useState(0)
   const [openMcpSettings, setOpenMcpSettings] = useState(false)
+  /** 从语音错误条进入设置时，直接落到「语音输入」页 */
+  const [settingsInitialPage, setSettingsInitialPage] = useState<'voice' | undefined>(
+    undefined
+  )
+
+  /*
+   * 这两个回调会一路传到 memo 过的 Composer / Sidebar。
+   * 每次 App 渲染都换身份会让浅比较失效，流式输出时整块跟着重渲染。
+   */
+  const openSettings = useCallback((): void => {
+    setOpenMcpSettings(false)
+    setSettingsInitialPage(undefined)
+    setView('settings')
+  }, [])
+
+  const openVoiceSettings = useCallback((): void => {
+    setOpenMcpSettings(false)
+    setSettingsInitialPage('voice')
+    setView('settings')
+  }, [])
 
   // 深层组件（工具卡 → IDE）走轻量事件总线报告失败，统一在这里显示
   useEffect(() => onNotice(setNotice), [])
@@ -492,6 +517,31 @@ export function App(): JSX.Element {
   }
 
   /**
+   * 从自动化运行记录点开一次运行对应的会话。
+   *
+   * 会话由 CLI 写盘，列表是异步刷新到的；先在当前快照里找，找不到再强制
+   * 拉一遍 —— 运行刚结束那一下，侧栏可能还差一拍。
+   */
+  const openAutomationRun = useCallback(
+    (run: AutomationRun): void => {
+      const id = run.providerSessionId
+      if (!id) return
+      const find = (list: StoredSession[]): StoredSession | undefined =>
+        list.find((s) => s.id === id && s.cli === run.cli && sameCwd(s.cwd, run.cwd))
+      const hit = find(allSessions)
+      if (hit) {
+        openStored(hit)
+        return
+      }
+      void refresh().then((list) => {
+        const later = find(list)
+        if (later) openStored(later)
+      })
+    },
+    [allSessions, refresh]
+  )
+
+  /**
    * 从当前会话分叉一条新对话。
    *
    * 界面上仍然用 `kind: 'new'`：分叉在 CLI 侧还没有 id，等第一条消息发出后
@@ -534,6 +584,34 @@ export function App(): JSX.Element {
       if (hit) focusRef.current(hit)
     })
   }, [])
+
+  /**
+   * 自动化运行结束 → 系统通知。
+   *
+   * 复用聊天通知的通道：弹不弹由主进程判断（窗口在前台就不打扰），点击后
+   * 走 `chat:focus-session`，和「一轮跑完」的点击行为完全一致。
+   */
+  useEffect(() => {
+    return window.api?.automation?.onRunFinished((payload) => {
+      const id = payload.run.providerSessionId
+      if (!id) return
+      // 新会话的标题由主进程按任务名生成；这里同步进内存，侧栏立刻能看懂
+      if (payload.title) {
+        void updateSessionMeta(
+          { cli: payload.run.cli, cwd: payload.run.cwd, id },
+          { title: payload.title }
+        )
+      }
+      const ok = payload.run.status === 'ok'
+      window.api?.chat?.notifyDone({
+        title: t(ok ? 'automation.notify.titleOk' : 'automation.notify.titleFailed', {
+          name: payload.taskName
+        }),
+        body: ok ? t('automation.notify.bodyOk') : payload.run.message,
+        target: { cli: payload.run.cli, cwd: payload.run.cwd, id, title: payload.taskName }
+      })
+    })
+  }, [t, updateSessionMeta])
 
   /**
    * 侧栏「+」：先选分支 / 工作树，再开会话。
@@ -791,9 +869,11 @@ export function App(): JSX.Element {
           onDeleteSessions={(list) => setPendingDeleteBatch(list)}
           selectionReset={selectionReset}
           onRefresh={() => void refresh()}
-          onOpenSettings={() => setView('settings')}
+          onOpenSettings={openSettings}
           onOpenPlugins={() => setView('plugins')}
           pluginsActive={view === 'plugins'}
+          onOpenAutomation={() => setView('automation')}
+          automationActive={view === 'automation'}
           onOpenSearch={() => setSearchOpen(true)}
           meta={meta}
           onUpdateMeta={updateSessionMeta}
@@ -845,6 +925,7 @@ export function App(): JSX.Element {
           onDeleteActive={() => {
             if (active.kind === 'stored') setPendingDelete(active)
           }}
+          onOpenSettings={openVoiceSettings}
         />
       </div>
 
@@ -855,14 +936,25 @@ export function App(): JSX.Element {
         </Suspense>
       )}
 
+      {/* 自动化任务一级页：同样是主区覆盖层，侧栏保持可切换 */}
+      {view === 'automation' && (
+        <Suspense fallback={null}>
+          <AutomationPage
+            workspaces={visible.map((w) => ({ cwd: w.cwd, name: w.name }))}
+            onOpenSession={openAutomationRun}
+          />
+        </Suspense>
+      )}
+
       {/* 设置弹窗：盖住侧栏和主区，但不卸载当前对话 */}
       {view === 'settings' && (
         <Suspense fallback={null}>
           <SettingsPage
-            initialPage={openMcpSettings ? 'mcp' : undefined}
+            initialPage={openMcpSettings ? 'mcp' : settingsInitialPage}
             onBack={() => {
               setView('chat')
               setOpenMcpSettings(false)
+              setSettingsInitialPage(undefined)
             }}
           />
         </Suspense>

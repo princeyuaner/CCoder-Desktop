@@ -112,6 +112,8 @@ interface Props {
   onUpdateMeta?: (patch: SessionMeta) => void
   /** 删除当前会话；确认弹窗由 App 负责 */
   onDeleteActive?: () => void
+  /** 打开设置页（语音服务没配好时，错误条上的入口） */
+  onOpenSettings?: () => void
 }
 
 /** 当前会话跑在一条 linked worktree 里时，顶部信息条要显示的内容 */
@@ -143,7 +145,8 @@ export function MainPane({
   onIncomingConsumed,
   sessionMeta,
   onUpdateMeta,
-  onDeleteActive
+  onDeleteActive,
+  onOpenSettings
 }: Props): JSX.Element {
   const { t, text, tn, locale } = useI18n()
   const [tab, setTab] = useState<TabKey>('chat')
@@ -1093,6 +1096,8 @@ export function MainPane({
           nativeCommands={chat.nativeCommands}
           onRunCommand={chat.runCommand}
           sendKey={settings.sendKey}
+          voiceSettings={settings.voice}
+          onOpenSettings={onOpenSettings}
           hasConversation={chat.items.length > 0}
           turns={chat.turns}
           steps={chat.steps}

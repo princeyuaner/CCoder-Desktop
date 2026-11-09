@@ -92,6 +92,12 @@ linux:
 mac:
   icon: build/icon.png
   category: public.app-category.developer-tools
+  # 语音输入要麦克风。没有这条 Info.plist 描述，macOS 会直接拒绝授权；
+  # 开了 hardened runtime 时还需要 entitlements 里的 audio-input。
+  extendInfo:
+    NSMicrophoneUsageDescription: CCoder 需要使用麦克风把语音转成文字。
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   target:
     - target: dmg
     # zip 是 macOS 自动更新的载体；签名配置好后 electron-updater 才能用

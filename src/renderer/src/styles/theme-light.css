@@ -1139,173 +1139,44 @@ html[data-scheme='light'] .notice--float {
 
 /* ── panel.css · 执行台 ─────────────────────────────────── */
 
+/*
+ * 执行台现在自己带一组局部 token（卡片底、分隔线、状态色）。
+ * 浅色下只换这组变量，组件规则不用逐个覆盖；运行色仍取 --running。
+ */
 html[data-scheme='light'] .runpanel {
+  --rp-card-bg: linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
+  --rp-card-border: #e2e2e7;
+  --rp-inset: rgba(0, 0, 0, 0.035);
+  --rp-inset-border: rgba(0, 0, 0, 0.05);
+  --rp-line: #e3e3e7;
+  --rp-line-soft: #eaeaee;
+  --rp-line-strong: #d3d3d9;
+
+  --rp-ok: #2f8a45;
+  --rp-ok-soft: rgba(47, 138, 69, 0.08);
+  --rp-ok-line: rgba(47, 138, 69, 0.28);
+
+  --rp-bad: #c83b32;
+  --rp-bad-soft: rgba(200, 59, 50, 0.07);
+  --rp-bad-line: rgba(200, 59, 50, 0.24);
+
+  --rp-explore: #0e7490;
+  --rp-explore-soft: rgba(14, 116, 144, 0.08);
+  --rp-explore-line: rgba(14, 116, 144, 0.16);
+  --rp-plan: #15803d;
+  --rp-plan-soft: rgba(21, 128, 61, 0.08);
+  --rp-general: #6d4fa3;
+  --rp-general-soft: rgba(109, 79, 163, 0.08);
+  --rp-shell: #5b5b66;
+  --rp-shell-soft: rgba(0, 0, 0, 0.045);
+
+  --rp-shimmer: rgba(0, 0, 0, 0.035);
+  --rp-foot-fade: rgba(0, 0, 0, 0.02);
+
   background: var(--bg-sidebar);
 }
-html[data-scheme='light'] .runpanel__head {
-  border-bottom-color: var(--border-soft);
-}
-html[data-scheme='light'] .runpanel__sub {
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .runpanel__state.is-live {
-  color: var(--warn);
-}
-html[data-scheme='light'] .runpanel__state.is-done {
-  color: var(--ok);
-}
-html[data-scheme='light'] .runpanel__strip i {
-  background: #d4d4da;
-}
-html[data-scheme='light'] .runpanel__strip i.is-done {
-  background: #8fc79f;
-}
-html[data-scheme='light'] .runpanel__strip i.is-run {
-  background: var(--warn);
-}
-html[data-scheme='light'] .runpanel__strip span {
-  color: var(--text-faint);
-}
-html[data-scheme='light'] .rsec__list::-webkit-scrollbar-thumb {
-  background: #c8c8ce;
-}
-html[data-scheme='light'] .rsec__list::-webkit-scrollbar-thumb:hover {
-  background: #b2b2ba;
-}
 
-html[data-scheme='light'] .rsec + .rsec {
-  border-top-color: var(--border-soft);
-}
-html[data-scheme='light'] .rsec__t {
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .rsec__n {
-  color: var(--text-faint);
-}
-
-html[data-scheme='light'] .rtask__box {
-  border-color: #c4c4cc;
-}
-html[data-scheme='light'] .rtask.is-done .rtask__box {
-  background: #e6f4ea;
-  border-color: #8fc79f;
-  color: var(--ok);
-}
-html[data-scheme='light'] .rtask__text {
-  color: var(--text-dim);
-}
-html[data-scheme='light'] .rtask.is-done .rtask__text {
-  color: var(--text-faint);
-  text-decoration-color: #c4c4cc;
-}
-html[data-scheme='light'] .rtask.is-run {
-  background: #fdf6e3;
-  box-shadow: inset 2px 0 0 #d9a300;
-}
-html[data-scheme='light'] .rtask.is-run .rtask__text {
-  color: var(--text);
-}
-html[data-scheme='light'] .rtask.is-run .rtask__box {
-  border-color: #d9a300;
-  background: #fdf6e3;
-}
-html[data-scheme='light'] .rtask.is-run .rtask__box::after {
-  background: #d9a300;
-}
-html[data-scheme='light'] .rtask.is-todo .rtask__text {
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .rtask__form {
-  color: #8a6400;
-}
-html[data-scheme='light'] .rtask__form i {
-  background: #d9a300;
-}
-html[data-scheme='light'] .rtask__time {
-  color: var(--text-faint);
-}
-
-html[data-scheme='light'] .ragent {
-  background: #ffffff;
-  border-color: var(--border-soft);
-}
-html[data-scheme='light'] .ragent.is-run {
-  border-color: #e3d5a8;
-}
-html[data-scheme='light'] .ragent__name {
-  color: var(--text);
-}
-html[data-scheme='light'] .ragent__name span {
-  color: var(--text-faint);
-}
-html[data-scheme='light'] .ragent__desc {
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .ragent__state {
-  color: var(--warn);
-}
-html[data-scheme='light'] .ragent__state.is-done {
-  color: var(--ok);
-}
-html[data-scheme='light'] .ragent__state.is-bad {
-  color: var(--danger);
-}
-html[data-scheme='light'] .ragent__state.is-stopped {
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .ragent__live {
-  background: #f4f4f6;
-  border-color: var(--border-soft);
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .ragent__result {
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .ragent__meta {
-  color: var(--text-faint);
-}
-html[data-scheme='light'] .ragent__meta span + span::before {
-  color: #c4c4cc;
-}
-html[data-scheme='light'] .ragent__meta .tail {
-  color: var(--text-faint);
-}
-html[data-scheme='light'] .ragent.is-done {
-  border-color: var(--border-soft);
-}
-html[data-scheme='light'] .ragent__bg {
-  color: var(--text-muted);
-  background: #f0f0f3;
-}
-html[data-scheme='light'] .ragent__open {
-  color: #4a6fa5;
-}
-html[data-scheme='light'] .ragent__open:hover {
-  color: #2e5488;
-}
-html[data-scheme='light'] .runpanel__stop {
-  color: #b4544c;
-  border-color: #e6c3c0;
-}
-html[data-scheme='light'] .runpanel__stop:hover {
-  color: #8f2b24;
-  background: #fdf1f0;
-  border-color: #d99a94;
-}
-
-html[data-scheme='light'] .runpanel__foot {
-  border-top-color: var(--border-soft);
-  color: var(--text-faint);
-}
-html[data-scheme='light'] .runpanel__link {
-  color: var(--text-muted);
-}
-html[data-scheme='light'] .runpanel__link:hover {
-  color: var(--text);
-}
-html[data-scheme='light'] .runpanel__collapse:hover {
-  background: var(--bg-active);
-}
+/* 会话头里的开合按钮（不属于面板局部 token） */
 html[data-scheme='light'] .chip--icon.is-on {
   background: var(--bg-active);
   border-color: var(--border);

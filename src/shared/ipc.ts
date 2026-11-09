@@ -17,6 +17,12 @@ import type {
   EffortLevel,
   Settings
 } from './settings'
+import type {
+  VoiceSettings,
+  VoiceTestResult,
+  VoiceTranscribeRequest,
+  VoiceTranscribeResult
+} from './voice'
 import type { CliUpdateRunResult, CliUpdateState, CliUpdateStates } from './cli-update'
 import type { EditorConfigProperties } from './editorconfig'
 import type {
@@ -115,6 +121,13 @@ import type { VcsApi } from './vcs'
 import type { SyncApi } from './sync'
 import type { UpdateInstallResult, UpdateState } from './update'
 import type { RendererLogReport } from './log'
+import type {
+  AutomationMutationResult,
+  AutomationRunFinishedPayload,
+  AutomationRunResult,
+  AutomationState,
+  AutomationTaskInput
+} from './automation'
 import type { LocaleInfo } from './i18n/locale'
 import type {
   PluginListResult,
@@ -137,6 +150,12 @@ export const IPC = {
 
   settingsGet: 'settings:get',
   settingsSave: 'settings:save',
+  /** 语音输入：录好的音频交给主进程转写（渲染层不直连外部接口） */
+  voiceTranscribe: 'voice:transcribe',
+  /** 设置页「测试连接」：用一小段静音验地址 / Key / 模型 */
+  voiceTest: 'voice:test',
+  /** macOS 首次录音前主动申请麦克风权限 */
+  voiceMicAccess: 'voice:mic-access',
   /** 本机已安装的字体族（设置页的字体下拉用） */
   fontsList: 'fonts:list',
   /** 启动时取系统语言和 system 解析后的实际语言 */
@@ -258,6 +277,19 @@ export const IPC = {
   sessionEvent: 'session:event',
   /** 主进程 → 渲染进程：会话状态变化 */
   sessionStatus: 'session:status',
+
+  /* ── 自动化任务 ───────────────────────────────────────────── */
+  automationGet: 'automation:get',
+  automationCreate: 'automation:create',
+  automationUpdate: 'automation:update',
+  automationRemove: 'automation:remove',
+  automationSetEnabled: 'automation:set-enabled',
+  automationRunNow: 'automation:run-now',
+  automationStop: 'automation:stop',
+  /** 主进程 → 渲染层：任务 / 运行记录 / 调度器状态变化 */
+  automationChanged: 'automation:changed',
+  /** 主进程 → 渲染层：一次运行结束（用于系统通知） */
+  automationRunFinished: 'automation:run-finished',
 
   /** 打开（或聚焦）某个工作区的独立 IDE 窗口 */
   ideOpen: 'ide:open',
@@ -427,6 +459,16 @@ export interface WindowApi {
     /** 用给定渠道跑一发真实请求，回报成功或端点给的原话 */
     test(channel: Channel): Promise<ChannelTestResult>
     onChanged(cb: (settings: Settings) => void): () => void
+  }
+
+  /**
+   * 语音输入。转写用**已落盘**的设置，避免渲染层塞一份任意凭据过来；
+   * 测试连接则接受草稿设置，用户不必先保存再试。
+   */
+  voice: {
+    transcribe(req: VoiceTranscribeRequest): Promise<VoiceTranscribeResult>
+    test(settings: VoiceSettings): Promise<VoiceTestResult>
+    ensureMicAccess(): Promise<boolean>
   }
 
   /**
@@ -668,6 +710,26 @@ export interface WindowApi {
      * 只在界面重载后需要（比如 dev 热更新）—— 平时靠 onStatus 增量维护就够了。
      */
     running(): Promise<string[]>
+  }
+
+  /**
+   * 自动化任务：按计划在后台拉起一条普通会话。
+   *
+   * 调度器只存在于主进程、且只在应用运行时工作；退出前会把还在跑的运行
+   * 标记为中断。任务配置与运行记录落在 `userData/automation.json`。
+   */
+  automation: {
+    get(): Promise<AutomationState>
+    create(input: AutomationTaskInput): Promise<AutomationMutationResult>
+    update(id: string, input: AutomationTaskInput): Promise<AutomationMutationResult>
+    remove(id: string): Promise<AutomationMutationResult>
+    setEnabled(id: string, enabled: boolean): Promise<AutomationMutationResult>
+    /** 立即跑一次；同一时刻只允许一次自动化运行 */
+    runNow(id: string): Promise<AutomationRunResult>
+    /** 中止某个任务当前正在跑的那一次 */
+    stop(id: string): Promise<AutomationRunResult>
+    onChanged(cb: (state: AutomationState) => void): () => void
+    onRunFinished(cb: (payload: AutomationRunFinishedPayload) => void): () => void
   }
 
   /** 读 CLI 自己写的会话存储（~/.claude/projects） */

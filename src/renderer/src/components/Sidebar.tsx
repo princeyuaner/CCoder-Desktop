@@ -120,6 +120,9 @@ interface SidebarProps {
   /** 打开一级「插件」页 */
   onOpenPlugins: () => void
   pluginsActive: boolean
+  /** 打开一级「自动化任务」页 */
+  onOpenAutomation: () => void
+  automationActive: boolean
   /** 打开跨会话搜索 */
   onOpenSearch: () => void
   /** 本地元数据：重命名 / 置顶 / 归档 */
@@ -162,6 +165,8 @@ export function Sidebar({
   onOpenSettings,
   onOpenPlugins,
   pluginsActive,
+  onOpenAutomation,
+  automationActive,
   onOpenSearch,
   meta,
   onUpdateMeta,
@@ -297,7 +302,10 @@ export function Sidebar({
           <IconPlugin width={15} height={15} />
           <span>{t('nav.plugins')}</span>
         </button>
-        <button className="navitem">
+        <button
+          className={`navitem ${automationActive ? 'is-active' : ''}`}
+          onClick={onOpenAutomation}
+        >
           <IconClock width={15} height={15} />
           <span>{t('nav.automation')}</span>
         </button>

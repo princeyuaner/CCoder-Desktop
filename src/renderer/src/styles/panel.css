@@ -1,11 +1,46 @@
 /*
  * 输出区右侧的「执行台」。
  *
- * 颜色优先走 token；只有状态色（进行中的琥珀、完成的绿）和卡片底是写死的 ——
- * 浅色主题在 theme-light.css 里逐条掰回来。
+ * 面板自己带一组局部 token：卡片底、分隔线、状态色。浅色主题在
+ * theme-light.css 里覆盖同一组变量，组件规则不用逐个改。运行色直接
+ * 取 --running，跟着主题走；成功/失败是状态色，深色下用更亮的一档。
  */
 
 .runpanel {
+  /* ── 局部 token ─────────────────────────────────────────── */
+  --rp-card-bg: linear-gradient(180deg, #1d1d21 0%, #1a1a1e 100%);
+  --rp-card-border: #2b2b31;
+  --rp-inset: rgba(255, 255, 255, 0.035);
+  --rp-inset-border: rgba(255, 255, 255, 0.05);
+  --rp-line: #29292e;
+  --rp-line-soft: #222226;
+  --rp-line-strong: #3a3a42;
+
+  --rp-running: var(--running);
+  --rp-running-soft: color-mix(in srgb, var(--running) 12%, transparent);
+  --rp-running-line: color-mix(in srgb, var(--running) 30%, transparent);
+
+  --rp-ok: #6fbf82;
+  --rp-ok-soft: rgba(111, 191, 130, 0.1);
+  --rp-ok-line: rgba(111, 191, 130, 0.3);
+
+  --rp-bad: #e5837b;
+  --rp-bad-soft: rgba(229, 131, 123, 0.09);
+  --rp-bad-line: rgba(229, 131, 123, 0.28);
+
+  --rp-explore: #7dd3fc;
+  --rp-explore-soft: rgba(125, 211, 252, 0.1);
+  --rp-explore-line: rgba(125, 211, 252, 0.14);
+  --rp-plan: #6ee7a8;
+  --rp-plan-soft: rgba(110, 231, 168, 0.09);
+  --rp-general: #c4a7f7;
+  --rp-general-soft: rgba(196, 167, 247, 0.1);
+  --rp-shell: #a8a8c0;
+  --rp-shell-soft: rgba(168, 168, 192, 0.08);
+
+  --rp-shimmer: rgba(255, 255, 255, 0.045);
+  --rp-foot-fade: rgba(0, 0, 0, 0.1);
+
   flex: none;
   width: 304px;
   min-height: 0;
@@ -15,14 +50,26 @@
   border-left: 1px solid var(--border-soft);
 }
 
-/* ── 头部：标题 + 实时耗时 + 分段进度 ───────────────────── */
+/* ── 头部：标题 + 计时器 + 状态 + 摘要 ───────────────────── */
 
 .runpanel__head {
+  position: relative;
   flex: none;
-  /* 和「会话头 + 标签栏」同高：面板底边正好落在标签栏下划线上 */
   min-height: 92px;
-  padding: 14px 16px 6px;
-  border-bottom: 1px solid var(--border-soft);
+  padding: 10px 15px 8px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--rp-line);
+  overflow: hidden;
+}
+.runpanel__head.is-live {
+  background:
+    radial-gradient(120% 90% at 15% -30%, var(--rp-running-soft), transparent 62%),
+    var(--bg-sidebar);
+}
+.runpanel__head.is-done {
+  background:
+    radial-gradient(120% 90% at 15% -30%, var(--rp-ok-soft), transparent 62%),
+    var(--bg-sidebar);
 }
 .runpanel__top {
   display: flex;
@@ -30,92 +77,115 @@
   gap: 8px;
 }
 .runpanel__title {
-  font-size: 13.5px;
-  font-weight: 600;
-  letter-spacing: 0.1px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
   color: var(--text);
-}
-.runpanel__state {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: #c9a227;
-}
-.runpanel__state.is-done {
-  color: #6fae7e;
-}
-.runpanel__state i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #fcd34d;
-  box-shadow: 0 0 0 3px rgba(252, 211, 77, 0.1);
-  animation: rp-pulse 1.4s ease-in-out infinite;
-}
-.runpanel__stop {
-  flex: none;
-  padding: 2px 7px;
-  font-size: 10.5px;
-  color: #c98f88;
-  background: transparent;
-  border: 1px solid rgba(229, 83, 75, 0.28);
-  border-radius: 5px;
-}
-.runpanel__stop:hover {
-  color: #f0a9a2;
-  background: rgba(229, 83, 75, 0.1);
-  border-color: rgba(229, 83, 75, 0.5);
 }
 .runpanel__collapse {
   display: grid;
   place-items: center;
   width: 22px;
   height: 22px;
-  margin-left: 2px;
+  margin-left: auto;
   color: var(--text-faint);
-  border-radius: 5px;
+  border-radius: 6px;
 }
 .runpanel__collapse:hover {
-  background: var(--bg-raised);
   color: var(--text);
-}
-.runpanel__sub {
-  margin-top: 4px;
-  font-size: 11.5px;
-  color: #6f6f7a;
+  background: var(--rp-inset);
 }
 
-/* 每段 = 一个任务。绿=完成，琥珀=进行中，暗=待办 */
-.runpanel__strip {
+.runpanel__status {
   display: flex;
   align-items: center;
-  gap: 3px;
-  margin-top: 12px;
+  gap: 10px;
+  min-height: 27px;
+  margin-top: 6px;
 }
-.runpanel__strip i {
-  flex: 1;
-  /* 任务数量不设上限：段数多了就让它们变细，标签页始终有位置 */
-  min-width: 0;
-  height: 3px;
-  border-radius: 1px;
-  background: var(--border-soft);
-}
-.runpanel__strip i.is-done {
-  background: #3f7d4d;
-}
-.runpanel__strip i.is-run {
-  background: #fcd34d;
-  animation: rp-pulse 1.4s ease-in-out infinite;
-}
-.runpanel__strip span {
-  flex: none;
-  margin-left: 7px;
+.runpanel__timer {
   font-family: var(--font-mono);
-  font-size: 10px;
-  color: #777782;
+  font-size: 22px;
+  line-height: 1.08;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.runpanel__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.runpanel__state.is-live {
+  color: var(--rp-running);
+}
+.runpanel__state.is-done {
+  color: var(--rp-ok);
+}
+.runpanel__state .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px var(--rp-running-soft);
+  animation: rp-pulse 1.6s ease-in-out infinite;
+}
+.runpanel__state svg {
+  width: 10px;
+  height: 10px;
+}
+.runpanel__stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 27px;
+  margin-left: auto;
+  padding: 0 9px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--rp-bad);
+  background: var(--rp-bad-soft);
+  border: 1px solid var(--rp-bad-line);
+  border-radius: 7px;
+}
+.runpanel__stop:hover {
+  background: color-mix(in srgb, var(--rp-bad) 16%, transparent);
+  border-color: var(--rp-bad);
+}
+.runpanel__stop svg {
+  width: 10px;
+  height: 10px;
+}
+.runpanel__sub {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.runpanel__scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  overflow: hidden;
+}
+.runpanel__scan::after {
+  content: '';
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--rp-running), transparent);
+  opacity: 0.75;
+  animation: rp-scan 2.9s ease-in-out infinite;
 }
 
 /* ── 分区滚动 ───────────────────────────────────────────── */
@@ -123,7 +193,7 @@
 /*
  * 任务和子代理**各自滚动**。
  *
- * 外层只负责把两个分区竖着排开；滚动条挂在各区自己的列表上。
+ * 外层只负责把几个分区竖着排开；滚动条挂在各区自己的列表上。
  * 分区按内容高排，最后一块吃掉剩下的高度 —— 这样两个列表都短时
  * 不会在中间留一大段空白，其中一个大时也不会把另一个挤没。
  * `min-height` 是底线：再挤也留得下一两行，不至于缩成一条缝。
@@ -133,14 +203,19 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  /* 正常窗口下各分区按上面的规则分摊高度、各自在列表里滚。
+   * 窗口特别矮、几个 min-height 加起来都放不下时，整个 body 兜底滚动，
+   * 至少不会把最后一块直接裁掉。 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .rsec {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
-  min-height: 112px;
-  padding: 14px 16px 0;
+  min-height: 96px;
+  padding: 0 13px;
 }
 .rsec:last-child {
   flex-grow: 1;
@@ -148,7 +223,90 @@
 /* 任务清单是执行台的主内容，给得比子代理区高：
  * 默认能看四五条，再多才滚。 */
 .rsec--tasks {
-  min-height: 180px;
+  min-height: 170px;
+}
+/* 子代理卡片信息量大（标题 + 描述 + 结果 + 用量），至少留出一整张
+ * 卡片的高度 —— 否则和后台任务分区挤在同一个面板里时，只剩半张卡，
+ * 结果和耗时全被裁掉。 */
+.rsec--agents {
+  min-height: 160px;
+}
+/* 后台任务往往几十条，如果按内容高度参与 flex 分配，它的基准高度会把
+ * 可用空间吃光，把上面的子代理区一路压到 min-height。后台列表反正是
+ * 自己滚动，这里改成 0 基准 —— 它只吃剩下的高度，不跟别的分区抢。 */
+.rsec--bg {
+  flex-basis: 0;
+}
+.rsec + .rsec {
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid var(--rp-line-soft);
+}
+.rsec__h {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 2px 9px;
+}
+.rsec__t {
+  flex: none;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+}
+.rsec__line {
+  flex: 1;
+  height: 1px;
+  background: var(--rp-line);
+}
+.rsec__n {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.rsec__n b {
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.rsec__n .is-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--rp-running);
+}
+.rsec__n .is-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--rp-ok);
+}
+.rsec__n .is-bad {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--rp-bad);
+}
+.rsec__n .is-stopped {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+.rsec__n i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.rsec__n .sep {
+  color: var(--rp-line-strong);
 }
 .rsec__list {
   flex: 1 1 auto;
@@ -162,193 +320,250 @@
   /* 滚动条往回收一点，别贴着卡片边 */
   margin-right: -6px;
   padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rp-line-strong) transparent;
 }
 .rsec__list::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 .rsec__list::-webkit-scrollbar-thumb {
-  background: #2a2a2e;
-  border-radius: 4px;
+  background: var(--rp-line-strong);
+  border-radius: 3px;
 }
 .rsec__list::-webkit-scrollbar-thumb:hover {
-  background: #38383e;
-}
-
-/* ── 分区 ───────────────────────────────────────────────── */
-
-.rsec + .rsec {
-  margin-top: 14px;
-  padding-top: 13px;
-  border-top: 1px solid #222;
-}
-.rsec__h {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 7px;
-}
-.rsec__t {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: #74747e;
-}
-.rsec__n {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: #5c5c66;
+  background: var(--text-faint);
 }
 
 /* ── 任务清单 ───────────────────────────────────────────── */
+
+/* 每段 = 一个任务。绿=完成，运行色=进行中，暗=待办 */
+.rtaskbar {
+  flex: none;
+  display: flex;
+  gap: 3px;
+  padding: 0 2px 8px;
+}
+.rtaskbar i {
+  flex: 1;
+  min-width: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--rp-line);
+}
+.rtaskbar i.is-done {
+  background: var(--rp-ok);
+  opacity: 0.85;
+}
+.rtaskbar i.is-run {
+  background: var(--rp-running);
+  animation: rp-pulse 1.6s ease-in-out infinite;
+}
+.rtaskbar i.is-run.is-stale {
+  background: var(--text-faint);
+  animation: none;
+}
 
 .rtask {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 8px;
-  margin: 0 -8px;
+  padding: 6px 7px;
   border-radius: 7px;
 }
 .rtask + .rtask {
   margin-top: 1px;
 }
-.rtask__box {
+.rtask:hover {
+  background: var(--rp-inset);
+}
+.rtask.is-run {
+  background: var(--rp-running-soft);
+}
+.rtask__check {
   flex: none;
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
-  margin-top: 2px;
-  border: 1px solid #3a3a42;
-  border-radius: 4px;
-  font-size: 9px;
-  line-height: 1;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border: 1px solid var(--rp-line-strong);
+  border-radius: 50%;
   color: transparent;
 }
-.rtask.is-done .rtask__box {
-  background: rgba(75, 158, 95, 0.13);
-  border-color: rgba(75, 158, 95, 0.48);
-  color: #8fd39a;
+.rtask__check svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.2;
 }
-.rtask.is-run {
-  background: #1e1d17;
-  box-shadow: inset 2px 0 0 #fcd34d;
+.rtask.is-done .rtask__check {
+  color: var(--rp-ok);
+  background: var(--rp-ok-soft);
+  border-color: var(--rp-ok-line);
 }
-.rtask.is-run .rtask__box {
-  border-color: rgba(252, 211, 77, 0.58);
-  background: rgba(252, 211, 77, 0.08);
+.rtask.is-run .rtask__check {
+  border-color: var(--rp-running-line);
+  background: var(--rp-running-soft);
 }
-.rtask.is-run .rtask__box::after {
+.rtask.is-run .rtask__check::after {
   content: '';
   width: 5px;
   height: 5px;
-  border-radius: 1px;
-  background: #fcd34d;
-  animation: rp-pulse 1.3s ease-in-out infinite;
+  border-radius: 50%;
+  background: var(--rp-running);
+  animation: rp-pulse 1.4s ease-in-out infinite;
+}
+/* 轮末遗留的 in_progress：保留「进行中」的信息，但不再闪 */
+.rtask.is-run.is-stale {
+  background: var(--rp-inset);
+}
+.rtask.is-run.is-stale .rtask__check {
+  border-color: var(--rp-line-strong);
+  background: transparent;
+}
+.rtask.is-run.is-stale .rtask__check::after {
+  background: var(--text-faint);
+  animation: none;
+}
+.rtask.is-run.is-stale .rtask__text {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.rtask.is-run.is-stale .rtask__form {
+  color: var(--text-muted);
+}
+.rtask.is-run.is-stale .rtask__form i {
+  background: var(--text-faint);
+  animation: none;
 }
 .rtask__main {
   flex: 1;
   min-width: 0;
 }
 .rtask__text {
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: #b8b8c2;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
 .rtask.is-done .rtask__text {
-  color: #6f6f78;
+  color: var(--text-faint);
   text-decoration: line-through;
-  text-decoration-color: #3a3a42;
+  text-decoration-color: var(--rp-line-strong);
 }
 .rtask.is-run .rtask__text {
-  color: #f0efea;
+  color: var(--text);
   font-weight: 500;
 }
 .rtask.is-todo .rtask__text {
-  color: #8a8a94;
+  color: var(--text-muted);
 }
 .rtask__form {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-top: 3px;
-  font-size: 11px;
-  color: #a08a48;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--rp-running);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .rtask__form i {
   flex: none;
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #c9a227;
-  animation: rp-pulse 1.3s ease-in-out infinite;
+  background: var(--rp-running);
+  animation: rp-pulse 1.4s ease-in-out infinite;
 }
 .rtask__time {
   flex: none;
-  margin-top: 3px;
+  margin-top: 2px;
   font-family: var(--font-mono);
-  font-size: 10px;
-  color: #5d5d66;
+  font-size: 9.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
-/* ── 子代理卡片 ─────────────────────────────────────────── */
+/* ── 子代理 / 后台任务卡片 ──────────────────────────────── */
 
 .ragent {
-  padding: 10px 10px 9px;
-  background: #1c1c1f;
-  border: 1px solid #29292e;
-  border-radius: 9px;
+  position: relative;
+  padding: 11px 11px 10px 13px;
+  background: var(--rp-card-bg);
+  border: 1px solid var(--rp-card-border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 .ragent + .ragent {
   margin-top: 8px;
 }
+/* 左侧色条：运行 / 完成 / 失败 / 停止，扫一眼就能分开 */
+.ragent::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--rp-running);
+  opacity: 0.78;
+}
+.ragent.is-done::before {
+  background: var(--rp-ok);
+  opacity: 0.7;
+}
+.ragent.is-bad::before {
+  background: var(--rp-bad);
+  opacity: 0.85;
+}
+.ragent.is-stopped::before {
+  background: var(--text-faint);
+  opacity: 0.6;
+}
 .ragent.is-run {
-  border-color: #34302a;
+  background:
+    radial-gradient(120% 100% at 100% 0%, var(--rp-running-soft), transparent 58%),
+    var(--rp-card-bg);
 }
-.ragent.is-bad {
-  border-color: rgba(229, 83, 75, 0.32);
-}
-.ragent.is-stopped {
-  border-color: #2d2d32;
-}
-.ragent.is-done {
-  border-color: #28282d;
-}
+
 .ragent__top {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 9px;
 }
 .ragent__glyph {
   flex: none;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  font-size: 11px;
-  line-height: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--rp-explore);
+  background: var(--rp-explore-soft);
+  box-shadow: inset 0 0 0 1px var(--rp-explore-line);
 }
-.ragent__glyph.is-explore {
-  color: #7dd3fc;
-  background: rgba(125, 211, 252, 0.1);
-}
-.ragent__glyph.is-general {
-  color: #c4a7f7;
-  background: rgba(196, 167, 247, 0.1);
+.ragent__glyph svg {
+  width: 14px;
+  height: 14px;
 }
 .ragent__glyph.is-plan {
-  color: #6ee7a8;
-  background: rgba(110, 231, 168, 0.09);
+  color: var(--rp-plan);
+  background: var(--rp-plan-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rp-plan) 18%, transparent);
 }
-.ragent__glyph.is-other {
-  color: #a8a8c0;
-  background: rgba(255, 255, 255, 0.06);
+.ragent__glyph.is-general {
+  color: var(--rp-general);
+  background: var(--rp-general-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rp-general) 18%, transparent);
 }
+.ragent__glyph.is-other,
+.ragent__glyph.is-shell {
+  color: var(--rp-shell);
+  background: var(--rp-shell-soft);
+  box-shadow: inset 0 0 0 1px var(--rp-inset-border);
+}
+
 .ragent__id {
   flex: 1;
   min-width: 0;
@@ -357,129 +572,224 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #d8d8e0;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
 }
-.ragent__name span {
+.ragent__name > span {
   font-size: 9.5px;
   font-weight: 400;
-  letter-spacing: 0.04em;
-  color: #64646e;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
 }
 .ragent__bg {
+  flex: none;
   padding: 0 5px;
+  font-size: 8px;
   font-style: normal;
-  font-size: 9px;
   font-weight: 500;
-  line-height: 14px;
-  color: #8f8fa8;
-  background: rgba(255, 255, 255, 0.07);
+  line-height: 13px;
+  color: var(--text-muted);
+  background: var(--rp-inset);
   border-radius: var(--radius-pill);
 }
 .ragent__desc {
   margin-top: 2px;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: #9a9aa6;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
+.ragent__desc.is-mono {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+
+/* 状态胶囊：色条之外的第二重编码 */
 .ragent__state {
   flex: none;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 1px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: #c9a227;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
 }
-.ragent__state i {
+.ragent__state svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2;
+}
+.ragent__state .dot {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #fcd34d;
-  animation: rp-pulse 1.3s ease-in-out infinite;
+  background: currentColor;
+  animation: rp-pulse 1.5s ease-in-out infinite;
+}
+.ragent__state.is-live {
+  color: var(--rp-running);
+  background: var(--rp-running-soft);
 }
 .ragent__state.is-done {
-  color: #6fae7e;
+  color: var(--rp-ok);
+  background: var(--rp-ok-soft);
 }
 .ragent__state.is-bad {
-  color: #e5837b;
+  color: var(--rp-bad);
+  background: var(--rp-bad-soft);
 }
 .ragent__state.is-stopped {
-  color: #8a8a94;
+  color: var(--text-muted);
+  background: var(--rp-inset);
 }
+
+/* 活动行：工具 chip + 正在做什么。不再套一层带边框的方框 */
 .ragent__live {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 7px;
+  margin-top: 9px;
   padding: 6px 8px;
-  background: #141416;
-  border: 1px solid #242428;
-  border-radius: 6px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: #797986;
+  background: var(--rp-inset);
+  border-radius: 7px;
   overflow: hidden;
+}
+.ragent__spinner {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rp-running-line);
+  border-top-color: var(--rp-running);
+  animation: rp-spin 0.9s linear infinite;
+}
+.ragent__tool {
+  flex: none;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--rp-running);
+  background: var(--rp-running-soft);
+  border-radius: 4px;
+}
+.ragent__live-text {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-dim);
   white-space: nowrap;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
-.ragent__spin {
-  flex: none;
-  color: #7dd3fc;
+.ragent__live::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 20%, var(--rp-shimmer) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: rp-shimmer 3.2s ease-in-out infinite;
+  pointer-events: none;
 }
+
 .ragent__result {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-top: 7px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: #87878f;
-}
-.ragent__result.is-bad {
-  color: #d99a94;
-}
-.ragent__open {
-  display: block;
-  margin: 6px 0 0 auto;
-  padding: 0;
+  margin-top: 8px;
+  padding-left: 9px;
+  border-left: 2px solid var(--rp-ok-line);
   font-size: 10.5px;
-  color: #7b8fb5;
-  background: none;
-  border: 0;
+  line-height: 1.55;
+  color: var(--text-muted);
 }
-.ragent__open:hover {
-  color: #a9c0e8;
-  text-decoration: underline;
+.ragent__result.is-muted {
+  border-left-color: var(--rp-line-strong);
+}
+.ragent__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 8px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--rp-bad);
+  background: var(--rp-bad-soft);
+  border-radius: 6px;
+}
+.ragent__error svg {
+  width: 11px;
+  height: 11px;
+  margin-top: 1px;
+}
+
+.ragent__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 8px;
 }
 .ragent__meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 7px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: #62626d;
+  gap: 6px;
+  min-width: 0;
   overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
   white-space: nowrap;
 }
 .ragent__meta span + span::before {
   content: '·';
-  margin-right: 8px;
-  color: #3e3e46;
+  margin-right: 6px;
+  color: var(--rp-line-strong);
 }
-.ragent__meta .tail {
+.ragent__time {
+  flex: none;
   margin-left: auto;
-  color: #6a6a75;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
-.ragent__meta .tail::before {
-  content: none;
+.ragent__foot.has-report .ragent__time {
+  margin-left: 0;
+}
+.ragent__open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 0;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+}
+.ragent__open:hover {
+  color: var(--text);
+}
+.ragent__open svg {
+  width: 10px;
+  height: 10px;
 }
 
 /* ── 底栏 ───────────────────────────────────────────────── */
@@ -488,33 +798,46 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 9px 16px 11px;
-  border-top: 1px solid #232323;
+  gap: 9px;
+  padding: 9px 14px 11px;
+  border-top: 1px solid var(--rp-line);
+  background: linear-gradient(180deg, transparent, var(--rp-foot-fade));
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: #5b5b65;
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.runpanel__foot b {
+  font-weight: 500;
+  color: var(--text-dim);
 }
 .runpanel__diff {
   display: inline-flex;
   gap: 4px;
 }
 .runpanel__diff .is-add {
-  color: #7fbf7f;
+  color: var(--rp-ok);
   font-weight: 400;
 }
 .runpanel__diff .is-del {
-  color: #d98a8a;
+  color: var(--rp-bad);
   font-weight: 400;
 }
 .runpanel__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   font-family: var(--font-ui);
-  font-size: 11.5px;
-  color: #8a8a94;
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
 .runpanel__link:hover {
   color: var(--text);
+}
+.runpanel__link svg {
+  width: 11px;
+  height: 11px;
 }
 
 /* ── 会话头里的开合按钮 ─────────────────────────────────── */
@@ -531,13 +854,39 @@
   flex: none;
 }
 
+/* ── 动效 ───────────────────────────────────────────────── */
+
 @keyframes rp-pulse {
   0%,
   100% {
     opacity: 1;
+    transform: scale(1);
   }
   50% {
-    opacity: 0.3;
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+}
+@keyframes rp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes rp-scan {
+  0% {
+    transform: translateX(-60%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+@keyframes rp-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  55%,
+  100% {
+    transform: translateX(100%);
   }
 }
 

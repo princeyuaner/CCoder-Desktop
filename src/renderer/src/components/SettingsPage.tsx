@@ -70,6 +70,7 @@ const HooksManagerPage = lazy(() =>
 )
 import { IconPlus, IconX } from './Icons'
 import { FontPicker } from './FontPicker'
+import { VoiceSettingsPanel } from './VoiceSettingsPanel'
 
 /** 字体族名 → 可直接落盘的 CSS font-family；末尾跟一个通用兜底。 */
 function fontStack(name: string, kind: 'ui' | 'mono'): string {
@@ -112,6 +113,7 @@ type Page =
   | { kind: 'cli'; id: CliId }
   | { kind: 'general' }
   | { kind: 'permissions' }
+  | { kind: 'voice' }
   | { kind: 'mcp' }
   | { kind: 'hooks' }
   | { kind: 'skills' }
@@ -123,8 +125,8 @@ export function SettingsPage({
   initialPage
 }: {
   onBack: () => void
-  /** 从旧 MCP 迁移提示跳进来时直接打开 MCP 页 */
-  initialPage?: 'mcp' | 'skills'
+  /** 从旧 MCP 迁移提示 / 语音错误条跳进来时直接打开对应页 */
+  initialPage?: 'mcp' | 'skills' | 'voice'
 }): JSX.Element {
   const { t } = useI18n()
   const pluginSections = usePluginSettingsSections()
@@ -134,7 +136,9 @@ export function SettingsPage({
       ? { kind: 'mcp' }
       : initialPage === 'skills'
         ? { kind: 'skills' }
-        : { kind: 'cli', id: CLIS[0].id }
+        : initialPage === 'voice'
+          ? { kind: 'voice' }
+          : { kind: 'cli', id: CLIS[0].id }
   )
   /**
    * Codex 的安装 / 登录状态。hook 必须无条件调用；真正探测由 enabled 控制 ——
@@ -568,6 +572,11 @@ export function SettingsPage({
               onClick={() => setPage({ kind: 'permissions' })}
               label={t('settings.nav.permissions')}
             />
+            <NavItem
+              active={page.kind === 'voice'}
+              onClick={() => setPage({ kind: 'voice' })}
+              label={t('settings.nav.voice')}
+            />
 
             <div className="settings__navgroup">{t('settings.nav.capability')}</div>
             <NavItem
@@ -875,6 +884,13 @@ export function SettingsPage({
                 </section>
               )
             })()}
+
+            {page.kind === 'voice' && (
+              <VoiceSettingsPanel
+                value={draft.voice}
+                onChange={(voice) => patch({ voice })}
+              />
+            )}
 
             {page.kind === 'general' && (
               <>

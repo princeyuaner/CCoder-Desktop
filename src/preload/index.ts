@@ -10,6 +10,12 @@ import type {
 } from '../shared/claude'
 import type { Channel, ChannelTestResult, CliId, Settings } from '../shared/settings'
 import type {
+  VoiceSettings,
+  VoiceTestResult,
+  VoiceTranscribeRequest,
+  VoiceTranscribeResult
+} from '../shared/voice'
+import type {
   CliUpdateEvent,
   CliUpdateRunResult,
   CliUpdateState,
@@ -68,6 +74,10 @@ import type {
   StoredSession
 } from '../shared/session'
 import type { AgentEvent } from '../shared/events'
+import type {
+  AutomationRunFinishedPayload,
+  AutomationState
+} from '../shared/automation'
 import type { DirCheckResult } from '../shared/add-dirs'
 import type {
   IdeFsChanged,
@@ -191,6 +201,14 @@ const api: WindowApi = {
       ipcRenderer.on(IPC.settingsChanged, listener)
       return () => ipcRenderer.off(IPC.settingsChanged, listener)
     }
+  },
+
+  voice: {
+    transcribe: (req: VoiceTranscribeRequest): Promise<VoiceTranscribeResult> =>
+      ipcRenderer.invoke(IPC.voiceTranscribe, req),
+    test: (settings: VoiceSettings): Promise<VoiceTestResult> =>
+      ipcRenderer.invoke(IPC.voiceTest, settings),
+    ensureMicAccess: (): Promise<boolean> => ipcRenderer.invoke(IPC.voiceMicAccess)
   },
 
   fonts: {
@@ -638,6 +656,29 @@ const api: WindowApi = {
     worktreePrune: (req) => ipcRenderer.invoke(IPC.vcsWorktreePrune, req),
     cancel: (req) => ipcRenderer.invoke(IPC.vcsCancel, req)
   } satisfies VcsApi,
+
+  automation: {
+    get: () => ipcRenderer.invoke(IPC.automationGet),
+    create: (input) => ipcRenderer.invoke(IPC.automationCreate, input),
+    update: (id, input) => ipcRenderer.invoke(IPC.automationUpdate, id, input),
+    remove: (id) => ipcRenderer.invoke(IPC.automationRemove, id),
+    setEnabled: (id, enabled) => ipcRenderer.invoke(IPC.automationSetEnabled, id, enabled),
+    runNow: (id) => ipcRenderer.invoke(IPC.automationRunNow, id),
+    stop: (id) => ipcRenderer.invoke(IPC.automationStop, id),
+    onChanged: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, state: AutomationState): void => cb(state)
+      ipcRenderer.on(IPC.automationChanged, listener)
+      return () => ipcRenderer.off(IPC.automationChanged, listener)
+    },
+    onRunFinished: (cb) => {
+      const listener = (
+        _e: Electron.IpcRendererEvent,
+        payload: AutomationRunFinishedPayload
+      ): void => cb(payload)
+      ipcRenderer.on(IPC.automationRunFinished, listener)
+      return () => ipcRenderer.off(IPC.automationRunFinished, listener)
+    }
+  },
 
   chat: {
     targets: (cwd: string): Promise<ChatTargetInfo[]> =>

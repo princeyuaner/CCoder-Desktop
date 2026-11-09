@@ -14,6 +14,11 @@ import {
   type CliId,
   type Settings
 } from '../shared/settings'
+import {
+  DEFAULT_VOICE_SETTINGS,
+  normalizeVoiceSettings,
+  type VoiceSettings
+} from '../shared/voice'
 
 /**
  * 设置的落盘格式。密钥**不存明文**：优先用 Electron 的 safeStorage
@@ -28,6 +33,8 @@ interface StoredSecret {
 
 type StoredChannel = Omit<Channel, 'authToken'> & { secret: StoredSecret }
 type StoredCli = Omit<CliConfig, 'channels'> & { channels: StoredChannel[] }
+/** 语音 Key 和渠道 token 一样走 safeStorage，不落明文 */
+type StoredVoice = Omit<VoiceSettings, 'apiKey'> & { secret: StoredSecret }
 
 /**
  * v2：渠道挂在 clis.<id> 下面，每个 CLI 一份。
@@ -53,6 +60,7 @@ interface StoredSettings {
   editor?: Settings['editor']
   keybindings?: Settings['keybindings']
   lsp?: Settings['lsp']
+  voice?: StoredVoice
   /** @deprecated v1 遗留，只在读取时兼容 */
   activeChannelId?: string | null
   /** @deprecated v1 遗留，只在读取时兼容 */
@@ -82,6 +90,13 @@ function unseal(s: StoredSecret | undefined): string {
     }
   }
   return s.plain ?? ''
+}
+
+/** 落盘的语音配置 → 内存里的完整配置；Key 在这里才解开。 */
+function voiceFromStored(v: StoredVoice | undefined): VoiceSettings | undefined {
+  if (!v) return undefined
+  const { secret, ...rest } = v
+  return normalizeVoiceSettings({ ...rest, apiKey: unseal(secret) })
 }
 
 /** 取落盘的 clis，顺带把 v1 的扁平格式搬到 clis.claude 上（不丢用户已配的渠道） */
@@ -152,7 +167,8 @@ export function loadSettings(): Settings {
     notifyOnDone: raw.notifyOnDone,
     editor: raw.editor,
     keybindings: raw.keybindings,
-    lsp: raw.lsp
+    lsp: raw.lsp,
+    voice: voiceFromStored(raw.voice)
   })
 }
 
@@ -172,6 +188,9 @@ export function saveSettings(s: Settings): void {
       officialModel: c.officialModel
     }
   }
+
+  const voice = s.voice ?? DEFAULT_VOICE_SETTINGS
+  const { apiKey: voiceKey, ...voiceRest } = voice
 
   const stored: StoredSettings = {
     clis,
@@ -193,7 +212,8 @@ export function saveSettings(s: Settings): void {
     notifyOnDone: s.notifyOnDone,
     editor: s.editor,
     keybindings: s.keybindings ?? {},
-    lsp: s.lsp
+    lsp: s.lsp,
+    voice: { ...voiceRest, secret: seal(voiceKey) }
   }
 
   const target = file()

@@ -88,6 +88,54 @@ export const IconClock = (p: IconProps) => (
   </svg>
 )
 
+export const IconCalendar = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="3.2" width="11" height="10.3" rx="1.5" />
+    <path d="M2.5 6.2h11M5.5 1.9v2.6M10.5 1.9v2.6" />
+  </svg>
+)
+
+export const IconTimer = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8.6" r="5.2" />
+    <path d="M8 5.6v3l2 1.2M6.2 1.8h3.6" />
+  </svg>
+)
+
+export const IconBell = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3.6 11.4V7.5a4.4 4.4 0 0 1 8.8 0v3.9l1 1.1H2.6z" />
+    <path d="M6.6 13.4a1.5 1.5 0 0 0 2.8 0" />
+  </svg>
+)
+
+export const IconHistory = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3.2 5.4A5.4 5.4 0 1 1 2.8 9" />
+    <path d="M2.6 2.8v3.1h3.1M8 5.6V8l2 1.3" />
+  </svg>
+)
+
+export const IconPause = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.6" />
+    <path d="M6.6 5.8v4.4M9.4 5.8v4.4" />
+  </svg>
+)
+
+export const IconCoin = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.7" />
+    <path d="M8 4.4v7.2M10.1 6.1c0-.9-.9-1.5-2.1-1.5s-2.1.6-2.1 1.5c0 1 .9 1.3 2.1 1.6s2.1.7 2.1 1.7-.9 1.5-2.1 1.5-2.1-.5-2.1-1.4" />
+  </svg>
+)
+
+export const IconRepeat = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M3 6.2A3.2 3.2 0 0 1 6.2 3H12M12 3 9.8 1M12 3 9.8 5M13 9.8A3.2 3.2 0 0 1 9.8 13H4M4 13l2.2-2M4 13l2.2 2" />
+  </svg>
+)
+
 export const IconPin = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M6 2.5h4l-.5 3 2 2v1H4.5v-1l2-2z" />
@@ -189,9 +237,40 @@ export const IconSend = (p: IconProps) => (
   </svg>
 )
 
+export const IconMic = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="6" y="2" width="4" height="7" rx="2" />
+    <path d="M4 7.5a4 4 0 0 0 8 0M8 11.5V14M6 14h4" />
+  </svg>
+)
+
 export const IconCheck = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="m3.5 8.5 3 3 6-7" />
+  </svg>
+)
+
+/** 罗盘：Explore 子代理的识别符号 */
+export const IconCompass = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="8" cy="8" r="5.6" />
+    <path d="m9.9 6.1-1.2 2.8-2.8 1.2 1.2-2.8z" />
+  </svg>
+)
+
+/** 路线：Plan 子代理 */
+export const IconRoute = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="4" cy="12" r="1.4" />
+    <circle cx="12" cy="4" r="1.4" />
+    <path d="M5.4 12H9a2 2 0 0 0 2-2V5.4" />
+  </svg>
+)
+
+/** 实心方块：中断 / 已停止 */
+export const IconStopSquare = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="4.5" y="4.5" width="7" height="7" rx="1.2" fill="currentColor" stroke="none" />
   </svg>
 )
 

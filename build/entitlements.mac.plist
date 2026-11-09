@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Electron 本身需要：JIT、可执行内存、签名后加载原生模块 -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- 语音输入：允许访问麦克风 -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

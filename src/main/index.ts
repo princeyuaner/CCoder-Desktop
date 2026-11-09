@@ -2,7 +2,16 @@ import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, crashReporter, dialog, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import {
+  app,
+  crashReporter,
+  dialog,
+  shell,
+  session,
+  BrowserWindow,
+  ipcMain,
+  nativeTheme
+} from 'electron'
 import { IPC } from '../shared/ipc'
 import type { PermissionMode } from '../shared/events'
 import type { Channel, CliAuthMode, CliId, EffortLevel, Settings } from '../shared/settings'
@@ -16,6 +25,8 @@ import type {
   SessionStartOptions
 } from '../shared/session'
 import { loadSettings, saveSettings } from './settings-store'
+import { ensureMicAccess, testVoice, transcribeVoice } from './voice-service'
+import type { VoiceSettings, VoiceTranscribeRequest } from '../shared/voice'
 import { listSystemFonts } from './system-fonts'
 import {
   coerceMcpInput,
@@ -112,6 +123,7 @@ import {
   updateSessionMeta
 } from './session-meta-store'
 import { SessionManager } from './session-manager'
+import { AutomationService } from './automation-service'
 import { CheckpointStore } from './checkpoints'
 import { SessionEventBatcher } from './session-event-batcher'
 import { validateSessionDir } from './session-dirs'
@@ -277,6 +289,25 @@ try {
 }
 
 /**
+ * 麦克风权限。
+ *
+ * Electron 在没装处理器时对权限请求是「放行」的，但对一个桌面应用来说
+ * 这太宽：摄像头、地理位置、通知等也该显式拒绝。这里只认 `media`，
+ * 且只允许音频；页面本身也只加载本地文件 / 开发服务器，不导航外链。
+ *
+ * 系统层仍会再问一次（Windows 隐私设置 / macOS 的 askForMediaAccess）。
+ */
+function configureMediaPermissions(): void {
+  const ses = session.defaultSession
+  ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    if (permission !== 'media') return callback(false)
+    const types = (details as { mediaTypes?: string[] })?.mediaTypes ?? []
+    callback(types.length === 0 || types.includes('audio'))
+  })
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'media')
+}
+
+/**
  * 无边框窗口（frame: false）。标题栏由渲染进程自绘，
  * 窗口控件经 preload 暴露的 window.api 走 IPC 回来。
  *
@@ -437,6 +468,21 @@ function registerSettingsIpc(sessions: SessionManager): void {
   ipcMain.handle(IPC.sessionsTranscript, (_e, cwd: string, id: string) =>
     readTranscript(cwd, id)
   )
+}
+
+/**
+ * 语音输入。
+ *
+ * 转写只读已落盘的 voice 配置：渲染层即使被注入，也拿不到「随便塞一个
+ * 地址和 Key」的能力。测试连接是例外 —— 它明确接收草稿设置，否则用户
+ * 每次都得先保存再点测试。
+ */
+function registerVoiceIpc(): void {
+  ipcMain.handle(IPC.voiceTranscribe, (_e, req: VoiceTranscribeRequest) =>
+    transcribeVoice(loadSettings().voice, req)
+  )
+  ipcMain.handle(IPC.voiceTest, (_e, settings: VoiceSettings) => testVoice(settings))
+  ipcMain.handle(IPC.voiceMicAccess, () => ensureMicAccess())
 }
 
 /**
@@ -1638,6 +1684,28 @@ function registerSessionIpc(sessions: SessionManager, checkpoints: CheckpointSto
   )
 }
 
+/**
+ * 自动化任务：CRUD 与手动触发。
+ *
+ * 渲染层送来的对象一律当不可信输入 —— 真正的收敛（CLI、权限模式、时间格式、
+ * 预算范围）在 AutomationService.normalizeInput 里做。
+ */
+function registerAutomationIpc(automation: AutomationService): void {
+  const idOf = (raw: unknown): string => (typeof raw === 'string' ? raw.slice(0, 80) : '')
+
+  ipcMain.handle(IPC.automationGet, () => automation.getState())
+  ipcMain.handle(IPC.automationCreate, (_e, input: unknown) => automation.create(input))
+  ipcMain.handle(IPC.automationUpdate, (_e, id: unknown, input: unknown) =>
+    automation.update(idOf(id), input)
+  )
+  ipcMain.handle(IPC.automationRemove, (_e, id: unknown) => automation.remove(idOf(id)))
+  ipcMain.handle(IPC.automationSetEnabled, (_e, id: unknown, enabled: unknown) =>
+    automation.setEnabled(idOf(id), enabled === true)
+  )
+  ipcMain.handle(IPC.automationRunNow, (_e, id: unknown) => automation.runNow(idOf(id)))
+  ipcMain.handle(IPC.automationStop, (_e, id: unknown) => automation.stop(idOf(id)))
+}
+
 app.whenReady().then(() => {
   // Windows 的系统通知需要一个稳定的 AppUserModelID；打包配置里的 appId
   // 与它保持一致。非 Windows 上是空操作。
@@ -1712,16 +1780,37 @@ app.whenReady().then(() => {
   // 按 16ms 合并 token 级增量，减少 IPC 与渲染层整段 Markdown 重解析
   const sessionEvents = new SessionEventBatcher((p) => sendToChatMain(IPC.sessionEvent, p))
   const checkpoints = new CheckpointStore(join(app.getPath('userData'), 'checkpoints'))
+
+  /*
+   * 自动化服务要先拿到 sessions，而 sessions 的事件出口又要转给它 ——
+   * 用一个可空引用打破构造顺序。会话事件到达时 automation 一定已经建好。
+   */
+  let automation: AutomationService | null = null
   const sessions = new SessionManager(
     loadSettings,
-    (p) => sessionEvents.push(p),
+    (p) => {
+      sessionEvents.push(p)
+      automation?.onSessionEvent(p)
+    },
     (p) => {
       // 先送完挂起的正文，再推 idle / exited，保证最后一个字不会晚到
       sessionEvents.flush(p.sessionId)
       sendToChatMain(IPC.sessionStatus, p)
+      automation?.onSessionStatus(p)
     },
     checkpoints
   )
+
+  const automationService = new AutomationService({
+    sessions,
+    dir: app.getPath('userData'),
+    emitState: (s) => sendToChatMain(IPC.automationChanged, s),
+    emitRunFinished: (p) => sendToChatMain(IPC.automationRunFinished, p),
+    // 新会话的侧栏标题按任务名走；续跑模式由服务自己跳过
+    titleSession: ({ cli, cwd, id, title }) =>
+      updateSessionMeta({ cli, cwd, id, patch: { title } })
+  })
+  automation = automationService
 
   // 登录状态机不直接碰 electron：事件出口和"打开浏览器"都从这里注入
   initClaudeAuth({
@@ -1740,6 +1829,7 @@ app.whenReady().then(() => {
 
   registerWindowIpc()
   registerSettingsIpc(sessions)
+  registerVoiceIpc()
   registerMcpIpc(sessions)
   registerSkillsIpc()
   registerHooksIpc()
@@ -1763,6 +1853,7 @@ app.whenReady().then(() => {
   registerVcsIpc(sessions)
   registerSyncIpc()
   registerChatBridgeIpc()
+  registerAutomationIpc(automationService)
 
   // 同步服务 → IDE 窗口的出口与生命周期。必须在建窗口之前装好：
   // IDE 窗口一打开就要按工作区恢复上次启用的同步。
@@ -1787,7 +1878,11 @@ app.whenReady().then(() => {
     }
   })
 
+  // 建窗前装好权限策略：窗口一出来就可能用 getUserMedia
+  configureMediaPermissions()
   createWindow()
+  // 窗口建好之后才启动调度：到期任务的首次补跑可能需要发通知 / 打开会话
+  automationService.start()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -1796,6 +1891,7 @@ app.whenReady().then(() => {
   // 退出前收掉所有 CLI 子进程（包括还在等授权码的登录进程），别留孤儿
   app.on('before-quit', () => {
     logMain('app', 'before-quit')
+    automationService.dispose()
     sessions.stopAll()
     disposeAllDshWebHosts()
     disposeClaudeAuth()

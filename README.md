@@ -48,6 +48,14 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - **续接历史会话**：打开旧会话后可以继续对话，CLI 侧使用 `--resume` 接回上下文。
 - **权限与提问**：权限审批、`AskUserQuestion` 在界面里直接答复；支持标准 / 接受编辑 / 自动 / 计划 / 免询问 / 绕过等模式。
 
+### 自动化任务
+
+- 侧栏一级入口：按**每隔 N 分钟 / 每天 / 每周**的计划，在后台拉起一条普通会话；每次运行都能在聊天里回看、续跑。
+- 任务级配置：工作区、CLI、模型、思考深度、权限模式、提示词、单轮超时、单次预算（轮末结算）、通知开关。
+- 无人值守策略：审批请求自动拒绝；`AskUserQuestion` 可按任务选择「暂停并通知」或「跳过并继续」；超时会直接收掉进程。
+- 运行记录持久化在 `userData/automation.json`：状态、耗时、花费、结果；完成 / 失败弹系统通知，点击回到对应会话。
+- 调度只在应用运行时生效；关掉所有窗口后停止，下次启动会补跑一次错过的计划。
+
 ### Hooks
 
 ![Hooks 管理](docs/screenshots/hooks.png)
@@ -73,6 +81,7 @@ Claude Code、Codex CLI 与 DeepSeek Harness 各自维护渠道、模型和凭�
 - **会话内查找**（`Ctrl+F`）：在正文、思考、工具输出和引用代码里找，`Enter` / `Shift+Enter` 前后跳转，`Esc` 退出。走 CSS Custom Highlight API，流式输出时不会打断渲染，也不改 DOM 结构。
 - **输入历史**：每条会话单独记录发送过的内容，输入框里按 `↑` / `↓` 翻看；`↑` 只在光标位于首行时接管（单行输入任意位置都算），多行编辑、选区和输入法组合不受影响。历史持久化在本机，最多 100 条 / 200 KB，打开旧会话时会从已有转写补齐。
 - 图片粘贴、拖入文本文件、`@` 文件引用、`/` 斜杠指令、发送队列。**拖进 / 选进来的文本文件**会被读成代码引用卡（和 IDE 发来的引用同一条编码），自动识别 UTF-8 / UTF-8 BOM / UTF-16 / UTF-32 / GBK / Big5 / Shift-JIS / EUC-JP / EUC-KR 等编码（非 UTF-8 的源编码会标在卡片上），自动跳过二进制、超过 512 KB 或 500 行的会截断并标注。
+- **语音输入**：点输入框底栏的麦克风（或 `Ctrl+Shift+M`）开始说话，再点一次结束；文字自动插入光标处，可一键撤销。默认走硅基流动的免费额度（OpenAI 兼容接口），也可切 Groq 或自填端点；录音只在内存，不写入磁盘。入口：设置 → 系统 → 语音输入。
 - **会话级附加目录**：输入框上方的「附加目录 +N」给这条会话单独加 Claude 的 `--add-dir`。工作区固定可访问，新会话默认不带；想复用可以从「最近使用」里点选。改动在下一次启动 CLI 进程时生效，运行中的会话等本轮跑完；失效目录保留配置、启动时跳过。
 - **跑完提醒**：一轮结束时弹系统通知，点一下切回那条会话；窗口在前台且正开着这条会话时不弹。可在设置 → 通用关闭。
 - **执行台**：任务清单（`TaskCreate` / `TaskUpdate` / `TodoWrite`）、子代理（`Agent` / `Task`）的运行状态、活动摘要、工具次数、token、耗时；子代理完成后可打开完整报告。
@@ -165,6 +174,7 @@ npm run verify:dsh:web  # 不花钱的 Web 协议自检（启动真实 dsh web�
 npm run verify:changed-review  # 本轮改动 → IDE diff 的路径换算（纯函数断言，不碰磁盘）
 npm run verify:diff-fullfile   # 整文件 diff 行对齐：多 hunk / 新文件 / 全删 / CRLF
 npm run verify:session-store   # 会话记录异步读取：大文件只读尾部、缓存失效、列表扫描
+npm run verify:voice           # 语音转写：WAV 编码 / multipart 请求 / 错误映射（本地假服务器）
 ```
 
 ### 打包
@@ -448,6 +458,14 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - **Resume historical sessions**: continue an old session and the CLI reconnects with `--resume`.
 - **Permissions and questions**: approve permissions and answer `AskUserQuestion` directly in the UI; modes include standard / accept edits / auto / plan / don't ask / bypass.
 
+### Automation
+
+- A top-level sidebar page that starts an ordinary session in the background on a **minute interval / daily / weekly** schedule. Every run can be reviewed and resumed in chat.
+- Per-task settings: workspace, CLI, model, thinking effort, permission mode, prompt, per-run timeout, per-run budget (settled at the end of the run), and notification toggles.
+- Unattended policy: permission requests are denied automatically; `AskUserQuestion` can either pause and notify or skip and continue; a timeout kills the process.
+- Run history is stored in `userData/automation.json` with status, duration, cost, and result. Success / failure raises a system notification that opens the run’s session.
+- Scheduling only works while the app is running: closing all windows stops it, and the next launch catches up on one missed schedule.
+
 ### Hooks
 
 ![Hooks manager](docs/screenshots/hooks.png)
@@ -473,6 +491,7 @@ Claude Code, Codex CLI, and DeepSeek Harness each keep their own channels, model
 - **Find in conversation** (`Ctrl+F`): searches message text, thinking, tool output, and referenced code. `Enter` / `Shift+Enter` step through matches, `Esc` closes. Uses the CSS Custom Highlight API, so streaming output is never interrupted and the DOM structure is left untouched.
 - **Input history**: every session records what you send; press `↑` / `↓` in the composer to step through it. `↑` is only intercepted while the caret is on the first line (anywhere in a single-line draft), so multiline editing, selections, and IME composition keep working. History persists locally (100 entries / 200 KB per session) and is backfilled from an existing transcript when an old session is opened.
 - Image paste, drag-and-drop of text files, `@` file references, `/` slash commands, and a send queue. **Dropped or picked text files** become reference cards using the same `<ide_reference>` encoding as IDE sends; encoding is detected automatically (UTF-8 / UTF-8 BOM / UTF-16 / UTF-32 / GBK / Big5 / Shift-JIS / EUC-JP / EUC-KR, with non-UTF-8 source encodings shown on the card); binaries are skipped, and files over 512 KB or 500 lines are truncated and labelled.
+- **Voice input**: click the microphone in the composer (or press `Ctrl+Shift+M`) to start, and click again to stop; the transcript is inserted at the caret and can be undone with one click. It uses SiliconFlow's free tier by default (OpenAI-compatible), with Groq or any custom endpoint as alternatives. Audio stays in memory and is never written to disk. Settings → System → Voice input.
 - **Session-scoped extra directories**: the “Extra dirs +N” chip above the composer adds Claude's `--add-dir` for this session only. The workspace is always accessible, and new sessions start empty; use “Recently used” to add a directory explicitly. Changes apply when the CLI process next starts; a running session waits until the current turn ends. Missing directories stay configured but are skipped at launch.
 - **Finish alert**: a system notification when a turn ends; click it to jump back to that session. Nothing is shown while the window is focused on that session. Can be turned off in Settings → General.
 - **Run panel**: task list (`TaskCreate` / `TaskUpdate` / `TodoWrite`), subagent (`Agent` / `Task`) status, activity summary, tool counts, tokens, and elapsed time; open the full report when a subagent finishes.
@@ -565,6 +584,7 @@ npm run verify:dsh:web  # offline Web self-check: real dsh web + sessions/histor
 npm run verify:changed-review  # turn-changes → IDE diff path mapping (pure functions, no disk I/O)
 npm run verify:diff-fullfile   # whole-file diff row alignment: multi-hunk / new / deleted / CRLF
 npm run verify:session-store   # async transcript reads: tail-only for big files, cache invalidation, listing
+npm run verify:voice           # voice transcription: WAV encoding, multipart request, error mapping (local fake server)
 ```
 
 ### Packaging

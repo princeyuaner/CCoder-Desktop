@@ -138,7 +138,7 @@
   text-overflow: ellipsis;
 }
 
-/* 上下文用量：底栏里的小环 + 百分比。环的颜色跟随 70% / 90% 阈值 */
+/* 上下文用量：右上角状态区里的小环 + 百分比。环的颜色跟随 70% / 90% 阈值 */
 .ctxchip {
   display: inline-flex;
   align-items: center;
@@ -5320,16 +5320,26 @@
   color: #4a4a4a;
 }
 
-/* ── 输入框左上角的工作目录 ─────────────────────────────── */
+/* ── 输入框顶栏：左边工作目录，右边会话状态 ─────────────── */
 
 /* 外壳只负责对齐输入框的左边界；胶囊本身按内容收缩 */
 .composer__cwdrow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
   max-width: var(--content-w);
   margin: 0 auto 6px;
   padding: 0 3px;
+}
+/* 会话状态（上下文 / 思考深度 / 权限模式）贴顶栏右端。
+   用 margin-left:auto 而不是 spacer：顶栏挤窄换行时，整组仍靠右 */
+.composer__status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 .composer__cwd {
   display: inline-flex;
@@ -6058,4 +6068,278 @@
   transform: translateX(-50%);
   max-width: 560px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* ── 语音输入 ─────────────────────────────────────────────
+ * 底栏麦克风 + 输入框上方的录音 / 转写条。
+ * 颜色全部走 token，浅色主题自动跟着变。
+ */
+.composer__mic {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+}
+.composer__mic:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.composer__mic.is-recording {
+  color: #fff;
+  background: var(--danger);
+  border-radius: 50%;
+}
+.composer__mic.is-recording:hover:not(:disabled) {
+  color: #fff;
+  background: var(--danger);
+  filter: brightness(1.06);
+}
+.composer__mic.is-transcribing {
+  color: var(--br-accent);
+}
+.composer__mic:disabled {
+  opacity: 0.5;
+}
+.composer__mic-stop {
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-radius: 2px;
+}
+.composer__spinner {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--br-accent);
+  border-radius: 50%;
+  animation: composer-voice-spin 0.8s linear infinite;
+}
+@keyframes composer-voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.composer__rec {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  margin: 0 1px 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 26%, transparent);
+  border-radius: 9px;
+}
+.composer__rec.is-busy {
+  background: var(--br-bg);
+  border-color: var(--br-border);
+}
+.composer__rec-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  background: var(--danger);
+  border-radius: 50%;
+}
+.composer__rec-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1px solid var(--danger);
+  border-radius: 50%;
+  animation: composer-voice-pulse 1.3s ease-out infinite;
+}
+@keyframes composer-voice-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+.composer__rec-label {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.composer__rec-time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--danger);
+}
+.composer__rec-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.composer__rec-wave {
+  display: flex;
+  align-items: center;
+  gap: 2.5px;
+  height: 18px;
+  flex: none;
+}
+.composer__rec-wave i {
+  display: block;
+  width: 2.5px;
+  background: var(--danger);
+  border-radius: 2px;
+  transform-origin: center;
+  animation: composer-voice-wave 0.9s ease-in-out infinite alternate;
+}
+@keyframes composer-voice-wave {
+  from {
+    transform: scaleY(0.42);
+    opacity: 0.55;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+.composer__rec-hint {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.composer__rec-cancel {
+  flex: none;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.composer__rec-cancel:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.composer__voice-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 2px 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.composer__voice-note svg {
+  color: var(--ok);
+}
+.composer__voice-undo {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--br-text);
+}
+.composer__voice-undo:hover {
+  text-decoration: underline;
+}
+
+.composer__voice-err {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  margin: 0 1px 10px;
+  padding: 9px 10px;
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  border-radius: 9px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.composer__voice-err-icon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: 50%;
+}
+.composer__voice-err-main {
+  min-width: 0;
+}
+.composer__voice-err-main b {
+  display: block;
+  margin-bottom: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+.composer__voice-err-detail {
+  margin: 0;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+.composer__voice-err-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+.composer__voice-btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.composer__voice-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.composer__voice-btn.is-primary {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+.composer__voice-btn.is-primary:hover {
+  color: var(--accent-fg);
+  background: var(--accent);
+  filter: brightness(1.05);
+}
+.composer__voice-x {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  color: var(--text-faint);
+  border-radius: 4px;
+}
+.composer__voice-x:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }

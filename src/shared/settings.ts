@@ -6,6 +6,11 @@ import {
 } from './i18n/locale'
 import type { MessageKey } from './i18n/catalog'
 import { normalizeKeybindings, type KeybindingOverrides } from './keybindings'
+import {
+  DEFAULT_VOICE_SETTINGS,
+  normalizeVoiceSettings,
+  type VoiceSettings
+} from './voice'
 
 /**
  * 渠道（channel）= 一个 API 端点 + 凭据 + 模型。
@@ -974,6 +979,8 @@ export interface Settings {
   /* ── 输入 ───────────────────────────────────────────────── */
   /** 发送快捷键 */
   sendKey: SendKey
+  /** 语音输入：服务商、凭据、插入方式 */
+  voice: VoiceSettings
 
   /* ── 提醒 ───────────────────────────────────────────────── */
   /**
@@ -1032,6 +1039,9 @@ export function defaultSettings(): Settings {
     thinkingOpen: false,
     toolDetail: 'full',
     sendKey: 'enter',
+    // 默认开：输入框里能看到麦克风，点一次才知道要先去设置里填免费 Key。
+    // 真的没配 Key 时录音前会给出可操作的错误，不会静默失败。
+    voice: { ...DEFAULT_VOICE_SETTINGS },
     notifyOnDone: true,
     editor: { ...DEFAULT_EDITOR_SETTINGS },
     keybindings: {},
@@ -1107,6 +1117,7 @@ export function normalizeSettings(raw: Partial<Settings> | null | undefined): Se
     toolDetail:
       src.toolDetail === 'compact' || src.toolDetail === 'hidden' ? src.toolDetail : 'full',
     sendKey: src.sendKey === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
+    voice: normalizeVoiceSettings(src.voice),
     // 老版本没有这个字段 —— 补成「开着」，这是更有用的默认值
     notifyOnDone: src.notifyOnDone !== false,
     editor: normalizeEditorSettings(src.editor),

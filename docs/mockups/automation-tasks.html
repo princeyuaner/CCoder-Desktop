@@ -1,0 +1,1413 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CCoder · 自动化任务</title>
+<style>
+  /* ── 设计 token（与 src/renderer/src/styles/tokens.css 对齐） ── */
+  :root {
+    color-scheme: dark;
+    --bg-app: #191919;
+    --bg-sidebar: #141414;
+    --bg-raised: #232323;
+    --bg-hover: #1f1f1f;
+    --bg-active: #2a2a2a;
+    --border: #2c2c2c;
+    --border-soft: #242424;
+    --text: #e8e8e8;
+    --text-dim: #a8a8a8;
+    --text-muted: #8a8a8a;
+    --text-faint: #6b6b6b;
+    --accent: #e8e8e8;
+    --accent-fg: #191919;
+    --ok: #4b9e5f;
+    --warn: #c9a227;
+    --danger: #e5534b;
+    --running: #d97757;
+    /* 自动化页的记忆色：低饱和青绿。只用于图标、激活条、计划标记。 */
+    --auto: #86b8ad;
+    --auto-strong: #b9ddd5;
+    --auto-soft: rgba(134, 184, 173, .09);
+    --auto-line: rgba(134, 184, 173, .26);
+    --running-soft: rgba(217, 119, 87, .09);
+    --running-line: rgba(217, 119, 87, .27);
+    --blue: #7aa2c8;
+    --blue-soft: rgba(122, 162, 200, .10);
+    --amber: #d8b26a;
+    --amber-soft: rgba(216, 178, 106, .09);
+    --green: #6fb287;
+    --green-soft: rgba(111, 178, 135, .09);
+    --radius-card: 12px;
+    --radius-chip: 8px;
+    --radius-sm: 6px;
+    --radius-pill: 999px;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+    --titlebar-h: 36px;
+    --sidebar-w: 280px;
+    --scrollbar-w: 10px;
+    --panel: #1c1c1c;
+    --panel-hover: #222222;
+    --panel-active: #292929;
+    --panel-line: #313131;
+    --ok-soft: #16241a;
+    --ok-line: #2c4a34;
+    --danger-soft: #2a1a19;
+    --danger-line: #4a2a28;
+    --warn-soft: #2a2418;
+    --warn-line: #4a3f22;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    place-items: center;
+    background: #0e0e0e;
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; background: none; border: 0; }
+  button { cursor: pointer; }
+  ::selection { background: var(--auto-soft); }
+  ::-webkit-scrollbar { width: var(--scrollbar-w); height: var(--scrollbar-w); }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: var(--radius-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--text-muted) 70%, transparent); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .icon, .session__cli svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* ── 窗口骨架 ─────────────────────────────────────────── */
+  .window {
+    position: relative;
+    width: 1400px;
+    height: 900px;
+    display: grid;
+    grid-template-rows: var(--titlebar-h) 1fr;
+    background: var(--bg-app);
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, .5);
+  }
+  .titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--titlebar-h);
+    padding-left: 12px;
+    background: var(--bg-app);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .titlebar__brand { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; }
+  .titlebar__brand-mark { color: #d8d8d8; }
+  .titlebar__brand-name { font-size: 15px; font-weight: 650; letter-spacing: .2px; }
+  .titlebar__right { display: flex; align-items: center; height: 100%; margin-left: auto; }
+  .titlebar__panel { display: grid; place-items: center; width: 32px; height: 100%; color: var(--text-muted); }
+  .titlebar__panel:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl { display: grid; place-items: center; width: 46px; height: 100%; color: var(--text-dim); }
+  .wctl:hover { background: var(--bg-raised); color: var(--text); }
+  .wctl--close:hover { background: #c42b1c; color: #fff; }
+
+  .app__body { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 0; }
+
+  /* ── 左侧栏 ───────────────────────────────────────────── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 10px 10px 6px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-soft);
+  }
+  .sidebar__nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 8px; }
+  .navitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .navitem:hover { background: var(--bg-hover); color: var(--text); }
+  .navitem.is-active { background: var(--bg-active); color: var(--text); }
+  .navitem__count {
+    margin-left: auto;
+    min-width: 18px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 16px;
+    color: var(--text-muted);
+    text-align: center;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+  .navitem.is-active .navitem__count { color: var(--auto); background: var(--auto-soft); border-color: var(--auto-line); }
+  .sidebar__section-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 6px; }
+  .sidebar__section-title { font-size: 12px; font-weight: 600; color: var(--text-muted); letter-spacing: .4px; }
+  .sidebar__section-tools { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+  .sidebar__section-head:hover .sidebar__section-tools { opacity: 1; }
+  .iconbtn { display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-muted); border-radius: var(--radius-sm); }
+  .iconbtn:hover { background: var(--bg-raised); color: var(--text); }
+  .sidebar__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+  .wsgroup { margin-bottom: 6px; padding-bottom: 8px; }
+  .wsgroup + .wsgroup { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+  .wsgroup__head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--text-dim); }
+  .wsgroup__iconbtn { display: grid; place-items: center; width: 22px; height: 22px; margin: 0 -2px 0 -4px; border-radius: 5px; }
+  .wsgroup__iconbtn:hover { background: var(--bg-active); }
+  .wsgroup__icon { color: var(--text-muted); }
+  .wsgroup__name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wsgroup__count { flex: none; padding: 1px 6px; font-size: 10.5px; color: var(--text-muted); background: var(--bg-active); border-radius: var(--radius-pill); }
+  .session { display: flex; align-items: center; margin-left: 16px; border-radius: var(--radius-sm); }
+  .session:hover { background: var(--bg-hover); }
+  .session__main { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; padding: 5px 8px 5px 12px; text-align: left; }
+  .session__cli { display: grid; place-items: center; flex: none; width: 16px; height: 16px; }
+  .session__cli svg { display: block; width: 14px; height: 14px; }
+  .session__title { flex: 1; min-width: 0; font-size: 13px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session__time { flex: none; font-size: 11.5px; color: var(--text-faint); }
+  .session__time--run { color: var(--running); }
+  .session--run .session__title { color: var(--text); }
+  .sidebar__settings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-top: 4px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .sidebar__settings:hover { background: var(--bg-hover); color: var(--text); }
+
+  /* ── 页面骨架 ─────────────────────────────────────────── */
+  .page { display: grid; grid-template-rows: auto 1fr; min-height: 0; min-width: 0; background: var(--bg-app); }
+  .page__head {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 15px 30px 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .page__heading { min-width: 0; }
+  .page__titleline { display: flex; align-items: center; gap: 9px; }
+  .page__title { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.1px; }
+  .page__sub { margin: 3px 0 0; font-size: 12.5px; color: var(--text-muted); }
+  .page__actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+  .segmented {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+  }
+  .segmented button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    border-radius: 7px;
+    white-space: nowrap;
+  }
+  .segmented button:hover { color: var(--text); }
+  .segmented button.is-active { background: var(--bg-active); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.14); }
+  .segmented button span {
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+    color: var(--text-faint);
+    background: var(--bg-active);
+    border-radius: var(--radius-pill);
+  }
+  .segmented button.is-active span { color: var(--auto); background: var(--auto-soft); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
+    white-space: nowrap;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .btn .icon { width: 14px; height: 14px; }
+  .btn--ghost { color: var(--text-dim); border-color: var(--border); }
+  .btn--ghost:hover { background: var(--bg-raised); color: var(--text); }
+  .btn--primary { color: var(--accent-fg); background: var(--accent); font-weight: 550; }
+  .btn--primary:hover { filter: brightness(.94); }
+  .btn--auto { color: var(--accent-fg); background: var(--auto); font-weight: 550; }
+  .btn--auto:hover { filter: brightness(.94); }
+  .btn--danger { color: var(--danger); border-color: var(--danger-line); }
+  .btn--danger:hover { background: var(--danger-soft); }
+  .btn--xs { padding: 3px 9px; font-size: 11.5px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn:disabled:hover { filter: none; }
+  .linkbtn { color: var(--text-muted); font-size: 11.5px; }
+  .linkbtn:hover { color: var(--text); }
+  .linkbtn--auto { color: var(--auto); }
+  .linkbtn--auto:hover { color: var(--auto-strong); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 19px;
+    padding: 0 7px;
+    font-size: 10.5px;
+    line-height: 1;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .badge--ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+  .badge--bad { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+  .badge--warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .badge--auto { color: var(--auto); background: var(--auto-soft); border-color: var(--auto-line); }
+  .badge--run { color: var(--running); background: var(--running-soft); border-color: var(--running-line); }
+  .badge--mono { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .2px; }
+  .badge__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  .page__body { min-height: 0; overflow: hidden; }
+  .view { display: none; height: 100%; min-height: 0; }
+  .view.is-active { display: block; }
+
+  /* ── 任务视图：列表 + 详情 ───────────────────────────── */
+  .split { display: grid; grid-template-columns: 356px 1fr; height: 100%; min-height: 0; }
+  .list-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, var(--bg-app), color-mix(in srgb, var(--bg-sidebar) 42%, var(--bg-app)));
+  }
+  .list-tools { display: flex; align-items: center; gap: 7px; padding: 13px 13px 9px; }
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 1;
+    min-width: 0;
+    height: 31px;
+    padding: 0 9px;
+    color: var(--text-faint);
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: border-color .12s;
+  }
+  .search:focus-within { border-color: var(--auto-line); color: var(--text-muted); }
+  .search .icon { width: 14px; height: 14px; }
+  .search input { flex: 1; min-width: 0; outline: none; font-size: 12.5px; background: transparent; }
+  .search input::placeholder { color: var(--text-faint); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 13px 9px; }
+  .chip {
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    white-space: nowrap;
+  }
+  .chip:hover { background: var(--bg-hover); color: var(--text); }
+  .chip.is-active { color: var(--auto); background: var(--auto-soft); border-color: var(--auto-line); }
+
+  .list-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 9px 10px; }
+  .list-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 8px 6px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .45px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+  .list-label__count { margin-left: auto; font-weight: 500; letter-spacing: 0; color: var(--text-faint); }
+
+  .task-row {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 10px 9px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .task-row:hover { background: var(--bg-hover); }
+  .task-row.is-active { background: var(--panel-active); border-color: var(--panel-line); }
+  .task-row.is-active::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--auto);
+  }
+  .task-row.is-active.is-bad::before { background: var(--danger); }
+  .task-row__dot { width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; flex: none; background: var(--text-faint); }
+  .task-row__dot.is-ok { background: var(--ok); }
+  .task-row__dot.is-bad { background: var(--danger); }
+  .task-row__dot.is-paused { background: transparent; border: 1px solid var(--text-faint); }
+  .task-row__dot.is-run {
+    background: var(--running);
+    box-shadow: 0 0 0 3px var(--running-soft);
+    animation: pulse 1.7s ease-in-out infinite;
+  }
+  .task-row__main { flex: 1; min-width: 0; }
+  .task-row__line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .task-row__name { min-width: 0; font-size: 12.8px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-row__cli {
+    flex: none;
+    padding: 0 4px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    line-height: 14px;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .task-row__meta { margin-top: 2px; font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-row__right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-top: 1px; }
+  .task-row__when { font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
+  .task-row__when.is-run { color: var(--running); }
+  .task-row__when.is-bad { color: var(--danger); }
+
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 24px;
+    height: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--bg-raised);
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .switch::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    transition: left .15s, background .15s;
+  }
+  .switch.is-on { background: var(--auto-soft); border-color: var(--auto-line); }
+  .switch.is-on::after { left: 11px; background: var(--auto); }
+
+  .list-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 14px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    border-top: 1px solid var(--border-soft);
+  }
+  .sched-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  .list-foot__hint { margin-left: auto; }
+  .list-foot .icon { width: 12px; height: 12px; }
+
+  .empty-list { padding: 34px 16px; text-align: center; font-size: 12px; color: var(--text-faint); }
+
+  /* ── 详情 ─────────────────────────────────────────────── */
+  .detail { height: 100%; overflow-y: auto; padding: 20px 26px 30px; }
+  .detail__head { display: flex; align-items: flex-start; gap: 12px; }
+  .detail__mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 38px;
+    height: 38px;
+    color: var(--auto);
+    background: var(--auto-soft);
+    border: 1px solid var(--auto-line);
+    border-radius: 10px;
+  }
+  .detail__mark .icon { width: 18px; height: 18px; }
+  .detail__heading { flex: 1; min-width: 0; }
+  .detail__titleline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .detail__title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.1px; }
+  .detail__meta { display: flex; align-items: center; gap: 7px; margin-top: 5px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+  .detail__actions { flex: none; display: flex; align-items: center; gap: 6px; }
+  .dotsep { color: var(--text-faint); }
+  .cli-inline { display: inline-flex; align-items: center; gap: 4px; }
+  .cli-inline .icon { width: 12px; height: 12px; }
+
+  .runbar {
+    margin: 16px 0 2px;
+    padding: 11px 13px 12px;
+    background: linear-gradient(180deg, var(--running-soft), transparent);
+    border: 1px solid var(--running-line);
+    border-radius: 10px;
+  }
+  .runbar__top { display: flex; align-items: center; gap: 9px; }
+  .runbar__state { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--running); }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--running); box-shadow: 0 0 0 3px var(--running-soft); animation: pulse 1.7s ease-in-out infinite; }
+  .runbar__elapsed { font-size: 11.5px; color: var(--text-muted); }
+  .runbar__spacer { flex: 1; }
+  .progress { height: 4px; margin: 10px 0 8px; background: var(--bg-raised); border-radius: var(--radius-pill); overflow: hidden; }
+  .progress__fill {
+    width: 38%;
+    height: 100%;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--running), color-mix(in srgb, var(--running) 45%, var(--auto)));
+    background-size: 200% 100%;
+    animation: shimmer 2.4s linear infinite;
+  }
+  .runbar__step { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); }
+  .runbar__step .icon { width: 12px; height: 12px; color: var(--text-muted); }
+
+  .section { padding: 17px 0 3px; border-top: 1px solid var(--border-soft); margin-top: 16px; }
+  .section:first-of-type { border-top: 0; margin-top: 12px; }
+  .section__head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+  .section__head .icon { width: 13px; height: 13px; color: var(--text-faint); }
+  .section__title { font-size: 10.5px; font-weight: 600; letter-spacing: .55px; color: var(--text-faint); text-transform: uppercase; }
+  .section__action { margin-left: auto; }
+
+  .field { display: grid; grid-template-columns: 118px 1fr; gap: 12px; align-items: baseline; padding: 5px 0; }
+  .field__label { font-size: 12px; color: var(--text-muted); }
+  .field__value { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12.5px; color: var(--text); min-width: 0; }
+  .field__value .icon { width: 13px; height: 13px; color: var(--text-muted); }
+  .mono { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim); }
+  .muted { color: var(--text-muted); }
+  .faint { color: var(--text-faint); }
+
+  .prompt {
+    font-family: var(--font-mono);
+    font-size: 11.8px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    padding: 11px 13px;
+    color: var(--text-dim);
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+  }
+
+  .callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 9px 11px;
+    font-size: 11.5px;
+    line-height: 1.55;
+    border-radius: 8px;
+  }
+  .callout .icon { width: 14px; height: 14px; margin-top: 1px; flex: none; }
+  .callout--warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); }
+  .callout--info { color: var(--text-muted); background: var(--bg-raised); border: 1px solid var(--border-soft); }
+  .callout b { font-weight: 600; }
+
+  .notify-row { display: flex; align-items: center; gap: 9px; padding: 5px 0; font-size: 12.5px; color: var(--text-dim); }
+  .notify-row .icon { width: 13px; height: 13px; color: var(--ok); }
+  .notify-row .switch { margin-left: auto; }
+  .notify-foot { margin-top: 4px; font-size: 11.5px; color: var(--text-faint); }
+
+  .run-row { display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 8px; }
+  .run-row:hover { background: var(--bg-hover); }
+  .run-row__time { width: 92px; flex: none; font-size: 11.5px; color: var(--text-muted); }
+  .run-row__result { flex: 1; min-width: 0; font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-row__num { flex: none; width: 74px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+  .run-row__num--cost { width: 50px; }
+  .run-row__open { flex: none; opacity: .5; transition: opacity .12s; }
+  .run-row:hover .run-row__open { opacity: 1; }
+
+  /* ── 运行记录视图 ─────────────────────────────────────── */
+  .runs { height: 100%; overflow-y: auto; padding: 18px 26px 30px; }
+  .runs__toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .runs__toolbar .chips { padding: 0; }
+  .runs__summary { margin-left: auto; font-size: 11.5px; color: var(--text-faint); white-space: nowrap; }
+  .runs__summary b { color: var(--text-muted); font-weight: 600; }
+  .runs__date { margin-left: 4px; }
+  .table { width: 100%; margin-top: 14px; border-collapse: collapse; }
+  .table th {
+    padding: 8px 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .4px;
+    color: var(--text-faint);
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .table td { padding: 10px; font-size: 12.2px; color: var(--text-dim); border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  .table tbody tr:hover td { background: var(--bg-hover); }
+  .table__task { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
+  .table__task .icon { width: 13px; height: 13px; color: var(--auto); }
+  .table__task span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .table__num { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+  .table__result { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .table__open { opacity: .5; }
+  .table tbody tr:hover .table__open { opacity: 1; }
+
+  /* ── 新建任务弹窗 ─────────────────────────────────────── */
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: none;
+    place-items: center;
+    background: rgba(0, 0, 0, .55);
+    backdrop-filter: blur(2px);
+  }
+  .modal-backdrop.is-open { display: grid; }
+  .dialog {
+    display: flex;
+    flex-direction: column;
+    width: 660px;
+    max-height: 86%;
+    background: var(--bg-app);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+    overflow: hidden;
+  }
+  .dialog__head { display: flex; align-items: flex-start; gap: 11px; padding: 16px 18px 14px; border-bottom: 1px solid var(--border-soft); }
+  .dialog__mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    color: var(--auto);
+    background: var(--auto-soft);
+    border: 1px solid var(--auto-line);
+    border-radius: 9px;
+  }
+  .dialog__mark .icon { width: 16px; height: 16px; }
+  .dialog__titlebox { flex: 1; min-width: 0; }
+  .dialog__title { margin: 0; font-size: 15px; font-weight: 650; }
+  .dialog__sub { margin: 2px 0 0; font-size: 11.5px; color: var(--text-muted); }
+  .dialog__close { display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-muted); border-radius: 6px; }
+  .dialog__close:hover { background: var(--bg-raised); color: var(--text); }
+  .dialog__body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 18px; }
+  .dialog__foot { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border-soft); }
+  .dialog__foot .muted { margin-right: auto; font-size: 11px; }
+
+  .form-field { margin-bottom: 12px; }
+  .form-field > label { display: block; margin-bottom: 5px; font-size: 11.5px; color: var(--text-muted); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-row--3 { grid-template-columns: 1fr 1fr 1fr; }
+  .input, .select, .textarea {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+    transition: border-color .12s;
+  }
+  .input:focus, .select:focus, .textarea:focus { border-color: var(--auto-line); }
+  .input::placeholder, .textarea::placeholder { color: var(--text-faint); }
+  .textarea { min-height: 76px; resize: vertical; line-height: 1.6; font-family: var(--font-mono); font-size: 11.8px; }
+  .select { appearance: none; padding-right: 26px; background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%), linear-gradient(135deg, var(--text-faint) 50%, transparent 50%); background-position: calc(100% - 14px) 13px, calc(100% - 9px) 13px; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+  .segmented--sm { width: 100%; }
+  .segmented--sm button { flex: 1; justify-content: center; padding: 4px 8px; font-size: 12px; }
+  .form-note { margin: -4px 0 12px; font-size: 11px; color: var(--text-faint); }
+  .form-divider { margin: 16px 0 12px; padding-top: 14px; border-top: 1px solid var(--border-soft); font-size: 10.5px; font-weight: 600; letter-spacing: .5px; color: var(--text-faint); text-transform: uppercase; }
+
+  /* ── toast / 评审标注 ─────────────────────────────────── */
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 22px;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+    opacity: 0;
+    transform: translate(-50%, 10px);
+    pointer-events: none;
+    transition: opacity .18s, transform .18s;
+  }
+  .toast.is-show { opacity: 1; transform: translate(-50%, 0); }
+  .toast .icon { width: 14px; height: 14px; color: var(--auto); }
+
+  .review-note {
+    position: absolute;
+    right: 12px;
+    bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    font-size: 10px;
+    color: var(--text-faint);
+    background: rgba(20, 20, 20, .8);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-pill);
+    pointer-events: none;
+  }
+  .review-note .icon { width: 10px; height: 10px; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .45; }
+  }
+  @keyframes shimmer {
+    0% { background-position: 0% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .spin { animation: spin 1.4s linear infinite; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-brand" viewBox="0 0 16 16">
+    <path d="M2 9.2c0-3.2 2.6-5.8 5.8-5.8 1.2 0 2.3.4 3.2 1 .5-.4 1.2-.6 1.9-.5l1.6.2-.9 1.5c.4.8.6 1.7.6 2.6 0 3.2-2.6 5.8-5.8 5.8-1.6 0-3-.6-4.1-1.7-.3-.3-.6-.6-.8-1l-.6.2.3-1.2A5.7 5.7 0 0 1 2 9.2z" fill="currentColor" stroke="none"/>
+    <circle cx="6.4" cy="8.2" r=".75" fill="var(--bg-app)" stroke="none"/>
+  </symbol>
+  <symbol id="i-panel" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1.6"/><path d="M10.5 3v10"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 2.5v2M10 2.5v2"/><rect x="3" y="4.5" width="10" height="9" rx="1.6"/><path d="M6.2 8.2v2.4M9.8 8.2v2.4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.2l2 1.3"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2 3.6 12.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 16 16"><path d="M4 3v10M4 13l-2-2M4 13l2-2M12 13V3M12 3l-2 2M12 3l2 2"/></symbol>
+  <symbol id="i-folder-plus" viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/><path d="M7.5 7.6v3M6 9.1h3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h4.5A1.5 1.5 0 0 1 13 6.1V11a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2 11z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 16 16"><path d="M6.5 4l4 4-4 4"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="M4 6.5 8 10.5l4-4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13.2 6.4A5.4 5.4 0 1 0 13 10"/><path d="M13.4 2.8v3.7H9.7"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><path d="M8 7.2v3.4"/><circle cx="8" cy="4.9" r=".65" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.7 14 13H2z"/><path d="M8 6.2v3.1"/><circle cx="8" cy="11.2" r=".65" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8 13 3.6v4.2c0 3-2 5.2-5 6.4-3-1.2-5-3.4-5-6.4V3.6z"/><path d="m5.7 7.9 1.5 1.5 3-3.2"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="m5 6 2 2-2 2M8.5 10H11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="m6.5 5.4 3.7 2.6-3.7 2.6z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M6.6 5.8v4.4M9.4 5.8v4.4"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 16 16"><rect x="2.5" y="3.2" width="11" height="10.3" rx="1.5"/><path d="M2.5 6.2h11M5.5 1.9v2.6M10.5 1.9v2.6"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 16 16"><path d="M9 1.8 3.4 9h4L7 14.2 12.6 7h-4z"/></symbol>
+  <symbol id="i-timer" viewBox="0 0 16 16"><circle cx="8" cy="8.6" r="5.2"/><path d="M8 5.6v3l2 1.2M6.2 1.8h3.6"/></symbol>
+  <symbol id="i-coin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.7"/><path d="M8 4.4v7.2M10.1 6.1c0-.9-.9-1.5-2.1-1.5s-2.1.6-2.1 1.5c0 1 .9 1.3 2.1 1.6s2.1.7 2.1 1.7-.9 1.5-2.1 1.5-2.1-.5-2.1-1.4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 16 16"><path d="M3.6 11.4V7.5a4.4 4.4 0 0 1 8.8 0v3.9l1 1.1H2.6z"/><path d="M6.6 13.4a1.5 1.5 0 0 0 2.8 0"/></symbol>
+  <symbol id="i-history" viewBox="0 0 16 16"><path d="M3.2 5.4A5.4 5.4 0 1 1 2.8 9"/><path d="M2.6 2.8v3.1h3.1M8 5.6V8l2 1.3"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 16 16"><path d="M2.5 3.2h11L9.6 8.3v4.2l-3.2-1.4V8.3z"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 16 16"><path d="M3 6.2A3.2 3.2 0 0 1 6.2 3H12M12 3 9.8 1M12 3 9.8 5M13 9.8A3.2 3.2 0 0 1 9.8 13H4M4 13l2.2-2M4 13l2.2 2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.8z"/><path d="M9.2 1.8v4h3.8"/></symbol>
+  <symbol id="i-box" viewBox="0 0 16 16"><path d="m8 1.9 5.5 3v6.2L8 14.1l-5.5-3V4.9z"/><path d="M2.5 4.9 8 7.9l5.5-3M8 7.9v6.2"/></symbol>
+  <symbol id="i-book" viewBox="0 0 16 16"><path d="M2.5 3.2A1.2 1.2 0 0 1 3.7 2H13v11.4H3.7a1.2 1.2 0 0 0-1.2 1.2z"/><path d="M2.5 12.4A1.2 1.2 0 0 1 3.7 11.2H13"/></symbol>
+  <symbol id="i-sunrise" viewBox="0 0 16 16"><path d="M2 12.5h12M4.2 9.5a3.8 3.8 0 0 1 7.6 0"/><path d="M8 1.8v2M2.6 4.2l1.4 1.4M13.4 4.2 12 5.6M1.5 9.5h1.4M13.1 9.5h1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 16 16"><path d="M13.3 10.2A5.7 5.7 0 0 1 5.8 2.7a5.7 5.7 0 1 0 7.5 7.5z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 16 16"><path d="M8 1.7l1.55 4.75L14.3 8l-4.75 1.55L8 14.3l-1.55-4.75L1.7 8l4.75-1.55z"/><path d="M12.9 2.2v2.6M11.6 3.5h2.6" stroke-width="1.1" opacity=".6"/></symbol>
+  <symbol id="i-git" viewBox="0 0 16 16"><circle cx="4.2" cy="4" r="1.6"/><circle cx="4.2" cy="12" r="1.6"/><circle cx="11.8" cy="6.8" r="1.6"/><path d="M4.2 5.6v4.8M11.8 8.4c0 1.7-1.5 3-3.4 3H4.2"/></symbol>
+  <symbol id="i-external" viewBox="0 0 16 16"><path d="M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3"/><path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path d="M10.5 2.7 13.3 5.5 5.8 13H3v-2.8z"/><path d="M9.2 4l2.8 2.8"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.8 4.5h10.4M6 2.8h4M4.2 4.5l.6 8.1a1.2 1.2 0 0 0 1.2 1.1h4a1.2 1.2 0 0 0 1.2-1.1l.6-8.1M6.6 7v3.6M9.4 7v3.6"/></symbol>
+  <symbol id="i-user" viewBox="0 0 16 16"><circle cx="8" cy="5.3" r="2.5"/><path d="M3.3 13.5c.5-2.3 2.3-3.5 4.7-3.5s4.2 1.2 4.7 3.5"/></symbol>
+</svg>
+
+<div class="window">
+  <header class="titlebar">
+    <div class="titlebar__brand">
+      <svg width="22" height="22" class="titlebar__brand-mark"><use href="#i-brand"/></svg>
+      <span class="titlebar__brand-name">CCoder</span>
+    </div>
+    <div class="titlebar__right">
+      <button class="titlebar__panel" title="切换侧栏"><svg class="icon" width="15" height="15"><use href="#i-panel"/></svg></button>
+      <button class="wctl" title="最小化"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="wctl" title="最大化"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9"/></svg></button>
+      <button class="wctl wctl--close" title="关闭"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg></button>
+    </div>
+  </header>
+
+  <div class="app__body">
+    <aside class="sidebar">
+      <nav class="sidebar__nav">
+        <button class="navitem">
+          <svg class="icon" width="15" height="15"><use href="#i-plug"/></svg>
+          <span>插件</span>
+          <span class="navitem__count">6</span>
+        </button>
+        <button class="navitem is-active">
+          <svg class="icon" width="15" height="15"><use href="#i-clock"/></svg>
+          <span>自动化任务</span>
+          <span class="navitem__count">6</span>
+        </button>
+      </nav>
+
+      <div class="sidebar__section-head">
+        <span class="sidebar__section-title">工作区</span>
+        <div class="sidebar__section-tools">
+          <button class="iconbtn" title="搜索会话"><svg class="icon" width="14" height="14"><use href="#i-search"/></svg></button>
+          <button class="iconbtn" title="排序"><svg class="icon" width="14" height="14"><use href="#i-sort"/></svg></button>
+          <button class="iconbtn" title="添加工作区"><svg class="icon" width="14" height="14"><use href="#i-folder-plus"/></svg></button>
+        </div>
+      </div>
+
+      <div class="sidebar__scroll">
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">CCoder-Desktop</span>
+            <span class="wsgroup__count">4</span>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#d97757"><svg><use href="#i-terminal"/></svg></span>
+              <span class="session__title">自动 · 早晨仓库巡检</span>
+              <span class="session__time session__time--run">运行中</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#9a9a9a"><svg><use href="#i-terminal"/></svg></span>
+              <span class="session__title">修复工具调用超时</span>
+              <span class="session__time">1 小时</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#5b9dff"><svg><use href="#i-terminal"/></svg></span>
+              <span class="session__title">整理 MCP 配置文件</span>
+              <span class="session__time">昨天</span>
+            </button>
+          </div>
+        </div>
+        <div class="wsgroup">
+          <div class="wsgroup__head">
+            <button class="wsgroup__iconbtn" title="在 IDE 中打开"><svg class="icon wsgroup__icon" width="15" height="15"><use href="#i-folder"/></svg></button>
+            <span class="wsgroup__name">docs-site</span>
+            <span class="wsgroup__count">2</span>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#d97757"><svg><use href="#i-terminal"/></svg></span>
+              <span class="session__title">自动 · 文档同步</span>
+              <span class="session__time">12 分钟</span>
+            </button>
+          </div>
+          <div class="session">
+            <button class="session__main">
+              <span class="session__cli" style="color:#5b9dff"><svg><use href="#i-terminal"/></svg></span>
+              <span class="session__title">周报模板改版</span>
+              <span class="session__time">10-30</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <button class="sidebar__settings">
+        <svg class="icon" width="15" height="15"><use href="#i-gear"/></svg>
+        <span>设置</span>
+      </button>
+    </aside>
+
+    <main class="page">
+      <header class="page__head">
+        <div class="page__heading">
+          <div class="page__titleline">
+            <h1 class="page__title">自动化任务</h1>
+            <span class="badge badge--mono badge--auto">AUTOMATION</span>
+          </div>
+          <p class="page__sub">按计划或事件让 agent 自己开跑；每次运行都是一个可回看的会话，成功与否都会通知你。</p>
+        </div>
+        <div class="page__actions">
+          <div class="segmented" id="viewTabs">
+            <button class="is-active" data-view="tasks">任务 <span>6</span></button>
+            <button data-view="runs">运行记录</button>
+          </div>
+          <button class="btn btn--primary" data-act="new"><svg class="icon"><use href="#i-plus"/></svg>新建任务</button>
+        </div>
+      </header>
+
+      <div class="page__body">
+        <section class="view is-active" id="view-tasks">
+          <div class="split">
+            <aside class="list-pane">
+              <div class="list-tools">
+                <label class="search">
+                  <svg class="icon"><use href="#i-search"/></svg>
+                  <input id="taskSearch" placeholder="搜索任务或工作区" autocomplete="off" />
+                </label>
+                <button class="iconbtn" title="筛选"><svg class="icon" width="14" height="14"><use href="#i-filter"/></svg></button>
+              </div>
+              <div class="chips" id="listFilters">
+                <button class="chip is-active" data-filter="all">全部</button>
+                <button class="chip" data-filter="on">启用中</button>
+                <button class="chip" data-filter="off">已暂停</button>
+              </div>
+              <div class="list-scroll" id="taskList"></div>
+              <div class="list-foot">
+                <span class="sched-dot"></span>
+                <span>调度器运行中</span>
+                <span class="list-foot__hint">应用退出后暂停</span>
+              </div>
+            </aside>
+            <section class="detail" id="detail"></section>
+          </div>
+        </section>
+
+        <section class="view" id="view-runs">
+          <div class="runs">
+            <div class="runs__toolbar">
+              <div class="chips" id="runFilters">
+                <button class="chip is-active" data-run-filter="all">全部</button>
+                <button class="chip" data-run-filter="ok">成功</button>
+                <button class="chip" data-run-filter="bad">失败</button>
+                <button class="chip" data-run-filter="running">运行中</button>
+              </div>
+              <button class="btn btn--ghost btn--xs runs__date"><svg class="icon"><use href="#i-calendar"/></svg>最近 7 天</button>
+              <div class="runs__summary">最近 7 天 · <b>42</b> 次运行 · 成功率 <b>95%</b> · 累计 <b>$3.82</b></div>
+            </div>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th style="width:190px">任务</th>
+                  <th style="width:82px">状态</th>
+                  <th style="width:110px">开始</th>
+                  <th style="width:90px">耗时</th>
+                  <th style="width:66px">花费</th>
+                  <th>结果</th>
+                  <th style="width:64px"></th>
+                </tr>
+              </thead>
+              <tbody id="runsBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 新建任务 -->
+  <div class="modal-backdrop" id="taskModal">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <header class="dialog__head">
+        <div class="dialog__mark"><svg class="icon"><use href="#i-clock"/></svg></div>
+        <div class="dialog__titlebox">
+          <h2 class="dialog__title" id="dialogTitle">新建自动化任务</h2>
+          <p class="dialog__sub">任务在主进程里调度；每次运行都会生成一个普通会话，可回看、可续跑。</p>
+        </div>
+        <button class="dialog__close" data-act="close-modal" aria-label="关闭"><svg class="icon" width="15" height="15"><use href="#i-x"/></svg></button>
+      </header>
+      <div class="dialog__body">
+        <div class="form-field">
+          <label>任务名称</label>
+          <input class="input" id="newName" value="每日构建检查" placeholder="例如：早晨仓库巡检" />
+        </div>
+
+        <div class="form-row">
+          <div class="form-field">
+            <label>触发方式</label>
+            <select class="select" id="newTrigger">
+              <option>按计划时间</option>
+              <option>文件变更时</option>
+              <option>Git 提交后</option>
+              <option>Webhook（本地）</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>频率</label>
+            <select class="select">
+              <option>每天</option>
+              <option>每周一</option>
+              <option>每隔 30 分钟</option>
+              <option>自定义</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>时间</label>
+            <input class="input" value="09:00" />
+          </div>
+          <div class="form-field">
+            <label>工作区</label>
+            <select class="select">
+              <option>CCoder-Desktop</option>
+              <option>docs-site</option>
+            </select>
+          </div>
+        </div>
+        <p class="form-note">文件变更 / Git / Webhook 触发器为第二阶段能力；当前原型只演示按计划执行。</p>
+
+        <div class="form-divider">执行</div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>CLI</label>
+            <div class="segmented segmented--sm" id="newCli">
+              <button class="is-active">Claude</button>
+              <button>Codex</button>
+              <button>DSH</button>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>模型 / 思考深度</label>
+            <select class="select">
+              <option>Sonnet 5.5 · 中</option>
+              <option>Opus 5.5 · 高</option>
+              <option>Haiku 5.5 · 低</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-field">
+          <label>提示词</label>
+          <textarea class="textarea" placeholder="要 agent 每次运行做什么？建议写清楚「只报告 / 不要修改 / 输出格式」。">跑 npm run typecheck 与 npm test，只报告新出现的问题。
+不要修改文件；把结论按「需要处理 / 可以忽略」两栏输出。</textarea>
+        </div>
+
+        <div class="form-divider">无人值守策略</div>
+        <div class="form-row form-row--3">
+          <div class="form-field">
+            <label>权限模式</label>
+            <select class="select">
+              <option>dontAsk（推荐）</option>
+              <option>acceptEdits</option>
+              <option>bypassPermissions</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>遇到提问</label>
+            <select class="select">
+              <option>暂停并通知我</option>
+              <option>自动拒绝并继续</option>
+              <option>超时后判失败</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>单次预算</label>
+            <input class="input" value="$2.00" />
+          </div>
+        </div>
+
+        <div class="callout callout--info">
+          <svg class="icon"><use href="#i-info"/></svg>
+          <span>当前版本只在应用运行时调度；关掉最后一个窗口会停止所有任务，下次启动会补跑错过的计划。</span>
+        </div>
+      </div>
+      <footer class="dialog__foot">
+        <span class="muted">运行会真实消耗额度</span>
+        <button class="btn btn--ghost" data-act="close-modal">取消</button>
+        <button class="btn btn--auto" data-act="save"><svg class="icon"><use href="#i-check"/></svg>保存并启用</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"><svg class="icon"><use href="#i-check"/></svg><span id="toastText"></span></div>
+  <div class="review-note"><svg class="icon"><use href="#i-info"/></svg>交互原型 · 可点击切换任务 / 运行记录 / 新建</div>
+</div>
+
+<script>
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const ic = (n, cls = '') => `<svg class="icon ${cls}"><use href="#i-${n}"/></svg>`;
+  const esc = (s = '') => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const TASKS = [
+    {
+      id: 'patrol', name: '早晨仓库巡检', icon: 'sunrise', enabled: true, status: 'running',
+      when: '运行中', nextShort: '23 小时后',
+      schedule: '每天 09:00', next: '明天 09:00 · 还有 23 小时', missed: '启动后补跑一次', timezone: 'Asia/Shanghai',
+      cwd: 'CCoder-Desktop', cli: 'Claude', cliColor: '#d97757', model: 'Sonnet 5.5', effort: '中',
+      sessionMode: '续跑固定会话', sessionName: '早晨巡检 · 固定上下文',
+      permission: 'dontAsk', permissionNote: '自动拒绝需要批准的操作',
+      question: '暂停任务并通知我', timeout: '30 分钟', budget: '$2.00',
+      prompt: '先跑 npm run typecheck，再看 git status 与最近 24 小时的改动。\n只报告需要我处理的问题：类型错误、未提交的调试代码、异常增长的日志。\n不要修改文件；把结论写在最后。',
+      runs: [
+        { status: 'running', time: '今天 09:16', dur: '01:42', cost: '—', result: '正在读取 12 个文件…' },
+        { status: 'ok', time: '昨天 09:00', dur: '2 分 14 秒', cost: '$0.31', result: '2 个待处理项' },
+        { status: 'ok', time: '10-30 09:00', dur: '1 分 58 秒', cost: '$0.24', result: '无新增问题' },
+        { status: 'bad', time: '10-29 09:00', dur: '0 分 41 秒', cost: '$0.02', result: '权限被拒绝：git push' }
+      ]
+    },
+    {
+      id: 'precommit', name: '提交前自检', icon: 'shield', enabled: true, status: 'ok',
+      when: '12 分钟后', nextShort: '12 分钟后',
+      schedule: '每 30 分钟', next: '今天 09:30 · 还有 12 分钟', missed: '只补跑最近一次', timezone: 'Asia/Shanghai',
+      cwd: 'CCoder-Desktop', cli: 'Codex', cliColor: '#9a9a9a', model: 'GPT-5.1 Codex', effort: '低',
+      sessionMode: '每轮新建会话', sessionName: '不保留上下文',
+      permission: 'acceptEdits', permissionNote: '工作区内自动接受编辑',
+      question: '自动拒绝并继续', timeout: '10 分钟', budget: '$0.50',
+      prompt: '检查暂存区改动是否引入类型错误或调试残留。\n只读，不修改文件；有问题时列出文件与行号。',
+      runs: [
+        { status: 'ok', time: '今天 08:30', dur: '22 秒', cost: '$0.04', result: '无新增问题' },
+        { status: 'ok', time: '今天 08:00', dur: '19 秒', cost: '$0.03', result: '无新增问题' },
+        { status: 'bad', time: '今天 07:30', dur: '0 分 12 秒', cost: '$0.01', result: '工作区被其他会话占用' }
+      ]
+    },
+    {
+      id: 'deps', name: '依赖升级检查', icon: 'box', enabled: true, status: 'ok',
+      when: '周一 10:30', nextShort: '1 天后',
+      schedule: '每周一 10:30', next: '11-09 10:30 · 还有 1 天', missed: '启动后补跑一次', timezone: 'Asia/Shanghai',
+      cwd: 'CCoder-Desktop', cli: 'Claude', cliColor: '#d97757', model: 'Opus 5.5', effort: '高',
+      sessionMode: '续跑固定会话', sessionName: '依赖检查 · 长期上下文',
+      permission: 'dontAsk', permissionNote: '自动拒绝需要批准的操作',
+      question: '暂停任务并通知我', timeout: '45 分钟', budget: '$5.00',
+      prompt: '检查 npm outdated 与依赖的安全公告。\n不要执行升级；按「建议升级 / 先观望 / 有风险」分组，给出理由。',
+      runs: [
+        { status: 'bad', time: '周一 10:30', dur: '3 分 02 秒', cost: '$0.22', result: '权限被拒绝：npm install' },
+        { status: 'ok', time: '10-27 10:30', dur: '2 分 46 秒', cost: '$0.28', result: '3 个依赖可升级' }
+      ]
+    },
+    {
+      id: 'docsync', name: '文档同步', icon: 'file', enabled: true, status: 'ok',
+      when: '监听中', nextShort: '监听中',
+      schedule: '文件变更时 · src/**/*.md', next: '已监听 3 个工作区', missed: '不补跑', timezone: '本地',
+      cwd: 'docs-site', cli: 'Claude', cliColor: '#d97757', model: 'Haiku 5.5', effort: '低',
+      sessionMode: '每轮新建会话', sessionName: '不保留上下文',
+      permission: 'acceptEdits', permissionNote: '工作区内自动接受编辑',
+      question: '暂停任务并通知我', timeout: '15 分钟', budget: '$1.00',
+      prompt: '把新增或修改的 Markdown 同步到英文目录，保持标题层级与代码块一致。\n只处理本次变更涉及的文件。',
+      runs: [
+        { status: 'ok', time: '今天 09:06', dur: '1 分 06 秒', cost: '$0.18', result: '同步 3 个文件' },
+        { status: 'ok', time: '昨天 16:40', dur: '48 秒', cost: '$0.11', result: '同步 1 个文件' },
+        { status: 'bad', time: '昨天 11:20', dur: '0 分 30 秒', cost: '$0.03', result: '目标目录不存在' }
+      ]
+    },
+    {
+      id: 'weekly', name: '周报草稿', icon: 'book', enabled: false, status: 'paused',
+      when: '已暂停', nextShort: '已暂停',
+      schedule: '每周五 18:00', next: '已暂停 · 恢复后 11-13 18:00', missed: '启动后补跑一次', timezone: 'Asia/Shanghai',
+      cwd: 'docs-site', cli: 'DSH', cliColor: '#7aa2c8', model: 'DSH 3.2', effort: '中',
+      sessionMode: '续跑固定会话', sessionName: '周报 · 固定上下文',
+      permission: 'dontAsk', permissionNote: '自动拒绝需要批准的操作',
+      question: '自动拒绝并继续', timeout: '30 分钟', budget: '$3.00',
+      prompt: '汇总本周会话记录与 git 提交，起草一份周报。\n按「完成 / 进行中 / 风险」组织，控制在 400 字以内。',
+      runs: [
+        { status: 'ok', time: '11-06 18:00', dur: '1 分 32 秒', cost: '$0.26', result: '草稿已写入 docs/weekly.md' },
+        { status: 'ok', time: '10-30 18:00', dur: '1 分 20 秒', cost: '$0.22', result: '草稿已写入 docs/weekly.md' }
+      ]
+    },
+    {
+      id: 'nightly', name: '夜间回归', icon: 'moon', enabled: false, status: 'bad',
+      when: '已暂停', nextShort: '已暂停',
+      schedule: '每天 02:00', next: '已暂停 · 上次运行失败', missed: '启动后补跑一次', timezone: 'Asia/Shanghai',
+      cwd: 'CCoder-Desktop', cli: 'Claude', cliColor: '#d97757', model: 'Sonnet 5.5', effort: '高',
+      sessionMode: '每轮新建会话', sessionName: '不保留上下文',
+      permission: 'acceptEdits', permissionNote: '工作区内自动接受编辑',
+      question: '暂停任务并通知我', timeout: '60 分钟', budget: '$8.00',
+      prompt: '跑完整测试与 lint，失败时定位到最小复现步骤。\n不要提交任何改动；把失败摘要写在最后。',
+      runs: [
+        { status: 'bad', time: '昨天 02:00', dur: '5 分 40 秒', cost: '$0.48', result: '超时中止（60 分钟）' },
+        { status: 'ok', time: '10-31 02:00', dur: '4 分 18 秒', cost: '$0.39', result: '全部通过' }
+      ]
+    }
+  ];
+
+  const RUNS = [
+    { taskId: 'patrol', name: '早晨仓库巡检', icon: 'sunrise', status: 'running', start: '今天 09:16', dur: '01:42', cost: '—', result: '正在读取 12 个文件…', open: '查看' },
+    { taskId: 'docsync', name: '文档同步', icon: 'file', status: 'ok', start: '今天 09:06', dur: '1 分 06 秒', cost: '$0.18', result: '同步 3 个文件', open: '打开会话' },
+    { taskId: 'precommit', name: '提交前自检', icon: 'shield', status: 'ok', start: '今天 08:30', dur: '22 秒', cost: '$0.04', result: '无新增问题', open: '打开会话' },
+    { taskId: 'patrol', name: '早晨仓库巡检', icon: 'sunrise', status: 'ok', start: '昨天 09:00', dur: '2 分 14 秒', cost: '$0.31', result: '2 个待处理项', open: '打开会话' },
+    { taskId: 'deps', name: '依赖升级检查', icon: 'box', status: 'bad', start: '周一 10:30', dur: '3 分 02 秒', cost: '$0.22', result: '权限被拒绝：npm install', open: '打开会话' },
+    { taskId: 'precommit', name: '提交前自检', icon: 'shield', status: 'ok', start: '昨天 18:00', dur: '19 秒', cost: '$0.03', result: '无新增问题', open: '打开会话' },
+    { taskId: 'nightly', name: '夜间回归', icon: 'moon', status: 'bad', start: '昨天 02:00', dur: '5 分 40 秒', cost: '$0.48', result: '超时中止', open: '打开会话' },
+    { taskId: 'weekly', name: '周报草稿', icon: 'book', status: 'skipped', start: '11-06 18:00', dur: '—', cost: '—', result: '任务已暂停', open: '—' }
+  ];
+
+  const state = { view: 'tasks', filter: 'all', runFilter: 'all', sel: 'patrol', query: '' };
+  const taskById = id => TASKS.find(t => t.id === id);
+  const currentTask = () => taskById(state.sel) || TASKS[0];
+
+  const dotClass = t => t.status === 'running' ? 'run' : t.status === 'ok' ? 'ok' : t.status === 'bad' ? 'bad' : 'paused';
+  const statusLabel = s => ({ running: '运行中', ok: '成功', bad: '失败', paused: '已暂停', skipped: '跳过' }[s] || s);
+  const statusBadge = s => `<span class="badge ${s === 'running' ? 'badge--run' : s === 'ok' ? 'badge--ok' : s === 'bad' ? 'badge--bad' : ''}">${s === 'ok' || s === 'bad' || s === 'running' ? '<span class="badge__dot"></span>' : ''}${statusLabel(s)}</span>`;
+
+  function renderList() {
+    const q = state.query.trim().toLowerCase();
+    const visible = TASKS.filter(t => {
+      const okFilter = state.filter === 'all' || (state.filter === 'on' ? t.enabled : !t.enabled);
+      const okQuery = !q || (t.name + ' ' + t.cwd + ' ' + t.schedule).toLowerCase().includes(q);
+      return okFilter && okQuery;
+    });
+    const groups = [
+      { key: 'on', label: '启用中', items: visible.filter(t => t.enabled) },
+      { key: 'off', label: '已暂停', items: visible.filter(t => !t.enabled) }
+    ];
+    let html = '';
+    for (const g of groups) {
+      if (!g.items.length) continue;
+      html += `<div class="list-label">${g.label}<span class="list-label__count">${g.items.length}</span></div>`;
+      html += g.items.map(t => `
+        <div class="task-row ${t.id === state.sel ? 'is-active' : ''} ${t.status === 'bad' ? 'is-bad' : ''}" data-id="${t.id}">
+          <span class="task-row__dot is-${dotClass(t)}"></span>
+          <div class="task-row__main">
+            <div class="task-row__line">
+              <span class="task-row__name">${esc(t.name)}</span>
+              <span class="task-row__cli" style="color:${t.cliColor}">${esc(t.cli)}</span>
+            </div>
+            <div class="task-row__meta">${esc(t.schedule)} · ${esc(t.cwd)}</div>
+          </div>
+          <div class="task-row__right">
+            <span class="task-row__when ${t.status === 'running' ? 'is-run' : t.status === 'bad' ? 'is-bad' : ''}">${esc(t.when)}</span>
+            <span class="switch ${t.enabled ? 'is-on' : ''}" data-toggle="${t.id}" title="${t.enabled ? '暂停任务' : '启用任务'}"></span>
+          </div>
+        </div>
+      `).join('');
+    }
+    $('#taskList').innerHTML = html || '<div class="empty-list">没有匹配的任务</div>';
+  }
+
+  function renderDetail() {
+    const t = currentTask();
+    const running = t.status === 'running';
+    const actions = running
+      ? `<button class="btn btn--ghost btn--danger" data-act="stop">中止</button>
+         <button class="btn btn--primary" disabled><svg class="icon spin"><use href="#i-refresh"/></svg>运行中</button>`
+      : `<button class="btn btn--ghost" data-act="toggle">${t.enabled ? '暂停' : '启用'}</button>
+         <button class="btn btn--auto" data-act="run"><svg class="icon"><use href="#i-play"/></svg>立即运行</button>`;
+    const runbar = running ? `
+      <div class="runbar">
+        <div class="runbar__top">
+          <span class="runbar__state"><span class="pulse"></span>正在运行</span>
+          <span class="runbar__elapsed">已用 01:42 · 第 3 / 8 步</span>
+          <span class="runbar__spacer"></span>
+          <button class="linkbtn" data-act="stop">中止</button>
+        </div>
+        <div class="progress"><div class="progress__fill"></div></div>
+        <div class="runbar__step">${ic('file')}正在读取 src/main/session-manager.ts 及另外 11 个文件</div>
+      </div>` : '';
+
+    const timeField = t.schedule.includes('变更') ? '' : `
+      <div class="field"><span class="field__label">时区</span><span class="field__value"><span class="muted">${esc(t.timezone)}</span></span></div>`;
+
+    const rows = t.runs.map(r => `
+      <div class="run-row">
+        ${statusBadge(r.status)}
+        <span class="run-row__time">${esc(r.time)}</span>
+        <span class="run-row__result">${esc(r.result)}</span>
+        <span class="run-row__num">${esc(r.dur)}</span>
+        <span class="run-row__num run-row__num--cost">${esc(r.cost)}</span>
+        <button class="linkbtn run-row__open" data-act="open-session">${r.status === 'running' ? '查看' : '打开会话'}</button>
+      </div>`).join('');
+
+    $('#detail').innerHTML = `
+      <div class="detail__head">
+        <div class="detail__mark">${ic(t.icon)}</div>
+        <div class="detail__heading">
+          <div class="detail__titleline">
+            <h2 class="detail__title">${esc(t.name)}</h2>
+            <span class="badge ${t.enabled ? 'badge--ok' : ''}"><span class="badge__dot"></span>${t.enabled ? '已启用' : '已暂停'}</span>
+            ${running ? '<span class="badge badge--run"><span class="badge__dot"></span>运行中</span>' : ''}
+          </div>
+          <div class="detail__meta">
+            <span class="cli-inline">${ic('terminal')}${esc(t.cli)}</span>
+            <span class="dotsep">·</span><span>${esc(t.model)} · ${esc(t.effort)}思考</span>
+            <span class="dotsep">·</span><span>${esc(t.schedule)}</span>
+          </div>
+        </div>
+        <div class="detail__actions">${actions}</div>
+      </div>
+
+      ${runbar}
+
+      <section class="section">
+        <div class="section__head">${ic('calendar')}<span class="section__title">触发</span><span class="section__action"><button class="linkbtn" data-act="edit">修改</button></span></div>
+        <div class="field"><span class="field__label">触发方式</span><span class="field__value">${esc(t.schedule)}</span></div>
+        <div class="field"><span class="field__label">下次运行</span><span class="field__value">${esc(t.next)}</span></div>
+        <div class="field"><span class="field__label">错过时</span><span class="field__value">${esc(t.missed)}</span></div>
+        ${timeField}
+      </section>
+
+      <section class="section">
+        <div class="section__head">${ic('terminal')}<span class="section__title">执行</span><span class="section__action"><button class="linkbtn" data-act="edit">编辑</button></span></div>
+        <div class="field"><span class="field__label">工作区</span><span class="field__value">${ic('folder')}${esc(t.cwd)}<span class="faint">·</span><button class="linkbtn" data-act="open-ide">在 IDE 中打开</button></span></div>
+        <div class="field"><span class="field__label">CLI / 模型</span><span class="field__value"><span style="color:${t.cliColor}">${esc(t.cli)}</span><span class="faint">·</span>${esc(t.model)}<span class="faint">·</span><span class="muted">思考深度 ${esc(t.effort)}</span></span></div>
+        <div class="field"><span class="field__label">会话</span><span class="field__value">${esc(t.sessionMode)}<span class="faint">·</span><span class="mono">${esc(t.sessionName)}</span></span></div>
+        <div class="field" style="align-items:start">
+          <span class="field__label">提示词</span>
+          <div class="field__value" style="display:block"><div class="prompt">${esc(t.prompt)}</div></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__head">${ic('shield')}<span class="section__title">无人值守策略</span></div>
+        <div class="field"><span class="field__label">权限模式</span><span class="field__value"><span class="mono">${esc(t.permission)}</span><span class="badge badge--warn">${esc(t.permissionNote)}</span></span></div>
+        <div class="field"><span class="field__label">遇到提问</span><span class="field__value">${esc(t.question)}</span></div>
+        <div class="field"><span class="field__label">超时</span><span class="field__value">${esc(t.timeout)}后中止</span></div>
+        <div class="field"><span class="field__label">单次预算</span><span class="field__value">${esc(t.budget)}<span class="faint">· 超出即中止并通知</span></span></div>
+        <div class="callout callout--warn">
+          ${ic('alert')}
+          <span>无人值守运行会真实消耗额度。需要你回答的问题不会被自动回答，只会按上面的策略处理；<b>权限请求没有宿主侧超时</b>。</span>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__head">${ic('bell')}<span class="section__title">通知</span></div>
+        <div class="notify-row">${ic('check')}<span>运行成功时通知</span><span class="switch ${t.notifyOk !== false ? 'is-on' : ''}"></span></div>
+        <div class="notify-row">${ic('alert')}<span>运行失败或被中止时通知</span><span class="switch ${t.notifyFail !== false ? 'is-on' : ''}"></span></div>
+        <div class="notify-foot">点击通知会打开这次运行对应的会话；窗口最小化时也会通知。</div>
+      </section>
+
+      <section class="section">
+        <div class="section__head">${ic('history')}<span class="section__title">最近运行</span><span class="section__action"><button class="linkbtn linkbtn--auto" data-act="goto-runs">查看全部 →</button></span></div>
+        ${rows}
+      </section>
+    `;
+  }
+
+  function renderRuns() {
+    const list = RUNS.filter(r => state.runFilter === 'all' || r.status === state.runFilter);
+    $('#runsBody').innerHTML = list.map(r => `
+      <tr>
+        <td><div class="table__task">${ic(r.icon)}<span>${esc(r.name)}</span></div></td>
+        <td>${statusBadge(r.status)}</td>
+        <td class="muted">${esc(r.start)}</td>
+        <td class="table__num">${esc(r.dur)}</td>
+        <td class="table__num">${esc(r.cost)}</td>
+        <td class="table__result" title="${esc(r.result)}">${esc(r.result)}</td>
+        <td><button class="linkbtn table__open" data-act="open-session">${esc(r.open)}</button></td>
+      </tr>`).join('') || '<tr><td colspan="7" class="empty-list">没有匹配的运行记录</td></tr>';
+  }
+
+  function toast(msg) {
+    $('#toastText').textContent = msg;
+    const el = $('#toast');
+    el.classList.add('is-show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('is-show'), 2200);
+  }
+
+  function setView(v) {
+    state.view = v;
+    $$('#viewTabs button').forEach(b => b.classList.toggle('is-active', b.dataset.view === v));
+    $$('.view').forEach(el => el.classList.toggle('is-active', el.id === 'view-' + v));
+    if (v === 'runs') renderRuns();
+  }
+
+  function toggleTask(id) {
+    const t = taskById(id);
+    if (!t) return;
+    t.enabled = !t.enabled;
+    t.when = t.enabled ? t.nextShort : '已暂停';
+    renderList();
+    if (state.sel === id) renderDetail();
+    toast(t.enabled ? `已启用「${t.name}」` : `已暂停「${t.name}」`);
+  }
+
+  function renderAll() {
+    renderList();
+    renderDetail();
+    renderRuns();
+  }
+
+  // 事件
+  document.addEventListener('click', e => {
+    const sw = e.target.closest('.switch[data-toggle]');
+    if (sw) { e.stopPropagation(); toggleTask(sw.dataset.toggle); return; }
+
+    const row = e.target.closest('.task-row');
+    if (row) {
+      state.sel = row.dataset.id;
+      renderList();
+      renderDetail();
+      return;
+    }
+
+    const act = e.target.closest('[data-act]');
+    if (!act) return;
+    const a = act.dataset.act;
+    if (a === 'new') { $('#taskModal').classList.add('is-open'); return; }
+    if (a === 'close-modal') { $('#taskModal').classList.remove('is-open'); return; }
+    if (a === 'save') {
+      $('#taskModal').classList.remove('is-open');
+      toast('已保存「' + ($('#newName').value || '未命名任务') + '」（原型）');
+      return;
+    }
+    if (a === 'run') { toast('已加入运行队列：' + currentTask().name); return; }
+    if (a === 'stop') { toast('原型演示：将中止当前运行'); return; }
+    if (a === 'toggle') { toggleTask(state.sel); return; }
+    if (a === 'goto-runs') { setView('runs'); return; }
+    if (a === 'open-session') { toast('将在聊天页打开这次运行的会话'); return; }
+    if (a === 'open-ide') { toast('在 IDE 窗口中打开工作区（原型）'); return; }
+    if (a === 'edit') { toast('编辑表单（原型未展开）'); return; }
+  });
+
+  $$('#viewTabs button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+
+  $$('#listFilters .chip').forEach(b => b.addEventListener('click', () => {
+    state.filter = b.dataset.filter;
+    $$('#listFilters .chip').forEach(x => x.classList.toggle('is-active', x === b));
+    renderList();
+  }));
+
+  $$('#runFilters .chip').forEach(b => b.addEventListener('click', () => {
+    state.runFilter = b.dataset.runFilter;
+    $$('#runFilters .chip').forEach(x => x.classList.toggle('is-active', x === b));
+    renderRuns();
+  }));
+
+  $('#taskSearch').addEventListener('input', e => { state.query = e.target.value; renderList(); });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') $('#taskModal').classList.remove('is-open');
+  });
+
+  $('#taskModal').addEventListener('click', e => {
+    if (e.target === $('#taskModal')) $('#taskModal').classList.remove('is-open');
+  });
+
+  renderAll();
+
+  // 截图 / 评审用的状态变体：?v=runs | modal | paused
+  const variant = new URLSearchParams(location.search).get('v');
+  if (variant === 'runs') setView('runs');
+  else if (variant === 'modal') $('#taskModal').classList.add('is-open');
+  else if (variant === 'paused') {
+    state.sel = 'weekly';
+    renderList();
+    renderDetail();
+  } else if (variant === 'bottom') {
+    requestAnimationFrame(() => {
+      const d = $('#detail');
+      d.scrollTop = d.scrollHeight;
+    });
+  }
+</script>
+</body>
+</html>

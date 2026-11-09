@@ -38,3 +38,7 @@ runs:
       shell: bash
     - run: npm run verify:plugins
       shell: bash
+    - run: npm run verify:voice
+      shell: bash
+    - run: npm run verify:automation
+      shell: bash

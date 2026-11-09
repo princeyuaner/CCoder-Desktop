@@ -32,6 +32,7 @@ import { sameModel } from '@shared/model'
 import type { ImageAttachment } from '@shared/attachment'
 import type { IdeCodeRef } from '@shared/ide-chat'
 import type { SessionSendInput, SessionSendResult } from '@shared/session'
+import { VOICE_ERROR_KEY, type VoiceErrorCode, type VoiceSettings } from '@shared/voice'
 import type { QueuedMessage, SendMeta } from '../useChat'
 import type { FileMatch } from '@shared/workspace'
 import { composeIdeMessage } from '../ideRef'
@@ -49,13 +50,17 @@ import { buildCommandItems, filterCommands, type PopupCommand } from '../command
 import { usePluginCommands } from '../plugins/hooks'
 import {
   IconBrain,
+  IconCheck,
   IconChevronDown,
   IconClaudeCode,
   IconDeepSeek,
+  IconMic,
   IconOpenAI,
   IconPlus,
   IconSend
 } from './Icons'
+import { useStableCallback } from '../useStableCallback'
+import { useVoiceInput } from '../useVoiceInput'
 import { contextPercent, contextWindowOf, fmtTokens } from './format'
 import { MAX_IMAGES, readImageFiles } from '../imagePaste'
 import {
@@ -86,6 +91,26 @@ function previewCode(code: string): string {
 const CTX_RING = 2 * Math.PI * 7.5
 /** 详情浮层里那个大环的周长：r=19，2πr */
 const CTX_BIG_RING = 2 * Math.PI * 19
+
+/** 录音电平条的固定高度序列 —— 只要看起来在动就够了，不接真实电平 */
+const VOICE_WAVE = [7, 12, 17, 10, 6, 14, 18, 9, 7, 15, 11, 6, 16, 12, 8, 14]
+
+/** 这些错误去设置页能解决；网络 / 超时 / 空结果只值得再试一次 */
+const VOICE_SETTINGS_ERRORS: ReadonlySet<VoiceErrorCode> = new Set([
+  'disabled',
+  'no-endpoint',
+  'no-model',
+  'no-key',
+  'unauthorized',
+  'quota',
+  'bad-response'
+])
+
+/** 录音计时：mm:ss */
+function fmtElapsed(ms: number): string {
+  const total = Math.floor(ms / 1000)
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
 
 interface MentionState {
   /** @ 后面的查询串 */
@@ -193,12 +218,16 @@ interface Props {
   onRunCommand: (name: string, args?: string) => Promise<SessionSendResult>
   /** 发送快捷键：Enter 或 Ctrl/Cmd+Enter */
   sendKey: SendKey
+  /** 语音输入配置：麦克风按钮、转写服务、插入方式 */
+  voiceSettings: VoiceSettings
+  /** 没有配好语音服务时，错误条上的「打开设置」 */
+  onOpenSettings?: () => void
   /** 当前会话里有没有内容 —— 换 CLI 会丢，有内容才值得拦一下 */
   hasConversation: boolean
   /** /status 用 */
   turns: number
   steps: number
-  /** 最近一轮的用量 —— 底栏上下文胶囊从这里取 contextTokens */
+  /** 最近一轮的用量 —— 顶栏右上角的上下文胶囊从这里取 contextTokens */
   usage?: Usage
   /** 模型选择器里落下一套选择：CLI / 渠道 / 模型，点哪一列都走这里 */
   onSelect: (sel: ModelSelection) => void
@@ -248,6 +277,8 @@ function ComposerImpl({
   nativeCommands,
   onRunCommand,
   sendKey,
+  voiceSettings,
+  onOpenSettings,
   hasConversation,
   turns,
   steps,
@@ -276,8 +307,45 @@ function ComposerImpl({
   const [ctxOpen, setCtxOpen] = useState(false)
   /** 拖文件到输入框上方时高亮整块，告诉用户「松手就能附上」 */
   const [dragging, setDragging] = useState(false)
+  /** 最近一次语音插入的提示（字数 + 撤销入口）；用户一编辑就收起 */
+  const [voiceNote, setVoiceNote] = useState<{ chars: number } | null>(null)
+  const voiceUndoRef = useRef<{ before: string; start: number; end: number } | null>(null)
+  /**
+   * 转写结果由 hook 异步送回，而插入逻辑要读最新的 text / 选区。
+   * 用 ref 把最新实现挂进去，避免 hook 持有一份旧闭包。
+   */
+  const onVoiceTextRef = useRef<(text: string) => void>(() => undefined)
+  const voice = useVoiceInput({
+    settings: voiceSettings,
+    onText: (text) => onVoiceTextRef.current(text)
+  })
+  /** 输入框的同步镜像：录音 / 转写期间用户可能继续打字，插入时要拿到最新值 */
+  const textRef = useRef(text)
+  textRef.current = text
+
+  // 录音 / 转写期间不发送，避免把旧草稿发出去、录音还在后台跑
   const canSend =
-    !locked && (text.trim().length > 0 || attachments.length > 0 || refs.length > 0)
+    !locked &&
+    voice.status === 'idle' &&
+    (text.trim().length > 0 || attachments.length > 0 || refs.length > 0)
+
+  /** 录音中按 Esc 取消；焦点跑到别处也生效 */
+  useEffect(() => {
+    if (voice.status !== 'recording') return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      voice.cancel()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [voice.status, voice.cancel])
+
+  /** 设置里把语音关掉时，正在录音 / 转写的这一路也收掉 */
+  useEffect(() => {
+    if (!voiceSettings.enabled && voice.status !== 'idle') voice.cancel()
+  }, [voiceSettings.enabled, voice.status, voice.cancel])
 
   const curCfg = cliConfigs[cli] ?? emptyCliConfig(cli)
   /**
@@ -612,6 +680,12 @@ function ComposerImpl({
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
     const value = e.target.value
     setText(value)
+    textRef.current = value
+    // 用户自己改过之后，语音插入的「撤销」就不该把这段改动一起吞掉
+    if (voiceUndoRef.current || voiceNote) {
+      voiceUndoRef.current = null
+      setVoiceNote(null)
+    }
     // 用户开始编辑后就不再是「正在翻历史」了
     resetHistoryNav()
     const caret = e.target.selectionStart ?? value.length
@@ -810,6 +884,25 @@ function ComposerImpl({
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
     // 输入法正在组合（拼音候选还没上屏）时，Enter 是给输入法的 —— 不能抢
     if (e.nativeEvent.isComposing) return
+
+    // Ctrl/Cmd+Shift+M 切换语音输入。放在 @ / 指令弹层之前：
+    // 录音时弹层本来也不该抢这个组合键。
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
+      e.preventDefault()
+      if (voice.status === 'idle') {
+        voiceUndoRef.current = null
+        setVoiceNote(null)
+        voice.start()
+      } else {
+        voice.cancel()
+      }
+      return
+    }
+    if (e.key === 'Escape' && voice.status === 'recording') {
+      e.preventDefault()
+      voice.cancel()
+      return
+    }
 
     if (mention) {
       if (e.key === 'ArrowDown') {
@@ -1019,20 +1112,85 @@ function ComposerImpl({
     void addFiles(files)
   }
 
-  const submit = (): void => {
-    const t = text.trim()
-    if (!t && attachments.length === 0 && refs.length === 0) return
+  /**
+   * 发送指定文本。
+   *
+   * 语音「自动发送」拿到的是转写后的新文本，不能走 `submit()` —— 那读的是
+   * 这一次渲染的 `text`，`setText` 还没生效，发出去会是旧的。
+   */
+  const submitWith = useStableCallback((raw: string): void => {
+    const trimmed = raw.trim()
+    if (!trimmed && attachments.length === 0 && refs.length === 0) return
     const images = attachments
     // 引用在发送时展开成完整的 <ide_reference> 块；输入框里只留摘要
-    const body = composeIdeMessage(t, refs)
+    const body = composeIdeMessage(trimmed, refs)
     setText('')
+    textRef.current = ''
     resetHistoryNav()
     setAttachments([])
     setRefs([])
     setMention(null)
     setCommand(null)
+    setVoiceNote(null)
+    voiceUndoRef.current = null
     // meta 只用于「运行中入队」时恢复原稿；直接发送时主进程只读 text/images
-    onSend({ text: body, images }, { draft: t, refs })
+    onSend({ text: body, images }, { draft: trimmed, refs })
+  })
+
+  const submit = (): void => submitWith(text)
+
+  /**
+   * 把转写结果放进输入框。
+   *
+   * - 光标处：有选区替换选区，没有选区插在光标处。
+   * - 追加：接在末尾，必要时补一个换行。
+   * 插完保留一次「撤销」；用户一编辑就失效（见 onChange）。
+   */
+  const insertTranscript = useStableCallback((raw: string): void => {
+    const phrase = raw.trim()
+    if (!phrase) return
+    const el = inputRef.current
+    const cur = textRef.current
+    let start = el?.selectionStart ?? cur.length
+    let end = el?.selectionEnd ?? start
+    if (start > cur.length) start = cur.length
+    if (end > cur.length) end = cur.length
+    if (voiceSettings.insertMode === 'append') start = end = cur.length
+    const sep =
+      voiceSettings.insertMode === 'append' && cur && !/\s$/.test(cur) ? '\n' : ''
+    const insert = sep + phrase
+    const next = cur.slice(0, start) + insert + cur.slice(end)
+
+    voiceUndoRef.current = { before: cur, start, end }
+    setText(next)
+    textRef.current = next
+    setVoiceNote({ chars: phrase.length })
+    resetHistoryNav()
+    requestAnimationFrame(() => {
+      const box = inputRef.current
+      box?.focus()
+      const pos = start + insert.length
+      box?.setSelectionRange(pos, pos)
+    })
+    if (voiceSettings.autoSend) submitWith(next)
+  })
+
+  // hook 里的异步回调通过这个 ref 拿到最新实现
+  onVoiceTextRef.current = insertTranscript
+
+  /** 语音插入撤销：恢复插入前的整份文本与选区 */
+  const undoVoice = (): void => {
+    const undo = voiceUndoRef.current
+    if (!undo) return
+    voiceUndoRef.current = null
+    setVoiceNote(null)
+    setText(undo.before)
+    textRef.current = undo.before
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      el?.focus()
+      el?.setSelectionRange(undo.start, undo.end)
+    })
   }
 
   /** 把一条排队消息取回输入框。当前已有草稿时接在后面，不覆盖用户正在写的东西 */
@@ -1060,310 +1218,30 @@ function ComposerImpl({
   return (
     <div className="composer">
       {/*
-        工作目录放在输入框左上方。它是**进程的 cwd**，不是 CLI 的启动参数 ——
-        改它等于换一个目录跑，而 --resume 会找不到原会话（会话身份是 (cwd, id)）。
-        所以这一条是**这条会话固定的**，要换只能开新会话。
+        输入框顶栏：左边是工作目录，右边是会话状态（上下文 / 思考深度 / 权限模式）。
+        工作目录是**进程的 cwd**，不是 CLI 的启动参数 —— 改它等于换一个目录跑，
+        而 --resume 会找不到原会话（会话身份是 (cwd, id)）。所以这条是**会话固定的**，
+        要换只能开新会话。状态胶囊收进右上角后，底栏只剩「加文件 / 模型 / 发送」，
+        窄窗口下才不会挤成一团。
       */}
-      {(cwd || changedFiles.length > 0) && (
-        // 只露目录名，完整路径放进 title；做成小胶囊，别让它抢输入框的视线。
-        // 右边那颗是「本轮改过哪些文件」—— 没有改动时它自己不渲染
-        <div className="composer__cwdrow">
-          {cwd && (
-            <div className="composer__cwd" title={cwd}>
-              <span className="composer__cwd-name">{baseName(cwd)}</span>
-            </div>
-          )}
-          {cwd && cli === 'claude' && onAddDirsChange && (
-            <ComposerDirs
-              cwd={cwd}
-              dirs={addDirs ?? []}
-              recent={recentAddDirs ?? []}
-              running={running}
-              onChange={onAddDirsChange}
-            />
-          )}
-          <ChangedFiles files={changedFiles} cwd={cwd} turnKey={changedTurnKey} />
-        </div>
-      )}
-      <div className="composer__anchor" ref={anchorRef}>
-        {mention && (
-          <MentionPopup
-            items={mention.items}
-            active={mention.active}
-            query={mention.query}
-            loading={mention.loading}
-            scope={cwd ? baseName(cwd) : ''}
-            onPick={insertMention}
-            onHover={(index) =>
-              setMention((m) => (m ? { ...m, active: index } : m))
-            }
-          />
-        )}
-        {command && (
-          <CommandPopup
-            items={commandItems}
-            active={command.active}
-            query={command.query}
-            cli={cli}
-            onPick={runCommand}
-            onHover={(index) =>
-              setCommand((c) => (c ? { ...c, active: index } : c))
-            }
-          />
-        )}
-        {toast && !mention && !command && <div className="composer__toast">{toast}</div>}
-
-        <div
-          className={`composer__box ${locked ? 'is-locked' : ''}${dragging ? ' is-dragging' : ''}`}
-          onDrop={onDrop}
-          onDragOver={(e) => {
-            if (!e.dataTransfer.types.includes('Files')) return
-            e.preventDefault()
-            // dropEffect 不设的话光标显示成「禁止」，用户会以为拖不进来
-            e.dataTransfer.dropEffect = 'copy'
-            setDragging(true)
-          }}
-          onDragLeave={(e) => {
-            // 移到子元素上也会触发 dragleave；只有真正离开整块才收高亮
-            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
-            setDragging(false)
-          }}
-        >
-          {dragging && <div className="composer__drop">{t('composer.attach.drop')}</div>}
-          {queue.length > 0 && (
-            <div className={`composer__queue ${queuePaused ? 'is-paused' : ''}`}>
-              <div className="composer__queue-head">
-                <span className="composer__queue-title">{t('composer.queue.title')}</span>
-                <b className="composer__queue-count">{queue.length}</b>
-                <span className="composer__queue-hint">
-                  {queuePaused ? t('composer.queue.paused') : t('composer.queue.hint')}
-                </span>
-                {queuePaused ? (
-                  <button className="composer__queue-action is-resume" onClick={onResumeQueue}>
-                    {t('composer.queue.resume')}
-                  </button>
-                ) : (
-                  <button className="composer__queue-action" onClick={onClearQueue}>
-                    {t('composer.queue.clear')}
-                  </button>
-                )}
-              </div>
-              {queue.map((q, i) => (
-                <div className="composer__queue-row" key={q.id}>
-                  <span className="composer__queue-idx">{i + 1}</span>
-                  <span className="composer__queue-text" title={q.draft}>
-                    {q.draft.replace(/\s+/g, ' ').trim()}
-                  </span>
-                  {q.refs.length > 0 && (
-                    <span className="composer__queue-meta">
-                      {tn('composer.queue.refs', q.refs.length)}
-                    </span>
-                  )}
-                  {(q.images?.length ?? 0) > 0 && (
-                    <span className="composer__queue-meta">
-                      {tn('composer.queue.images', q.images?.length ?? 0)}
-                    </span>
-                  )}
-                  <span className="composer__queue-acts">
-                    {queue.length > 1 && (
-                      <>
-                        <button
-                          title={t('composer.queue.up')}
-                          disabled={i === 0}
-                          onClick={() => onMoveQueued(q.id, -1)}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          title={t('composer.queue.down')}
-                          disabled={i === queue.length - 1}
-                          onClick={() => onMoveQueued(q.id, 1)}
-                        >
-                          ↓
-                        </button>
-                      </>
-                    )}
-                    <button onClick={() => editQueued(q)}>{t('composer.queue.edit')}</button>
-                    <button
-                      className="is-del"
-                      title={t('composer.queue.remove')}
-                      aria-label={t('composer.queue.removeAria')}
-                      onClick={() => onRemoveQueued(q.id)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          {refs.length > 0 && (
-            <div className="composer__refs">
-              {refs.map((r) => (
-                <div className="composer__ref" key={r.id}>
-                  <div className="composer__ref-head">
-                    <span className="composer__ref-ico">&lt;/&gt;</span>
-                    <span className="composer__ref-name">{r.name}</span>
-                    {/* 拖进来的文件 rel 就是文件名本身，再写一遍是重复 */}
-                    {r.rel !== r.name && (
-                      <span className="composer__ref-path" title={r.rel}>
-                        {r.rel}
-                      </span>
-                    )}
-                    <span className="composer__ref-range">
-                      {r.kind === 'file'
-                        ? `${tn('composer.ref.whole', r.totalLines)}${r.truncated ? ` · ${t('composer.ref.truncated')}` : ''}`
-                        : r.startLine === r.endLine
-                          ? `L${r.startLine}`
-                          : `L${r.startLine}–${r.endLine}`}
-                    </span>
-                    {r.encoding && (
-                      <span
-                        className="composer__ref-encoding"
-                        title={t('composer.ref.encoding', {
-                          name: t(ENCODING_LABEL_KEY[r.encoding])
-                        })}
-                      >
-                        {t(ENCODING_LABEL_KEY[r.encoding])}
-                      </span>
-                    )}
-                    <span className="composer__ref-tag">
-                      {r.origin === 'file'
-                        ? t('composer.attach.fromFile')
-                        : t('composer.ref.fromIde')}
-                    </span>
-                    <button
-                      className="composer__ref-x"
-                      onClick={() => removeRef(r.id)}
-                      title={t('composer.ref.remove')}
-                      aria-label={t('composer.ref.removeAria', { name: r.name })}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  {r.kind === 'selection' && (
-                    <pre className="composer__ref-code">{previewCode(r.code)}</pre>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {attachments.length > 0 && (
-          <div className="composer__attachments">
-            {attachments.map((a) => (
-              <div
-                className="composer__attach"
-                key={a.id}
-                title={`${a.name}${a.width ? ` · ${a.width}×${a.height}` : ''}${a.size ? ` · ${Math.max(1, Math.round(a.size / 1024))} KB` : ''}`}
-              >
-                <img
-                  src={`data:${a.mediaType};base64,${a.data}`}
-                  alt={a.name}
-                />
-                <button
-                  className="composer__attach-x"
-                  onClick={() => removeImage(a.id)}
-                  title={t('composer.attach.remove')}
-                  aria-label={t('composer.attach.removeAria', { name: a.name })}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            {attachments.length < MAX_IMAGES && (
-              <span className="composer__attach-hint">{t('composer.attach.hint')}</span>
-            )}
+      <div className="composer__cwdrow">
+        {cwd && (
+          <div className="composer__cwd" title={cwd}>
+            <span className="composer__cwd-name">{baseName(cwd)}</span>
           </div>
         )}
-        <textarea
-          ref={inputRef}
-          className="composer__input selectable"
-          rows={1}
-          placeholder={
-            locked ? t('composer.placeholder.locked') : t('composer.placeholder.normal')
-          }
-          value={text}
-          disabled={locked}
-          onChange={onChange}
-          onPaste={onPaste}
-          onKeyDown={onKeyDown}
-        />
-        <div className="composer__bar">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif,text/*,.md,.json,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.c,.h,.cpp,.cs,.sh,.ps1,.yml,.yaml,.toml,.ini,.sql,.xml,.vue,.svelte,.log,.env"
-            multiple
-            hidden
-            onChange={(e) => {
-              const files = Array.from(e.target.files ?? [])
-              e.target.value = ''
-              if (files.length > 0) void addFiles(files)
-            }}
+        {cwd && cli === 'claude' && onAddDirsChange && (
+          <ComposerDirs
+            cwd={cwd}
+            dirs={addDirs ?? []}
+            recent={recentAddDirs ?? []}
+            running={running}
+            onChange={onAddDirsChange}
           />
-          <button
-            className="iconbtn"
-            title={t('composer.addFile')}
-            onClick={() => fileRef.current?.click()}
-          >
-            <IconPlus width={16} height={16} />
-          </button>
-
-          {/* 模型在左、模式在右 —— 模型是每条会话都要挑的，模式基本定了就不动 */}
-          <Picker
-            className="chip chip--model"
-            popClass="picker__pop--left"
-            open={openPicker === 'model'}
-            onOpenChange={(o) => {
-              setOpenPicker(o ? 'model' : null)
-              if (o) {
-                setMention(null)
-                setCommand(null)
-              }
-            }}
-            label={
-              <>
-                {/* 先说明走哪个 CLI、哪个渠道，再说用什么模型 —— 同名模型挂在
-                    两个渠道上时，光看模型名分不出差别 */}
-                <span className={`chip__cli chip__cli--${cli}`}>
-                  {cli === 'claude' ? (
-                    <IconClaudeCode width={14} height={14} />
-                  ) : cli === 'codex' ? (
-                    <IconOpenAI width={14} height={14} />
-                  ) : (
-                    <IconDeepSeek width={14} height={14} />
-                  )}
-                </span>
-                <span className="chip__channel">
-                  {official
-                    ? cli === 'dsh'
-                      ? t('auth.harnessCredentials')
-                      : t('auth.officialAccount')
-                    : channel?.name?.trim() || t('settings.channel.none')}
-                </span>
-                <span className="chip__sep">·</span>
-                <span className="chip__model">
-                  {model || (official ? t('composer.cliDefault') : t('chat.noModel'))}
-                </span>
-              </>
-            }
-          >
-            {(close) => (
-              <ModelPicker
-                cli={cli}
-                cliConfigs={cliConfigs}
-                activeChannelId={activeChannelId}
-                authMode={authMode}
-                model={model}
-                hasConversation={hasConversation}
-                onSelect={onSelect}
-                close={close}
-              />
-            )}
-          </Picker>
-
-          <div className="composer__spacer" />
-
+        )}
+        <ChangedFiles files={changedFiles} cwd={cwd} turnKey={changedTurnKey} />
+        {/* 会话状态放在右上角：底栏只留发送相关的键，窄窗口下才不会挤成一团 */}
+        <div className="composer__status">
           {ctxUsed != null && (
             <span className="ctxanchor" ref={ctxAnchorRef}>
               <button
@@ -1582,6 +1460,416 @@ function ComposerImpl({
               </>
             )}
           </Picker>
+        </div>
+      </div>
+      <div className="composer__anchor" ref={anchorRef}>
+        {mention && (
+          <MentionPopup
+            items={mention.items}
+            active={mention.active}
+            query={mention.query}
+            loading={mention.loading}
+            scope={cwd ? baseName(cwd) : ''}
+            onPick={insertMention}
+            onHover={(index) =>
+              setMention((m) => (m ? { ...m, active: index } : m))
+            }
+          />
+        )}
+        {command && (
+          <CommandPopup
+            items={commandItems}
+            active={command.active}
+            query={command.query}
+            cli={cli}
+            onPick={runCommand}
+            onHover={(index) =>
+              setCommand((c) => (c ? { ...c, active: index } : c))
+            }
+          />
+        )}
+        {toast && !mention && !command && <div className="composer__toast">{toast}</div>}
+
+        <div
+          className={`composer__box ${locked ? 'is-locked' : ''}${dragging ? ' is-dragging' : ''}`}
+          onDrop={onDrop}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            // dropEffect 不设的话光标显示成「禁止」，用户会以为拖不进来
+            e.dataTransfer.dropEffect = 'copy'
+            setDragging(true)
+          }}
+          onDragLeave={(e) => {
+            // 移到子元素上也会触发 dragleave；只有真正离开整块才收高亮
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+            setDragging(false)
+          }}
+        >
+          {dragging && <div className="composer__drop">{t('composer.attach.drop')}</div>}
+          {queue.length > 0 && (
+            <div className={`composer__queue ${queuePaused ? 'is-paused' : ''}`}>
+              <div className="composer__queue-head">
+                <span className="composer__queue-title">{t('composer.queue.title')}</span>
+                <b className="composer__queue-count">{queue.length}</b>
+                <span className="composer__queue-hint">
+                  {queuePaused ? t('composer.queue.paused') : t('composer.queue.hint')}
+                </span>
+                {queuePaused ? (
+                  <button className="composer__queue-action is-resume" onClick={onResumeQueue}>
+                    {t('composer.queue.resume')}
+                  </button>
+                ) : (
+                  <button className="composer__queue-action" onClick={onClearQueue}>
+                    {t('composer.queue.clear')}
+                  </button>
+                )}
+              </div>
+              {queue.map((q, i) => (
+                <div className="composer__queue-row" key={q.id}>
+                  <span className="composer__queue-idx">{i + 1}</span>
+                  <span className="composer__queue-text" title={q.draft}>
+                    {q.draft.replace(/\s+/g, ' ').trim()}
+                  </span>
+                  {q.refs.length > 0 && (
+                    <span className="composer__queue-meta">
+                      {tn('composer.queue.refs', q.refs.length)}
+                    </span>
+                  )}
+                  {(q.images?.length ?? 0) > 0 && (
+                    <span className="composer__queue-meta">
+                      {tn('composer.queue.images', q.images?.length ?? 0)}
+                    </span>
+                  )}
+                  <span className="composer__queue-acts">
+                    {queue.length > 1 && (
+                      <>
+                        <button
+                          title={t('composer.queue.up')}
+                          disabled={i === 0}
+                          onClick={() => onMoveQueued(q.id, -1)}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          title={t('composer.queue.down')}
+                          disabled={i === queue.length - 1}
+                          onClick={() => onMoveQueued(q.id, 1)}
+                        >
+                          ↓
+                        </button>
+                      </>
+                    )}
+                    <button onClick={() => editQueued(q)}>{t('composer.queue.edit')}</button>
+                    <button
+                      className="is-del"
+                      title={t('composer.queue.remove')}
+                      aria-label={t('composer.queue.removeAria')}
+                      onClick={() => onRemoveQueued(q.id)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {refs.length > 0 && (
+            <div className="composer__refs">
+              {refs.map((r) => (
+                <div className="composer__ref" key={r.id}>
+                  <div className="composer__ref-head">
+                    <span className="composer__ref-ico">&lt;/&gt;</span>
+                    <span className="composer__ref-name">{r.name}</span>
+                    {/* 拖进来的文件 rel 就是文件名本身，再写一遍是重复 */}
+                    {r.rel !== r.name && (
+                      <span className="composer__ref-path" title={r.rel}>
+                        {r.rel}
+                      </span>
+                    )}
+                    <span className="composer__ref-range">
+                      {r.kind === 'file'
+                        ? `${tn('composer.ref.whole', r.totalLines)}${r.truncated ? ` · ${t('composer.ref.truncated')}` : ''}`
+                        : r.startLine === r.endLine
+                          ? `L${r.startLine}`
+                          : `L${r.startLine}–${r.endLine}`}
+                    </span>
+                    {r.encoding && (
+                      <span
+                        className="composer__ref-encoding"
+                        title={t('composer.ref.encoding', {
+                          name: t(ENCODING_LABEL_KEY[r.encoding])
+                        })}
+                      >
+                        {t(ENCODING_LABEL_KEY[r.encoding])}
+                      </span>
+                    )}
+                    <span className="composer__ref-tag">
+                      {r.origin === 'file'
+                        ? t('composer.attach.fromFile')
+                        : t('composer.ref.fromIde')}
+                    </span>
+                    <button
+                      className="composer__ref-x"
+                      onClick={() => removeRef(r.id)}
+                      title={t('composer.ref.remove')}
+                      aria-label={t('composer.ref.removeAria', { name: r.name })}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  {r.kind === 'selection' && (
+                    <pre className="composer__ref-code">{previewCode(r.code)}</pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {attachments.length > 0 && (
+          <div className="composer__attachments">
+            {attachments.map((a) => (
+              <div
+                className="composer__attach"
+                key={a.id}
+                title={`${a.name}${a.width ? ` · ${a.width}×${a.height}` : ''}${a.size ? ` · ${Math.max(1, Math.round(a.size / 1024))} KB` : ''}`}
+              >
+                <img
+                  src={`data:${a.mediaType};base64,${a.data}`}
+                  alt={a.name}
+                />
+                <button
+                  className="composer__attach-x"
+                  onClick={() => removeImage(a.id)}
+                  title={t('composer.attach.remove')}
+                  aria-label={t('composer.attach.removeAria', { name: a.name })}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {attachments.length < MAX_IMAGES && (
+              <span className="composer__attach-hint">{t('composer.attach.hint')}</span>
+            )}
+          </div>
+        )}
+
+        {/* 语音：录音中 / 转写中用同一条窄条，别把输入框挤走 */}
+        {voice.status === 'recording' && (
+          <div className="composer__rec">
+            <span className="composer__rec-dot" />
+            <span className="composer__rec-label">{t('composer.voice.recording')}</span>
+            <span className="composer__rec-time">{fmtElapsed(voice.elapsedMs)}</span>
+            <span className="composer__rec-wave" aria-hidden="true">
+              {VOICE_WAVE.map((h, i) => (
+                <i
+                  key={i}
+                  style={{
+                    height: `${h}px`,
+                    animationDelay: `${(i * 0.06).toFixed(2)}s`
+                  }}
+                />
+              ))}
+            </span>
+            <span className="composer__rec-hint">{t('composer.voice.stopHint')}</span>
+            <button className="composer__rec-cancel" onClick={voice.cancel}>
+              {t('composer.voice.cancel')}
+            </button>
+          </div>
+        )}
+        {voice.status === 'transcribing' && (
+          <div className="composer__rec is-busy">
+            <span className="composer__spinner" />
+            <span className="composer__rec-label">{t('composer.voice.transcribing')}</span>
+            <span className="composer__rec-sub">{voiceSettings.model}</span>
+            <span className="composer__rec-hint">{t('composer.voice.transcribingHint')}</span>
+            <button className="composer__rec-cancel" onClick={voice.cancel}>
+              {t('composer.voice.cancel')}
+            </button>
+          </div>
+        )}
+        {voice.error && (
+          <div className="composer__voice-err" role="alert">
+            <span className="composer__voice-err-icon">!</span>
+            <div className="composer__voice-err-main">
+              <b>{t(VOICE_ERROR_KEY[voice.error.code])}</b>
+              {voice.error.detail && (
+                <p className="composer__voice-err-detail">{voice.error.detail}</p>
+              )}
+            </div>
+            <div className="composer__voice-err-actions">
+              {onOpenSettings && VOICE_SETTINGS_ERRORS.has(voice.error.code) && (
+                <button
+                  className="composer__voice-btn"
+                  onClick={() => {
+                    voice.clearError()
+                    onOpenSettings()
+                  }}
+                >
+                  {t('composer.voice.openSettings')}
+                </button>
+              )}
+              <button
+                className="composer__voice-btn is-primary"
+                onClick={() => {
+                  voice.clearError()
+                  setVoiceNote(null)
+                  voice.start()
+                }}
+              >
+                {t('composer.voice.retry')}
+              </button>
+              <button
+                className="composer__voice-x"
+                onClick={voice.clearError}
+                aria-label={t('common.close')}
+                title={t('common.close')}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+        {voiceNote && voice.status === 'idle' && (
+          <div className="composer__voice-note">
+            <IconCheck width={12} height={12} />
+            <span>{tn('composer.voice.inserted', voiceNote.chars)}</span>
+            <button className="composer__voice-undo" onClick={undoVoice}>
+              {t('composer.voice.undo')}
+            </button>
+          </div>
+        )}
+
+        <textarea
+          ref={inputRef}
+          className="composer__input selectable"
+          rows={1}
+          placeholder={
+            locked ? t('composer.placeholder.locked') : t('composer.placeholder.normal')
+          }
+          value={text}
+          disabled={locked}
+          onChange={onChange}
+          onPaste={onPaste}
+          onKeyDown={onKeyDown}
+        />
+        <div className="composer__bar">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,text/*,.md,.json,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.c,.h,.cpp,.cs,.sh,.ps1,.yml,.yaml,.toml,.ini,.sql,.xml,.vue,.svelte,.log,.env"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              if (files.length > 0) void addFiles(files)
+            }}
+          />
+          <button
+            className="iconbtn"
+            title={t('composer.addFile')}
+            onClick={() => fileRef.current?.click()}
+          >
+            <IconPlus width={16} height={16} />
+          </button>
+
+          {/* 模型在左、模式在右 —— 模型是每条会话都要挑的，模式基本定了就不动 */}
+          <Picker
+            className="chip chip--model"
+            popClass="picker__pop--left"
+            open={openPicker === 'model'}
+            onOpenChange={(o) => {
+              setOpenPicker(o ? 'model' : null)
+              if (o) {
+                setMention(null)
+                setCommand(null)
+              }
+            }}
+            label={
+              <>
+                {/* 先说明走哪个 CLI、哪个渠道，再说用什么模型 —— 同名模型挂在
+                    两个渠道上时，光看模型名分不出差别 */}
+                <span className={`chip__cli chip__cli--${cli}`}>
+                  {cli === 'claude' ? (
+                    <IconClaudeCode width={14} height={14} />
+                  ) : cli === 'codex' ? (
+                    <IconOpenAI width={14} height={14} />
+                  ) : (
+                    <IconDeepSeek width={14} height={14} />
+                  )}
+                </span>
+                <span className="chip__channel">
+                  {official
+                    ? cli === 'dsh'
+                      ? t('auth.harnessCredentials')
+                      : t('auth.officialAccount')
+                    : channel?.name?.trim() || t('settings.channel.none')}
+                </span>
+                <span className="chip__sep">·</span>
+                <span className="chip__model">
+                  {model || (official ? t('composer.cliDefault') : t('chat.noModel'))}
+                </span>
+              </>
+            }
+          >
+            {(close) => (
+              <ModelPicker
+                cli={cli}
+                cliConfigs={cliConfigs}
+                activeChannelId={activeChannelId}
+                authMode={authMode}
+                model={model}
+                hasConversation={hasConversation}
+                onSelect={onSelect}
+                close={close}
+              />
+            )}
+          </Picker>
+
+          <div className="composer__spacer" />
+
+          {/*
+            麦克风放在发送键左侧：和「把这句话发出去」是同一组动作。
+            点一下开始、再点一下停止；转写中再点等于取消等待。
+          */}
+          {voiceSettings.enabled && (
+            <button
+              type="button"
+              className={`composer__mic is-${voice.status}`}
+              title={
+                voice.status === 'recording'
+                  ? t('composer.voice.stop')
+                  : voice.status === 'transcribing'
+                    ? t('composer.voice.cancel')
+                    : t('composer.voice.startHint')
+              }
+              aria-label={
+                voice.status === 'recording'
+                  ? t('composer.voice.stop')
+                  : voice.status === 'transcribing'
+                    ? t('composer.voice.cancel')
+                    : t('composer.voice.startHint')
+              }
+              disabled={locked}
+              onClick={() => {
+                if (voice.status === 'recording') voice.stop()
+                else if (voice.status === 'transcribing') voice.cancel()
+                else {
+                  voiceUndoRef.current = null
+                  setVoiceNote(null)
+                  voice.start()
+                }
+              }}
+            >
+              {voice.status === 'recording' ? (
+                <span className="composer__mic-stop" />
+              ) : voice.status === 'transcribing' ? (
+                <span className="composer__spinner" />
+              ) : (
+                <IconMic width={17} height={17} />
+              )}
+            </button>
+          )}
 
           {running ? (
             <>

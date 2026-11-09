@@ -1,0 +1,1386 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>执行台 · 重做效果稿</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   页面 token
+   ══════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  color-scheme: dark;
+
+  --page-bg: #0b0b0d;
+  --page-fg: #e9e9ee;
+  --page-dim: #8b8b97;
+  --page-faint: #5f5f6b;
+  --page-line: #232329;
+  --stage: #101013;
+  --stage-line: #26262d;
+
+  /* 面板 token（照搬应用 tokens.css，状态色按新稿调过） */
+  --bg-app: #191919;
+  --bg-sidebar: #141416;
+  --bg-raised: #232326;
+  --bg-hover: #1f1f23;
+  --bg-active: #2a2a2f;
+
+  --border: #2c2c31;
+  --border-soft: #242429;
+
+  --text: #ececef;
+  --text-dim: #b3b3bc;
+  --text-muted: #8a8a95;
+  --text-faint: #65656f;
+
+  --line: #29292e;
+  --line-soft: #222226;
+  --line-strong: #3a3a42;
+
+  --card-bg: linear-gradient(180deg, #1d1d21 0%, #1a1a1e 100%);
+  --card-border: #2b2b31;
+  --inset: rgba(255, 255, 255, 0.035);
+  --inset-border: rgba(255, 255, 255, 0.05);
+
+  --running: #e08a6a;
+  --running-strong: #d97757;
+  --running-soft: rgba(217, 119, 87, 0.11);
+  --running-line: rgba(217, 119, 87, 0.28);
+
+  --ok: #6fbf82;
+  --ok-soft: rgba(111, 191, 130, 0.10);
+  --ok-line: rgba(111, 191, 130, 0.30);
+
+  --bad: #e5837b;
+  --bad-soft: rgba(229, 131, 123, 0.09);
+  --bad-line: rgba(229, 131, 123, 0.28);
+
+  --explore: #7dd3fc;
+  --explore-soft: rgba(125, 211, 252, 0.10);
+  --explore-line: rgba(125, 211, 252, 0.14);
+
+  --plan: #6ee7a8;
+  --plan-soft: rgba(110, 231, 168, 0.09);
+
+  --general: #c4a7f7;
+  --general-soft: rgba(196, 167, 247, 0.10);
+
+  --shell: #a8a8c0;
+  --shell-soft: rgba(168, 168, 192, 0.08);
+
+  --br-accent: #7aa2c8;
+  --br-text: #a9c6e2;
+  --br-bg: rgba(122, 162, 200, 0.10);
+  --br-border: rgba(122, 162, 200, 0.24);
+
+  --shimmer: rgba(255, 255, 255, 0.045);
+  --foot-fade: rgba(0, 0, 0, 0.10);
+
+  --shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+
+  --radius-card: 12px;
+  --radius-chip: 8px;
+  --radius-sm: 6px;
+  --radius-pill: 999px;
+
+  --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+}
+
+/* 浅色页面 */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --page-bg: #f4f4f6;
+  --page-fg: #1c1c1f;
+  --page-dim: #66666f;
+  --page-faint: #92929c;
+  --page-line: #dfdfe4;
+  --stage: #e9e9ed;
+  --stage-line: #d9d9df;
+}
+
+/* 浅色面板（也用于页内单独的浅色示例） */
+:root[data-theme='light'],
+[data-theme='light'] {
+  color-scheme: light;
+  --bg-app: #f6f6f7;
+  --bg-sidebar: #efeff1;
+  --bg-raised: #ffffff;
+  --bg-hover: #e9e9ec;
+  --bg-active: #e2e2e6;
+
+  --border: #d7d7dc;
+  --border-soft: #e5e5e8;
+
+  --text: #1d1d1f;
+  --text-dim: #4c4c53;
+  --text-muted: #6c6c75;
+  --text-faint: #95959e;
+
+  --line: #e3e3e7;
+  --line-soft: #eaeaee;
+  --line-strong: #d3d3d9;
+
+  --card-bg: linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
+  --card-border: #e2e2e7;
+  --inset: rgba(0, 0, 0, 0.035);
+  --inset-border: rgba(0, 0, 0, 0.05);
+
+  --running: #b04a28;
+  --running-strong: #b04a28;
+  --running-soft: rgba(176, 74, 40, 0.08);
+  --running-line: rgba(176, 74, 40, 0.24);
+
+  --ok: #2f8a45;
+  --ok-soft: rgba(47, 138, 69, 0.08);
+  --ok-line: rgba(47, 138, 69, 0.28);
+
+  --bad: #c83b32;
+  --bad-soft: rgba(200, 59, 50, 0.07);
+  --bad-line: rgba(200, 59, 50, 0.24);
+
+  --explore: #0e7490;
+  --explore-soft: rgba(14, 116, 144, 0.08);
+  --explore-line: rgba(14, 116, 144, 0.16);
+
+  --shell: #5b5b66;
+  --shell-soft: rgba(0, 0, 0, 0.045);
+
+  --br-text: #2f5f8a;
+  --br-bg: rgba(63, 111, 157, 0.08);
+  --br-border: rgba(63, 111, 157, 0.28);
+
+  --shimmer: rgba(0, 0, 0, 0.035);
+  --foot-fade: rgba(0, 0, 0, 0.02);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.14);
+}
+
+html, body { background: var(--page-bg); }
+body {
+  width: 1332px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 38px 32px 64px;
+  color: var(--page-fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(70% 46% at 50% -12%, rgba(217, 119, 87, 0.09), transparent 62%),
+    var(--page-bg);
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+b { font-weight: 600; }
+.ic { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.page { width: 1268px; margin: 0 auto; }
+
+/* ── 页头 ─────────────────────────────────────────────────── */
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.16em;
+  color: var(--page-dim); text-transform: uppercase;
+}
+.eyebrow i {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--running-strong);
+  box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.10);
+  animation: rp-pulse 1.8s ease-in-out infinite;
+}
+.page-head { display: flex; align-items: flex-start; gap: 24px; }
+.page-head-main { flex: 1; min-width: 0; }
+h1 {
+  margin-top: 12px;
+  font-size: 30px; line-height: 1.15; font-weight: 680; letter-spacing: -0.02em;
+}
+h1 em { font-style: normal; color: var(--running-strong); }
+.lead {
+  max-width: 760px; margin-top: 12px;
+  font-size: 13px; line-height: 1.8; color: var(--page-dim);
+}
+.lead b { color: var(--page-fg); font-weight: 500; }
+.page-actions { flex: none; padding-top: 2px; }
+.ghost-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 12px;
+  font-size: 11.5px; color: var(--page-dim);
+  background: var(--stage); border: 1px solid var(--stage-line); border-radius: 8px;
+}
+.ghost-btn:hover { color: var(--page-fg); border-color: var(--page-faint); }
+.ghost-btn .ic { width: 12px; height: 12px; }
+.page-meta {
+  display: flex; gap: 16px; margin-top: 14px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--page-faint);
+}
+.page-meta span + span::before { content: '·'; margin-right: 16px; color: var(--page-line); }
+
+/* ── 区块 ─────────────────────────────────────────────────── */
+.block { margin-top: 46px; }
+.block-head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding-bottom: 12px; margin-bottom: 18px;
+  border-bottom: 1px solid var(--page-line);
+}
+.block-head .num {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em;
+  color: var(--running-strong); background: rgba(217, 119, 87, 0.10);
+  padding: 2px 6px; border-radius: 4px;
+}
+.block-head h2 { font-size: 15px; font-weight: 650; letter-spacing: 0.01em; }
+.block-head .hint { margin-left: auto; font-size: 10.5px; color: var(--page-faint); }
+
+/* ── 01 对比 ──────────────────────────────────────────────── */
+.compare {
+  display: grid;
+  grid-template-columns: 304px 304px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.cmp figcaption {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 9px; font-size: 10.5px; color: var(--page-dim);
+}
+.cmp-k {
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.10em;
+  padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--page-line); color: var(--page-faint);
+}
+.cmp--after .cmp-k {
+  color: var(--running-strong);
+  border-color: var(--running-line);
+  background: rgba(217, 119, 87, 0.08);
+}
+.before-wrap {
+  border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--stage-line); background: var(--stage);
+}
+.before-wrap img { display: block; width: 100%; height: auto; }
+
+.cmp-notes { display: flex; flex-direction: column; gap: 15px; min-width: 0; }
+.note { display: flex; gap: 11px; }
+.note-n {
+  flex: none; width: 20px; height: 20px; margin-top: 1px;
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 8.5px;
+  color: var(--running-strong); background: rgba(217, 119, 87, 0.09);
+  border-radius: 5px;
+}
+.note b { display: block; font-size: 11.5px; font-weight: 600; color: var(--page-fg); }
+.note p { margin-top: 3px; font-size: 10.5px; line-height: 1.7; color: var(--page-dim); }
+.spec {
+  margin-top: auto; padding: 12px 14px;
+  background: var(--stage); border: 1px solid var(--stage-line); border-radius: 10px;
+  font-family: var(--font-mono); font-size: 9px; line-height: 1.95; color: var(--page-dim);
+}
+.spec .row { display: flex; justify-content: space-between; gap: 14px; }
+.spec b { color: var(--page-fg); font-weight: 500; }
+.spec .swatch { display: inline-flex; align-items: center; gap: 5px; }
+.spec .swatch i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+/* ── 02 状态 ──────────────────────────────────────────────── */
+.states { display: grid; grid-template-columns: repeat(4, 304px); gap: 16px; }
+.state { display: flex; flex-direction: column; gap: 9px; }
+.state figcaption { display: flex; align-items: baseline; gap: 7px; font-size: 10px; color: var(--page-dim); }
+.state-k {
+  font-family: var(--font-mono); font-size: 8.5px; color: var(--page-faint);
+  border: 1px solid var(--page-line); padding: 1px 5px; border-radius: 4px;
+}
+.state b { font-size: 11px; font-weight: 600; color: var(--page-fg); }
+.state .state-sub { color: var(--page-faint); }
+.state-stage { height: 700px; }
+.state-stage .rp { height: 100%; }
+
+/* ── 03 窗口 ──────────────────────────────────────────────── */
+.context-row { display: flex; gap: 24px; align-items: flex-start; }
+.context-wrap { flex: none; }
+.context-notes { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
+.context-notes .note p { max-width: 420px; }
+.chip-mock {
+  padding: 13px 14px;
+  background: var(--stage); border: 1px solid var(--stage-line); border-radius: 10px;
+}
+.chip-mock-head { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--page-dim); }
+.chip-mock-k {
+  font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.10em;
+  color: var(--page-faint); border: 1px solid var(--page-line);
+  padding: 1px 5px; border-radius: 4px;
+}
+.chip-demo {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 28px; margin-top: 12px; padding: 0 10px;
+  font-size: 11px; color: var(--page-fg);
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: 999px;
+}
+.chip-demo .ic { width: 12px; height: 12px; color: var(--text-muted); }
+.chip-demo-count {
+  display: grid; place-items: center;
+  min-width: 15px; height: 15px; padding: 0 4px;
+  font-family: var(--font-mono); font-size: 8.5px;
+  color: var(--running); background: var(--running-soft); border-radius: 999px;
+}
+.chip-mock p { margin-top: 9px; font-size: 10px; line-height: 1.65; color: var(--page-dim); }
+.context-spec {
+  padding: 12px 14px;
+  background: var(--stage); border: 1px solid var(--stage-line); border-radius: 10px;
+  font-family: var(--font-mono); font-size: 9px; line-height: 1.9; color: var(--page-dim);
+}
+.context-spec .row { display: flex; justify-content: space-between; gap: 14px; }
+.context-spec b { color: var(--page-fg); font-weight: 500; }
+
+/* ══════════════════════════════════════════════════════════════
+   执行台面板
+   ══════════════════════════════════════════════════════════════ */
+.rp {
+  width: 304px;
+  height: 560px;
+  display: flex; flex-direction: column;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-ui);
+  box-shadow: var(--shadow);
+}
+.rp.is-flat {
+  width: 100%; height: 100%;
+  border: 0; border-left: 1px solid var(--border-soft);
+  border-radius: 0; box-shadow: none;
+}
+
+/* ── 头部 ─────────────────────────────────────────────────── */
+.rp-head {
+  position: relative; flex: none;
+  padding: 14px 15px 12px;
+  background:
+    radial-gradient(120% 90% at 15% -30%, var(--running-soft), transparent 62%),
+    var(--bg-sidebar);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.rp-head.is-done {
+  background:
+    radial-gradient(120% 90% at 15% -30%, var(--ok-soft), transparent 62%),
+    var(--bg-sidebar);
+}
+.rp-head.is-bad {
+  background:
+    radial-gradient(120% 90% at 15% -30%, var(--bad-soft), transparent 62%),
+    var(--bg-sidebar);
+}
+.rp-title-row { display: flex; align-items: center; gap: 8px; }
+.rp-title { font-size: 13px; font-weight: 650; letter-spacing: 0.02em; color: var(--text); }
+.rp-collapse {
+  display: grid; place-items: center;
+  width: 24px; height: 24px; margin-left: auto;
+  color: var(--text-faint); border-radius: 6px;
+}
+.rp-collapse:hover { color: var(--text); background: var(--inset); }
+.rp-collapse .ic { width: 13px; height: 13px; }
+
+.rp-status { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.rp-live-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.05em;
+  color: var(--running);
+}
+.rp-live-label .dot {
+  width: 5px; height: 5px; border-radius: 50%; background: currentColor;
+  box-shadow: 0 0 0 3px var(--running-soft);
+  animation: rp-pulse 1.6s ease-in-out infinite;
+}
+.rp-live-label .ic { width: 10px; height: 10px; }
+.rp-live-label.is-done { color: var(--ok); }
+.rp-live-label.is-bad { color: var(--bad); }
+.rp-live-label.is-stopped { color: var(--text-muted); }
+.rp-timer {
+  font-family: var(--font-mono);
+  font-size: 22px; line-height: 1.08; font-weight: 600;
+  letter-spacing: 0.01em; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rp-stop {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 27px; margin-left: auto; padding: 0 9px;
+  font-size: 10.5px; font-weight: 500;
+  color: var(--bad);
+  background: var(--bad-soft);
+  border: 1px solid var(--bad-line);
+  border-radius: 7px;
+}
+.rp-stop:hover { background: rgba(229, 131, 123, 0.16); border-color: var(--bad); }
+.rp-stop .ic { width: 10px; height: 10px; }
+.rp-sub {
+  margin-top: 6px;
+  font-size: 11px; line-height: 1.5; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-scan { position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; overflow: hidden; }
+.rp-scan::after {
+  content: ''; display: block; width: 38%; height: 100%;
+  background: linear-gradient(90deg, transparent, var(--running-strong), transparent);
+  opacity: 0.75;
+  animation: rp-scan 2.9s ease-in-out infinite;
+}
+
+/* ── 滚动区 ───────────────────────────────────────────────── */
+.rp-body {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  overscroll-behavior: contain;
+}
+.rp-body::-webkit-scrollbar { width: 6px; }
+.rp-body::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+.rp-body::-webkit-scrollbar-track { background: transparent; }
+
+/* ── 分区 ─────────────────────────────────────────────────── */
+.rp-sec { padding: 0 13px; }
+.rp-sec + .rp-sec { margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--line-soft); }
+.rp-sec-head { display: flex; align-items: center; gap: 9px; padding: 13px 2px 9px; }
+.rp-sec-title {
+  flex: none;
+  font-size: 10px; font-weight: 650; letter-spacing: 0.15em;
+  color: var(--text-muted);
+}
+.rp-sec-line { flex: 1; height: 1px; background: var(--line); }
+.rp-sec-count {
+  flex: none; display: flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint);
+  white-space: nowrap;
+}
+.rp-sec-count b { font-weight: 500; color: var(--text-dim); }
+.rp-sec-count .is-run { display: inline-flex; align-items: center; gap: 4px; color: var(--running); }
+.rp-sec-count .is-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); }
+.rp-sec-count .is-bad { display: inline-flex; align-items: center; gap: 4px; color: var(--bad); }
+.rp-sec-count .is-stopped { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); }
+.rp-sec-count i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.rp-sec-count .sep { color: var(--line-strong); }
+
+/* ── 任务 ─────────────────────────────────────────────────── */
+.rp-taskbar { display: flex; gap: 3px; padding: 0 2px 8px; }
+.rp-taskbar i { flex: 1; min-width: 0; height: 3px; border-radius: 2px; background: var(--line); }
+.rp-taskbar i.is-done { background: var(--ok); opacity: 0.85; }
+.rp-taskbar i.is-run { background: var(--running); animation: rp-pulse 1.6s ease-in-out infinite; }
+
+.rp-tasks { display: flex; flex-direction: column; gap: 1px; }
+.rp-task {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 7px; border-radius: 7px;
+}
+.rp-task:hover { background: var(--inset); }
+.rp-task.is-run { background: var(--running-soft); }
+.rp-check {
+  flex: none; display: grid; place-items: center;
+  width: 15px; height: 15px; margin-top: 1px;
+  border: 1px solid var(--line-strong); border-radius: 50%;
+  color: transparent;
+}
+.rp-check .ic { width: 9px; height: 9px; stroke-width: 2.2; }
+.rp-task.is-done .rp-check { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+.rp-task.is-run .rp-check { border-color: var(--running-line); background: var(--running-soft); }
+.rp-task.is-run .rp-check::after {
+  content: ''; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--running); animation: rp-pulse 1.4s ease-in-out infinite;
+}
+.rp-task-main { flex: 1; min-width: 0; }
+.rp-task-text { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+.rp-task.is-done .rp-task-text {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+.rp-task.is-run .rp-task-text { color: var(--text); font-weight: 500; }
+.rp-task.is-todo .rp-task-text { color: var(--text-muted); }
+.rp-task-active {
+  display: flex; align-items: center; gap: 5px;
+  margin-top: 2px; font-size: 10.5px; color: var(--running);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-task-active::before {
+  content: ''; flex: none; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--running); animation: rp-pulse 1.4s ease-in-out infinite;
+}
+.rp-task-time {
+  flex: none; margin-top: 2px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 子代理 / 后台任务卡片 ────────────────────────────────── */
+.rp-agent {
+  position: relative;
+  padding: 11px 11px 10px 13px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.rp-agent + .rp-agent { margin-top: 8px; }
+.rp-agent::before {
+  content: ''; position: absolute; left: 0; top: 10px; bottom: 10px;
+  width: 2px; border-radius: 0 2px 2px 0;
+  background: var(--running); opacity: 0.78;
+}
+.rp-agent.is-done::before { background: var(--ok); opacity: 0.7; }
+.rp-agent.is-bad::before { background: var(--bad); opacity: 0.85; }
+.rp-agent.is-stopped::before { background: var(--text-faint); opacity: 0.6; }
+.rp-agent.is-run {
+  background:
+    radial-gradient(120% 100% at 100% 0%, var(--running-soft), transparent 58%),
+    var(--card-bg);
+}
+
+.rp-agent-head { display: flex; align-items: flex-start; gap: 9px; }
+.rp-glyph {
+  flex: none; display: grid; place-items: center;
+  width: 26px; height: 26px; border-radius: 8px;
+  color: var(--explore); background: var(--explore-soft);
+  box-shadow: inset 0 0 0 1px var(--explore-line);
+}
+.rp-glyph .ic { width: 14px; height: 14px; }
+.rp-glyph.is-shell {
+  color: var(--shell); background: var(--shell-soft);
+  box-shadow: inset 0 0 0 1px var(--inset-border);
+}
+.rp-glyph.is-plan {
+  color: var(--plan); background: var(--plan-soft);
+  box-shadow: inset 0 0 0 1px rgba(110, 231, 168, 0.14);
+}
+.rp-glyph.is-general {
+  color: var(--general); background: var(--general-soft);
+  box-shadow: inset 0 0 0 1px rgba(196, 167, 247, 0.14);
+}
+
+.rp-agent-id { flex: 1; min-width: 0; }
+.rp-agent-name {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12.5px; font-weight: 650; line-height: 1.3; color: var(--text);
+  white-space: nowrap; overflow: hidden;
+}
+.rp-agent-name span {
+  font-size: 9.5px; font-weight: 400; letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.rp-agent-name .rp-bg-chip {
+  flex: none; padding: 0 5px;
+  font-size: 8px; font-style: normal; font-weight: 500; line-height: 13px;
+  color: var(--text-muted); background: var(--inset);
+  border-radius: var(--radius-pill);
+}
+.rp-agent-desc {
+  margin-top: 2px;
+  font-size: 11px; line-height: 1.45; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-agent-desc.is-mono { font-family: var(--font-mono); font-size: 9.5px; }
+
+.rp-badge {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  height: 20px; padding: 0 7px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+  border-radius: var(--radius-pill);
+}
+.rp-badge .ic { width: 9px; height: 9px; stroke-width: 2; }
+.rp-badge .dot {
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+  animation: rp-pulse 1.5s ease-in-out infinite;
+}
+.rp-badge.is-run { color: var(--running); background: var(--running-soft); }
+.rp-badge.is-done { color: var(--ok); background: var(--ok-soft); }
+.rp-badge.is-bad { color: var(--bad); background: var(--bad-soft); }
+.rp-badge.is-stopped { color: var(--text-muted); background: var(--inset); }
+
+.rp-live-strip {
+  position: relative; display: flex; align-items: center; gap: 7px;
+  margin-top: 9px; padding: 6px 8px;
+  background: var(--inset);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.rp-spinner {
+  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  border: 1.5px solid var(--running-line);
+  border-top-color: var(--running);
+  animation: rp-spin 0.9s linear infinite;
+}
+.rp-tool {
+  flex: none; padding: 1px 5px;
+  font-family: var(--font-mono); font-size: 9px; line-height: 1.5;
+  color: var(--running); background: var(--running-soft);
+  border-radius: 4px;
+}
+.rp-live-text {
+  min-width: 0;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.5;
+  color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-live-strip::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent 20%, var(--shimmer) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: rp-shimmer 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.rp-result {
+  margin-top: 8px; padding-left: 9px;
+  border-left: 2px solid var(--ok-line);
+  font-size: 10.5px; line-height: 1.55; color: var(--text-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rp-result.is-muted { border-left-color: var(--line-strong); }
+.rp-error {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin-top: 8px; padding: 7px 8px;
+  font-size: 10.5px; line-height: 1.5; color: var(--bad);
+  background: var(--bad-soft); border-radius: 6px;
+}
+.rp-error .ic { width: 11px; height: 11px; margin-top: 1px; }
+
+.rp-agent-foot {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 8px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint);
+  white-space: nowrap; overflow: hidden;
+}
+.rp-agent-foot .sep { color: var(--line-strong); }
+.rp-agent-foot .time { margin-left: auto; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rp-agent-foot.has-report .time { margin-left: 0; }
+.rp-report {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-left: auto;
+  font-family: var(--font-ui); font-size: 10px; color: var(--text-muted);
+}
+.rp-report:hover { color: var(--text); }
+.rp-report .ic { width: 10px; height: 10px; }
+
+/* ── 底栏 ─────────────────────────────────────────────────── */
+.rp-foot {
+  flex: none; display: flex; align-items: center; gap: 9px;
+  padding: 9px 14px 11px;
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, transparent, var(--foot-fade));
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
+  white-space: nowrap;
+}
+.rp-foot b { font-weight: 500; color: var(--text-dim); }
+.rp-foot .is-add { color: var(--ok); }
+.rp-foot .is-del { color: var(--bad); }
+.rp-trace {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: auto;
+  font-family: var(--font-ui); font-size: 10.5px; color: var(--text-muted);
+}
+.rp-trace:hover { color: var(--text); }
+.rp-trace .ic { width: 11px; height: 11px; }
+
+/* ══════════════════════════════════════════════════════════════
+   窗口内实景
+   ══════════════════════════════════════════════════════════════ */
+.appwin {
+  width: 780px; height: 620px;
+  display: flex; flex-direction: column;
+  background: var(--bg-app);
+  border: 1px solid var(--stage-line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.appwin-bar {
+  flex: none; height: 36px;
+  display: flex; align-items: center;
+  padding: 0 12px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-soft);
+}
+.appwin-brand { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
+.appwin-brand .mark {
+  width: 16px; height: 16px; border-radius: 5px;
+  background: linear-gradient(135deg, #e08a6a, #b95436);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+.appwin-wctl { margin-left: auto; display: flex; align-items: center; gap: 16px; font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+.appwin-body { flex: 1; min-height: 0; display: flex; }
+
+.appwin-chat {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg-app);
+}
+.chat-head { flex: none; padding: 17px 22px 0; border-bottom: 1px solid var(--border-soft); }
+.chat-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.chat-title .branch {
+  padding: 1px 6px;
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--br-text); background: var(--br-bg);
+  border: 1px solid var(--br-border); border-radius: var(--radius-pill);
+}
+.chat-tabs { display: flex; gap: 16px; margin-top: 15px; font-size: 11.5px; color: var(--text-muted); }
+.chat-tabs .is-on { position: relative; color: var(--text); padding-bottom: 9px; }
+.chat-tabs .is-on::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; background: var(--text); border-radius: 2px;
+}
+.chat-scroll { flex: 1; min-height: 0; overflow: hidden; padding: 20px 22px 0; }
+.msg-user {
+  max-width: 88%; margin-left: auto; padding: 9px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px 11px 4px 11px;
+  font-size: 11.5px; line-height: 1.65; color: var(--text-dim);
+}
+.msg-ai { margin-top: 20px; font-size: 11.5px; line-height: 1.75; color: var(--text-dim); }
+.msg-ai p + p { margin-top: 9px; }
+.toolcard { margin-top: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-raised); overflow: hidden; }
+.toolcard-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 10px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-soft);
+}
+.toolcard-head .ic { width: 11px; height: 11px; }
+.toolcard-head b { color: var(--text-dim); font-weight: 500; }
+.toolcard-body { padding: 9px 10px; font-family: var(--font-mono); font-size: 9px; line-height: 1.75; color: var(--text-faint); }
+.toolcard-body .ln { display: flex; gap: 10px; }
+.toolcard-body .ln span:first-child { width: 16px; flex: none; text-align: right; color: var(--line-strong); }
+.msg-ai-sub { display: flex; align-items: center; gap: 6px; margin-top: 11px; font-size: 10.5px; color: var(--text-muted); }
+.msg-ai-sub .rp-spinner { width: 9px; height: 9px; }
+.composer {
+  flex: none; margin: 0 18px 16px; padding: 10px 11px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border); border-radius: 11px;
+}
+.composer-ph { padding: 1px 2px 11px; font-size: 11px; color: var(--text-faint); }
+.composer-row { display: flex; align-items: center; gap: 7px; }
+.composer-chip {
+  display: inline-flex; align-items: center; height: 21px; padding: 0 8px;
+  font-size: 9.5px; color: var(--text-muted);
+  background: var(--inset); border-radius: var(--radius-pill);
+}
+.composer-send {
+  display: grid; place-items: center;
+  width: 25px; height: 25px; margin-left: auto;
+  background: var(--text); color: var(--bg-app); border-radius: 50%;
+}
+.composer-send .ic { width: 12px; height: 12px; }
+.context-panel { flex: none; width: 304px; min-height: 0; }
+
+/* ── 页脚 ─────────────────────────────────────────────────── */
+.page-foot {
+  margin-top: 52px; padding-top: 16px;
+  border-top: 1px solid var(--page-line);
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--page-faint);
+}
+.page-foot .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--running-strong); }
+
+/* ── 动效 ─────────────────────────────────────────────────── */
+@keyframes rp-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.82); }
+}
+@keyframes rp-spin { to { transform: rotate(360deg); } }
+@keyframes rp-scan {
+  0% { transform: translateX(-60%); }
+  100% { transform: translateX(320%); }
+}
+@keyframes rp-shimmer {
+  0% { transform: translateX(-100%); }
+  55%, 100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- 图标 sprite -->
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-compass" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m14.9 9.1-1.8 4.2-4.2 1.8 1.8-4.2z" />
+  </symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24">
+    <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+    <path d="m7.5 9.5 3 2.5-3 2.5" />
+    <path d="M13.5 15h3.5" />
+  </symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.3 4.3L19 7" /></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24">
+    <path d="M12 4.5 21 20H3z" />
+    <path d="M12 10v4" />
+    <path d="M12 17.2v.1" />
+  </symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.6" fill="currentColor" stroke="none" /></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6" /></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13" /><path d="m13 7 5 5-5 5" /></symbol>
+  <symbol id="i-report" viewBox="0 0 24 24">
+    <path d="M7 3.5h7l4 4V20a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5Z" />
+    <path d="M14 3.5V8h4" />
+    <path d="M9 13h6M9 16.5h4" />
+  </symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24">
+    <path d="M12 3.5c.6 4.6 2.9 6.9 7.5 7.5-4.6.6-6.9 2.9-7.5 7.5-.6-4.6-2.9-6.9-7.5-7.5 4.6-.6 6.9-2.9 7.5-7.5Z" />
+  </symbol>
+  <symbol id="i-route" viewBox="0 0 24 24">
+    <circle cx="6" cy="18" r="2" /><circle cx="18" cy="6" r="2" />
+    <path d="M8 18h5a3 3 0 0 0 3-3V8" />
+  </symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24">
+    <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+    <path d="M14.5 4.5v15" />
+  </symbol>
+  <symbol id="i-info" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 11v5" /><path d="M12 8v.1" />
+  </symbol>
+</svg>
+
+<div class="page">
+
+  <!-- ══ 页头 ═══════════════════════════════════════════════ -->
+  <header class="page-head">
+    <div class="page-head-main">
+      <div class="eyebrow"><i></i>CCoder · Run Panel</div>
+      <h1>执行台，<em>重新设计</em></h1>
+      <p class="lead">
+        把「现在跑到哪了」做得更清楚：<b>计时器成为锚点</b>，子代理卡片去掉嵌套方框，
+        运行 / 完成 / 失败用 <b>色条 + 胶囊</b> 双重编码；任务进度回到任务区，底部固定本轮统计。
+      </p>
+      <div class="page-meta">
+        <span>静态效果稿</span><span>面板宽 304px</span><span>深色 / 浅色</span><span>动效可交互</span>
+      </div>
+    </div>
+    <div class="page-actions">
+      <button class="ghost-btn" id="themeBtn" type="button">
+        <svg class="ic"><use href="#i-spark" /></svg>
+        <span>浅色预览</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ══ 01 对比 ════════════════════════════════════════════ -->
+  <section class="block">
+    <div class="block-head">
+      <span class="num">01</span>
+      <h2>重做后</h2>
+      <span class="hint">运行中 · 两个 Explore 子代理并行</span>
+    </div>
+
+    <div class="compare">
+      <figure class="cmp cmp--before">
+        <figcaption><span class="cmp-k">BEFORE</span><span>现状</span></figcaption>
+        <div class="before-wrap">
+          <img src="run-panel-before.png" alt="重做前的执行台" />
+        </div>
+      </figure>
+
+      <figure class="cmp cmp--after">
+        <figcaption><span class="cmp-k">AFTER</span><span>重做后</span></figcaption>
+        <div id="heroPanel"></div>
+      </figure>
+
+      <div class="cmp-notes">
+        <div class="note">
+          <span class="note-n">01</span>
+          <div>
+            <b>计时器成为视觉锚点</b>
+            <p>22px 等宽计时 + 运行胶囊。中断降为右侧描边按钮，不再和标题、状态挤在同一行。</p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="note-n">02</span>
+          <div>
+            <b>状态双重编码</b>
+            <p>左侧 2px 色条 + 右上角胶囊：运行珊瑚、完成绿、失败红、停止灰，扫一眼就能分开。</p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="note-n">03</span>
+          <div>
+            <b>去掉嵌套方框</b>
+            <p>卡片里不再套一层活动框。工具名做成小 chip，活动描述单行截断，旋转环只提示「还在动」。</p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="note-n">04</span>
+          <div>
+            <b>任务进度回到任务区</b>
+            <p>进度条段数和任务一一对应；进行中的任务用珊瑚底 + 脉冲点，完成用绿勾 + 删除线。</p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="note-n">05</span>
+          <div>
+            <b>底部落点与主题</b>
+            <p>步数 / 增删行数固定在底部，长列表滚动时也有落点；浅色主题卡片浮白、状态色同步加深。</p>
+          </div>
+        </div>
+
+        <div class="spec">
+          <div class="row"><span>面板宽度</span><b>304px</b></div>
+          <div class="row"><span>卡片</span><b>内边距 11px · 圆角 10px</b></div>
+          <div class="row"><span>状态色</span><span class="swatch"><i style="background:#d97757"></i>运行 <i style="background:#6fbf82"></i>完成 <i style="background:#e5837b"></i>失败</span></div>
+          <div class="row"><span>字号</span><b>UI 13 / 12 / 10.5 · Mono 9.5</b></div>
+          <div class="row"><span>动效</span><b>1.6s 脉冲 · 0.9s 旋转 · 3.2s 微光</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 02 状态 ════════════════════════════════════════════ -->
+  <section class="block">
+    <div class="block-head">
+      <span class="num">02</span>
+      <h2>状态一览</h2>
+      <span class="hint">完成 / 中断 / 浅色 / 后台任务</span>
+    </div>
+
+    <div class="states">
+      <figure class="state">
+        <figcaption><span class="state-k">A</span><b>已完成</b><span class="state-sub">任务 + 子代理 + 后台</span></figcaption>
+        <div class="state-stage" id="stateDone"></div>
+      </figure>
+      <figure class="state">
+        <figcaption><span class="state-k">B</span><b>异常 / 中断</b><span class="state-sub">失败与停止</span></figcaption>
+        <div class="state-stage" id="stateFailed"></div>
+      </figure>
+      <figure class="state">
+        <figcaption><span class="state-k">C</span><b>浅色主题</b><span class="state-sub">同一套 token</span></figcaption>
+        <div class="state-stage" data-theme="light" id="stateLight"></div>
+      </figure>
+      <figure class="state">
+        <figcaption><span class="state-k">D</span><b>后台任务</b><span class="state-sub">主对话结束后继续跑</span></figcaption>
+        <div class="state-stage" id="stateBackground"></div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ══ 03 窗口 ════════════════════════════════════════════ -->
+  <section class="block">
+    <div class="block-head">
+      <span class="num">03</span>
+      <h2>在实际窗口里</h2>
+      <span class="hint">右侧面板与转写区的关系</span>
+    </div>
+
+    <div class="context-row">
+      <div class="context-wrap" id="contextWin"></div>
+      <div class="context-notes">
+        <div class="note">
+          <span class="note-n">01</span>
+          <div>
+            <b>与转写区同高</b>
+            <p>面板铺满窗口右侧，头部和会话头 + 标签栏对齐，底部统计贴住窗口底边。</p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="note-n">02</span>
+          <div>
+            <b>304px 是舒适宽度</b>
+            <p>窗口窄于 1280px 时浮到正文上方，随时可以收起；宽度不变，卡片不重排。</p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="note-n">03</span>
+          <div>
+            <b>折叠行为不变</b>
+            <p>头部右侧的箭头收起面板，会话头里的「执行台」chip 重新打开 —— 沿用现有交互。</p>
+          </div>
+        </div>
+
+        <div class="chip-mock">
+          <div class="chip-mock-head"><span class="chip-mock-k">COLLAPSED</span><span>面板收起后</span></div>
+          <div class="chip-demo"><svg class="ic"><use href="#i-panel" /></svg>执行台<span class="chip-demo-count">2</span></div>
+          <p>会话头右侧的 chip 保留运行计数，点一下重新展开。</p>
+        </div>
+
+        <div class="context-spec">
+          <div class="row"><span>面板宽度</span><b>304px</b></div>
+          <div class="row"><span>头部高度</span><b>约 105px</b></div>
+          <div class="row"><span>底栏高度</span><b>38px</b></div>
+          <div class="row"><span>内容区</span><b>自适应滚动</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="page-foot">
+    <span class="dot"></span>
+    <span>静态效果稿 · 2026-11-08 · 未改业务代码</span>
+  </footer>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   小工具
+   ══════════════════════════════════════════════════════════════ */
+const ic = (name, cls = '') =>
+  `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+
+const badge = (a) => {
+  if (a.state === 'run') return `<span class="rp-badge is-run"><i class="dot"></i>运行中</span>`;
+  if (a.state === 'done') return `<span class="rp-badge is-done">${ic('check')}完成</span>`;
+  if (a.state === 'bad') return `<span class="rp-badge is-bad">${ic('alert')}失败</span>`;
+  return `<span class="rp-badge is-stopped">${ic('stop')}已停止</span>`;
+};
+
+const agentCard = (a) => {
+  const kind = a.kind || 'explore';
+  const glyph = kind === 'shell' ? 'terminal' : kind === 'plan' ? 'route' : 'compass';
+
+  let mid = '';
+  if (a.state === 'run') {
+    mid = `<div class="rp-live-strip">
+      <span class="rp-spinner"></span>
+      ${a.tool ? `<span class="rp-tool">${a.tool}</span>` : ''}
+      <span class="rp-live-text">${a.activity || '等待返回…'}</span>
+    </div>`;
+  } else if (a.error) {
+    mid = `<div class="rp-error">${ic('alert')}<span>${a.error}</span></div>`;
+  } else if (a.result) {
+    mid = `<div class="rp-result ${a.state === 'stopped' ? 'is-muted' : ''}">${a.result}</div>`;
+  }
+
+  const stats = (a.stats || []).join('<span class="sep">·</span>');
+  const time = a.time ? `<span class="time">${a.time}</span>` : '';
+  const report = a.report
+    ? `<button class="rp-report" type="button">${a.reportLabel || '查看报告'} ${ic('arrow')}</button>`
+    : '';
+
+  return `<article class="rp-agent is-${a.state}">
+    <div class="rp-agent-head">
+      <span class="rp-glyph is-${kind}">${ic(glyph)}</span>
+      <div class="rp-agent-id">
+        <div class="rp-agent-name">${a.type}${a.typeLabel ? `<span>${a.typeLabel}</span>` : ''}${a.bg ? '<em class="rp-bg-chip">后台</em>' : ''}</div>
+        <div class="rp-agent-desc ${a.mono ? 'is-mono' : ''}">${a.desc}</div>
+      </div>
+      ${badge(a)}
+    </div>
+    ${mid}
+    <div class="rp-agent-foot ${a.report ? 'has-report' : ''}">
+      ${stats}${time}${report}
+    </div>
+  </article>`;
+};
+
+const taskRow = (t) => `<div class="rp-task is-${t.state}">
+  <span class="rp-check">${t.state === 'done' ? ic('check') : ''}</span>
+  <div class="rp-task-main">
+    <div class="rp-task-text">${t.text}</div>
+    ${t.active ? `<div class="rp-task-active">${t.active}</div>` : ''}
+  </div>
+  ${t.time ? `<span class="rp-task-time">${t.time}</span>` : ''}
+</div>`;
+
+const counts = (items) => {
+  const run = items.filter((x) => x.state === 'run').length;
+  const done = items.filter((x) => x.state === 'done').length;
+  const bad = items.filter((x) => x.state === 'bad').length;
+  const stopped = items.filter((x) => x.state === 'stopped').length;
+  const bits = [];
+  if (run) bits.push(`<span class="is-run"><i></i>${run} 运行中</span>`);
+  if (done) bits.push(`<span class="is-ok"><i></i>${done} 完成</span>`);
+  if (bad) bits.push(`<span class="is-bad"><i></i>${bad} 失败</span>`);
+  if (stopped) bits.push(`<span class="is-stopped"><i></i>${stopped} 已停止</span>`);
+  return bits.join('<span class="sep">·</span>');
+};
+
+const taskSection = (tasks) => {
+  const done = tasks.filter((t) => t.state === 'done').length;
+  return `<section class="rp-sec">
+    <div class="rp-sec-head">
+      <span class="rp-sec-title">任务</span>
+      <span class="rp-sec-line"></span>
+      <span class="rp-sec-count"><b>${done}</b> / ${tasks.length}</span>
+    </div>
+    <div class="rp-taskbar">${tasks.map((t) => `<i class="is-${t.state}"></i>`).join('')}</div>
+    <div class="rp-tasks">${tasks.map(taskRow).join('')}</div>
+  </section>`;
+};
+
+const agentSection = (agents, title) => `<section class="rp-sec">
+  <div class="rp-sec-head">
+    <span class="rp-sec-title">${title}</span>
+    <span class="rp-sec-line"></span>
+    <span class="rp-sec-count">${counts(agents)}</span>
+  </div>
+  ${agents.map(agentCard).join('')}
+</section>`;
+
+const panel = (d, opts = {}) => {
+  const state = d.state || 'run';
+  const headClass = state === 'done' ? 'is-done' : state === 'bad' ? 'is-bad' : '';
+  const mark =
+    state === 'run' ? '<i class="dot"></i>' :
+    state === 'done' ? ic('check') :
+    state === 'bad' ? ic('alert') : ic('stop');
+
+  return `<aside class="rp ${opts.flat ? 'is-flat' : ''}" data-state="${state}">
+    <header class="rp-head ${headClass}">
+      <div class="rp-title-row">
+        <h2 class="rp-title">执行台</h2>
+        <button class="rp-collapse" type="button" title="收起执行台">${ic('chevron')}</button>
+      </div>
+      <div class="rp-status">
+        <span class="rp-timer">${d.timer}</span>
+        <span class="rp-live-label is-${state}">${mark}${d.statusText}</span>
+        ${state === 'run' ? `<button class="rp-stop" type="button">${ic('stop')}中断</button>` : ''}
+      </div>
+      <p class="rp-sub">${d.subtitle}</p>
+      ${state === 'run' ? '<div class="rp-scan"></div>' : ''}
+    </header>
+
+    <div class="rp-body">
+      ${d.tasks && d.tasks.length ? taskSection(d.tasks) : ''}
+      ${d.agents && d.agents.length ? agentSection(d.agents, '子代理') : ''}
+      ${d.background && d.background.length ? agentSection(d.background, '后台任务') : ''}
+    </div>
+
+    <footer class="rp-foot">
+      <span><b>${d.foot.steps}</b> 步</span>
+      ${d.foot.add ? `<span class="is-add">${d.foot.add}</span>` : ''}
+      ${d.foot.del ? `<span class="is-del">${d.foot.del}</span>` : ''}
+      <button class="rp-trace" type="button">查看轨迹 ${ic('arrow')}</button>
+    </footer>
+  </aside>`;
+};
+
+/* ══════════════════════════════════════════════════════════════
+   数据
+   ══════════════════════════════════════════════════════════════ */
+const RUNNING = {
+  state: 'run',
+  statusText: '运行中',
+  timer: '04:29',
+  subtitle: '2 个子代理正在并行检索',
+  tasks: [],
+  agents: [
+    {
+      state: 'run',
+      kind: 'explore',
+      type: 'Explore',
+      typeLabel: '代码库检索',
+      desc: '查找 i18n 文案的加载入口',
+      tool: 'Read',
+      activity: '读取 src/shared/i18n/translations.ts',
+      stats: ['66 次工具', '886 tok'],
+      time: '02:03'
+    },
+    {
+      state: 'run',
+      kind: 'explore',
+      type: 'Explore',
+      typeLabel: '代码库检索',
+      desc: '梳理执行台的 IPC 事件流',
+      tool: 'Grep',
+      activity: '检索 runpanel 相关样式',
+      stats: ['61 次工具', '1.7k tok'],
+      time: '01:54'
+    }
+  ],
+  background: [],
+  foot: { steps: '127', add: '+42', del: '−18' }
+};
+
+const DONE = {
+  state: 'done',
+  statusText: '已完成',
+  timer: '12:08',
+  subtitle: '5 个任务 · 3 个完成 · 1 个子代理',
+  tasks: [
+    { state: 'done', text: '梳理执行台现有组件结构', time: '01:12' },
+    { state: 'done', text: '重做头部与运行状态', time: '02:40' },
+    { state: 'done', text: '重做子代理卡片', time: '03:18' },
+    { state: 'run', text: '补充状态与空态样式', active: '调整卡片间距与动效', time: '00:42' },
+    { state: 'todo', text: '验证深色 / 浅色主题' }
+  ],
+  agents: [
+    {
+      state: 'done',
+      kind: 'explore',
+      type: 'Explore',
+      typeLabel: '代码库检索',
+      desc: '检索执行台相关样式',
+      result: '找到 7 个相关文件，主要集中在 panel.css 与 RunPanel.tsx。',
+      stats: ['42 次工具', '1.2k tok'],
+      time: '02:26',
+      report: true
+    }
+  ],
+  background: [
+    {
+      state: 'done',
+      kind: 'shell',
+      type: '后台任务',
+      typeLabel: 'Shell',
+      desc: 'npm run typecheck',
+      mono: true,
+      result: '0 errors · 2.1s',
+      stats: ['退出码 0'],
+      time: '00:38'
+    }
+  ],
+  foot: { steps: '128', add: '+186', del: '−94' }
+};
+
+const FAILED = {
+  state: 'bad',
+  statusText: '已中断',
+  timer: '06:12',
+  subtitle: '1 个子代理失败 · 后台任务已停止',
+  tasks: [
+    { state: 'done', text: '梳理执行台现有组件结构', time: '01:12' },
+    { state: 'todo', text: '重做子代理卡片' },
+    { state: 'todo', text: '验证深色 / 浅色主题' }
+  ],
+  agents: [
+    {
+      state: 'bad',
+      kind: 'explore',
+      type: 'Explore',
+      typeLabel: '代码库检索',
+      desc: '检索执行台相关样式',
+      error: '读取失败：ENOENT src/renderer/src/styles/panel.css',
+      stats: ['18 次工具', '402 tok'],
+      time: '01:08',
+      report: true,
+      reportLabel: '查看详情'
+    }
+  ],
+  background: [
+    {
+      state: 'stopped',
+      kind: 'shell',
+      type: '后台任务',
+      typeLabel: 'Shell',
+      desc: 'npm run typecheck',
+      mono: true,
+      result: '进程已终止',
+      stats: ['退出码 —'],
+      time: '00:12'
+    }
+  ],
+  foot: { steps: '54', add: '+12', del: '−3' }
+};
+
+const BACKGROUND = {
+  state: 'run',
+  statusText: '运行中',
+  timer: '08:41',
+  subtitle: '2 个后台任务仍在运行',
+  tasks: [],
+  agents: [],
+  background: [
+    {
+      state: 'run',
+      kind: 'shell',
+      type: '后台任务',
+      typeLabel: 'Shell',
+      desc: 'npm run dev',
+      mono: true,
+      tool: 'Bash',
+      activity: 'vite v5.4.2 ready in 412 ms',
+      stats: ['持续运行'],
+      time: '08:12'
+    },
+    {
+      state: 'run',
+      kind: 'shell',
+      type: '后台任务',
+      typeLabel: 'Shell',
+      desc: 'npm run test -- --watch',
+      mono: true,
+      tool: 'Bash',
+      activity: 'PASS src/renderer/run-state.test.ts',
+      stats: ['持续运行'],
+      time: '06:45'
+    },
+    {
+      state: 'done',
+      kind: 'shell',
+      type: '后台任务',
+      typeLabel: 'Shell',
+      desc: 'npm run typecheck',
+      mono: true,
+      result: '0 errors · 2.1s',
+      stats: ['退出码 0'],
+      time: '00:38'
+    }
+  ],
+  foot: { steps: '96', add: '+8', del: '−2' }
+};
+
+/* ══════════════════════════════════════════════════════════════
+   渲染
+   ══════════════════════════════════════════════════════════════ */
+document.getElementById('heroPanel').innerHTML = panel(RUNNING);
+document.getElementById('stateDone').innerHTML = panel(DONE);
+document.getElementById('stateFailed').innerHTML = panel(FAILED);
+document.getElementById('stateLight').innerHTML = panel(RUNNING);
+document.getElementById('stateBackground').innerHTML = panel(BACKGROUND);
+
+/* 窗口内实景：左边转写，右边执行台 */
+document.getElementById('contextWin').innerHTML = `
+<div class="appwin">
+  <div class="appwin-bar">
+    <div class="appwin-brand"><span class="mark"></span>CCoder</div>
+    <div class="appwin-wctl"><span>—</span><span>□</span><span>×</span></div>
+  </div>
+  <div class="appwin-body">
+    <div class="appwin-chat">
+      <div class="chat-head">
+        <div class="chat-title">执行台 UI 重做 <span class="branch">main</span></div>
+        <div class="chat-tabs"><span class="is-on">对话</span><span>变更</span></div>
+      </div>
+      <div class="chat-scroll">
+        <div class="msg-user">执行台的 UI 做的不好看，重做，先出 html 效果给我审核</div>
+        <div class="msg-ai">
+          <p>我先看一下现有面板的结构和样式，再给你一版静态效果稿。</p>
+          <div class="toolcard">
+            <div class="toolcard-head">${ic('report')} Read <b>RunPanel.tsx</b></div>
+            <div class="toolcard-body">
+              <div class="ln"><span>12</span><span>把这一轮的任务清单和子代理摊开。</span></div>
+              <div class="ln"><span>92</span><span>&lt;div className="runpanel__head"&gt;</span></div>
+              <div class="ln"><span>150</span><span>&lt;div className="runpanel__body"&gt;</span></div>
+              <div class="ln"><span>300</span><span>.ragent { padding: 10px 10px 9px; }</span></div>
+            </div>
+          </div>
+          <p class="msg-ai-sub"><span class="rp-spinner"></span>正在读取 panel.css…</p>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="composer-ph">继续输入，或拖入文件…</div>
+        <div class="composer-row">
+          <span class="composer-chip">DeepSeek V4</span>
+          <span class="composer-chip">思考</span>
+          <span class="composer-send">${ic('arrow')}</span>
+        </div>
+      </div>
+    </div>
+    <div class="context-panel">${panel(RUNNING, { flat: true })}</div>
+  </div>
+</div>`;
+
+/* 主题切换：只影响页面里的示例，浅色示例始终是浅色 */
+const themeBtn = document.getElementById('themeBtn');
+themeBtn.addEventListener('click', () => {
+  const root = document.documentElement;
+  const light = root.dataset.theme !== 'light';
+  root.dataset.theme = light ? 'light' : 'dark';
+  themeBtn.querySelector('span').textContent = light ? '深色预览' : '浅色预览';
+});
+</script>
+</body>
+</html>
