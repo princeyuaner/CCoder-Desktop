@@ -53,6 +53,77 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '1.2.27',
+    date: '2026-11-09',
+    highlight: {
+      icon: 'bell',
+      title: {
+        zh: '自动化任务',
+        en: 'Scheduled automation tasks'
+      },
+      desc: {
+        zh: '侧栏新增「自动化任务」：按每隔 N 分钟、每天或每周的计划，在后台拉起一条普通会话。工作区、CLI、模型、思考深度、权限、提示词、超时和单次预算都按任务配置，每次运行都留成可回看、可续跑的会话。',
+        en: 'A new Automation page in the sidebar starts an ordinary session in the background on a minute interval, daily, or weekly schedule. Workspace, CLI, model, thinking effort, permissions, prompt, timeout, and per-run budget are configured per task, and every run becomes a session you can review and resume.'
+      }
+    },
+    sections: [
+      {
+        kind: 'new',
+        items: [
+          {
+            icon: 'keyboard',
+            title: {
+              zh: '语音输入',
+              en: 'Voice input'
+            },
+            desc: {
+              zh: '点输入框的麦克风或按 Ctrl+Shift+M 开始说话，再点一次结束，文字会插入光标处并可一键撤销。默认走硅基流动免费额度，也可切 Groq 或自填 OpenAI 兼容端点；录音只留在内存，不写入磁盘。',
+              en: 'Click the microphone in the composer or press Ctrl+Shift+M to dictate, then click again to stop; the transcript is inserted at the caret and can be undone. It uses SiliconFlow’s free tier by default, with Groq or a custom OpenAI-compatible endpoint as alternatives. Audio stays in memory and is never written to disk.'
+            }
+          },
+          {
+            icon: 'terminal',
+            title: {
+              zh: '执行台：子代理与后台任务',
+              en: 'Run panel: subagents and background tasks'
+            },
+            desc: {
+              zh: '执行台重新排版：计时器作为头部锚点，任务、子代理、后台任务各自分区滚动。子代理卡片按类型配图标，左侧色条和状态胶囊双重标记状态；后台 shell / workflow 单独成区；运行结束后可以打开完整报告。',
+              en: 'The run panel is reorganized: the timer anchors the header, and tasks, subagents, and background tasks each scroll in their own section. Subagent cards get type icons with a status bar and pill; background shells and workflows have their own section; finished runs open a full report.'
+            }
+          }
+        ]
+      },
+      {
+        kind: 'improved',
+        items: [
+          {
+            icon: 'collapse',
+            title: {
+              zh: '执行台在矮窗口下的高度分配',
+              en: 'Run panel height in short windows'
+            },
+            desc: {
+              zh: '后台任务很多时，不再按内容高度抢走可用空间、把子代理区压成半张卡。子代理区至少保留一张完整卡片的高度；窗口极矮时整个面板兜底滚动。',
+              en: 'A long background-task list no longer steals the available height and squeezes the subagent section into half a card. The subagent section keeps at least one full card, and the panel scrolls as a whole when space is extremely tight.'
+            }
+          },
+          {
+            icon: 'sparkle',
+            title: {
+              zh: 'macOS 麦克风权限',
+              en: 'macOS microphone permission'
+            },
+            desc: {
+              zh: 'macOS 包补充了麦克风用途说明和音频输入 entitlement，首次录音时系统会正常弹出授权，不再直接被拒。',
+              en: 'The macOS build now declares the microphone usage description and audio-input entitlement, so the first recording prompts for permission instead of being denied outright.'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     version: '1.2.26',
     date: '2026-11-07',
     highlight: {
